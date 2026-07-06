@@ -67,7 +67,7 @@ function sembrarRolesIniciales(DB) {
   crearRol(DB, { nombre: "Administrador", permisos: todasLasClaves, modulos: todosLosModulos });
   crearRol(DB, {
     nombre: "Gerente de sucursal",
-    permisos: todasLasClaves.filter((c) => c !== "eliminar_producto" && c !== "administrar_roles" && c !== "dar_alta_personal"),
+    permisos: todasLasClaves.filter((c) => c !== "eliminar_producto" && c !== "administrar_roles" && c !== "dar_alta_personal" && c !== "ver_todas_las_sucursales"),
     modulos: ["pos", "corte", "inventario", "crm"],
   });
   crearRol(DB, {

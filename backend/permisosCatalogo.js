@@ -79,6 +79,7 @@ const PERMISOS = [
   { clave: "administrar_roles", etiqueta: "Administrar Roles y Personal", modulo: "admin", implementado: true },
   { clave: "dar_alta_personal", etiqueta: "Dar de Alta Personal", modulo: "admin", implementado: true },
   { clave: "usar_asistente_ia", etiqueta: "Usar el Asistente de IA del Inicio", modulo: "admin", implementado: true },
+  { clave: "ver_todas_las_sucursales", etiqueta: "Ver Todas las Sucursales", modulo: "admin", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
