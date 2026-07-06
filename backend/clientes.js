@@ -11,11 +11,14 @@ function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
 
-function listarClientes(DB) {
-  return DB.crm.clientes.map((c) => ({
+function listarClientes(DB, alcance) {
+  const conCredito = DB.crm.clientes.map((c) => ({
     ...c,
     credito_disponible: Math.max(0, (c.limite_credito || 0) - (c.saldo || 0)),
   }));
+  if (!alcance || alcance.verTodas) return conCredito;
+  // Público en General (id 0) es compartido: visible en toda sucursal.
+  return conCredito.filter((c) => c.id === 0 || Number(c.sucursal_id) === alcance.sucursalId);
 }
 
 function obtenerCliente(DB, id) {

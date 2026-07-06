@@ -65,9 +65,10 @@ function calcularAlertas(cliente, segmento) {
 }
 
 /** Lista enriquecida de clientes para el CRM (excluye "Público en General", id 0) */
-function listarClientesCRM(DB) {
+function listarClientesCRM(DB, alcance) {
   return DB.crm.clientes
     .filter((c) => c.id !== 0)
+    .filter((c) => !alcance || alcance.verTodas || Number(c.sucursal_id) === alcance.sucursalId)
     .map((c) => {
       const compras = comprasDeCliente(DB, c.id);
       const score = calcularScore(compras);
