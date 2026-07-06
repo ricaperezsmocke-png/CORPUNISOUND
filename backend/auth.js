@@ -66,4 +66,30 @@ function requierePermiso(clave, resolverPermisosDeRol) {
   };
 }
 
-module.exports = { hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso };
+/**
+ * Resuelve qué sucursal(es) puede ver este request.
+ * - Con permiso "ver_todas_las_sucursales": respeta ?sucursal_id= si viene
+ *   (para filtrar a una tienda) o devuelve verTodas si no.
+ * - Sin ese permiso: se ignora el query y se fuerza la sucursal del token.
+ */
+function alcanceSucursal(req, permisos) {
+  const puedeVerTodas = Array.isArray(permisos) && permisos.includes("ver_todas_las_sucursales");
+  const solicitada = req.query ? req.query.sucursal_id : undefined;
+
+  if (puedeVerTodas) {
+    if (solicitada !== undefined && solicitada !== "" && solicitada !== "todas" && !Number.isNaN(Number(solicitada))) {
+      return { verTodas: false, sucursalId: Number(solicitada) };
+    }
+    return { verTodas: true, sucursalId: null };
+  }
+  const sucursalToken = req.usuarioToken && req.usuarioToken.sucursal_id != null ? Number(req.usuarioToken.sucursal_id) : null;
+  return { verTodas: false, sucursalId: sucursalToken };
+}
+
+/** Filtra un arreglo (que tenga campo sucursal_id) según el alcance resuelto. */
+function filtrarPorSucursal(lista, alcance) {
+  if (alcance.verTodas) return [...lista];
+  return lista.filter((x) => Number(x.sucursal_id) === alcance.sucursalId);
+}
+
+module.exports = { hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso, alcanceSucursal, filtrarPorSucursal };
