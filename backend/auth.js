@@ -27,7 +27,7 @@ async function verificarPassword(passwordPlano, hash) {
 
 function firmarToken(usuario) {
   return jwt.sign(
-    { id: usuario.id, nombre: usuario.nombre, rol_id: usuario.rol_id },
+    { id: usuario.id, nombre: usuario.nombre, rol_id: usuario.rol_id, sucursal_id: usuario.sucursal_id },
     JWT_SECRET,
     { expiresIn: EXPIRA_EN }
   );
