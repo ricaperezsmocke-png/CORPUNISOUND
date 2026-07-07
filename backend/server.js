@@ -35,6 +35,7 @@ const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal } = require("./auth");
+const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 
@@ -152,38 +153,6 @@ const DB = {
 
 sembrarRolesIniciales(DB);
 
-const CAMPO_SUMA = { ventas: "total", venta_detalle: "subtotal", existencias: "cantidad_actual" };
-
-function aplicarFiltros(datos, filtros) {
-  let resultado = [...datos];
-  Object.keys(filtros || {}).forEach((clave) => {
-    const valor = filtros[clave];
-    if (clave === "fecha_inicio") resultado = resultado.filter((d) => d.fecha && d.fecha >= valor);
-    else if (clave === "fecha_fin") resultado = resultado.filter((d) => d.fecha && d.fecha <= valor);
-    else if (resultado.length && resultado[0][clave] !== undefined) resultado = resultado.filter((d) => String(d[clave]) === String(valor));
-  });
-  return resultado;
-}
-
-function agruparYSumar(datos, campoAgrupar, campoSumar) {
-  const grupos = {};
-  datos.forEach((d) => {
-    let clave = d[campoAgrupar];
-    if (campoAgrupar === "mes" && d.fecha) clave = d.fecha.slice(0, 7);
-    if (clave === undefined) return;
-    grupos[clave] = (grupos[clave] || 0) + (Number(d[campoSumar]) || 0);
-  });
-  return Object.entries(grupos).map(([clave, total]) => ({ [campoAgrupar]: clave, [campoSumar]: total }));
-}
-
-function consultarModulo({ modulo, tabla, filtros, agrupar_por }) {
-  if (!DB[modulo]) throw new Error(`Módulo "${modulo}" no existe. Disponibles: ${Object.keys(DB).join(", ")}`);
-  if (!DB[modulo][tabla]) throw new Error(`Tabla "${tabla}" no existe en "${modulo}". Disponibles: ${Object.keys(DB[modulo]).join(", ")}`);
-  let resultado = aplicarFiltros(DB[modulo][tabla], filtros);
-  if (agrupar_por) resultado = agruparYSumar(resultado, agrupar_por, CAMPO_SUMA[tabla] || "total");
-  return resultado;
-}
-
 function listarModulosYTablas() {
   return Object.entries(DB).map(([id, tablas]) => ({ id, tablas: Object.keys(tablas) }));
 }
@@ -220,11 +189,19 @@ const TOOL_PREDICCION = {
   }
 };
 
-function construirSystemPrompt() {
+function construirSystemPrompt(alcance, DB) {
   const hoy = new Date();
   const fechaISO = hoy.toISOString().slice(0, 10);
   const diaSemana = hoy.toLocaleDateString("es-MX", { weekday: "long" });
+
+  const sucursales = DB.pos.sucursales.map((s) => `${s.id}=${s.nombre}`).join(", ");
+  const alcanceTexto = alcance.verTodas
+    ? `Este usuario puede ver TODAS las sucursales (${sucursales}). Cuando le pidan comparar o desglosar por tienda, usa el filtro sucursal_id. Sucursales: ${sucursales}.`
+    : `Este usuario SOLO puede ver la sucursal ${alcance.sucursalId} (${DB.pos.sucursales.find((s) => s.id === alcance.sucursalId)?.nombre || "—"}). Aunque pregunte por otra sucursal, tus datos ya vienen limitados a la suya; no inventes datos de otras tiendas y acláralo si insiste.`;
+
   return `Eres el asistente de inteligencia de negocio del dashboard principal del sistema.
+
+ALCANCE DE SUCURSAL DEL USUARIO: ${alcanceTexto}
 
 FECHA ACTUAL DEL SISTEMA: ${fechaISO} (${diaSemana}). Usa siempre esta fecha real para
 interpretar "hoy", "ayer", "esta semana", "este mes", etc. — nunca inventes ni asumas
@@ -520,6 +497,7 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
     }
 
     const { mensajes } = req.body; // [{ role: 'user'|'assistant', content: 'texto' }]
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     let historial = (mensajes || []).map((m) => ({ role: m.role, content: m.content }));
     const consultas = [];
     let respuestaFinal = null;
@@ -530,7 +508,7 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
       const respuesta = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 1000,
-        system: construirSystemPrompt(),
+        system: construirSystemPrompt(alcance, DB),
         tools: [TOOL, TOOL_PREDICCION],
         messages: historial
       });
@@ -550,7 +528,7 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
           if (bloque.name === "predecir_demanda") {
             resultado = predecirDemanda(DB, bloque.input);
           } else {
-            resultado = consultarModulo(bloque.input);
+            resultado = consultarModulo(bloque.input, alcance, DB);
           }
         } catch (e) {
           resultado = { error: e.message };
