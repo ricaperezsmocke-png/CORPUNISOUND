@@ -268,9 +268,14 @@ const resolverPermisosDeRol = (rolId) => permisosDeRol(DB, rolId);
 
 app.get("/api/salud", (req, res) => res.json({ ok: true, modulos: listarModulosYTablas() }));
 
-app.get("/api/predicciones", (req, res) => {
+app.get("/api/predicciones", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { producto_id, categoria_id, meses_adelante } = req.query;
-  const resultado = predecirDemanda(DB, {
+  // Para el amarrado, se predice solo sobre las ventas de su sucursal.
+  const DBScope = alcance.verTodas
+    ? DB
+    : { ...DB, pos: { ...DB.pos, ventas: DB.pos.ventas.filter((v) => Number(v.sucursal_id) === alcance.sucursalId) } };
+  const resultado = predecirDemanda(DBScope, {
     producto_id: producto_id ? Number(producto_id) : undefined,
     categoria_id: categoria_id ? Number(categoria_id) : undefined,
     meses_adelante: meses_adelante ? Number(meses_adelante) : undefined
@@ -415,12 +420,19 @@ app.post("/api/crm/clientes/:id/contactos", requiereLogin, requierePermiso("regi
   try { res.json(registrarContacto(DB, req.params.id, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.get("/api/crm/resumen-sucursales", (req, res) => res.json(resumenPorSucursal(DB)));
-app.get("/api/crm/postventa-pendientes", (req, res) => {
-  const config = obtenerConfiguracion(DB);
-  res.json(obtenerSeguimientosPostventaPendientes(DB, config.dias_seguimiento_postventa));
+app.get("/api/crm/resumen-sucursales", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(resumenPorSucursal(DB, alcance));
 });
-app.get("/api/crm/ranking-vendedores", (req, res) => res.json(rankingVendedores(DB)));
+app.get("/api/crm/postventa-pendientes", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const config = obtenerConfiguracion(DB);
+  res.json(obtenerSeguimientosPostventaPendientes(DB, config.dias_seguimiento_postventa, alcance));
+});
+app.get("/api/crm/ranking-vendedores", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(rankingVendedores(DB, alcance));
+});
 
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
 app.get("/api/ventas", requiereLogin, (req, res) => {

@@ -124,7 +124,7 @@ function listarContactos(DB, clienteId) {
  * configurados, y todavía NO tienen un contacto tipo "postventa" registrado.
  * "Público en General" (id 0) se excluye porque no hay a quién contactar.
  */
-function obtenerSeguimientosPostventaPendientes(DB, diasConfigurados) {
+function obtenerSeguimientosPostventaPendientes(DB, diasConfigurados, alcance) {
   const dias = Number(diasConfigurados) || 0;
   if (dias <= 0) return [];
 
@@ -132,6 +132,7 @@ function obtenerSeguimientosPostventaPendientes(DB, diasConfigurados) {
 
   return DB.pos.ventas
     .filter((v) => v.estatus === "cerrada" && v.cliente_id !== 0)
+    .filter((v) => !alcance || alcance.verTodas || Number(v.sucursal_id) === alcance.sucursalId)
     .filter((v) => diasDesde(v.fecha) >= dias)
     .filter((v) => !DB.crm.contactos_cliente.some((c) => c.venta_id === v.id && c.tipo === "postventa"))
     .map((v) => {
@@ -157,9 +158,12 @@ function obtenerSeguimientosPostventaPendientes(DB, diasConfigurados) {
 }
 
 /** Resumen por sucursal (para el tab Dashboard del CRM) */
-function resumenPorSucursal(DB) {
-  const clientes = listarClientesCRM(DB);
-  return DB.pos.sucursales.map((s) => {
+function resumenPorSucursal(DB, alcance) {
+  const clientes = listarClientesCRM(DB, alcance);
+  const sucursales = !alcance || alcance.verTodas
+    ? DB.pos.sucursales
+    : DB.pos.sucursales.filter((s) => s.id === alcance.sucursalId);
+  return sucursales.map((s) => {
     const cs = clientes.filter((c) => c.sucursal_id === s.id);
     const ventas = cs.reduce((a, c) => a + c.compras.reduce((b, p) => b + p.monto, 0), 0);
     return { sucursal_id: s.id, nombre: s.nombre, clientes: cs.length, ventas, convertidos: cs.filter((c) => c.estado === "compro").length };
@@ -167,9 +171,12 @@ function resumenPorSucursal(DB) {
 }
 
 /** Ranking de vendedores (para el tab Dashboard del CRM) */
-function rankingVendedores(DB) {
-  const clientes = listarClientesCRM(DB);
-  return DB.pos.vendedores.map((v) => {
+function rankingVendedores(DB, alcance) {
+  const clientes = listarClientesCRM(DB, alcance);
+  const vendedores = !alcance || alcance.verTodas
+    ? DB.pos.vendedores
+    : DB.pos.vendedores.filter((v) => Number(v.sucursal_id) === alcance.sucursalId);
+  return vendedores.map((v) => {
     const cs = clientes.filter((c) => c.vendedor_asignado_id === v.id);
     const ventas = cs.reduce((a, c) => a + c.compras.reduce((b, p) => b + p.monto, 0), 0);
     return { vendedor_id: v.id, nombre: v.nombre, clientes: cs.length, ventas, convertidos: cs.filter((c) => c.estado === "compro").length };
