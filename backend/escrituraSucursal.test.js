@@ -4,6 +4,8 @@ const { construirDBPrueba } = require("./testHelpers");
 const { ajustarExistencia } = require("./productos");
 const { crearVenta } = require("./ventas");
 const { obtenerConfiguracion } = require("./configuracion");
+const { alcanceSucursal } = require("./auth");
+const { permisosDeRol } = require("./roles");
 
 test("ajustarExistencia afecta la existencia de la sucursal indicada", () => {
   const DB = construirDBPrueba();
@@ -20,6 +22,40 @@ test("crearVenta descuenta inventario de su propia sucursal", () => {
   crearVenta(DB, { sucursal_id: 2, cliente_id: 0, lineas: [{ producto_id: 2, cantidad: 10, precio_unitario: 16 }], total: 160 });
   const exist = DB.inventario.existencias.find((e) => e.producto_id === 2 && e.sucursal_id === 2);
   assert.strictEqual(exist.cantidad_actual, 70, "se descontó de la sucursal 2");
+});
+
+test("POST /api/productos/:id/ajustar: un usuario amarrado a su sucursal no puede forzar otra vía body.sucursal_id", () => {
+  const DB = construirDBPrueba();
+  // rol 2 = "Gerente de sucursal": no tiene el permiso ver_todas_las_sucursales.
+  const permisos = permisosDeRol(DB, 2);
+  assert.ok(!permisos.includes("ver_todas_las_sucursales"));
+
+  // Simula el request: token amarra al usuario a la sucursal 2, pero el body
+  // (controlado por el cliente) pide ajustar la sucursal 4.
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {}, body: { cantidad: -5, motivo: "prueba", sucursal_id: 4 } };
+  const alcance = alcanceSucursal(req, permisos);
+  const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+
+  // La misma lógica que aplica la ruta: el sucursal_id efectivo debe ser el
+  // del token (2), nunca el que mandó el cliente en el body (4).
+  assert.strictEqual(sucursal_id, 2);
+
+  ajustarExistencia(DB, 2, { ...req.body, sucursal_id });
+  const exist2 = DB.inventario.existencias.find((e) => e.producto_id === 2 && e.sucursal_id === 2);
+  assert.strictEqual(exist2.cantidad_actual, 75, "el ajuste se aplicó a la sucursal del token, no a la del body");
+});
+
+test("POST /api/productos/:id/ajustar: un usuario con ver_todas_las_sucursales sí puede elegir sucursal_id por body", () => {
+  const DB = construirDBPrueba();
+  // rol 1 = "Administrador": sí tiene ver_todas_las_sucursales.
+  const permisos = permisosDeRol(DB, 1);
+  assert.ok(permisos.includes("ver_todas_las_sucursales"));
+
+  const req = { usuarioToken: { rol_id: 1, sucursal_id: 1 }, query: {}, body: { cantidad: -5, motivo: "prueba", sucursal_id: 2 } };
+  const alcance = alcanceSucursal(req, permisos);
+  const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+
+  assert.strictEqual(sucursal_id, 2);
 });
 
 test("listarProductos muestra la existencia de la sucursal pedida", () => {

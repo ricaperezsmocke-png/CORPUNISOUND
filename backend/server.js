@@ -312,8 +312,12 @@ app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_pro
 });
 
 app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), (req, res) => {
-  try { res.json(ajustarExistencia(DB, req.params.id, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    // Amarrado: su sucursal del token, sin importar el body. Global: la que venga en el body (o 1).
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id }));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.get("/api/productos/generar-clave", (req, res) => res.json({ clave: generarClave() }));
