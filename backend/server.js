@@ -38,6 +38,7 @@ const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal } = require
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
+const { armarSesion } = require("./sesion");
 
 const app = express();
 app.use(cors());
@@ -329,8 +330,7 @@ app.post("/api/auth/login", async (req, res) => {
     const { usuario, password } = req.body;
     const encontrado = await iniciarSesion(DB, usuario, password);
     const token = firmarToken(encontrado);
-    const rol = obtenerRol(DB, encontrado.rol_id);
-    res.json({ token, usuario: { id: encontrado.id, nombre: encontrado.nombre, rol: rol.nombre, rol_id: rol.id, permisos: rol.permisos, modulos: rol.modulos } });
+    res.json({ token, usuario: armarSesion(DB, encontrado) });
   } catch (e) { res.status(401).json({ error: e.message }); }
 });
 
@@ -338,8 +338,7 @@ app.get("/api/auth/yo", requiereLogin, (req, res) => {
   try {
     const usuario = DB.admin.usuarios.find((u) => u.id === req.usuarioToken.id);
     if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
-    const rol = obtenerRol(DB, usuario.rol_id);
-    res.json({ id: usuario.id, nombre: usuario.nombre, rol: rol.nombre, rol_id: rol.id, permisos: rol.permisos, modulos: rol.modulos });
+    res.json(armarSesion(DB, usuario));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
