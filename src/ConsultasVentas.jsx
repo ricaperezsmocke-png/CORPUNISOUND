@@ -129,7 +129,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const totalPeriodo = useMemo(() => ventas.filter((v) => v.estatus === "cerrada").reduce((a, v) => a + v.total, 0), [ventas]);
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
       <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
         <div className="flex">
           <button onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">

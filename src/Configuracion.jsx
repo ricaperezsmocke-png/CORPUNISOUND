@@ -90,11 +90,11 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
   };
 
   if (cargando || !config) {
-    return <div className="w-full h-screen flex items-center justify-center text-slate-400">Cargando configuración...</div>;
+    return <div className="w-full h-full flex items-center justify-center text-slate-400">Cargando configuración...</div>;
   }
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
       <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
         <div className="flex">
           <button onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">

@@ -42,15 +42,21 @@ function App() {
     return <Login onIngreso={manejarIngreso} />;
   }
 
-  // Franja superior con el selector de sucursal (o etiqueta fija si el usuario
-  // está amarrado a una sola). Se muestra sobre cualquier vista para que el
-  // filtro esté siempre visible y disponible, sin duplicar el encabezado
-  // propio de cada módulo.
+  // El Dashboard trae su propio encabezado (usuario + "Salir"), así que ahí el
+  // selector de sucursal se muestra dentro de ese encabezado (ver Dashboard.jsx)
+  // en vez de una franja aparte, para no duplicar la barra superior.
+  // El resto de los módulos no tiene ese contexto de usuario en su encabezado,
+  // así que conservan la franja compartida para que el filtro de sucursal
+  // siga siempre visible.
+  const esDashboard = !["pos", "inventario", "roles", "crm", "corte"].includes(vista);
+
   return (
     <div className="w-full h-screen flex flex-col">
-      <div className="bg-slate-800 px-4 py-1.5 flex items-center justify-end shrink-0">
-        <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
-      </div>
+      {!esDashboard && (
+        <div className="bg-slate-800 px-4 py-1.5 flex items-center justify-end shrink-0">
+          <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-auto">
         {vista === "pos" && (
           <PuntoDeVenta onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
@@ -67,7 +73,7 @@ function App() {
         {vista === "corte" && (
           <CorteCaja onVolverInicio={() => setVista("dashboard")} onVolverAVenta={() => setVista("dashboard")} permisos={usuario.permisos} />
         )}
-        {!["pos", "inventario", "roles", "crm", "corte"].includes(vista) && (
+        {esDashboard && (
           <Dashboard onEntrarModulo={(id) => setVista(id)} usuario={usuario} onSalir={salir} />
         )}
       </div>

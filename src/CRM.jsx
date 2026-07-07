@@ -242,7 +242,7 @@ export default function CRM({ onVolver, permisos }) {
   if (cargando) return <div style={{ padding: 40, textAlign: "center", color: T.muted }}>Cargando CRM...</div>;
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Inter',-apple-system,sans-serif", fontSize: 13 }}>
+    <div style={{ minHeight: "100%", background: T.bg, color: T.text, fontFamily: "'Inter',-apple-system,sans-serif", fontSize: 13 }}>
       {/* HEADER */}
       <div style={{ background: T.blue, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

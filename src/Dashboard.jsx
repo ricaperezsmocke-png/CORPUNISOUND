@@ -1,6 +1,7 @@
 import React from "react";
 import { ShoppingCart, Users, Boxes, Sparkles, Lock, ShieldCheck, LogOut, Landmark } from "lucide-react";
 import AsistenteIA from "./AsistenteIA";
+import SelectorSucursal from "./SelectorSucursal.jsx";
 
 const MODULOS = [
   { id: "pos", nombre: "Punto de Venta", icono: ShoppingCart, disponible: true, modulo: "pos" },
@@ -22,7 +23,7 @@ export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {
   });
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-50">
+    <div className="w-full h-full flex flex-col bg-slate-50">
       {/* Encabezado */}
       <header className="bg-emerald-800 text-white px-5 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
@@ -34,6 +35,7 @@ export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {
         </div>
         {usuario && (
           <div className="flex items-center gap-3 text-xs">
+            <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
             <div className="text-right leading-tight">
               <div className="font-medium">{usuario.nombre}</div>
               <div className="text-emerald-200">{usuario.rol}</div>

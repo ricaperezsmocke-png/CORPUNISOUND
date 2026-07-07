@@ -163,7 +163,7 @@ export default function AdminRoles({ onVolver, permisos }) {
   };
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       <div className="bg-blue-700 text-white px-4 py-2.5 flex items-center justify-between shrink-0">
         <div>
           <div className="font-semibold text-sm flex items-center gap-2"><ShieldCheck size={16} /> Roles y Personal</div>

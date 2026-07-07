@@ -83,7 +83,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const infoCorte = ultimoCorteGuardado;
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
       {/* Menú superior — mismo patrón que el resto */}
       <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
         <div className="flex">

@@ -232,7 +232,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
   }, [modal, seleccionado, productos]);
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       {/* Encabezado */}
       <div className="bg-blue-700 text-white px-4 py-2.5 flex items-center justify-between shrink-0">
         <div>
