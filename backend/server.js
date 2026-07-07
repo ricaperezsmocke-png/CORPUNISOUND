@@ -52,10 +52,10 @@ const DB = {
   pos: {
     ventas: [
       { id: 1, fecha: "2026-05-10", sucursal_id: 1, vendedor_id: 1, cliente_id: 1, total: 1200, metodo_pago: "efectivo", estatus: "cerrada" },
-      { id: 2, fecha: "2026-05-20", sucursal_id: 1, vendedor_id: 2, cliente_id: 2, total: 800, metodo_pago: "tarjeta", estatus: "cerrada" },
-      { id: 3, fecha: "2026-06-05", sucursal_id: 1, vendedor_id: 1, cliente_id: 1, total: 2100, metodo_pago: "efectivo", estatus: "cerrada" },
-      { id: 4, fecha: "2026-06-18", sucursal_id: 1, vendedor_id: 2, cliente_id: 2, total: 950, metodo_pago: "efectivo", estatus: "cerrada" },
-      { id: 5, fecha: "2026-06-25", sucursal_id: 1, vendedor_id: 1, cliente_id: 2, total: 1750, metodo_pago: "tarjeta", estatus: "cerrada" }
+      { id: 2, fecha: "2026-05-20", sucursal_id: 2, vendedor_id: 3, cliente_id: 2, total: 800, metodo_pago: "tarjeta", estatus: "cerrada" },
+      { id: 3, fecha: "2026-06-05", sucursal_id: 3, vendedor_id: 4, cliente_id: 0, total: 2100, metodo_pago: "efectivo", estatus: "cerrada" },
+      { id: 4, fecha: "2026-06-18", sucursal_id: 4, vendedor_id: 5, cliente_id: 0, total: 950, metodo_pago: "efectivo", estatus: "cerrada" },
+      { id: 5, fecha: "2026-06-25", sucursal_id: 1, vendedor_id: 1, cliente_id: 1, total: 1750, metodo_pago: "tarjeta", estatus: "cerrada" }
     ],
     venta_detalle: [
       { id: 1, venta_id: 1, producto_id: 1, cantidad: 20, precio_unitario: 25, descuento: 0, subtotal: 500 },
@@ -108,7 +108,7 @@ const DB = {
         tipo: "menudeo", rfc: "XAXX010101000", email: "", telefono: "9169876543", celular: "",
         sujeto_credito: false, precio_lista: 1, dias_credito: 0, limite_credito: 0,
         monedero: 0, saldo: 0, saldo_vencido: 0, fecha_vencimiento: null,
-        fecha_alta: "2025-06-15", vendedor_asignado_id: 2, sucursal_id: 1,
+        fecha_alta: "2025-06-15", vendedor_asignado_id: 3, sucursal_id: 2,
         estado: "compro", ultimo_contacto: "2026-06-25", ubicacion: "Ocosingo, Chiapas"
       }
     ],
@@ -120,7 +120,11 @@ const DB = {
       { producto_id: 1, sucursal_id: 1, cantidad_actual: 120, cantidad_minima: 30, cantidad_maxima: 300 },
       { producto_id: 2, sucursal_id: 1, cantidad_actual: 15, cantidad_minima: 40, cantidad_maxima: 400 },
       { producto_id: 3, sucursal_id: 1, cantidad_actual: 60, cantidad_minima: 20, cantidad_maxima: 150 },
-      { producto_id: 4, sucursal_id: 1, cantidad_actual: 200, cantidad_minima: 50, cantidad_maxima: 500 }
+      { producto_id: 4, sucursal_id: 1, cantidad_actual: 200, cantidad_minima: 50, cantidad_maxima: 500 },
+      { producto_id: 1, sucursal_id: 2, cantidad_actual: 90, cantidad_minima: 30, cantidad_maxima: 300 },
+      { producto_id: 2, sucursal_id: 2, cantidad_actual: 110, cantidad_minima: 40, cantidad_maxima: 400 },
+      { producto_id: 3, sucursal_id: 3, cantidad_actual: 45, cantidad_minima: 20, cantidad_maxima: 150 },
+      { producto_id: 4, sucursal_id: 4, cantidad_actual: 300, cantidad_minima: 50, cantidad_maxima: 500 }
     ],
     movimientos_inventario: [],
     compras: [],
