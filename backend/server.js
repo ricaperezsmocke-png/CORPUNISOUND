@@ -34,7 +34,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, firmarToken } = require("./auth");
+const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal } = require("./auth");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 
@@ -376,7 +376,10 @@ app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles",
 });
 
 // ---------- Clientes ----------
-app.get("/api/clientes", (req, res) => res.json(listarClientes(DB)));
+app.get("/api/clientes", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarClientes(DB, alcance));
+});
 app.get("/api/clientes/:id", (req, res) => {
   try { res.json(obtenerCliente(DB, req.params.id)); }
   catch (e) { res.status(404).json({ error: e.message }); }
@@ -395,7 +398,10 @@ app.get("/api/vendedores", (req, res) => res.json(DB.pos.vendedores));
 app.get("/api/sucursales", (req, res) => res.json(DB.pos.sucursales));
 
 // ---------- CRM (clientes enriquecidos con ventas reales del POS) ----------
-app.get("/api/crm/clientes", (req, res) => res.json(listarClientesCRM(DB)));
+app.get("/api/crm/clientes", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarClientesCRM(DB, alcance));
+});
 app.get("/api/crm/clientes/:id", (req, res) => {
   try { res.json(obtenerClienteCRM(DB, req.params.id)); }
   catch (e) { res.status(404).json({ error: e.message }); }
@@ -417,7 +423,13 @@ app.get("/api/crm/postventa-pendientes", (req, res) => {
 app.get("/api/crm/ranking-vendedores", (req, res) => res.json(rankingVendedores(DB)));
 
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
-app.get("/api/ventas", (req, res) => res.json(listarVentas(DB, req.query)));
+app.get("/api/ventas", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const filtros = { ...req.query };
+  if (alcance.verTodas) delete filtros.sucursal_id;
+  else filtros.sucursal_id = alcance.sucursalId;
+  res.json(listarVentas(DB, filtros));
+});
 app.get("/api/ventas/:id", (req, res) => {
   try { res.json(obtenerVentaDetalle(DB, req.params.id)); }
   catch (e) { res.status(404).json({ error: e.message }); }
@@ -440,11 +452,14 @@ app.put("/api/configuracion", requiereLogin, requierePermiso("editar_configuraci
 
 // ---------- Corte de Caja ----------
 app.get("/api/cortes/en-curso", requiereLogin, (req, res) => {
-  const sucursal_id = req.query.sucursal_id ? Number(req.query.sucursal_id) : 1;
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  // El corte en curso es siempre de UNA sucursal concreta. Global sin elegir → default a la 1.
+  const sucursal_id = alcance.verTodas ? (Number(req.query.sucursal_id) || 1) : alcance.sucursalId;
   res.json(calcularCorteEnCurso(DB, sucursal_id));
 });
 app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", resolverPermisosDeRol), (req, res) => {
-  res.json(listarCortes(DB, req.query.sucursal_id));
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarCortes(DB, alcance.verTodas ? undefined : alcance.sucursalId));
 });
 app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", resolverPermisosDeRol), (req, res) => {
   try {
