@@ -284,7 +284,12 @@ app.get("/api/predicciones", requiereLogin, (req, res) => {
 });
 
 // ---------- Catálogo de productos / inventario (CRUD real) ----------
-app.get("/api/productos", (req, res) => res.json(listarProductos(DB)));
+app.get("/api/productos", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  // Amarrado o global-con-sucursal: existencia de esa sucursal. Global "todas": suma (null).
+  const sucursalId = alcance.verTodas ? null : alcance.sucursalId;
+  res.json(listarProductos(DB, sucursalId));
+});
 
 app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearProducto(DB, req.body)); }
@@ -390,8 +395,11 @@ app.get("/api/clientes/:id", (req, res) => {
   catch (e) { res.status(404).json({ error: e.message }); }
 });
 app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolverPermisosDeRol), (req, res) => {
-  try { res.json(crearCliente(DB, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(crearCliente(DB, { ...req.body, sucursal_id }));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/clientes/:id", (req, res) => {
   try { res.json(actualizarCliente(DB, req.params.id, req.body)); }
@@ -447,8 +455,12 @@ app.get("/api/ventas/:id", (req, res) => {
   catch (e) { res.status(404).json({ error: e.message }); }
 });
 app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
-  try { res.json(crearVenta(DB, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    // Amarrado: su sucursal del token, sin importar el body. Global: la que venga en el body (o 1).
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(crearVenta(DB, { ...req.body, sucursal_id }));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {
   try { res.json(cancelarVenta(DB, req.params.id, req.body.motivo)); }
@@ -475,8 +487,11 @@ app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", re
 });
 app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", resolverPermisosDeRol), (req, res) => {
   try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
     res.json(crearCorte(DB, {
       ...req.body,
+      sucursal_id,
       usuario_id: req.usuarioToken?.id ?? null,
       usuario_nombre: req.usuarioToken?.nombre || req.body.usuario_nombre || "—",
     }));

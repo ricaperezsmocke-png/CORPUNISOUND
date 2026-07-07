@@ -10,9 +10,18 @@
  * (Postgres/MySQL) sin tener que tocar las rutas ni el frontend.
  */
 
-function listarProductos(DB) {
+function listarProductos(DB, sucursalId) {
   return DB["catalogo-productos"].productos.map((p) => {
-    const exist = DB.inventario.existencias.find((e) => e.producto_id === p.id && e.sucursal_id === 1);
+    // Global "todas" (sucursalId null): suma la existencia de todas las sucursales.
+    // Sucursal concreta (o default 1): existencia de esa sucursal.
+    const existenciasProducto = DB.inventario.existencias.filter((e) => e.producto_id === p.id);
+    let exist;
+    if (sucursalId == null) {
+      const total = existenciasProducto.reduce((a, e) => a + (e.cantidad_actual || 0), 0);
+      exist = existenciasProducto.length ? { cantidad_actual: total, cantidad_minima: 0, cantidad_maxima: 0 } : null;
+    } else {
+      exist = existenciasProducto.find((e) => e.sucursal_id === Number(sucursalId)) || null;
+    }
     const categoria = DB["catalogo-productos"].categorias.find((c) => c.id === p.categoria_id);
     return {
       ...p,
@@ -143,9 +152,10 @@ function clonarProducto(DB, id) {
   });
 }
 
-function ajustarExistencia(DB, id, { cantidad, motivo }) {
-  const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === 1);
-  if (!exist) throw new Error("Este producto no tiene registro de existencia");
+function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
+  const suc = Number(sucursal_id) || 1;
+  const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === suc);
+  if (!exist) throw new Error("Este producto no tiene registro de existencia en esta sucursal");
   const delta = Number(cantidad) || 0;
   // Importante: NO se recorta a 0 aquí. Si se recorta, una venta que deja
   // el stock "en 0" en vez de en negativo pierde información — y al
@@ -156,7 +166,7 @@ function ajustarExistencia(DB, id, { cantidad, motivo }) {
   DB.inventario.movimientos_inventario.push({
     id: siguienteId(DB.inventario.movimientos_inventario.length ? DB.inventario.movimientos_inventario : [{ id: 0 }]),
     producto_id: Number(id),
-    sucursal_id: 1,
+    sucursal_id: suc,
     fecha: new Date().toISOString(),
     tipo: delta >= 0 ? "entrada" : "salida",
     cantidad: delta,

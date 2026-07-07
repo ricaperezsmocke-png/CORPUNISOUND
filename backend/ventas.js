@@ -80,9 +80,9 @@ function crearVenta(DB, datos) {
     // (los productos rápidos / piezas especiales no tienen existencia que ajustar)
     if (l.producto_id) {
       try {
-        ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Venta — folio ${nuevoId}` });
+        ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Venta — folio ${nuevoId}`, sucursal_id: venta.sucursal_id });
       } catch (e) {
-        // Si el producto no tiene registro de existencia, no se detiene la venta
+        // Si el producto no tiene registro de existencia en esta sucursal, no se detiene la venta
       }
     }
   });
@@ -152,7 +152,7 @@ function cancelarVenta(DB, id, motivo) {
     .forEach((l) => {
       if (l.producto_id) {
         try {
-          ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}` });
+          ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
         } catch (e) { /* si no existe existencia, no detiene la cancelación */ }
       }
     });
