@@ -92,4 +92,19 @@ function filtrarPorSucursal(lista, alcance) {
   return lista.filter((x) => Number(x.sucursal_id) === alcance.sucursalId);
 }
 
-module.exports = { hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso, alcanceSucursal, filtrarPorSucursal };
+/**
+ * Versión de filtrarPorSucursal para UN solo registro (rutas por :id).
+ * Se usa para decidir si un registro puntual (cliente, venta...) es visible
+ * dentro del alcance resuelto, antes de devolverlo o de mutarlo. Un usuario
+ * amarrado que pide el registro de otra sucursal debe recibir 404 (no 403,
+ * para no confirmar que el registro existe en otra tienda).
+ */
+function dentroDeAlcance(sucursalId, alcance) {
+  if (!alcance || alcance.verTodas) return true;
+  return Number(sucursalId) === alcance.sucursalId;
+}
+
+module.exports = {
+  hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso,
+  alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
+};

@@ -2,9 +2,9 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
 const { ajustarExistencia } = require("./productos");
-const { crearVenta } = require("./ventas");
+const { crearVenta, cancelarVenta } = require("./ventas");
 const { obtenerConfiguracion } = require("./configuracion");
-const { alcanceSucursal } = require("./auth");
+const { alcanceSucursal, dentroDeAlcance } = require("./auth");
 const { permisosDeRol } = require("./roles");
 
 test("ajustarExistencia afecta la existencia de la sucursal indicada", () => {
@@ -56,6 +56,38 @@ test("POST /api/productos/:id/ajustar: un usuario con ver_todas_las_sucursales s
   const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
 
   assert.strictEqual(sucursal_id, 2);
+});
+
+test("PUT /api/ventas/:id/cancelar: un amarrado NO puede cancelar la venta de otra sucursal", () => {
+  const DB = construirDBPrueba();
+  // rol 2 = "Gerente de sucursal": tiene cancelar_ventas, pero está amarrado.
+  const permisos = permisosDeRol(DB, 2);
+  assert.ok(permisos.includes("cancelar_ventas"));
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {} };
+  const alcance = alcanceSucursal(req, permisos);
+
+  // Venta 1 es de la sucursal 1 (Ocosingo); el usuario está amarrado a la 2.
+  const venta = DB.pos.ventas.find((v) => v.id === 1);
+  assert.strictEqual(dentroDeAlcance(venta.sucursal_id, alcance), false, "la ruta debe responder 404 sin llegar a cancelar");
+
+  // La ruta real corta ANTES de llamar a cancelarVenta ni de reintegrar
+  // inventario — aquí se comprueba que la venta ajena queda intacta.
+  assert.strictEqual(venta.estatus, "cerrada");
+  const existAntes = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 1).cantidad_actual;
+  assert.strictEqual(existAntes, 120, "sin reintegro cruzado de inventario");
+});
+
+test("PUT /api/ventas/:id/cancelar: un amarrado sí puede cancelar la venta de su propia sucursal", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 2);
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {} };
+  const alcance = alcanceSucursal(req, permisos);
+
+  const venta = DB.pos.ventas.find((v) => v.id === 2); // venta 2 es de sucursal 2
+  assert.strictEqual(dentroDeAlcance(venta.sucursal_id, alcance), true);
+
+  const resultado = cancelarVenta(DB, 2, "prueba de cancelación propia");
+  assert.strictEqual(resultado.estatus, "cancelada");
 });
 
 test("listarProductos muestra la existencia de la sucursal pedida", () => {

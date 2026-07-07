@@ -6,8 +6,23 @@
 
 const CAMPO_SUMA = { ventas: "total", venta_detalle: "subtotal", existencias: "cantidad_actual" };
 
-// Tablas que tienen sucursal_id propio y por tanto se filtran directo.
-const TABLAS_CON_SUCURSAL = ["ventas", "existencias", "vendedores", "cortes_caja", "clientes"];
+/**
+ * ¿Las filas de esta tabla cargan su propio campo sucursal_id? Antes había
+ * una lista fija a mano (TABLAS_CON_SUCURSAL) que se quedaba corta cada vez
+ * que se agregaba una tabla nueva con este campo (p. ej. se olvidó incluir
+ * inventario.movimientos_inventario) — un usuario amarrado podía pedirle
+ * esa tabla al asistente de IA y ver el historial de TODAS las sucursales.
+ * En vez de mantener esa lista, se inspecciona el dato real.
+ *
+ * Tabla vacía → no hay fila que inspeccionar. Por seguridad (nunca menos
+ * restrictivo para un usuario amarrado), se asume que sí tiene sucursal_id:
+ * intentar filtrar por sucursal_id sobre un arreglo vacío es inofensivo,
+ * así que el valor "fail-safe" es forzar el intento de filtro.
+ */
+function tablaTieneSucursal(datos) {
+  if (!Array.isArray(datos) || datos.length === 0) return true;
+  return Object.prototype.hasOwnProperty.call(datos[0], "sucursal_id");
+}
 
 function aplicarFiltros(datos, filtros) {
   let resultado = [...datos];
@@ -38,8 +53,10 @@ function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB) {
   const filtrosEfectivos = { ...(filtros || {}) };
   const amarrado = alcance && !alcance.verTodas;
 
-  // Amarrado: se fuerza su sucursal en tablas que la tengan, ignorando lo que pida.
-  if (amarrado && TABLAS_CON_SUCURSAL.includes(tabla)) {
+  // Amarrado: se fuerza su sucursal en cualquier tabla cuyas filas la tengan,
+  // ignorando lo que pida. venta_detalle no tiene sucursal_id propio, así
+  // que tablaTieneSucursal() ya la excluye sola (se filtra más abajo, por join).
+  if (amarrado && tablaTieneSucursal(DB[modulo][tabla])) {
     filtrosEfectivos.sucursal_id = alcance.sucursalId;
   }
 

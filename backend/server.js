@@ -34,7 +34,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal } = require("./auth");
+const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal, dentroDeAlcance } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
@@ -247,6 +247,9 @@ Módulos y tablas disponibles: ${JSON.stringify(listarModulosYTablas())}`;
 // RUTAS
 // ============================================================
 const resolverPermisosDeRol = (rolId) => permisosDeRol(DB, rolId);
+// Atajo usado por las rutas de registro individual (:id) para saber si el
+// usuario puede ver TODAS las sucursales o está amarrado a la suya.
+const resolverAlcance = (req) => alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
 
 app.get("/api/salud", (req, res) => res.json({ ok: true, modulos: listarModulosYTablas() }));
 
@@ -374,9 +377,16 @@ app.get("/api/clientes", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   res.json(listarClientes(DB, alcance));
 });
-app.get("/api/clientes/:id", (req, res) => {
-  try { res.json(obtenerCliente(DB, req.params.id)); }
-  catch (e) { res.status(404).json({ error: e.message }); }
+app.get("/api/clientes/:id", requiereLogin, (req, res) => {
+  try {
+    const cliente = obtenerCliente(DB, req.params.id);
+    const alcance = resolverAlcance(req);
+    // "Público en General" (id 0) es compartido: visible en toda sucursal.
+    if (cliente.id !== 0 && !dentroDeAlcance(cliente.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    res.json(cliente);
+  } catch (e) { res.status(404).json({ error: e.message }); }
 });
 app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolverPermisosDeRol), (req, res) => {
   try {
@@ -385,9 +395,17 @@ app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolv
     res.json(crearCliente(DB, { ...req.body, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/clientes/:id", (req, res) => {
-  try { res.json(actualizarCliente(DB, req.params.id, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+app.put("/api/clientes/:id", requiereLogin, (req, res) => {
+  try {
+    const existente = obtenerCliente(DB, req.params.id);
+    const alcance = resolverAlcance(req);
+    // Mismo criterio que el GET: "Público en General" (id 0) es compartido
+    // y se puede editar desde cualquier sucursal; el resto, no.
+    if (existente.id !== 0 && !dentroDeAlcance(existente.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    res.json(actualizarCliente(DB, req.params.id, req.body));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ---------- Vendedores y Sucursales (catálogo compartido) ----------
@@ -399,18 +417,44 @@ app.get("/api/crm/clientes", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   res.json(listarClientesCRM(DB, alcance));
 });
-app.get("/api/crm/clientes/:id", (req, res) => {
-  try { res.json(obtenerClienteCRM(DB, req.params.id)); }
-  catch (e) { res.status(404).json({ error: e.message }); }
+app.get("/api/crm/clientes/:id", requiereLogin, (req, res) => {
+  try {
+    const cliente = obtenerClienteCRM(DB, req.params.id);
+    const alcance = resolverAlcance(req);
+    // "Público en General" (id 0) es compartido: visible en toda sucursal.
+    if (cliente.id !== 0 && !dentroDeAlcance(cliente.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    res.json(cliente);
+  } catch (e) { res.status(404).json({ error: e.message }); }
 });
 app.put("/api/crm/clientes/:id/estado", requiereLogin, requierePermiso("cambiar_estado_cliente", resolverPermisosDeRol), (req, res) => {
-  try { res.json(cambiarEstadoCliente(DB, req.params.id, req.body.estado)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const cliente = DB.crm.clientes.find((c) => c.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    if (cliente && cliente.id !== 0 && !dentroDeAlcance(cliente.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    res.json(cambiarEstadoCliente(DB, req.params.id, req.body.estado));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.get("/api/crm/clientes/:id/contactos", (req, res) => res.json(listarContactos(DB, req.params.id)));
+app.get("/api/crm/clientes/:id/contactos", requiereLogin, (req, res) => {
+  const cliente = DB.crm.clientes.find((c) => c.id === Number(req.params.id));
+  const alcance = resolverAlcance(req);
+  if (cliente && cliente.id !== 0 && !dentroDeAlcance(cliente.sucursal_id, alcance)) {
+    return res.status(404).json({ error: "Cliente no encontrado" });
+  }
+  res.json(listarContactos(DB, req.params.id));
+});
 app.post("/api/crm/clientes/:id/contactos", requiereLogin, requierePermiso("registrar_contacto_cliente", resolverPermisosDeRol), (req, res) => {
-  try { res.json(registrarContacto(DB, req.params.id, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const cliente = DB.crm.clientes.find((c) => c.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    if (cliente && cliente.id !== 0 && !dentroDeAlcance(cliente.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    res.json(registrarContacto(DB, req.params.id, req.body));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get("/api/crm/resumen-sucursales", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -434,9 +478,15 @@ app.get("/api/ventas", requiereLogin, (req, res) => {
   else filtros.sucursal_id = alcance.sucursalId;
   res.json(listarVentas(DB, filtros));
 });
-app.get("/api/ventas/:id", (req, res) => {
-  try { res.json(obtenerVentaDetalle(DB, req.params.id)); }
-  catch (e) { res.status(404).json({ error: e.message }); }
+app.get("/api/ventas/:id", requiereLogin, (req, res) => {
+  try {
+    const venta = obtenerVentaDetalle(DB, req.params.id);
+    const alcance = resolverAlcance(req);
+    if (!dentroDeAlcance(venta.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
+    res.json(venta);
+  } catch (e) { res.status(404).json({ error: e.message }); }
 });
 app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
   try {
@@ -447,8 +497,17 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {
-  try { res.json(cancelarVenta(DB, req.params.id, req.body.motivo)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    // Sin esto, un Gerente de sucursal podía cancelar la venta de OTRA
+    // sucursal por folio y el reintegro de inventario acreditaba stock
+    // a la sucursal real de esa venta — un efecto cruzado real.
+    if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
+    res.json(cancelarVenta(DB, req.params.id, req.body.motivo));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ---------- Configuración general del POS ----------
