@@ -3,7 +3,7 @@ services:
     name: punto-de-venta-backend
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install --prefix backend
     startCommand: node backend/server.js
     envVars:
       - key: ANTHROPIC_API_KEY
