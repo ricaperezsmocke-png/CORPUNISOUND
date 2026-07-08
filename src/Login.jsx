@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Lock, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
@@ -15,7 +18,7 @@ export default function Login({ onIngreso }) {
     fetch(`${API}/auth/necesita-setup`)
       .then((r) => r.json())
       .then((d) => setNecesitaSetup(d.necesitaSetup))
-      .catch(() => setError("No se pudo conectar con el backend (¿está corriendo en localhost:4000?)"));
+      .catch(() => setError("No se pudo conectar con el backend"));
   }, []);
 
   const enviarSetup = async (e) => {
@@ -51,85 +54,58 @@ export default function Login({ onIngreso }) {
   };
 
   return (
-    <div className="w-full h-screen flex items-center justify-center bg-uni-graylight">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 flex flex-col items-center gap-6">
+    <div
+      className="w-full h-screen flex items-center justify-center"
+      style={{ background: "linear-gradient(135deg, #1a7fe8 0%, #0f4c8a 100%)" }}
+    >
+      <Card className="w-full max-w-sm shadow-2xl border-0">
+        <CardHeader className="items-center pb-2 pt-8">
+          <img src="/logo-unisound.jpg" alt="Unisound" className="w-48 object-contain mb-2" />
+          <p className="text-sm text-muted-foreground font-medium">Sistema de Gestión Empresarial</p>
+        </CardHeader>
 
-        {/* Logo */}
-        <img
-          src="/logo-unisound.jpg"
-          alt="Unisound"
-          className="w-52 object-contain"
-        />
-
-        {/* Subtítulo */}
-        <p className="text-uni-gray text-sm font-medium -mt-2">Sistema de Gestión Empresarial</p>
-
-        <div className="w-full">
+        <CardContent className="px-8 pb-2">
           {necesitaSetup === null && (
-            <p className="text-center text-slate-400 text-sm">Conectando con el servidor...</p>
+            <p className="text-center text-muted-foreground text-sm py-4">Conectando con el servidor...</p>
           )}
 
           {necesitaSetup === true && (
             <form onSubmit={enviarSetup} className="flex flex-col gap-3">
-              <p className="text-xs text-slate-500 bg-uni-bluelight rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground bg-muted rounded-lg p-3 text-center">
                 No hay personal registrado — crea la primera cuenta de Administrador.
               </p>
-              <input
-                required value={nombre} onChange={(e) => setNombre(e.target.value)}
-                placeholder="Tu nombre"
-                className="border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-uni-blue focus:ring-1 focus:ring-uni-blue"
-              />
-              <input
-                required value={usuario} onChange={(e) => setUsuario(e.target.value)}
-                placeholder="Usuario para iniciar sesión"
-                className="border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-uni-blue focus:ring-1 focus:ring-uni-blue"
-              />
-              <input
-                required type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Contraseña (mínimo 6 caracteres)"
-                className="border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-uni-blue focus:ring-1 focus:ring-uni-blue"
-              />
-              {error && <p className="text-red-500 text-xs text-center">{error}</p>}
-              <button
-                disabled={cargando}
-                className="bg-uni-blue hover:bg-uni-bluedark disabled:bg-slate-300 text-white rounded-lg py-2.5 font-semibold text-sm transition-colors"
-              >
+              <Input required value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Tu nombre" />
+              <Input required value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="Usuario" />
+              <Input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña (mínimo 6 caracteres)" />
+              {error && <p className="text-destructive text-xs text-center">{error}</p>}
+              <Button disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
                 {cargando ? "Creando..." : "Crear administrador"}
-              </button>
+              </Button>
             </form>
           )}
 
           {necesitaSetup === false && (
             <form onSubmit={enviarLogin} className="flex flex-col gap-3">
               <div className="relative">
-                <User size={16} className="absolute left-3 top-3 text-slate-400" />
-                <input
-                  required value={usuario} onChange={(e) => setUsuario(e.target.value)}
-                  placeholder="Usuario"
-                  className="w-full border border-slate-200 rounded-lg px-9 py-2.5 text-sm focus:outline-none focus:border-uni-blue focus:ring-1 focus:ring-uni-blue"
-                />
+                <User size={16} className="absolute left-3 top-2.5 text-muted-foreground" />
+                <Input required value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="Usuario" className="pl-9" />
               </div>
               <div className="relative">
-                <Lock size={16} className="absolute left-3 top-3 text-slate-400" />
-                <input
-                  required type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Contraseña"
-                  className="w-full border border-slate-200 rounded-lg px-9 py-2.5 text-sm focus:outline-none focus:border-uni-blue focus:ring-1 focus:ring-uni-blue"
-                />
+                <Lock size={16} className="absolute left-3 top-2.5 text-muted-foreground" />
+                <Input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña" className="pl-9" />
               </div>
-              {error && <p className="text-red-500 text-xs text-center">{error}</p>}
-              <button
-                disabled={cargando}
-                className="bg-uni-blue hover:bg-uni-bluedark disabled:bg-slate-300 text-white rounded-lg py-2.5 font-semibold text-sm transition-colors mt-1"
-              >
+              {error && <p className="text-destructive text-xs text-center">{error}</p>}
+              <Button disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
                 {cargando ? "Entrando..." : "Iniciar sesión"}
-              </button>
+              </Button>
             </form>
           )}
-        </div>
+        </CardContent>
 
-        <p className="text-xs text-slate-400">Instrumentos Musicales / Sonido / Accesorios</p>
-      </div>
+        <CardFooter className="justify-center pb-6 pt-2">
+          <p className="text-xs text-muted-foreground">Instrumentos Musicales / Sonido / Accesorios</p>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

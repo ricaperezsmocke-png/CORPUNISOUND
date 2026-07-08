@@ -1,14 +1,16 @@
 import React from "react";
-import { ShoppingCart, Users, Boxes, Sparkles, Lock, ShieldCheck, LogOut, Landmark } from "lucide-react";
+import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark } from "lucide-react";
 import AsistenteIA from "./AsistenteIA";
 import SelectorSucursal from "./SelectorSucursal.jsx";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 const MODULOS = [
-  { id: "pos",        nombre: "Punto de Venta",       icono: ShoppingCart, disponible: true, modulo: "pos" },
-  { id: "corte",      nombre: "Corte de Caja",         icono: Landmark,     disponible: true, modulo: "corte",     permiso: "realizar_corte_caja" },
-  { id: "inventario", nombre: "Inventario y Productos", icono: Boxes,        disponible: true, modulo: "inventario" },
-  { id: "roles",      nombre: "Roles y Personal",       icono: ShieldCheck,  disponible: true, modulo: "admin" },
-  { id: "crm",        nombre: "CRM",                    icono: Users,        disponible: true, modulo: "crm" },
+  { id: "pos",        nombre: "Punto de Venta",        icono: ShoppingCart, disponible: true, modulo: "pos" },
+  { id: "corte",      nombre: "Corte de Caja",          icono: Landmark,     disponible: true, modulo: "corte",     permiso: "realizar_corte_caja" },
+  { id: "inventario", nombre: "Inventario y Productos",  icono: Boxes,        disponible: true, modulo: "inventario" },
+  { id: "roles",      nombre: "Roles y Personal",        icono: ShieldCheck,  disponible: true, modulo: "admin" },
+  { id: "crm",        nombre: "CRM",                     icono: Users,        disponible: true, modulo: "crm" },
 ];
 
 export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {
@@ -19,52 +21,58 @@ export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {
   });
 
   return (
-    <div className="w-full h-full flex flex-col bg-uni-graylight">
+    <div className="w-full h-full flex flex-col bg-muted/30">
 
       {/* Encabezado */}
-      <header className="bg-uni-blue text-white px-5 py-3 flex items-center justify-between shrink-0 shadow-md">
-        <div className="flex items-center gap-3">
-          <img src="/logo-unisound.jpg" alt="Unisound" className="h-10 object-contain bg-white rounded-lg px-1" />
-          <div>
-            <div className="font-semibold text-sm leading-tight">Asistente de Negocio</div>
-            <div className="text-[11px] text-blue-100 leading-tight">Pregunta lo que necesites o entra a un módulo</div>
-          </div>
-        </div>
-
-        {usuario && (
-          <div className="flex items-center gap-3 text-xs">
-            <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
-            <div className="text-right leading-tight">
-              <div className="font-semibold">{usuario.nombre}</div>
-              <div className="text-blue-100">{usuario.rol}</div>
+      <header className="shrink-0 shadow-md" style={{ background: "linear-gradient(90deg, #1a7fe8 0%, #1262b8 100%)" }}>
+        <div className="px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/logo-unisound.jpg" alt="Unisound" className="h-10 object-contain bg-white rounded-lg px-2 py-0.5" />
+            <div className="text-white">
+              <div className="font-semibold text-sm leading-tight">Asistente de Negocio</div>
+              <div className="text-xs text-blue-100 leading-tight">Pregunta lo que necesites o entra a un módulo</div>
             </div>
-            <button
-              onClick={onSalir}
-              className="flex items-center gap-1.5 bg-uni-bluedark hover:bg-blue-900 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <LogOut size={13} /> Salir
-            </button>
           </div>
-        )}
+
+          {usuario && (
+            <div className="flex items-center gap-3">
+              <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
+              <div className="text-right text-white">
+                <div className="text-sm font-semibold leading-tight">{usuario.nombre}</div>
+                <div className="text-xs text-blue-100 leading-tight">{usuario.rol}</div>
+              </div>
+              <Button
+                onClick={onSalir}
+                size="sm"
+                variant="secondary"
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 text-white border-0"
+              >
+                <LogOut size={13} /> Salir
+              </Button>
+            </div>
+          )}
+        </div>
       </header>
 
-      {/* Módulos */}
-      <div className="bg-white border-b border-slate-200 px-5 py-3 flex gap-3 flex-wrap shrink-0 shadow-sm">
+      {/* Barra de módulos */}
+      <div className="bg-background border-b px-5 py-3 flex gap-2 flex-wrap shrink-0 shadow-sm">
         {modulosVisibles.map(({ id, nombre, icono: Icono, disponible }) => (
-          <button
+          <Button
             key={id}
             onClick={() => disponible && onEntrarModulo(id)}
             disabled={!disponible}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+            variant="outline"
+            size="sm"
+            className={`flex items-center gap-2 rounded-xl transition-all ${
               disponible
-                ? "border-uni-blue bg-uni-bluelight text-uni-blue hover:bg-uni-blue hover:text-white"
-                : "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+                ? "border-[#1a7fe8] text-[#1a7fe8] hover:bg-[#1a7fe8] hover:text-white"
+                : "opacity-50 cursor-not-allowed"
             }`}
           >
-            <Icono size={17} />
+            <Icono size={16} />
             {nombre}
-            {!disponible && <Lock size={12} className="ml-1" />}
-          </button>
+            {!disponible && <Lock size={11} />}
+          </Button>
         ))}
       </div>
 
@@ -73,8 +81,9 @@ export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {
         {!usuario?.permisos || usuario.permisos.includes("usar_asistente_ia") ? (
           <AsistenteIA />
         ) : (
-          <div className="h-full flex items-center justify-center text-slate-400 text-sm px-6 text-center">
-            Tu rol no tiene acceso al Asistente de IA — usa los módulos de arriba, o pide a un administrador que te habilite el permiso.
+          <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground text-sm px-6 text-center">
+            <Badge variant="outline" className="text-xs">Acceso restringido</Badge>
+            <p>Tu rol no tiene acceso al Asistente de IA. Usa los módulos de arriba o pide al administrador que habilite el permiso.</p>
           </div>
         )}
       </div>
