@@ -77,7 +77,7 @@ function App() {
   return (
     <div className="w-full h-screen flex flex-col">
       {!esDashboard && (
-        <div className="bg-slate-800 px-4 py-1.5 flex items-center justify-end shrink-0">
+        <div className="bg-uni-blue px-4 py-1.5 flex items-center justify-end shrink-0">
           <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
         </div>
       )}
