@@ -95,46 +95,12 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
-        <div className="flex">
-          <button onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-            <LayoutGrid size={20} /><span className="text-[11px] font-medium">Operaciones</span>
-          </button>
-          <button onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-            <Search size={20} /><span className="text-[11px] font-medium">Consultas</span>
-          </button>
-          {["Procesos", "Reportes", "Estadísticas"].map((t, i) => {
-            const Icono = [Settings, FileBarChart, PieChart][i];
-            return (
-              <button key={t} onClick={() => mostrarAviso(`${t}: fuera del alcance de este prototipo`)} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-                <Icono size={20} /><span className="text-[11px] font-medium">{t}</span>
-              </button>
-            );
-          })}
-          <button className="flex flex-col items-center justify-center gap-1 px-5 py-2 bg-blue-800">
-            <Wrench size={20} /><span className="text-[11px] font-medium">Configuración</span>
-          </button>
-        </div>
-        <div className="flex items-center gap-4 pr-4 text-[11px]">
-          <div className="flex flex-col items-end leading-tight">
-            <span className="flex items-center gap-1"><Package size={13} /> Caja 1</span>
-            <span className="flex items-center gap-1"><ShoppingCart size={13} /> Ventas (F1)</span>
-          </div>
-          <span className="flex flex-col items-center gap-0.5"><Cloud size={18} /><span>Nube</span></span>
-          <span className="flex flex-col items-center gap-0.5"><Info size={18} /><span>Info</span></span>
-          <span className="flex flex-col items-center gap-0.5"><UserCircle2 size={18} /><span>admin</span></span>
-          {onVolverInicio && (
-            <button onClick={onVolverInicio} className="ml-2 flex items-center gap-1 bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-[11px] font-medium">← Inicio</button>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-slate-100 border-b border-slate-300 flex items-center shrink-0">
-        <button onClick={cargarTodo} className="flex flex-col items-center justify-center gap-1 px-3 py-2 border-r border-slate-300 hover:bg-slate-200">
-          <RefreshCw size={18} className="text-slate-700" /><span className="text-[11px] font-medium text-slate-700">Recargar (F5)</span>
+      <div className="bg-white border-b border-slate-100 flex items-center shrink-0">
+        <button onClick={cargarTodo} className="flex flex-col items-center justify-center gap-1 px-3 py-2 border-r border-slate-100 hover:bg-blue-50">
+          <RefreshCw size={18} className="text-[#1a7fe8]" /><span className="text-[10px] font-medium text-slate-500">Recargar</span>
         </button>
-        <div className="flex flex-col items-center justify-center gap-1 px-3 py-2 border-r border-slate-300 text-slate-400">
-          <Save size={18} /><span className="text-[11px] font-medium">{guardando ? "Guardando..." : "Guardado automático"}</span>
+        <div className="flex flex-col items-center justify-center gap-1 px-3 py-2 border-r border-slate-100 text-slate-400">
+          <Save size={18} /><span className="text-[10px] font-medium">{guardando ? "Guardando..." : "Auto-guardado"}</span>
         </div>
         {!puedeEditar && (
           <div className="flex items-center gap-1.5 px-3 text-xs text-amber-700 bg-amber-50 py-1.5 rounded ml-3">

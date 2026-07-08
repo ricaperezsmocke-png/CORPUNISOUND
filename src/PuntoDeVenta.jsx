@@ -37,10 +37,10 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, activo }) {
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200 transition-colors ${activo ? "bg-blue-100" : ""}`}
+      className={`flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors ${activo ? "bg-blue-50" : ""}`}
     >
-      <Icono size={20} className="text-slate-700" />
-      <span className="text-[11px] font-medium text-slate-700 whitespace-nowrap">{etiqueta} ({atajo})</span>
+      <Icono size={18} className="text-[#1a7fe8]" />
+      <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
     </button>
   );
 }
@@ -60,11 +60,11 @@ function BotonLateral({ icono: Icono, etiqueta, atajo, onClick, color }) {
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className={`bg-white rounded-lg shadow-xl w-full ${ancho} max-h-[92vh] overflow-y-auto`}>
-        <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between sticky top-0">
-          <h3 className="font-semibold text-sm">{titulo}</h3>
-          <button onClick={onCerrar} className="hover:bg-blue-800 rounded p-1">
-            <X size={18} />
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+          <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
+          <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={16} />
           </button>
         </div>
         <div className="p-4">{children}</div>
@@ -488,61 +488,39 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      {/* ===== MENÚ SUPERIOR ===== */}
-      <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
+      {/* ===== TABS INTERNOS ===== */}
+      <div className="bg-white border-b border-slate-100 flex items-center justify-between shrink-0 px-2">
         <div className="flex">
           {[
-            { icono: LayoutGrid, texto: "Operaciones", activo: true, accion: null },
-            { icono: Search, texto: "Consultas", activo: false, accion: "consultas" },
-            { icono: Settings, texto: "Procesos", activo: false, accion: null },
-            { icono: FileBarChart, texto: "Reportes", activo: false, accion: null },
-            { icono: PieChart, texto: "Estadísticas", activo: false, accion: null },
-            { icono: Wrench, texto: "Configuración", activo: false, accion: "configuracion" },
-          ].map(({ icono: Icono, texto, activo, accion }) => (
+            { icono: LayoutGrid, texto: "Operaciones", accion: null },
+            { icono: Search, texto: "Consultas", accion: "consultas" },
+            { icono: Wrench, texto: "Configuración", accion: "configuracion" },
+          ].map(({ icono: Icono, texto, accion }) => (
             <button
               key={texto}
               onClick={() => {
                 if (accion === "consultas") {
-                  if (!puede("ver_lista_ventas")) return mostrarAviso("No tienes permiso para ver Consultas de Ventas");
+                  if (!puede("ver_lista_ventas")) return mostrarAviso("Sin permiso para Consultas");
                   setVista("consultas");
                 } else if (accion === "configuracion") {
-                  if (!puede("editar_configuracion_pos")) return mostrarAviso("No tienes permiso para ver Configuración");
+                  if (!puede("editar_configuracion_pos")) return mostrarAviso("Sin permiso para Configuración");
                   setVista("configuracion");
-                } else if (!activo) {
-                  mostrarAviso(`${texto}: módulo fuera del alcance de este prototipo`);
                 }
               }}
-              className={`flex flex-col items-center justify-center gap-1 px-5 py-2 ${activo ? "bg-blue-800" : "hover:bg-blue-600"}`}
+              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-[#1a7fe8] border-b-2 border-transparent hover:border-[#1a7fe8] transition-colors"
             >
-              <Icono size={20} />
-              <span className="text-[11px] font-medium">{texto}</span>
+              <Icono size={14} />{texto}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-4 pr-4 text-[11px]">
-          <div className="flex flex-col items-end leading-tight">
-            <span className="flex items-center gap-1"><Package size={13} /> Caja 1</span>
-            <span className="flex items-center gap-1"><ShoppingCart size={13} /> Ventas (F1)</span>
-          </div>
-          <button onClick={() => mostrarAviso("Sincronizado con la nube")} className="flex flex-col items-center gap-0.5 hover:opacity-80">
-            <Cloud size={18} /><span>Nube</span>
-          </button>
-          <button onClick={() => mostrarAviso("Sistema propio — módulo de Punto de Venta v1.0")} className="flex flex-col items-center gap-0.5 hover:opacity-80">
-            <Info size={18} /><span>Info</span>
-          </button>
-          <button className="flex flex-col items-center gap-0.5 hover:opacity-80">
-            <UserCircle2 size={18} /><span>admin</span>
-          </button>
-          {onVolver && (
-            <button onClick={onVolver} className="ml-2 flex items-center gap-1 bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-[11px] font-medium">
-              ← Inicio
-            </button>
-          )}
+        <div className="flex items-center gap-3 pr-2 text-[11px] text-slate-400">
+          <span className="flex items-center gap-1"><Package size={12} /> Caja 1</span>
+          <button onClick={() => mostrarAviso("Sincronizado con la nube")} className="hover:text-[#1a7fe8] flex items-center gap-1"><Cloud size={13} /> Nube</button>
         </div>
       </div>
 
       {/* ===== BARRA DE HERRAMIENTAS F2-F12 ===== */}
-      <div className="bg-slate-100 border-b border-slate-300 flex overflow-x-auto shrink-0">
+      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("buscar_articulos") && <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => setModal("buscar")} />}
         {puede("cambiar_numero_precio") && <BotonBarra icono={Tag} etiqueta="Precio" atajo="F3" onClick={() => {
           if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila del ticket primero");
@@ -655,7 +633,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           {/* Tabla del ticket */}
           <div className="flex-1 overflow-y-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-700 text-white sticky top-0">
+              <thead className="bg-[#1a7fe8] text-white sticky top-0">
                 <tr>
                   <th className="py-2 px-2 text-left font-medium">Cant</th>
                   <th className="py-2 px-2 text-left font-medium">Descripción</th>
@@ -711,7 +689,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           </div>
 
           {/* Barra de totales */}
-          <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
+          <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex items-center justify-between text-xs shrink-0 text-slate-600">
             <div className="flex gap-6">
               <span>Piezas: <b>{piezas}</b></span>
               <span className="text-red-400">Notas de Créd: <b>$0.00</b></span>
@@ -723,9 +701,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
               <span>Retenciones: <b>$0.00</b></span>
             </div>
           </div>
-          <div className="bg-black text-white px-4 py-3 flex items-center justify-end gap-3 shrink-0">
-            <span className="text-sm text-slate-300">Total:</span>
-            <span className="text-2xl font-bold">${total.toFixed(2)} MXN</span>
+          <div className="px-4 py-3 flex items-center justify-end gap-3 shrink-0 border-t border-slate-100" style={{ background: "linear-gradient(90deg, #1262b8 0%, #1a7fe8 100%)" }}>
+            <span className="text-sm text-blue-100">Total:</span>
+            <span className="text-2xl font-bold text-white">${total.toFixed(2)} MXN</span>
           </div>
 
           {/* Pie de estado */}
@@ -778,7 +756,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
           <div className="max-h-96 overflow-y-auto border border-slate-200 rounded">
             <table className="w-full text-sm">
-              <thead className="bg-slate-700 text-white sticky top-0">
+              <thead className="bg-[#1a7fe8] text-white sticky top-0">
                 <tr>
                   <th className="py-2 px-3 text-left font-medium">Clave / Descripción</th>
                   <th className="py-2 px-3 text-left font-medium w-28">Localización</th>
@@ -855,7 +833,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           />
           <button
             onClick={() => { actualizarPrecio(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
-            className="w-full bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-medium"
+            className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium transition-colors"
           >Aplicar</button>
         </Modal>
       )}
@@ -870,7 +848,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           />
           <button
             onClick={() => { actualizarCantidad(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
-            className="w-full bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-medium"
+            className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium transition-colors"
           >Aplicar</button>
         </Modal>
       )}
@@ -888,7 +866,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           </div>
           <button
             onClick={() => { actualizarDescuento(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
-            className="w-full bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-medium"
+            className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium transition-colors"
           >Aplicar</button>
         </Modal>
       )}
@@ -951,7 +929,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
               <Campo label="Límite de crédito"><input type="number" className={inputCls} value={formCliente.limite_credito} onChange={(e) => setFormCliente({ ...formCliente, limite_credito: e.target.value })} disabled={!formCliente.sujeto_credito} /></Campo>
             </div>
           </div>
-          <button onClick={guardarNuevoCliente} className="w-full bg-blue-700 hover:bg-blue-800 text-white py-2.5 rounded font-semibold">Aceptar</button>
+          <button onClick={guardarNuevoCliente} className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2.5 rounded-lg font-semibold transition-colors">Aceptar</button>
         </Modal>
       )}
 
@@ -1017,7 +995,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
               </div>
               <div className="border border-slate-200 rounded-lg overflow-hidden mb-4">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-700 text-white">
+                  <thead className="bg-[#1a7fe8] text-white">
                     <tr>
                       <th className="py-2 px-3 text-left font-medium">Nombre</th>
                       <th className="py-2 px-3 text-right font-medium">Total</th>

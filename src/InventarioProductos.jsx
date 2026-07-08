@@ -8,17 +8,17 @@ import { apiFetch } from "./api";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = {
-    slate: "text-slate-700",
+    slate: "text-[#1a7fe8]",
     verde: "text-emerald-600",
-    rojo: "text-red-600",
+    rojo: "text-red-500",
   };
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200 transition-colors"
+      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors"
     >
-      <Icono size={20} className={tonos[tono]} />
-      <span className="text-[11px] font-medium text-slate-700 whitespace-nowrap">{etiqueta} ({atajo})</span>
+      <Icono size={18} className={tonos[tono]} />
+      <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
     </button>
   );
 }
@@ -233,19 +233,8 @@ export default function InventarioProductos({ onVolver, permisos }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
-      {/* Encabezado */}
-      <div className="bg-blue-700 text-white px-4 py-2.5 flex items-center justify-between shrink-0">
-        <div>
-          <div className="font-semibold text-sm">Inventario y Alta de Productos</div>
-          <div className="text-[11px] text-blue-200">Catálogo (F1) — fuente única de productos y existencias</div>
-        </div>
-        {onVolver && (
-          <button onClick={onVolver} className="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-[11px] font-medium">← Inicio</button>
-        )}
-      </div>
-
       {/* Barra de herramientas */}
-      <div className="bg-slate-100 border-b border-slate-300 flex overflow-x-auto shrink-0">
+      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("crear_producto") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={abrirCrear} />}
         {puede("editar_producto") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={abrirEditar} />}
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={() => { cargarTodo(); mostrarAviso("Lista recargada"); }} />
@@ -275,7 +264,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
               <p className="text-center text-slate-400 py-16">Cargando catálogo...</p>
             ) : (
               <table className="w-full text-sm">
-                <thead className="bg-slate-700 text-white sticky top-0">
+                <thead className="bg-[#1a7fe8] text-white sticky top-0">
                   <tr>
                     <th className="py-2 px-3 text-left font-medium">Clave / Descripción</th>
                     <th className="py-2 px-3 text-center font-medium w-24">Exist.</th>
@@ -365,10 +354,10 @@ export default function InventarioProductos({ onVolver, permisos }) {
       {/* ---------- Modal: Agregar / Editar artículo ---------- */}
       {modal === "form" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
-            <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between sticky top-0">
-              <h3 className="font-semibold text-sm">{modoForm === "crear" ? "Agregar artículo (F3)" : "Editar artículo (F4)"}</h3>
-              <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
+              <h3 className="font-semibold text-sm text-slate-700">{modoForm === "crear" ? "Agregar artículo" : "Editar artículo"}</h3>
+              <button onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
             <div className="p-5 flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3">
@@ -480,7 +469,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
             <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Ajustar existencia (F8)</h3>
-              <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
+              <button onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
             <div className="p-4 flex flex-col gap-3">
               <p className="text-sm text-slate-600">{seleccionado.nombre} — existencia actual: <b>{seleccionado.existencia}</b></p>

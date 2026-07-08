@@ -6,14 +6,14 @@ import {
 import { apiFetch } from "./api";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
-  const tonos = { slate: "text-slate-700", verde: "text-emerald-600", rojo: "text-red-600" };
+  const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200 transition-colors"
+      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors"
     >
-      <Icono size={20} className={tonos[tono]} />
-      <span className="text-[11px] font-medium text-slate-700 whitespace-nowrap">{etiqueta} ({atajo})</span>
+      <Icono size={18} className={tonos[tono]} />
+      <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
     </button>
   );
 }
@@ -164,17 +164,7 @@ export default function AdminRoles({ onVolver, permisos }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
-      <div className="bg-blue-700 text-white px-4 py-2.5 flex items-center justify-between shrink-0">
-        <div>
-          <div className="font-semibold text-sm flex items-center gap-2"><ShieldCheck size={16} /> Roles y Personal</div>
-          <div className="text-[11px] text-blue-200">Configuración — quién puede hacer qué en cada módulo</div>
-        </div>
-        {onVolver && (
-          <button onClick={onVolver} className="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-[11px] font-medium">← Inicio</button>
-        )}
-      </div>
-
-      <div className="bg-slate-100 border-b border-slate-300 flex overflow-x-auto shrink-0">
+      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("administrar_roles") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={agregarRol} />}
         {puede("administrar_roles") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={editarNombreRol} />}
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={cargarTodo} />
@@ -284,10 +274,10 @@ export default function AdminRoles({ onVolver, permisos }) {
 
       {modalPersonal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
-            <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between">
-              <h3 className="font-semibold text-sm">Dar de alta personal</h3>
-              <button onClick={() => setModalPersonal(false)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-sm text-slate-700">Dar de alta personal</h3>
+              <button onClick={() => setModalPersonal(false)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
             <div className="p-4 flex flex-col gap-3">
               <div>
@@ -309,7 +299,7 @@ export default function AdminRoles({ onVolver, permisos }) {
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
               </div>
-              <button onClick={guardarPersonal} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold flex items-center justify-center gap-1.5">
+              <button onClick={guardarPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
                 <Check size={15} /> Guardar
               </button>
             </div>

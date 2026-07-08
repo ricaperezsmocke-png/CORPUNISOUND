@@ -103,7 +103,7 @@ function TicketCorte({ corte, onCerrar }) {
           <button onClick={() => window.print()} className="bg-slate-200 hover:bg-slate-300 px-4 py-2 rounded font-semibold text-sm flex items-center gap-2">
             🖨️ Imprimir
           </button>
-          <button onClick={onCerrar} className="bg-blue-700 hover:bg-blue-800 text-white px-6 py-2 rounded font-semibold text-sm">
+          <button onClick={onCerrar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-6 py-2 rounded-lg font-semibold text-sm transition-colors">
             Cerrar
           </button>
         </div>
@@ -193,44 +193,18 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      {/* Menú superior — mismo patrón que el resto */}
-      <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
-        <div className="flex">
-          <button onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-            <LayoutGrid size={20} /><span className="text-[11px] font-medium">Operaciones</span>
-          </button>
-          {[["Consultas", Search], ["Procesos", Settings], ["Reportes", FileBarChart], ["Estadísticas", PieChart], ["Configuración", Wrench]].map(([t, Icono]) => (
-            <button key={t} onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-              <Icono size={20} /><span className="text-[11px] font-medium">{t}</span>
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-4 pr-4 text-[11px]">
-          <div className="flex flex-col items-end leading-tight">
-            <span className="flex items-center gap-1"><Package size={13} /> Caja 1</span>
-            <span className="flex items-center gap-1"><Scissors size={13} /> Corte de Caja (F1)</span>
-          </div>
-          <span className="flex flex-col items-center gap-0.5"><Cloud size={18} /><span>Nube</span></span>
-          <span className="flex flex-col items-center gap-0.5"><Info size={18} /><span>Info</span></span>
-          <span className="flex flex-col items-center gap-0.5"><UserCircle2 size={18} /><span>{usuario.usuario || "—"}</span></span>
-          {onVolverInicio && (
-            <button onClick={onVolverInicio} className="ml-2 flex items-center gap-1 bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-[11px] font-medium">← Inicio</button>
-          )}
-        </div>
-      </div>
-
       {/* Barra de herramientas */}
-      <div className="bg-slate-100 border-b border-slate-300 flex overflow-x-auto shrink-0">
+      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("realizar_corte_caja") && (
-          <button onClick={abrirCorte} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200">
-            <Scissors size={20} className="text-emerald-600" />
-            <span className="text-[11px] font-medium text-slate-700">Corte (F3)</span>
+          <button onClick={abrirCorte} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50">
+            <Scissors size={18} className="text-emerald-600" />
+            <span className="text-[10px] font-medium text-slate-500">Corte</span>
           </button>
         )}
         {puede("registrar_propina") && (
-          <button className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200">
-            <CircleDollarSign size={20} className="text-amber-500" />
-            <span className="text-[11px] font-medium text-slate-700">Propina (F4)</span>
+          <button className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50">
+            <CircleDollarSign size={18} className="text-amber-500" />
+            <span className="text-[10px] font-medium text-slate-500">Propina</span>
           </button>
         )}
         {puede("ver_historial_cortes") && (
@@ -384,7 +358,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
             </div>
 
             <div className="border-t border-slate-200 p-3 flex justify-center">
-              <button onClick={guardarCorte} className="bg-blue-700 hover:bg-blue-800 text-white px-8 py-2 rounded font-semibold flex items-center gap-2">
+              <button onClick={guardarCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors">
                 💾 Guardar
               </button>
             </div>
@@ -396,7 +370,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       {modal === "historial" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-            <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between sticky top-0">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
               <h3 className="font-semibold text-sm">Historial de Cortes</h3>
               <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>

@@ -11,11 +11,11 @@ const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura
 const ESTADOS = ["Todos", "cerrada", "cancelada"];
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
-  const tonos = { slate: "text-slate-700", verde: "text-emerald-600", rojo: "text-red-600" };
+  const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
   return (
-    <button onClick={onClick} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200 transition-colors">
-      <Icono size={20} className={tonos[tono]} />
-      <span className="text-[11px] font-medium text-slate-700 whitespace-nowrap">{etiqueta} ({atajo})</span>
+    <button onClick={onClick} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors">
+      <Icono size={18} className={tonos[tono]} />
+      <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
     </button>
   );
 }
@@ -130,35 +130,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      <div className="bg-blue-700 text-white flex items-stretch justify-between shrink-0">
-        <div className="flex">
-          <button onClick={onVolverAVenta} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-            <LayoutGrid size={20} /><span className="text-[11px] font-medium">Operaciones</span>
-          </button>
-          <button className="flex flex-col items-center justify-center gap-1 px-5 py-2 bg-blue-800">
-            <Search size={20} /><span className="text-[11px] font-medium">Consultas</span>
-          </button>
-          {[["Procesos", Settings], ["Reportes", FileBarChart], ["Estadísticas", PieChart], ["Configuración", Wrench]].map(([texto2, Icono]) => (
-            <button key={texto2} onClick={() => mostrarAviso(`${texto2}: fuera del alcance de este prototipo`)} className="flex flex-col items-center justify-center gap-1 px-5 py-2 hover:bg-blue-600">
-              <Icono size={20} /><span className="text-[11px] font-medium">{texto2}</span>
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-4 pr-4 text-[11px]">
-          <div className="flex flex-col items-end leading-tight">
-            <span className="flex items-center gap-1"><Package size={13} /> Caja 1</span>
-            <span className="flex items-center gap-1"><ShoppingCart size={13} /> Ventas (F1)</span>
-          </div>
-          <span className="flex flex-col items-center gap-0.5"><Cloud size={18} /><span>Nube</span></span>
-          <span className="flex flex-col items-center gap-0.5"><Info size={18} /><span>Info</span></span>
-          <span className="flex flex-col items-center gap-0.5"><UserCircle2 size={18} /><span>admin</span></span>
-          {onVolverInicio && (
-            <button onClick={onVolverInicio} className="ml-2 flex items-center gap-1 bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-[11px] font-medium">← Inicio</button>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-slate-100 border-b border-slate-300 flex overflow-x-auto shrink-0">
+      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
         {puede("cancelar_ventas") && <BotonBarra icono={Ban} etiqueta="Cancelar" atajo="F6" tono="rojo" onClick={abrirCancelar} />}
@@ -209,7 +181,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
               {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
             </select>
           </div>
-          <button onClick={consultar} className="bg-blue-700 hover:bg-blue-800 text-white px-4 py-1.5 rounded text-sm font-medium">Consultar</button>
+          <button onClick={consultar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">Consultar</button>
         </div>
         <div className="flex items-center gap-2">
           <Search size={16} className="text-slate-400" />
@@ -222,7 +194,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           <p className="text-center text-slate-400 py-16">Consultando...</p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-slate-700 text-white sticky top-0">
+            <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>
@@ -270,7 +242,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       {modal === "detalle" && detalle && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
-            <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between sticky top-0">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
               <h3 className="font-semibold text-sm">Detalle — Folio {detalle.id}</h3>
               <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>
