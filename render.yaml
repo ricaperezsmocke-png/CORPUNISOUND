@@ -20,4 +20,4 @@ services:
     staticPublishPath: ./dist
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: https://punto-de-venta-backend.onrender.com/api

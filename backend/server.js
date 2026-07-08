@@ -39,7 +39,15 @@ const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
-const { cargar, guardar } = require("./persistencia");
+
+let cargar = () => null, guardar = () => {};
+try {
+  const p = require("./persistencia");
+  cargar = p.cargar; guardar = p.guardar;
+  console.log("✅ Módulo de persistencia SQLite cargado");
+} catch (e) {
+  console.warn("⚠️  Persistencia SQLite no disponible — los datos solo vivirán en memoria:", e.message);
+}
 
 const app = express();
 app.use(cors({
