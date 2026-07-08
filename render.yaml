@@ -8,6 +8,10 @@ services:
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        value: https://punto-de-venta-frontend.onrender.com
 
   - type: web
     name: punto-de-venta-frontend

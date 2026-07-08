@@ -41,7 +41,9 @@ const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = requi
 const { armarSesion } = require("./sesion");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
+}));
 app.use(express.json());
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
@@ -511,7 +513,7 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
 });
 
 // ---------- Configuración general del POS ----------
-app.get("/api/configuracion", (req, res) => res.json(obtenerConfiguracion(DB)));
+app.get("/api/configuracion", requiereLogin, (req, res) => res.json(obtenerConfiguracion(DB)));
 app.put("/api/configuracion", requiereLogin, requierePermiso("editar_configuracion_pos", resolverPermisosDeRol), (req, res) => {
   try { res.json(actualizarConfiguracion(DB, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
@@ -545,11 +547,11 @@ app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", re
 
 
 // ---------- Condiciones por forma de pago (configurable por sucursal) ----------
-app.get("/api/condiciones-pago", (req, res) => {
+app.get("/api/condiciones-pago", requiereLogin, (req, res) => {
   const sucursal_id = req.query.sucursal_id ? Number(req.query.sucursal_id) : 1;
   res.json(listarCondiciones(DB, sucursal_id));
 });
-app.put("/api/condiciones-pago/:id", (req, res) => {
+app.put("/api/condiciones-pago/:id", requiereLogin, requierePermiso("editar_configuracion_pos", resolverPermisosDeRol), (req, res) => {
   try { res.json(actualizarCondicion(DB, req.params.id, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
