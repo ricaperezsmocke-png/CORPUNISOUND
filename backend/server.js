@@ -612,7 +612,7 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
   }
 });
 
-const PUERTO = 4000;
+const PUERTO = process.env.PORT || 4000;
 
 // Guardia obligatorio: si algún módulo/permiso no está bien registrado para
 // Roles y Personal, esto lanza un error y el backend NO levanta.

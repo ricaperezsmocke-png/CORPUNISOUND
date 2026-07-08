@@ -5,7 +5,9 @@
  * la respeta para quien tiene "ver_todas_las_sucursales".
  */
 
-export const API = "http://localhost:4000/api";
+// En producción, define VITE_API_URL (ej: https://mi-backend.onrender.com/api)
+// al construir el frontend. Sin esa variable, cae a localhost para desarrollo.
+export const API = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
 export async function apiFetch(ruta, opciones = {}) {
   const token = localStorage.getItem("token");

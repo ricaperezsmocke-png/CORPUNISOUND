@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Lock, User, Sparkles } from "lucide-react";
 
-const API = "http://localhost:4000/api";
+const API = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
 export default function Login({ onIngreso }) {
   const [necesitaSetup, setNecesitaSetup] = useState(null);
