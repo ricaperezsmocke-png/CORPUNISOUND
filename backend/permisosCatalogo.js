@@ -59,6 +59,7 @@ const PERMISOS = [
   // ---- Corte de Caja ----
   { clave: "realizar_corte_caja", etiqueta: "Realizar Corte de Caja", modulo: "corte", implementado: true },
   { clave: "ver_historial_cortes", etiqueta: "Ver Historial de Cortes de Caja", modulo: "corte", implementado: true },
+  { clave: "ver_montos_corte", etiqueta: "Ver Montos Calculados en el Corte de Caja", modulo: "corte", implementado: true },
   { clave: "registrar_propina", etiqueta: "Registrar Propina (restaurante)", modulo: "pos", implementado: false },
 
   // ---- Inventario y Productos ----

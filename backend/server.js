@@ -30,7 +30,7 @@ const {
 } = require("./crm");
 const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta } = require("./ventas");
 const { obtenerConfiguracion, actualizarConfiguracion } = require("./configuracion");
-const { calcularCorteEnCurso, crearCorte, listarCortes } = require("./cortes");
+const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
@@ -519,10 +519,12 @@ app.put("/api/configuracion", requiereLogin, requierePermiso("editar_configuraci
 
 // ---------- Corte de Caja ----------
 app.get("/api/cortes/en-curso", requiereLogin, (req, res) => {
-  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  const alcance = alcanceSucursal(req, permisos);
   // El corte en curso es siempre de UNA sucursal concreta. Global sin elegir → default a la 1.
   const sucursal_id = alcance.verTodas ? (Number(req.query.sucursal_id) || 1) : alcance.sucursalId;
-  res.json(calcularCorteEnCurso(DB, sucursal_id));
+  const resultado = calcularCorteEnCurso(DB, sucursal_id);
+  res.json(filtrarCorteEnCursoPorPermiso(resultado, permisos));
 });
 app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));

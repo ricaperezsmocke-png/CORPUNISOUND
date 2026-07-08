@@ -108,10 +108,33 @@ function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {},
   return corte;
 }
 
+/**
+ * Corte a ciegas: sin "ver_montos_corte" el cajero cuenta el dinero físico
+ * sin ver cuánto "debería" haber, así no puede ajustar su conteo para que
+ * "cuadre" a propósito. Se ponen en 0 calculado, total_calculado,
+ * transferencias, crédito y ventas_incluidas (server-side, para que ni por
+ * curl se vea el real). El POST /api/cortes no pasa por aquí: el corte
+ * siempre se guarda con los montos reales, para que un administrativo
+ * pueda revisar después en el historial si hubo faltantes.
+ */
+function filtrarCorteEnCursoPorPermiso(resultado, permisos) {
+  if (Array.isArray(permisos) && permisos.includes("ver_montos_corte")) return resultado;
+  const calculadoEnCero = {};
+  FORMAS_CORTE.forEach((f) => (calculadoEnCero[f] = 0));
+  return {
+    desde: resultado.desde,
+    ventas_incluidas: 0,
+    calculado: calculadoEnCero,
+    total_calculado: 0,
+    transferencias: 0,
+    credito: 0,
+  };
+}
+
 function listarCortes(DB, sucursal_id) {
   let lista = [...DB.pos.cortes_caja];
   if (sucursal_id) lista = lista.filter((c) => c.sucursal_id === Number(sucursal_id));
   return lista.sort((a, b) => b.fecha_hora.localeCompare(a.fecha_hora));
 }
 
-module.exports = { calcularCorteEnCurso, crearCorte, listarCortes, FORMAS_CORTE };
+module.exports = { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso, FORMAS_CORTE };

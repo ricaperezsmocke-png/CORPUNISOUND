@@ -7,6 +7,7 @@ import AdminRoles from "./AdminRoles.jsx";
 import CRM from "./CRM.jsx";
 import CorteCaja from "./CorteCaja.jsx";
 import SelectorSucursal from "./SelectorSucursal.jsx";
+import { apiFetch } from "./api";
 
 function App() {
   const [usuario, setUsuario] = useState(null);
@@ -16,7 +17,30 @@ function App() {
   useEffect(() => {
     const guardado = localStorage.getItem("usuario");
     const token = localStorage.getItem("token");
-    if (guardado && token) setUsuario(JSON.parse(guardado));
+    if (guardado && token) {
+      setUsuario(JSON.parse(guardado));
+      // Refresca la sesión contra el backend: si un administrador cambió el
+      // rol o los permisos de este usuario después de que inició sesión, esto
+      // lo recoge (con recargar la página) sin que tenga que cerrar sesión y
+      // volver a entrar. Antes, permisos/rol quedaban congelados desde el
+      // login y un cambio de permisos no surtía efecto hasta el siguiente
+      // inicio de sesión.
+      apiFetch("/auth/yo")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((fresco) => {
+          if (!fresco) return;
+          localStorage.setItem("usuario", JSON.stringify(fresco));
+          setUsuario(fresco);
+          // Si cambió ver_todas, la sucursal activa guardada puede quedar
+          // inconsistente (p.ej. "todas" para alguien que ya no ve todas).
+          const sucursalGuardada = localStorage.getItem("sucursal_activa");
+          const invalida = fresco.ver_todas ? false : sucursalGuardada === "todas";
+          if (!sucursalGuardada || invalida) {
+            localStorage.setItem("sucursal_activa", fresco.ver_todas ? "todas" : String(fresco.sucursal_id));
+          }
+        })
+        .catch(() => {}); // sin conexión: seguimos con lo que había en localStorage
+    }
     setCargandoSesion(false);
   }, []);
 
