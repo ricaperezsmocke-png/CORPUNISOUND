@@ -39,6 +39,7 @@ const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
+const { cargar, guardar } = require("./persistencia");
 
 const app = express();
 app.use(cors({
@@ -160,6 +161,21 @@ const DB = {
 
 sembrarRolesIniciales(DB);
 
+// Restaurar estado guardado en SQLite (si existe)
+const estadoGuardado = cargar();
+if (estadoGuardado) {
+  for (const modulo of Object.keys(DB)) {
+    if (estadoGuardado[modulo]) {
+      for (const tabla of Object.keys(DB[modulo])) {
+        if (estadoGuardado[modulo][tabla] !== undefined) {
+          DB[modulo][tabla] = estadoGuardado[modulo][tabla];
+        }
+      }
+    }
+  }
+  console.log("✅ Datos restaurados desde almacenamiento persistente");
+}
+
 function listarModulosYTablas() {
   return Object.entries(DB).map(([id, tablas]) => ({ id, tablas: Object.keys(tablas) }));
 }
@@ -253,6 +269,18 @@ const resolverPermisosDeRol = (rolId) => permisosDeRol(DB, rolId);
 // usuario puede ver TODAS las sucursales o está amarrado a la suya.
 const resolverAlcance = (req) => alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
 
+// Auto-persistencia: guarda el DB después de cada mutación exitosa
+app.use((req, res, next) => {
+  if (!["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) return next();
+  const jsonOriginal = res.json.bind(res);
+  res.json = function (datos) {
+    const resultado = jsonOriginal(datos);
+    if (res.statusCode < 400) guardar(DB);
+    return resultado;
+  };
+  next();
+});
+
 app.get("/api/salud", (req, res) => res.json({ ok: true, modulos: listarModulosYTablas() }));
 
 app.get("/api/predicciones", requiereLogin, (req, res) => {
@@ -310,7 +338,7 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
 app.get("/api/productos/generar-clave", (req, res) => res.json({ clave: generarClave() }));
 
 app.get("/api/categorias", (req, res) => res.json(listarCategorias(DB)));
-app.post("/api/categorias", (req, res) => {
+app.post("/api/categorias", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearCategoria(DB, req.body.nombre)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -624,5 +652,8 @@ app.listen(PUERTO, () => {
   console.log(`Backend corriendo en http://localhost:${PUERTO}`);
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log("⚠️  No hay ANTHROPIC_API_KEY configurada — copia .env.example a .env y pega tu key");
+  }
+  if (!process.env.JWT_SECRET) {
+    console.log("🚨 JWT_SECRET no configurado — usando clave temporal. Los tokens se invalidan al reiniciar el servidor. Configura JWT_SECRET en las variables de entorno de Render.");
   }
 });
