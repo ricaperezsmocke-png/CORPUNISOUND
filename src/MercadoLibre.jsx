@@ -239,13 +239,13 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-        <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between shrink-0">
           <h2 className="font-semibold text-slate-800 text-sm">Editar publicación</h2>
           <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
         </div>
 
-        <form onSubmit={enviar} className="p-5 flex flex-col gap-3">
+        <form onSubmit={enviar} className="p-5 flex flex-col gap-3 overflow-y-auto">
           {/* Miniatura */}
           {item.thumbnail && (
             <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
