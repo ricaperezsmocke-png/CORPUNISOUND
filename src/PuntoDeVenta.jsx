@@ -98,6 +98,8 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [clientes, setClientes] = useState([{ id: 0, nombre: "Público en General", tipo: "menudeo", credito_disponible: 0 }]);
 
   const [categorias, setCategorias] = useState([]);
+  const [departamentos, setDepartamentos] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
 
   const [carrito, setCarrito] = useState([]);
   const [codigoInput, setCodigoInput] = useState("");
@@ -115,6 +117,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [busquedaTexto, setBusquedaTexto] = useState("");
   const [filtroDepartamento, setFiltroDepartamento] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
+  const [filtroProveedor, setFiltroProveedor] = useState("");
   const [soloPromos, setSoloPromos] = useState(false);
   const [sinUtilidad, setSinUtilidad] = useState(false);
   const [paginaBusqueda, setPaginaBusqueda] = useState(1);
@@ -171,6 +174,20 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     } catch { /* silencioso */ }
   }, []);
 
+  const cargarDepartamentos = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/departamentos`);
+      if (r.ok) setDepartamentos(await r.json());
+    } catch { /* silencioso */ }
+  }, []);
+
+  const cargarProveedores = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/proveedores`);
+      if (r.ok) setProveedores(await r.json());
+    } catch { /* silencioso */ }
+  }, []);
+
   const cargarCondicionesPago = useCallback(async () => {
     try {
       const r = await apiFetch(`/condiciones-pago?sucursal_id=1`);
@@ -198,7 +215,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     } catch { /* si falla, se usan los valores por defecto ya establecidos */ }
   }, []);
 
-  useEffect(() => { cargarProductos(); cargarClientes(); cargarCategorias(); cargarCondicionesPago(); cargarConfiguracion(); }, [cargarProductos, cargarClientes, cargarCategorias, cargarCondicionesPago, cargarConfiguracion]);
+  useEffect(() => { cargarProductos(); cargarClientes(); cargarCategorias(); cargarDepartamentos(); cargarProveedores(); cargarCondicionesPago(); cargarConfiguracion(); }, [cargarProductos, cargarClientes, cargarCategorias, cargarDepartamentos, cargarProveedores, cargarCondicionesPago, cargarConfiguracion]);
 
   // Consultas de Ventas y Configuración viven dentro de este mismo componente
   // (solo cambian de "vista", no se remonta la página) — si desde ahí se
@@ -457,11 +474,6 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   useEffect(() => { inputCodigoRef.current?.focus(); }, [modal]);
 
-  const departamentos = useMemo(
-    () => [...new Set(productos.map((p) => p.departamento).filter(Boolean))],
-    [productos]
-  );
-
   const productosFiltrados = useMemo(() => {
     let lista = productos.filter(
       (p) =>
@@ -469,12 +481,13 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         p.sku.toLowerCase().includes(busquedaTexto.toLowerCase()) ||
         (p.codigo || "").includes(busquedaTexto)
     );
-    if (filtroDepartamento) lista = lista.filter((p) => p.departamento === filtroDepartamento);
+    if (filtroDepartamento) lista = lista.filter((p) => String(p.departamento_id) === filtroDepartamento);
     if (filtroCategoria) lista = lista.filter((p) => String(p.categoria_id) === filtroCategoria);
+    if (filtroProveedor) lista = lista.filter((p) => String(p.proveedor_id) === filtroProveedor);
     if (soloPromos) lista = lista.filter((p) => p.promocion);
     if (sinUtilidad) lista = lista.filter((p) => Number(p.precio_venta) <= Number(p.costo));
     return lista;
-  }, [productos, busquedaTexto, filtroDepartamento, filtroCategoria, soloPromos, sinUtilidad]);
+  }, [productos, busquedaTexto, filtroDepartamento, filtroCategoria, filtroProveedor, soloPromos, sinUtilidad]);
 
   const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / RESULTADOS_POR_PAGINA));
   const productosPagina = productosFiltrados.slice((paginaBusqueda - 1) * RESULTADOS_POR_PAGINA, paginaBusqueda * RESULTADOS_POR_PAGINA);
@@ -746,11 +759,15 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             </label>
             <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
               <option value="">Todos los departamentos</option>
-              {departamentos.map((d) => <option key={d} value={d}>{d}</option>)}
+              {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </select>
             <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
               <option value="">Todas las categorías</option>
               {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            <select value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+              <option value="">Todos los proveedores</option>
+              {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
           </div>
 
