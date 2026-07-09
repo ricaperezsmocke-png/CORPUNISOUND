@@ -245,7 +245,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
           <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
         </div>
 
-        <form onSubmit={enviar} className="p-5 flex flex-col gap-3 overflow-y-auto">
+        <form id="ml-edit-form" onSubmit={enviar} className="p-5 flex flex-col gap-3 overflow-y-auto flex-1 min-h-0">
           {/* Miniatura */}
           {item.thumbnail && (
             <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
@@ -334,19 +334,20 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
           </div>
 
           {error && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
-
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onCerrar}
-              className="flex-1 border border-slate-300 text-slate-600 rounded-lg py-2 text-sm hover:bg-slate-50">
-              Cancelar
-            </button>
-            <button type="submit" disabled={enviando}
-              className="flex-1 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
-              style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }}>
-              {enviando ? "Guardando..." : "Guardar cambios"}
-            </button>
-          </div>
         </form>
+
+        {/* Footer fijo — siempre visible */}
+        <div className="shrink-0 border-t border-slate-100 px-5 py-3 flex gap-2">
+          <button type="button" onClick={onCerrar}
+            className="flex-1 border border-slate-300 text-slate-600 rounded-lg py-2 text-sm hover:bg-slate-50">
+            Cancelar
+          </button>
+          <button type="submit" form="ml-edit-form" disabled={enviando}
+            className="flex-1 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+            style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }}>
+            {enviando ? "Guardando..." : "Guardar cambios"}
+          </button>
+        </div>
       </div>
     </div>
   );
