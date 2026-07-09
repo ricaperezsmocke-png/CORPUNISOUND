@@ -41,7 +41,8 @@ const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = requi
 const { armarSesion } = require("./sesion");
 const {
   intercambiarCodigo, urlAutorizacion, listarPublicaciones,
-  publicarProducto, actualizarStockML, listarOrdenes, importarOrdenComoVenta,
+  publicarProducto, actualizarStockML, actualizarPublicacion,
+  listarOrdenes, importarOrdenComoVenta,
 } = require("./mercadolibre");
 
 let cargar = () => null, guardar = () => {};
@@ -717,6 +718,11 @@ app.post("/api/ml/publicar", requiereLogin, requierePermiso("crear_producto", re
 
 app.put("/api/ml/publicaciones/:itemId/stock", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await actualizarStockML(DB, req.params.itemId, Number(req.body.cantidad))); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/ml/publicaciones/:itemId", requiereLogin, requierePermiso("editar_producto", resolverPermisosDeRol), async (req, res) => {
+  try { res.json(await actualizarPublicacion(DB, req.params.itemId, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

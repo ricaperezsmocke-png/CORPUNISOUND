@@ -171,10 +171,50 @@ async function actualizarStockML(DB, mlItemId, cantidad) {
     body:    JSON.stringify({ available_quantity: cantidad }),
   });
   if (!r.ok) throw new Error("Error al actualizar stock en ML");
-  // Actualizar DB local
   const pub = DB.ml.publicaciones.find((p) => p.ml_item_id === mlItemId);
   if (pub) { pub.cantidad = cantidad; pub.sincronizado = new Date().toISOString(); }
   return await r.json();
+}
+
+async function actualizarPublicacion(DB, mlItemId, cambios) {
+  const token = await tokenActivo(DB);
+  const { descripcion, ...campos } = cambios;
+
+  // Campos principales: titulo → title, precio → price, cantidad → available_quantity, estado → status
+  const body = {};
+  if (campos.title             !== undefined) body.title              = campos.title;
+  if (campos.price             !== undefined) body.price              = Number(campos.price);
+  if (campos.available_quantity !== undefined) body.available_quantity = Number(campos.available_quantity);
+  if (campos.status            !== undefined) body.status             = campos.status;
+
+  if (Object.keys(body).length > 0) {
+    const r = await fetch(`${ML_API}/items/${mlItemId}`, {
+      method: "PUT", headers: mlHeaders(token), body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.message || `Error ML ${r.status}`);
+    }
+  }
+
+  // Descripción va en endpoint separado
+  if (descripcion !== undefined) {
+    await fetch(`${ML_API}/items/${mlItemId}/description`, {
+      method: "PUT", headers: mlHeaders(token),
+      body: JSON.stringify({ plain_text: descripcion }),
+    });
+  }
+
+  // Sincronizar registro local
+  const pub = DB.ml.publicaciones.find((p) => p.ml_item_id === mlItemId);
+  if (pub) {
+    if (body.title)              pub.titulo   = body.title;
+    if (body.price)              pub.precio   = body.price;
+    if (body.available_quantity !== undefined) pub.cantidad = body.available_quantity;
+    if (body.status)             pub.estado   = body.status;
+    pub.sincronizado = new Date().toISOString();
+  }
+  return { ok: true };
 }
 
 // ── Órdenes ───────────────────────────────────────────────────────────────────
@@ -258,6 +298,6 @@ async function importarOrdenComoVenta(DB, ordenId) {
 
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
-  listarPublicaciones, publicarProducto, actualizarStockML,
+  listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
   listarOrdenes, importarOrdenComoVenta,
 };

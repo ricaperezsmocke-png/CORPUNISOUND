@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   RefreshCw, Link, Link2Off, ShoppingBag, Package, PlusCircle,
-  Settings, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle,
-  ArrowUpDown, Banknote
+  Settings, ExternalLink, CheckCircle, XCircle, AlertTriangle,
+  ArrowUpDown, Banknote, Pencil, Pause, Play
 } from "lucide-react";
 import { apiFetch, API } from "./api";
 
@@ -187,6 +187,118 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
   );
 }
 
+// ── Modal Editar publicación ───────────────────────────────────────────────────
+
+function ModalEditar({ item, onGuardar, onCerrar }) {
+  const [form, setForm] = useState({
+    title:              item.title              || "",
+    price:              String(item.price       || ""),
+    available_quantity: String(item.available_quantity ?? ""),
+    status:             item.status             || "active",
+    descripcion:        "",
+  });
+  const [enviando, setEnviando] = useState(false);
+  const [error,    setError]    = useState(null);
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const enviar = async (e) => {
+    e.preventDefault();
+    setError(null); setEnviando(true);
+    try {
+      await onGuardar(item.id, {
+        title:              form.title,
+        price:              Number(form.price),
+        available_quantity: Number(form.available_quantity),
+        status:             form.status,
+        descripcion:        form.descripcion || undefined,
+      });
+      onCerrar();
+    } catch (err) { setError(err.message); }
+    finally { setEnviando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800 text-sm">Editar publicación</h2>
+          <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        <form onSubmit={enviar} className="p-5 flex flex-col gap-3">
+          {/* Miniatura */}
+          {item.thumbnail && (
+            <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+              <img src={item.thumbnail} alt="" className="w-12 h-12 object-cover rounded" />
+              <div>
+                <p className="text-xs text-slate-400">ID: {item.id}</p>
+                <a href={item.permalink} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-[#1a7fe8] hover:underline flex items-center gap-1">
+                  Ver en MercadoLibre <ExternalLink size={10} />
+                </a>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Título *</label>
+            <input required value={form.title} onChange={(e) => set("title", e.target.value)}
+              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Precio (MXN) *</label>
+              <input required type="number" step="0.01" min="0"
+                value={form.price} onChange={(e) => set("price", e.target.value)}
+                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Cantidad disponible *</label>
+              <input required type="number" min="0"
+                value={form.available_quantity} onChange={(e) => set("available_quantity", e.target.value)}
+                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Estado</label>
+            <select value={form.status} onChange={(e) => set("status", e.target.value)}
+              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm">
+              <option value="active">Activa</option>
+              <option value="paused">Pausada</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">
+              Descripción <span className="text-slate-400">(dejar vacío para no cambiar)</span>
+            </label>
+            <textarea value={form.descripcion} onChange={(e) => set("descripcion", e.target.value)}
+              rows={3} placeholder="Nueva descripción del producto..."
+              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm resize-none" />
+          </div>
+
+          {error && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
+
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onCerrar}
+              className="flex-1 border border-slate-300 text-slate-600 rounded-lg py-2 text-sm hover:bg-slate-50">
+              Cancelar
+            </button>
+            <button type="submit" disabled={enviando}
+              className="flex-1 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+              style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }}>
+              {enviando ? "Guardando..." : "Guardar cambios"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export default function MercadoLibre({ onVolver, permisos }) {
@@ -198,6 +310,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const [cargando, setCargando]         = useState(false);
   const [aviso, setAviso]               = useState(null);
   const [modalPublicar, setModalPublicar] = useState(false);
+  const [itemEditar, setItemEditar]     = useState(null);
   const [importando, setImportando]     = useState(null);
 
   const mostrarAviso = (msg) => { setAviso(msg); setTimeout(() => setAviso(null), 3000); };
@@ -281,6 +394,26 @@ export default function MercadoLibre({ onVolver, permisos }) {
       if (r.ok) mostrarAviso("✅ Orden importada como venta en el sistema");
       else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
     } finally { setImportando(null); }
+  };
+
+  const editarPublicacion = async (itemId, cambios) => {
+    const r = await apiFetch(`/ml/publicaciones/${itemId}`, {
+      method: "PUT", body: JSON.stringify(cambios),
+    });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.error); }
+    mostrarAviso("✅ Publicación actualizada");
+    cargarPublicaciones();
+  };
+
+  const toggleEstado = async (item) => {
+    const nuevoEstado = item.status === "active" ? "paused" : "active";
+    const r = await apiFetch(`/ml/publicaciones/${item.id}`, {
+      method: "PUT", body: JSON.stringify({ status: nuevoEstado }),
+    });
+    if (r.ok) {
+      mostrarAviso(nuevoEstado === "paused" ? "⏸ Publicación pausada" : "▶ Publicación reactivada");
+      cargarPublicaciones();
+    } else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
   };
 
   const actualizarStock = async (itemId, cantidadActual) => {
@@ -404,12 +537,15 @@ export default function MercadoLibre({ onVolver, permisos }) {
                         </td>
                         <td className="px-3 py-2 text-center"><BadgeEstado estado={item.status} /></td>
                         <td className="px-3 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              onClick={() => actualizarStock(item.id, item.available_quantity)}
-                              title="Ajustar stock"
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => setItemEditar(item)} title="Editar"
                               className="p-1.5 rounded hover:bg-blue-50 text-[#1a7fe8]">
-                              <ArrowUpDown size={14} />
+                              <Pencil size={14} />
+                            </button>
+                            <button onClick={() => toggleEstado(item)}
+                              title={item.status === "active" ? "Pausar" : "Reactivar"}
+                              className={`p-1.5 rounded ${item.status === "active" ? "hover:bg-amber-50 text-amber-500" : "hover:bg-green-50 text-green-600"}`}>
+                              {item.status === "active" ? <Pause size={14} /> : <Play size={14} />}
                             </button>
                             <a href={item.permalink} target="_blank" rel="noopener noreferrer"
                               title="Ver en ML"
@@ -563,6 +699,15 @@ export default function MercadoLibre({ onVolver, permisos }) {
           </div>
         )}
       </div>
+
+      {/* Modal editar */}
+      {itemEditar && (
+        <ModalEditar
+          item={itemEditar}
+          onGuardar={editarPublicacion}
+          onCerrar={() => setItemEditar(null)}
+        />
+      )}
 
       {/* Modal publicar */}
       {modalPublicar && (
