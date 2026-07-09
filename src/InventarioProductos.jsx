@@ -36,7 +36,7 @@ const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm f
 
 const FORM_VACIO = {
   clave: "", clave_alterna: "", servicio: false, descripcion: "",
-  categoria_id: "", departamento: "", proveedor_id: "",
+  categoria_id: "", departamento_id: "", proveedor_id: "",
   unidad_compra: "PZA", unidad_venta: "PZA", factor: 1,
   iva: false, precio_compra: "", neto: true,
   precios: [{ utilidad: "", precioVenta: 0 }, { utilidad: "", precioVenta: 0 }, { utilidad: "", precioVenta: 0 }, { utilidad: "", precioVenta: 0 }],
@@ -50,6 +50,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [proveedores, setProveedores] = useState([]);
+  const [departamentos, setDepartamentos] = useState([]);
   const [filtro, setFiltro] = useState("");
   const [seleccionadoId, setSeleccionadoId] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -69,13 +70,14 @@ export default function InventarioProductos({ onVolver, permisos }) {
     setCargando(true);
     setError(null);
     try {
-      const [rProd, rCat, rProv] = await Promise.all([
-        apiFetch(`/productos`), apiFetch(`/categorias`), apiFetch(`/proveedores`)
+      const [rProd, rCat, rProv, rDep] = await Promise.all([
+        apiFetch(`/productos`), apiFetch(`/categorias`), apiFetch(`/proveedores`), apiFetch(`/departamentos`)
       ]);
-      if (!rProd.ok || !rCat.ok || !rProv.ok) throw new Error("El backend respondió con error");
+      if (!rProd.ok || !rCat.ok || !rProv.ok || !rDep.ok) throw new Error("El backend respondió con error");
       setProductos(await rProd.json());
       setCategorias(await rCat.json());
       setProveedores(await rProv.json());
+      setDepartamentos(await rDep.json());
     } catch (e) {
       setError("No se pudo conectar con el backend (http://localhost:4000). ¿Está corriendo `npm start` dentro de /backend?");
     } finally {
@@ -110,7 +112,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
     setForm({
       clave: seleccionado.sku, clave_alterna: seleccionado.clave_alterna || "",
       servicio: seleccionado.servicio, descripcion: seleccionado.nombre,
-      categoria_id: seleccionado.categoria_id || "", departamento: seleccionado.departamento || "",
+      categoria_id: seleccionado.categoria_id || "", departamento_id: seleccionado.departamento_id || "",
       proveedor_id: seleccionado.proveedor_id || "",
       unidad_compra: seleccionado.unidad_compra, unidad_venta: seleccionado.unidad_venta, factor: seleccionado.factor,
       iva: seleccionado.iva, precio_compra: seleccionado.costo, neto: seleccionado.neto,
@@ -163,7 +165,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
   const guardarProducto = async () => {
     if (!form.descripcion.trim()) return mostrarAviso("La descripción es obligatoria");
     try {
-      const payload = { ...form, categoria_id: form.categoria_id || null, proveedor_id: form.proveedor_id || null };
+      const payload = { ...form, categoria_id: form.categoria_id || null, proveedor_id: form.proveedor_id || null, departamento_id: form.departamento_id || null };
       const url = modoForm === "crear" ? `/productos` : `/productos/${seleccionado.id}`;
       const metodo = modoForm === "crear" ? "POST" : "PUT";
       const r = await apiFetch(url, { method: metodo, body: JSON.stringify(payload) });
@@ -232,6 +234,30 @@ export default function InventarioProductos({ onVolver, permisos }) {
       if (!r.ok) throw new Error(nueva.error);
       setCategorias((prev) => [...prev, nueva]);
       setForm((f) => ({ ...f, categoria_id: nueva.id }));
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const crearProveedorRapido = async () => {
+    const nombre = prompt("Nombre del nuevo proveedor:");
+    if (!nombre) return;
+    try {
+      const r = await apiFetch(`/proveedores`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) });
+      const nuevo = await r.json();
+      if (!r.ok) throw new Error(nuevo.error);
+      setProveedores((prev) => [...prev, nuevo]);
+      setForm((f) => ({ ...f, proveedor_id: nuevo.id }));
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const crearDepartamentoRapido = async () => {
+    const nombre = prompt("Nombre del nuevo departamento:");
+    if (!nombre) return;
+    try {
+      const r = await apiFetch(`/departamentos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) });
+      const nuevo = await r.json();
+      if (!r.ok) throw new Error(nuevo.error);
+      setDepartamentos((prev) => [...prev, nuevo]);
+      setForm((f) => ({ ...f, departamento_id: nuevo.id }));
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
@@ -416,13 +442,22 @@ export default function InventarioProductos({ onVolver, permisos }) {
                   </div>
                 </Campo>
                 <Campo label="Proveedor">
-                  <select className={inputCls} value={form.proveedor_id} onChange={(e) => setForm({ ...form, proveedor_id: e.target.value })}>
-                    <option value="">Sin definir</option>
-                    {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                  </select>
+                  <div className="flex gap-1">
+                    <select className={inputCls} value={form.proveedor_id} onChange={(e) => setForm({ ...form, proveedor_id: e.target.value })}>
+                      <option value="">Sin definir</option>
+                      {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                    </select>
+                    <button onClick={crearProveedorRapido} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nuevo proveedor"><Plus size={14} /></button>
+                  </div>
                 </Campo>
                 <Campo label="Departamento">
-                  <input className={inputCls} value={form.departamento} onChange={(e) => setForm({ ...form, departamento: e.target.value })} placeholder="Sin definir" />
+                  <div className="flex gap-1">
+                    <select className={inputCls} value={form.departamento_id} onChange={(e) => setForm({ ...form, departamento_id: e.target.value })}>
+                      <option value="">Sin definir</option>
+                      {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                    </select>
+                    <button onClick={crearDepartamentoRapido} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nuevo departamento"><Plus size={14} /></button>
+                  </div>
                 </Campo>
               </div>
 
