@@ -52,6 +52,7 @@ function construirDBPrueba() {
       movimientos_inventario: [],
       compras: [],
       compra_detalle: [],
+      traspasos: [],
     },
     "catalogo-productos": {
       productos: [
