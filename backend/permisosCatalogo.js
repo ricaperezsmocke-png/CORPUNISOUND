@@ -68,6 +68,7 @@ const PERMISOS = [
   { clave: "eliminar_producto", etiqueta: "Eliminar Artículo", modulo: "inventario", implementado: true },
   { clave: "clonar_producto", etiqueta: "Clonar Artículo", modulo: "inventario", implementado: true },
   { clave: "ajustar_existencia", etiqueta: "Ajustar Inventario", modulo: "inventario", implementado: true },
+  { clave: "realizar_traspasos", etiqueta: "Realizar Traspasos entre Sucursales", modulo: "inventario", implementado: true },
 
   // ---- Clientes (dentro de CRM / catálogo de clientes) ----
   { clave: "crear_cliente", etiqueta: "Agregar Cliente", modulo: "crm", implementado: true },
