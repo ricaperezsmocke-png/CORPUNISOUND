@@ -529,6 +529,23 @@ app.put("/api/clientes/:id", requiereLogin, (req, res) => {
 app.get("/api/vendedores", (req, res) => res.json(DB.pos.vendedores));
 app.get("/api/sucursales", (req, res) => res.json(DB.pos.sucursales));
 
+app.put("/api/sucursales/:id/ubicacion", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+  try {
+    const sucursal = DB.pos.sucursales.find((s) => s.id === Number(req.params.id));
+    if (!sucursal) throw new Error("Sucursal no encontrada");
+    if (sucursal.ciudad === "Online") throw new Error("La sucursal virtual de MercadoLibre no usa ubicación");
+    const { lat, lng } = req.body;
+    sucursal.lat = lat !== undefined && lat !== null && lat !== "" ? Number(lat) : null;
+    sucursal.lng = lng !== undefined && lng !== null && lng !== "" ? Number(lng) : null;
+    res.json(sucursal);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/intentos-bloqueados", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+  const lista = [...DB.admin.intentos_bloqueados_ubicacion].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  res.json(lista);
+});
+
 // ---------- CRM (clientes enriquecidos con ventas reales del POS) ----------
 app.get("/api/crm/clientes", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
