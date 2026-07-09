@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { ArrowRightLeft, Send, PackageCheck, X } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { ArrowRightLeft, Send, PackageCheck, X, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiFetch } from "./api";
 
 function Campo({ label, children }) {
@@ -11,20 +11,47 @@ function Campo({ label, children }) {
   );
 }
 
+function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+          <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
+          <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
 const FORM_VACIO = { producto_id: "", cantidad: "", sucursal_destino_id: "", sucursal_origen_id: "", comentario: "" };
+const RESULTADOS_POR_PAGINA = 8;
 
 export default function Traspasos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [productos, setProductos] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [traspasos, setTraspasos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [departamentos, setDepartamentos] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
   const [tab, setTab] = useState("enviar"); // "enviar" | "pendientes" | "historial"
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState(null);
   const [form, setForm] = useState(FORM_VACIO);
   const [modalRecibir, setModalRecibir] = useState(null); // traspaso seleccionado o null
+
+  const [modalBuscar, setModalBuscar] = useState(false);
+  const [busquedaTexto, setBusquedaTexto] = useState("");
+  const [filtroCategoria, setFiltroCategoria] = useState("");
+  const [filtroDepartamento, setFiltroDepartamento] = useState("");
+  const [filtroProveedor, setFiltroProveedor] = useState("");
+  const [paginaBusqueda, setPaginaBusqueda] = useState(1);
   const [comentarioRecepcion, setComentarioRecepcion] = useState("");
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
@@ -32,15 +59,29 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
   const nombreSucursal = (id) => sucursales.find((s) => s.id === id)?.nombre || `Sucursal ${id}`;
   const nombreProducto = (id) => productos.find((p) => p.id === id)?.nombre || `Producto ${id}`;
 
+  // Sucursal origen efectiva: la propia (usuario amarrado) o la elegida en el
+  // formulario (usuario global). La existencia mostrada en el buscador debe
+  // ser siempre la de ESTA sucursal, no una suma global.
+  const origenEfectivo = usuario?.ver_todas ? (form.sucursal_origen_id || "todas") : usuario?.sucursal_id;
+
+  const cargarProductos = useCallback(async (origen) => {
+    try {
+      const r = await apiFetch(`/productos?sucursal_id=${origen || "todas"}`);
+      setProductos(await r.json());
+    } catch { /* silencioso */ }
+  }, []);
+
   const cargarTodo = useCallback(async () => {
     setCargando(true);
     try {
-      const [rProd, rSuc, rTras] = await Promise.all([
-        apiFetch(`/productos?sucursal_id=todas`), apiFetch(`/sucursales`), apiFetch(`/traspasos`)
+      const [rSuc, rTras, rCat, rDep, rProv] = await Promise.all([
+        apiFetch(`/sucursales`), apiFetch(`/traspasos`), apiFetch(`/categorias`), apiFetch(`/departamentos`), apiFetch(`/proveedores`)
       ]);
-      setProductos(await rProd.json());
       setSucursales(await rSuc.json());
       setTraspasos(await rTras.json());
+      setCategorias(await rCat.json());
+      setDepartamentos(await rDep.json());
+      setProveedores(await rProv.json());
     } catch (e) {
       mostrarAviso("❌ No se pudo conectar con el backend");
     } finally {
@@ -49,6 +90,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
   }, []);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
+  useEffect(() => { cargarProductos(origenEfectivo); }, [origenEfectivo, cargarProductos]);
 
   const enviarTraspaso = async () => {
     if (!form.producto_id) return mostrarAviso("Selecciona un producto");
@@ -62,7 +104,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Traspaso enviado — queda en tránsito hasta que destino confirme");
       setForm(FORM_VACIO);
-      await cargarTodo();
+      await Promise.all([cargarTodo(), cargarProductos(origenEfectivo)]);
       setTab("pendientes");
     } catch (e) {
       mostrarAviso("❌ " + e.message);
@@ -95,6 +137,35 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
   // en nombre de cualquier sucursal) o si su propia sucursal es el destino real.
   const puedeRecibir = (t) => !!usuario?.ver_todas || t.sucursal_destino_id === usuario?.sucursal_id;
 
+  // ---------- Buscador de producto (idéntico visualmente al de Punto de Venta) ----------
+  const productosFiltrados = useMemo(() => {
+    let lista = productos.filter(
+      (p) =>
+        p.nombre.toLowerCase().includes(busquedaTexto.toLowerCase()) ||
+        p.sku.toLowerCase().includes(busquedaTexto.toLowerCase()) ||
+        (p.codigo || "").includes(busquedaTexto)
+    );
+    if (filtroCategoria) lista = lista.filter((p) => String(p.categoria_id) === filtroCategoria);
+    if (filtroDepartamento) lista = lista.filter((p) => String(p.departamento_id) === filtroDepartamento);
+    if (filtroProveedor) lista = lista.filter((p) => String(p.proveedor_id) === filtroProveedor);
+    return lista;
+  }, [productos, busquedaTexto, filtroCategoria, filtroDepartamento, filtroProveedor]);
+
+  const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / RESULTADOS_POR_PAGINA));
+  const productosPagina = productosFiltrados.slice((paginaBusqueda - 1) * RESULTADOS_POR_PAGINA, paginaBusqueda * RESULTADOS_POR_PAGINA);
+
+  const productoSeleccionado = productos.find((p) => p.id === Number(form.producto_id)) || null;
+
+  const abrirBuscarProducto = () => {
+    setBusquedaTexto(""); setFiltroCategoria(""); setFiltroDepartamento(""); setFiltroProveedor(""); setPaginaBusqueda(1);
+    setModalBuscar(true);
+  };
+
+  const elegirProducto = (p) => {
+    setForm((f) => ({ ...f, producto_id: p.id }));
+    setModalBuscar(false);
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
@@ -115,10 +186,15 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
         ) : tab === "enviar" ? (
           <div className="max-w-md bg-white border border-slate-200 rounded-lg p-5 flex flex-col gap-3">
             <Campo label="Producto">
-              <select className={inputCls} value={form.producto_id} onChange={(e) => setForm({ ...form, producto_id: e.target.value })}>
-                <option value="">Selecciona...</option>
-                {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-              </select>
+              <button type="button" onClick={abrirBuscarProducto} className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
+                <span className={productoSeleccionado ? "text-slate-800" : "text-slate-400"}>
+                  {productoSeleccionado ? productoSeleccionado.nombre : "Buscar producto..."}
+                </span>
+                <Search size={14} className="text-slate-400 shrink-0" />
+              </button>
+              {productoSeleccionado && (
+                <p className="text-[11px] text-slate-500 mt-1">Existencia en origen: <b>{productoSeleccionado.existencia}</b></p>
+              )}
             </Campo>
             <Campo label="Cantidad">
               <input type="number" className={inputCls} value={form.cantidad} onChange={(e) => setForm({ ...form, cantidad: e.target.value })} />
@@ -204,6 +280,65 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
             </div>
           </div>
         </div>
+      )}
+
+      {modalBuscar && (
+        <Modal titulo="Buscar producto" onCerrar={() => setModalBuscar(false)} ancho="max-w-3xl">
+          <input
+            autoFocus
+            value={busquedaTexto}
+            onChange={(e) => { setBusquedaTexto(e.target.value); setPaginaBusqueda(1); }}
+            placeholder="Clave, descripción o código de barras..."
+            className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+          />
+          <div className="flex flex-wrap gap-4 mb-3 text-sm">
+            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+              <option value="">Todos los departamentos</option>
+              {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+            </select>
+            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+              <option value="">Todas las categorías</option>
+              {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            <select value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+              <option value="">Todos los proveedores</option>
+              {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+
+          <div className="max-h-96 overflow-y-auto border border-slate-200 rounded">
+            <table className="w-full text-sm">
+              <thead className="bg-[#1a7fe8] text-white sticky top-0">
+                <tr>
+                  <th className="py-2 px-3 text-left font-medium">Clave / Descripción</th>
+                  <th className="py-2 px-3 text-center font-medium w-20">Exist.</th>
+                  <th className="py-2 px-3 text-right font-medium w-24">Precio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productosPagina.length === 0 && (
+                  <tr><td colSpan={3} className="text-center text-slate-400 py-10">Sin resultados</td></tr>
+                )}
+                {productosPagina.map((p) => (
+                  <tr key={p.id} onClick={() => elegirProducto(p)} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
+                    <td className="py-2 px-3">
+                      <div className="text-[11px] text-slate-400">{p.sku}</div>
+                      <div className="font-medium">{p.nombre}</div>
+                    </td>
+                    <td className={`py-2 px-3 text-center ${p.existencia < p.existencia_minima ? "text-red-600 font-semibold" : "text-slate-600"}`}>{p.existencia}</td>
+                    <td className="py-2 px-3 text-right font-semibold text-blue-700">${Number(p.precio_venta).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-center gap-3 mt-3">
+            <button disabled={paginaBusqueda <= 1} onClick={() => setPaginaBusqueda((p) => p - 1)} className="p-1.5 rounded border border-slate-300 disabled:opacity-30"><ChevronLeft size={16} /></button>
+            <span className="text-xs text-slate-500">Página {paginaBusqueda} de {totalPaginas}</span>
+            <button disabled={paginaBusqueda >= totalPaginas} onClick={() => setPaginaBusqueda((p) => p + 1)} className="p-1.5 rounded border border-slate-300 disabled:opacity-30"><ChevronRight size={16} /></button>
+          </div>
+        </Modal>
       )}
     </div>
   );
