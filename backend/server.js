@@ -20,7 +20,8 @@ const Anthropic = require("@anthropic-ai/sdk");
 const { predecirDemanda } = require("./predicciones");
 const {
   listarProductos, crearProducto, actualizarProducto, eliminarProducto,
-  clonarProducto, ajustarExistencia, listarCategorias, crearCategoria, generarClave
+  clonarProducto, ajustarExistencia, listarCategorias, crearCategoria,
+  listarDepartamentos, crearDepartamento, crearProveedor, generarClave
 } = require("./productos");
 const { listarClientes, obtenerCliente, crearCliente, actualizarCliente } = require("./clientes");
 const {
@@ -167,6 +168,7 @@ const DB = {
       { id: 2, nombre: "Importadora Sureste", contacto: "555-222", tiempo_entrega_dias: 10, condiciones_pago: "Contado" },
       { id: 3, nombre: "Proveedor Local Chiapas", contacto: "555-333", tiempo_entrega_dias: 2, condiciones_pago: "15 días" }
     ],
+    departamentos: [],
     producto_proveedor: []
   },
   admin: {
@@ -398,6 +400,16 @@ app.post("/api/categorias", requiereLogin, requierePermiso("crear_producto", res
 });
 
 app.get("/api/proveedores", (req, res) => res.json(DB["catalogo-productos"].proveedores));
+app.post("/api/proveedores", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
+  try { res.json(crearProveedor(DB, req.body.nombre)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/departamentos", (req, res) => res.json(listarDepartamentos(DB)));
+app.post("/api/departamentos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
+  try { res.json(crearDepartamento(DB, req.body.nombre)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 // ---------- Autenticación ----------
 
