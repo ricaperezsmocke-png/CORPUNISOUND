@@ -37,6 +37,7 @@ const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal, dentroDeAlcance } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
+const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const {
@@ -146,7 +147,8 @@ const DB = {
     ],
     movimientos_inventario: [],
     compras: [],
-    compra_detalle: []
+    compra_detalle: [],
+    traspasos: []
   },
   "catalogo-productos": {
     productos: [
@@ -326,13 +328,19 @@ app.get("/api/productos", requiereLogin, (req, res) => {
 });
 
 app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
-  try { res.json(crearProducto(DB, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(crearProducto(DB, req.body, sucursal_id));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.put("/api/productos/:id", requiereLogin, requierePermiso("editar_producto", resolverPermisosDeRol), (req, res) => {
-  try { res.json(actualizarProducto(DB, req.params.id, req.body)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(actualizarProducto(DB, req.params.id, req.body, sucursal_id));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.delete("/api/productos/:id", requiereLogin, requierePermiso("eliminar_producto", resolverPermisosDeRol), (req, res) => {
@@ -341,8 +349,11 @@ app.delete("/api/productos/:id", requiereLogin, requierePermiso("eliminar_produc
 });
 
 app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_producto", resolverPermisosDeRol), (req, res) => {
-  try { res.json(clonarProducto(DB, req.params.id)); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(clonarProducto(DB, req.params.id, sucursal_id));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), (req, res) => {
@@ -355,6 +366,30 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
 });
 
 app.get("/api/productos/generar-clave", (req, res) => res.json({ clave: generarClave() }));
+
+// ---------- Traspasos entre sucursales ----------
+app.get("/api/traspasos", requiereLogin, requierePermiso("realizar_traspasos", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarTraspasos(DB, alcance, req.query.estatus));
+});
+
+app.post("/api/traspasos", requiereLogin, requierePermiso("realizar_traspasos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_origen_id = alcance.verTodas ? (Number(req.body.sucursal_origen_id) || 1) : alcance.sucursalId;
+    res.json(crearTraspaso(DB, req.body, sucursal_origen_id, req.usuarioToken));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/traspasos/:id/recibir", requiereLogin, requierePermiso("realizar_traspasos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const traspaso = DB.inventario.traspasos.find((t) => t.id === Number(req.params.id));
+    // Usuario global: confirma en nombre de la sucursal destino real del traspaso (no necesita elegirla).
+    const sucursal_id = alcance.verTodas ? (traspaso ? traspaso.sucursal_destino_id : null) : alcance.sucursalId;
+    res.json(recibirTraspaso(DB, req.params.id, req.body, sucursal_id, req.usuarioToken));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 app.get("/api/categorias", (req, res) => res.json(listarCategorias(DB)));
 app.post("/api/categorias", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
