@@ -7,6 +7,7 @@ import SelectorSucursal from "./SelectorSucursal.jsx";
 const TITULOS = {
   pos:        "Punto de Venta",
   inventario: "Inventario y Productos",
+  traspasos:  "Traspasos entre Sucursales",
   roles:      "Roles y Personal",
   crm:        "CRM",
   corte:      "Corte de Caja",
