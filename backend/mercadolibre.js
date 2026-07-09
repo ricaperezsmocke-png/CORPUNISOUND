@@ -261,6 +261,38 @@ async function importarOrdenComoVenta(DB, ordenId) {
     });
   }
 
+  // Buscar o crear comprador en el CRM (sucursal ML = 5)
+  let clienteId = 0;
+  if (orden.buyer) {
+    const clave = `ML-${orden.buyer.id}`;
+    let cliente = DB.crm.clientes.find((c) => c.clave === clave);
+    if (!cliente) {
+      const nuevoId = DB.crm.clientes.length
+        ? Math.max(...DB.crm.clientes.map((c) => c.id)) + 1 : 1;
+      const nombre = [orden.buyer.first_name, orden.buyer.last_name]
+        .filter(Boolean).join(" ").trim() || orden.buyer.nickname || "Comprador ML";
+      cliente = {
+        id: nuevoId, clave,
+        representante: orden.buyer.nickname || nombre,
+        nombre,
+        tipo: "menudeo", rfc: "XAXX010101000",
+        email: orden.buyer.email || "", telefono: "", celular: "",
+        sujeto_credito: false, precio_lista: 1, dias_credito: 0, limite_credito: 0,
+        monedero: 0, saldo: 0, saldo_vencido: 0, fecha_vencimiento: null,
+        fecha_alta: new Date().toISOString().slice(0, 10),
+        vendedor_asignado_id: null, sucursal_id: 5,
+        estado: "compro",
+        ultimo_contacto: orden.date_created?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        ubicacion: "MercadoLibre",
+      };
+      DB.crm.clientes.push(cliente);
+    } else {
+      cliente.estado = "compro";
+      cliente.ultimo_contacto = orden.date_created?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+    }
+    clienteId = cliente.id;
+  }
+
   // Crear venta en sucursal ML (id=5)
   const sigId = DB.pos.ventas.length
     ? Math.max(...DB.pos.ventas.map((v) => v.id)) + 1 : 1;
@@ -269,7 +301,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
     fecha:       orden.date_created?.slice(0, 10) || new Date().toISOString().slice(0, 10),
     sucursal_id: 5,
     vendedor_id: null,
-    cliente_id:  0,
+    cliente_id:  clienteId,
     total:       orden.total_amount,
     metodo_pago: "mercadolibre",
     estatus:     "cerrada",

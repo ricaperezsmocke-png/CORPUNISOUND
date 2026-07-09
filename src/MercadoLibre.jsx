@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   RefreshCw, Link, Link2Off, ShoppingBag, Package, PlusCircle,
   Settings, ExternalLink, CheckCircle, XCircle, AlertTriangle,
-  ArrowUpDown, Banknote, Pencil, Pause, Play
+  ArrowUpDown, Banknote, Pencil, Pause, Play, Filter, X
 } from "lucide-react";
 import { apiFetch, API } from "./api";
 
@@ -366,6 +366,15 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const [itemEditar, setItemEditar]     = useState(null);
   const [importando, setImportando]     = useState(null);
 
+  // Filtros — publicaciones
+  const [filtroEstado,  setFiltroEstado]  = useState("");
+  const [ordenarPub,    setOrdenarPub]    = useState("");
+  // Filtros — órdenes
+  const [filtroOrdenEstado, setFiltroOrdenEstado] = useState("");
+  const [filtroFechaDesde,  setFiltroFechaDesde]  = useState("");
+  const [filtroFechaHasta,  setFiltroFechaHasta]  = useState("");
+  const [ordenarOrdenes,    setOrdenarOrdenes]    = useState("fecha_desc");
+
   const mostrarAviso = (msg) => { setAviso(msg); setTimeout(() => setAviso(null), 3000); };
 
   // Detectar ?ml=conectado en la URL (vuelta del OAuth)
@@ -409,6 +418,32 @@ export default function MercadoLibre({ onVolver, permisos }) {
   }, []);
 
   useEffect(() => { cargarEstado(); cargarProductos(); }, [cargarEstado, cargarProductos]);
+
+  const pubsFiltradas = useMemo(() => {
+    let r = [...publicaciones];
+    if (filtroEstado) r = r.filter((p) => p.status === filtroEstado);
+    switch (ordenarPub) {
+      case "precio_asc":  r.sort((a, b) => a.price - b.price); break;
+      case "precio_desc": r.sort((a, b) => b.price - a.price); break;
+      case "stock_asc":   r.sort((a, b) => a.available_quantity - b.available_quantity); break;
+      case "stock_desc":  r.sort((a, b) => b.available_quantity - a.available_quantity); break;
+    }
+    return r;
+  }, [publicaciones, filtroEstado, ordenarPub]);
+
+  const ordenesFiltradas = useMemo(() => {
+    let r = [...ordenes];
+    if (filtroOrdenEstado) r = r.filter((o) => o.status === filtroOrdenEstado);
+    if (filtroFechaDesde)  r = r.filter((o) => (o.date_created || "") >= filtroFechaDesde);
+    if (filtroFechaHasta)  r = r.filter((o) => (o.date_created || "").slice(0, 10) <= filtroFechaHasta);
+    switch (ordenarOrdenes) {
+      case "fecha_asc":   r.sort((a, b) => (a.date_created || "").localeCompare(b.date_created || "")); break;
+      case "fecha_desc":  r.sort((a, b) => (b.date_created || "").localeCompare(a.date_created || "")); break;
+      case "total_asc":   r.sort((a, b) => (a.total_amount || 0) - (b.total_amount || 0)); break;
+      case "total_desc":  r.sort((a, b) => (b.total_amount || 0) - (a.total_amount || 0)); break;
+    }
+    return r;
+  }, [ordenes, filtroOrdenEstado, filtroFechaDesde, filtroFechaHasta, ordenarOrdenes]);
 
   useEffect(() => {
     if (!estado?.conectado) return;
@@ -547,71 +582,115 @@ export default function MercadoLibre({ onVolver, permisos }) {
               </div>
             ) : cargando ? (
               <p className="text-slate-400 text-center py-12">Cargando publicaciones...</p>
-            ) : publicaciones.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                <Package size={36} className="mx-auto mb-3 opacity-40" />
-                <p>No hay publicaciones activas o pausadas</p>
-                <button onClick={() => setModalPublicar(true)}
-                  className="mt-3 text-[#1a7fe8] text-sm font-medium hover:underline">
-                  + Crear primera publicación
-                </button>
-              </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }} className="text-white text-xs">
-                      <th className="px-3 py-2.5 text-left font-medium">Foto</th>
-                      <th className="px-3 py-2.5 text-left font-medium">Publicación</th>
-                      <th className="px-3 py-2.5 text-right font-medium">Precio</th>
-                      <th className="px-3 py-2.5 text-center font-medium">Stock</th>
-                      <th className="px-3 py-2.5 text-center font-medium">Estado</th>
-                      <th className="px-3 py-2.5 text-center font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {publicaciones.map((item) => (
-                      <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
-                        <td className="px-3 py-2">
-                          {item.thumbnail
-                            ? <img src={item.thumbnail} alt="" className="w-10 h-10 object-cover rounded" />
-                            : <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center text-slate-300"><Package size={18} /></div>
-                          }
-                        </td>
-                        <td className="px-3 py-2 max-w-xs">
-                          <div className="font-medium text-slate-800 truncate">{item.title}</div>
-                          <div className="text-xs text-slate-400">{item.id}</div>
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(item.price)}</td>
-                        <td className="px-3 py-2 text-center">
-                          <span className={`font-semibold ${item.available_quantity <= 5 ? "text-red-600" : "text-slate-700"}`}>
-                            {item.available_quantity}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-center"><BadgeEstado estado={item.status} /></td>
-                        <td className="px-3 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => setItemEditar(item)} title="Editar"
-                              className="p-1.5 rounded hover:bg-blue-50 text-[#1a7fe8]">
-                              <Pencil size={14} />
-                            </button>
-                            <button onClick={() => toggleEstado(item)}
-                              title={item.status === "active" ? "Pausar" : "Reactivar"}
-                              className={`p-1.5 rounded ${item.status === "active" ? "hover:bg-amber-50 text-amber-500" : "hover:bg-green-50 text-green-600"}`}>
-                              {item.status === "active" ? <Pause size={14} /> : <Play size={14} />}
-                            </button>
-                            <a href={item.permalink} target="_blank" rel="noopener noreferrer"
-                              title="Ver en ML"
-                              className="p-1.5 rounded hover:bg-blue-50 text-[#1a7fe8]">
-                              <ExternalLink size={14} />
-                            </a>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                {/* Barra de filtros */}
+                {publicaciones.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-3 mb-4 bg-white border border-slate-200 rounded-xl px-4 py-3">
+                    <Filter size={13} className="text-slate-400 shrink-0" />
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-slate-500">Estado</span>
+                      <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                        <option value="">Todos</option>
+                        <option value="active">Activas</option>
+                        <option value="paused">Pausadas</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-slate-500">Ordenar</span>
+                      <select value={ordenarPub} onChange={(e) => setOrdenarPub(e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                        <option value="">Sin orden</option>
+                        <option value="precio_asc">Precio ↑ menor a mayor</option>
+                        <option value="precio_desc">Precio ↓ mayor a menor</option>
+                        <option value="stock_asc">Stock ↑ menor a mayor</option>
+                        <option value="stock_desc">Stock ↓ mayor a menor</option>
+                      </select>
+                    </div>
+                    {(filtroEstado || ordenarPub) && (
+                      <button onClick={() => { setFiltroEstado(""); setOrdenarPub(""); }}
+                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
+                        <X size={11} /> Limpiar
+                      </button>
+                    )}
+                    <span className="ml-auto text-xs text-slate-400">{pubsFiltradas.length} de {publicaciones.length}</span>
+                  </div>
+                )}
+
+                {publicaciones.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400">
+                    <Package size={36} className="mx-auto mb-3 opacity-40" />
+                    <p>No hay publicaciones activas o pausadas</p>
+                    <button onClick={() => setModalPublicar(true)}
+                      className="mt-3 text-[#1a7fe8] text-sm font-medium hover:underline">
+                      + Crear primera publicación
+                    </button>
+                  </div>
+                ) : pubsFiltradas.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400">
+                    <p className="text-sm">Sin publicaciones con los filtros seleccionados</p>
+                    <button onClick={() => { setFiltroEstado(""); setOrdenarPub(""); }}
+                      className="mt-2 text-[#1a7fe8] text-sm hover:underline">Limpiar filtros</button>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }} className="text-white text-xs">
+                          <th className="px-3 py-2.5 text-left font-medium">Foto</th>
+                          <th className="px-3 py-2.5 text-left font-medium">Publicación</th>
+                          <th className="px-3 py-2.5 text-right font-medium">Precio</th>
+                          <th className="px-3 py-2.5 text-center font-medium">Stock</th>
+                          <th className="px-3 py-2.5 text-center font-medium">Estado</th>
+                          <th className="px-3 py-2.5 text-center font-medium">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pubsFiltradas.map((item) => (
+                          <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              {item.thumbnail
+                                ? <img src={item.thumbnail} alt="" className="w-10 h-10 object-cover rounded" />
+                                : <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center text-slate-300"><Package size={18} /></div>
+                              }
+                            </td>
+                            <td className="px-3 py-2 max-w-xs">
+                              <div className="font-medium text-slate-800 truncate">{item.title}</div>
+                              <div className="text-xs text-slate-400">{item.id}</div>
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(item.price)}</td>
+                            <td className="px-3 py-2 text-center">
+                              <span className={`font-semibold ${item.available_quantity <= 5 ? "text-red-600" : "text-slate-700"}`}>
+                                {item.available_quantity}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center"><BadgeEstado estado={item.status} /></td>
+                            <td className="px-3 py-2 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button onClick={() => setItemEditar(item)} title="Editar"
+                                  className="p-1.5 rounded hover:bg-blue-50 text-[#1a7fe8]">
+                                  <Pencil size={14} />
+                                </button>
+                                <button onClick={() => toggleEstado(item)}
+                                  title={item.status === "active" ? "Pausar" : "Reactivar"}
+                                  className={`p-1.5 rounded ${item.status === "active" ? "hover:bg-amber-50 text-amber-500" : "hover:bg-green-50 text-green-600"}`}>
+                                  {item.status === "active" ? <Pause size={14} /> : <Play size={14} />}
+                                </button>
+                                <a href={item.permalink} target="_blank" rel="noopener noreferrer"
+                                  title="Ver en ML"
+                                  className="p-1.5 rounded hover:bg-blue-50 text-[#1a7fe8]">
+                                  <ExternalLink size={14} />
+                                </a>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -626,53 +705,108 @@ export default function MercadoLibre({ onVolver, permisos }) {
               </div>
             ) : cargando ? (
               <p className="text-slate-400 text-center py-12">Cargando órdenes...</p>
-            ) : ordenes.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                <ShoppingBag size={36} className="mx-auto mb-3 opacity-40" />
-                <p>No hay órdenes recientes</p>
-              </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }} className="text-white text-xs">
-                      <th className="px-3 py-2.5 text-left font-medium"># Orden</th>
-                      <th className="px-3 py-2.5 text-left font-medium">Comprador</th>
-                      <th className="px-3 py-2.5 text-left font-medium">Productos</th>
-                      <th className="px-3 py-2.5 text-left font-medium">Fecha</th>
-                      <th className="px-3 py-2.5 text-right font-medium">Total</th>
-                      <th className="px-3 py-2.5 text-center font-medium">Estado</th>
-                      <th className="px-3 py-2.5 text-center font-medium">Importar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ordenes.map((o) => (
-                      <tr key={o.id} className="border-t border-slate-100 hover:bg-slate-50">
-                        <td className="px-3 py-2 font-mono text-xs text-slate-500">{o.id}</td>
-                        <td className="px-3 py-2 font-medium">{o.buyer?.nickname || "—"}</td>
-                        <td className="px-3 py-2 text-xs text-slate-500 max-w-xs">
-                          {(o.order_items || []).map((i) => (
-                            <div key={i.item?.id} className="truncate">{i.quantity}× {i.item?.title}</div>
-                          ))}
-                        </td>
-                        <td className="px-3 py-2 text-xs">{fmtFecha(o.date_created)}</td>
-                        <td className="px-3 py-2 text-right font-semibold">{fmt(o.total_amount)}</td>
-                        <td className="px-3 py-2 text-center"><BadgeEstado estado={o.status} /></td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => importarOrden(String(o.id))}
-                            disabled={importando === String(o.id)}
-                            className="flex items-center gap-1 mx-auto text-xs text-[#1a7fe8] hover:text-[#1262b8] font-medium disabled:opacity-40"
-                          >
-                            <Banknote size={13} />
-                            {importando === String(o.id) ? "..." : "Importar"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                {/* Barra de filtros */}
+                <div className="flex flex-wrap items-center gap-3 mb-4 bg-white border border-slate-200 rounded-xl px-4 py-3">
+                  <Filter size={13} className="text-slate-400 shrink-0" />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500">Estado</span>
+                    <select value={filtroOrdenEstado} onChange={(e) => setFiltroOrdenEstado(e.target.value)}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                      <option value="">Todos</option>
+                      <option value="paid">Pagadas</option>
+                      <option value="payment_required">Pago pendiente</option>
+                      <option value="partially_paid">Pago parcial</option>
+                      <option value="cancelled">Canceladas</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500">Desde</span>
+                    <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500">Hasta</span>
+                    <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500">Ordenar</span>
+                    <select value={ordenarOrdenes} onChange={(e) => setOrdenarOrdenes(e.target.value)}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                      <option value="fecha_desc">Fecha ↓ reciente</option>
+                      <option value="fecha_asc">Fecha ↑ antigua</option>
+                      <option value="total_desc">Total ↓ mayor</option>
+                      <option value="total_asc">Total ↑ menor</option>
+                    </select>
+                  </div>
+                  {(filtroOrdenEstado || filtroFechaDesde || filtroFechaHasta) && (
+                    <button
+                      onClick={() => { setFiltroOrdenEstado(""); setFiltroFechaDesde(""); setFiltroFechaHasta(""); }}
+                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
+                      <X size={11} /> Limpiar
+                    </button>
+                  )}
+                  <span className="ml-auto text-xs text-slate-400">{ordenesFiltradas.length} de {ordenes.length}</span>
+                </div>
+
+                {ordenes.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400">
+                    <ShoppingBag size={36} className="mx-auto mb-3 opacity-40" />
+                    <p>No hay órdenes recientes</p>
+                  </div>
+                ) : ordenesFiltradas.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400">
+                    <p className="text-sm">Sin órdenes con los filtros seleccionados</p>
+                    <button
+                      onClick={() => { setFiltroOrdenEstado(""); setFiltroFechaDesde(""); setFiltroFechaHasta(""); }}
+                      className="mt-2 text-[#1a7fe8] text-sm hover:underline">Limpiar filtros</button>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }} className="text-white text-xs">
+                          <th className="px-3 py-2.5 text-left font-medium"># Orden</th>
+                          <th className="px-3 py-2.5 text-left font-medium">Comprador</th>
+                          <th className="px-3 py-2.5 text-left font-medium">Productos</th>
+                          <th className="px-3 py-2.5 text-left font-medium">Fecha</th>
+                          <th className="px-3 py-2.5 text-right font-medium">Total</th>
+                          <th className="px-3 py-2.5 text-center font-medium">Estado</th>
+                          <th className="px-3 py-2.5 text-center font-medium">Importar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ordenesFiltradas.map((o) => (
+                          <tr key={o.id} className="border-t border-slate-100 hover:bg-slate-50">
+                            <td className="px-3 py-2 font-mono text-xs text-slate-500">{o.id}</td>
+                            <td className="px-3 py-2 font-medium">{o.buyer?.nickname || "—"}</td>
+                            <td className="px-3 py-2 text-xs text-slate-500 max-w-xs">
+                              {(o.order_items || []).map((i) => (
+                                <div key={i.item?.id} className="truncate">{i.quantity}× {i.item?.title}</div>
+                              ))}
+                            </td>
+                            <td className="px-3 py-2 text-xs">{fmtFecha(o.date_created)}</td>
+                            <td className="px-3 py-2 text-right font-semibold">{fmt(o.total_amount)}</td>
+                            <td className="px-3 py-2 text-center"><BadgeEstado estado={o.status} /></td>
+                            <td className="px-3 py-2 text-center">
+                              <button
+                                onClick={() => importarOrden(String(o.id))}
+                                disabled={importando === String(o.id)}
+                                className="flex items-center gap-1 mx-auto text-xs text-[#1a7fe8] hover:text-[#1262b8] font-medium disabled:opacity-40"
+                              >
+                                <Banknote size={13} />
+                                {importando === String(o.id) ? "..." : "Importar"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
