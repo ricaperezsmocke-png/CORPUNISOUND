@@ -28,6 +28,7 @@ const MODULOS_QUE_REQUIEREN_PERMISOS = [
   "inventario",
   "crm",
   "admin",
+  "ml",
 ];
 
 function validarSistemaDePermisos() {

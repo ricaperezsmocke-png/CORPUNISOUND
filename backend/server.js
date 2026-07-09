@@ -696,7 +696,7 @@ app.get("/api/ml/callback", async (req, res) => {
   }
 });
 
-app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol), (req, res) => {
   DB.ml.cuenta = null;
   guardar(DB);
   res.json({ ok: true });
@@ -711,17 +711,17 @@ app.get("/api/ml/publicaciones/locales", requiereLogin, (req, res) => {
   res.json(DB.ml.publicaciones);
 });
 
-app.post("/api/ml/publicar", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), async (req, res) => {
+app.post("/api/ml/publicar", requiereLogin, requierePermiso("gestionar_publicaciones_ml", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await publicarProducto(DB, req.body.producto_id, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.put("/api/ml/publicaciones/:itemId/stock", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), async (req, res) => {
+app.put("/api/ml/publicaciones/:itemId/stock", requiereLogin, requierePermiso("gestionar_publicaciones_ml", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await actualizarStockML(DB, req.params.itemId, Number(req.body.cantidad))); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.put("/api/ml/publicaciones/:itemId", requiereLogin, requierePermiso("editar_producto", resolverPermisosDeRol), async (req, res) => {
+app.put("/api/ml/publicaciones/:itemId", requiereLogin, requierePermiso("gestionar_publicaciones_ml", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await actualizarPublicacion(DB, req.params.itemId, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -731,7 +731,7 @@ app.get("/api/ml/ordenes", requiereLogin, async (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("cerrar_venta", resolverPermisosDeRol), async (req, res) => {
+app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });

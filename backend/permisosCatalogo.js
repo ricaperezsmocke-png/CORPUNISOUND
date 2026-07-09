@@ -81,14 +81,20 @@ const PERMISOS = [
   { clave: "dar_alta_personal", etiqueta: "Dar de Alta Personal", modulo: "admin", implementado: true },
   { clave: "usar_asistente_ia", etiqueta: "Usar el Asistente de IA del Inicio", modulo: "admin", implementado: true },
   { clave: "ver_todas_las_sucursales", etiqueta: "Ver Todas las Sucursales", modulo: "admin", implementado: true },
+
+  // ---- MercadoLibre ----
+  { clave: "gestionar_publicaciones_ml", etiqueta: "Publicar y Editar en MercadoLibre", modulo: "ml", implementado: true },
+  { clave: "importar_ordenes_ml",        etiqueta: "Importar Órdenes de MercadoLibre",  modulo: "ml", implementado: true },
+  { clave: "conectar_cuenta_ml",         etiqueta: "Conectar / Desconectar Cuenta ML",  modulo: "ml", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
-  { id: "pos", nombre: "Punto de Venta" },
-  { id: "corte", nombre: "Corte de Caja" },
+  { id: "pos",       nombre: "Punto de Venta" },
+  { id: "corte",     nombre: "Corte de Caja" },
   { id: "inventario", nombre: "Inventario y Productos" },
-  { id: "crm", nombre: "Clientes" },
-  { id: "admin", nombre: "Roles y Personal" },
+  { id: "crm",       nombre: "Clientes" },
+  { id: "admin",     nombre: "Roles y Personal" },
+  { id: "ml",        nombre: "MercadoLibre" },
 ];
 
 function listarPermisos() {
