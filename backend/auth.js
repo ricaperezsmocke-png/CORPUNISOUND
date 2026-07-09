@@ -13,6 +13,7 @@
 
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { permisosDeRol } = require("./roles");
 
 const JWT_SECRET = process.env.JWT_SECRET || "clave-temporal-desarrollo-cambiar-en-produccion";
 const EXPIRA_EN = "12h";
@@ -104,7 +105,63 @@ function dentroDeAlcance(sucursalId, alcance) {
   return Number(sucursalId) === alcance.sucursalId;
 }
 
+const RADIO_TOLERANCIA_METROS = 300;
+
+/** Distancia en metros entre dos coordenadas (fórmula de Haversine). */
+function distanciaMetros(lat1, lng1, lat2, lng2) {
+  const R = 6371000; // radio de la Tierra en metros
+  const rad = (g) => (g * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * Valida que quien inicia sesión esté físicamente en la sucursal que dice
+ * ser. Usuario con "ver_todas_las_sucursales" (Administrador) siempre pasa
+ * sin evaluar nada más. Usuario amarrado: la sucursal seleccionada debe
+ * coincidir con la de su cuenta; si esa sucursal tiene coordenadas
+ * configuradas, además su ubicación GPS debe caer dentro del radio de
+ * tolerancia. Sin coordenadas configuradas en la sucursal, no se valida GPS
+ * todavía (para no bloquear una tienda antes de que Victor la configure).
+ */
+function validarUbicacionLogin(usuario, sucursalSeleccionadaId, lat, lng, DB) {
+  const permisos = permisosDeRol(DB, usuario.rol_id);
+  if (permisos.includes("ver_todas_las_sucursales")) return { ok: true };
+
+  const sucursalReal = usuario.sucursal_id != null ? Number(usuario.sucursal_id) : null;
+  if (sucursalReal == null || Number(sucursalSeleccionadaId) !== sucursalReal) {
+    return { ok: false, motivo: "sucursal_no_coincide" };
+  }
+
+  const sucursal = DB.pos.sucursales.find((s) => s.id === sucursalReal);
+  if (!sucursal || sucursal.lat == null || sucursal.lng == null) {
+    return { ok: true };
+  }
+
+  if (lat == null || lng == null) {
+    return { ok: false, motivo: "sin_permiso_ubicacion" };
+  }
+
+  const distancia = distanciaMetros(Number(lat), Number(lng), sucursal.lat, sucursal.lng);
+  if (distancia > RADIO_TOLERANCIA_METROS) {
+    return { ok: false, motivo: "ubicacion_no_coincide", distancia };
+  }
+  return { ok: true };
+}
+
+/** Traduce el motivo de bloqueo a un mensaje claro, sin revelar la sucursal real de la cuenta. */
+function mensajePorMotivoUbicacion(motivo) {
+  if (motivo === "sucursal_no_coincide") return "La sucursal seleccionada no coincide con tu cuenta.";
+  if (motivo === "ubicacion_no_coincide") return "Tu ubicación no coincide con la sucursal seleccionada. Verifica que tengas el GPS activado y que estés en la tienda.";
+  if (motivo === "sin_permiso_ubicacion") return "Debes permitir el acceso a tu ubicación para iniciar sesión.";
+  return "No se pudo iniciar sesión.";
+}
+
 module.exports = {
   hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso,
   alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
+  distanciaMetros, validarUbicacionLogin, mensajePorMotivoUbicacion,
 };
