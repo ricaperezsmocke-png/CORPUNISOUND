@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: `construirDBPrueba()` → objeto `DB` con la misma forma que el de `server.js`, con roles sembrados y datos mínimos en las 4 sucursales. Lo consumen todas las tareas de prueba siguientes.
 
-- [ ] **Step 1: Agregar el script de pruebas**
+- [x] **Step 1: Agregar el script de pruebas**
 
 En `backend/package.json`, dentro de `"scripts"`:
 
@@ -41,7 +41,7 @@ En `backend/package.json`, dentro de `"scripts"`:
   },
 ```
 
-- [ ] **Step 2: Escribir el fixture de DB de prueba**
+- [x] **Step 2: Escribir el fixture de DB de prueba**
 
 Crear `backend/testHelpers.js`:
 
@@ -124,7 +124,7 @@ function construirDBPrueba() {
 module.exports = { construirDBPrueba };
 ```
 
-- [ ] **Step 3: Escribir una prueba que valida el fixture**
+- [x] **Step 3: Escribir una prueba que valida el fixture**
 
 Crear `backend/testHelpers.test.js`:
 
@@ -142,12 +142,12 @@ test("el fixture tiene ventas en varias sucursales y roles sembrados", () => {
 });
 ```
 
-- [ ] **Step 4: Correr la prueba y verificar que pasa**
+- [x] **Step 4: Correr la prueba y verificar que pasa**
 
 Run: `cd backend && npm test`
 Expected: PASS — 1 test passing (más los que existan). Salida incluye `# pass 1` o similar.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/package.json backend/testHelpers.js backend/testHelpers.test.js
@@ -173,7 +173,7 @@ git commit -m "test: infraestructura de pruebas con node:test y fixture de DB mu
     - Si NO incluye el permiso → `{ verTodas: false, sucursalId: req.usuarioToken?.sucursal_id ?? null }` (ignora el query).
   - `filtrarPorSucursal(lista, alcance)` → array: si `alcance.verTodas` devuelve copia completa; si no, filtra por `x.sucursal_id === alcance.sucursalId`.
 
-- [ ] **Step 1: Escribir las pruebas (fallan primero)**
+- [x] **Step 1: Escribir las pruebas (fallan primero)**
 
 Crear `backend/alcanceSucursal.test.js`:
 
@@ -217,12 +217,12 @@ test("filtrarPorSucursal filtra por la sucursal indicada", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test alcanceSucursal.test.js`
 Expected: FAIL — `alcanceSucursal is not a function` (aún no existe).
 
-- [ ] **Step 3: Implementar los helpers en `auth.js`**
+- [x] **Step 3: Implementar los helpers en `auth.js`**
 
 En `backend/auth.js`, antes de `module.exports`, agregar:
 
@@ -260,12 +260,12 @@ Y en el `module.exports` (`backend/auth.js:69`), agregar las dos funciones:
 module.exports = { hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso, alcanceSucursal, filtrarPorSucursal };
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `cd backend && node --test alcanceSucursal.test.js`
 Expected: PASS — 6 tests passing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/auth.js backend/alcanceSucursal.test.js
@@ -284,7 +284,7 @@ git commit -m "feat: helper alcanceSucursal/filtrarPorSucursal para aislamiento 
 - Consumes: `verificarToken` (ya existe).
 - Produces: `firmarToken(usuario)` ahora incluye `sucursal_id` en el payload. El objeto `usuario` que recibe ya trae `sucursal_id` (ver `usuarios.js:29`).
 
-- [ ] **Step 1: Escribir la prueba (falla primero)**
+- [x] **Step 1: Escribir la prueba (falla primero)**
 
 Crear `backend/firmarToken.test.js`:
 
@@ -302,12 +302,12 @@ test("el token incluye sucursal_id del usuario", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test firmarToken.test.js`
 Expected: FAIL — `payload.sucursal_id` es `undefined` (assert falla con `undefined !== 2`).
 
-- [ ] **Step 3: Modificar `firmarToken`**
+- [x] **Step 3: Modificar `firmarToken`**
 
 En `backend/auth.js`, reemplazar la función `firmarToken` (líneas 28-34):
 
@@ -321,12 +321,12 @@ function firmarToken(usuario) {
 }
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa**
+- [x] **Step 4: Correr y verificar que pasa**
 
 Run: `cd backend && node --test firmarToken.test.js`
 Expected: PASS — 1 test passing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/auth.js backend/firmarToken.test.js
@@ -346,7 +346,7 @@ git commit -m "feat: el token JWT ahora incluye sucursal_id"
 - Consumes: `listarPermisos`, `sembrarRolesIniciales`, `permisosDeRol` (ya existen).
 - Produces: clave de permiso `"ver_todas_las_sucursales"` en el catálogo, módulo `"admin"`. El rol "Administrador" la incluye (porque siembra todas las claves); "Gerente de sucursal" y "Cajero" NO.
 
-- [ ] **Step 1: Escribir la prueba (falla primero)**
+- [x] **Step 1: Escribir la prueba (falla primero)**
 
 Crear `backend/permisoSucursales.test.js`:
 
@@ -375,12 +375,12 @@ test("Administrador tiene el permiso; Cajero y Gerente no", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test permisoSucursales.test.js`
 Expected: FAIL — el permiso no existe todavía (`p` es `undefined`).
 
-- [ ] **Step 3: Agregar el permiso al catálogo**
+- [x] **Step 3: Agregar el permiso al catálogo**
 
 En `backend/permisosCatalogo.js`, en la sección `// ---- Administración ----` (después de la línea 81, `usar_asistente_ia`):
 
@@ -400,7 +400,7 @@ El rol "Administrador" (`roles.js:67`) siembra `todasLasClaves`, así que ya lo 
 
 "Cajero" (`roles.js:73-83`) tiene lista explícita que no incluye la clave — no se toca.
 
-- [ ] **Step 4: Correr y verificar que pasa (y que el guardia de arranque sigue OK)**
+- [x] **Step 4: Correr y verificar que pasa (y que el guardia de arranque sigue OK)**
 
 Run: `cd backend && node --test permisoSucursales.test.js`
 Expected: PASS — 2 tests passing.
@@ -408,7 +408,7 @@ Expected: PASS — 2 tests passing.
 Run: `cd backend && node -e "require('./validarPermisos').validarSistemaDePermisos()"`
 Expected: imprime `✓ Sistema de permisos validado: 5 módulos, 56 permisos, ...` (56 = 55 previos + 1 nuevo) y sale sin error.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/permisosCatalogo.js backend/roles.js backend/permisoSucursales.test.js
@@ -431,7 +431,7 @@ git commit -m "feat: permiso ver_todas_las_sucursales (solo Administrador por de
   - `listarClientesCRM(DB, alcance)` — filtra por `alcance` (id 0 ya se excluye por lógica de CRM). Si `alcance` es `undefined`, `verTodas`.
 - Nota: `listarVentas` (ya filtra por `filtros.sucursal_id`, `ventas.js:97`) y `listarCortes` (ya filtra por `sucursal_id`, `cortes.js:111-113`) NO cambian de firma; se controlan desde la ruta (Task 6).
 
-- [ ] **Step 1: Escribir las pruebas (fallan primero)**
+- [x] **Step 1: Escribir las pruebas (fallan primero)**
 
 Crear `backend/filtradoDatos.test.js`:
 
@@ -467,12 +467,12 @@ test("listarClientesCRM filtra por sucursal", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test filtradoDatos.test.js`
 Expected: FAIL — `listarClientes` ignora el segundo argumento hoy, así que trae todos (falla el assert de que Ocosingo no aparece).
 
-- [ ] **Step 3: Modificar `listarClientes` en `clientes.js`**
+- [x] **Step 3: Modificar `listarClientes` en `clientes.js`**
 
 Reemplazar `listarClientes` (`backend/clientes.js:14-19`):
 
@@ -488,7 +488,7 @@ function listarClientes(DB, alcance) {
 }
 ```
 
-- [ ] **Step 4: Modificar `listarClientesCRM` en `crm.js`**
+- [x] **Step 4: Modificar `listarClientesCRM` en `crm.js`**
 
 Reemplazar `listarClientesCRM` (`backend/crm.js:68-78`):
 
@@ -507,12 +507,12 @@ function listarClientesCRM(DB, alcance) {
 }
 ```
 
-- [ ] **Step 5: Correr y verificar que pasa**
+- [x] **Step 5: Correr y verificar que pasa**
 
 Run: `cd backend && node --test filtradoDatos.test.js`
 Expected: PASS — 3 tests passing.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/clientes.js backend/crm.js backend/filtradoDatos.test.js
@@ -530,7 +530,7 @@ git commit -m "feat: listarClientes/listarClientesCRM filtran por sucursal (id 0
 - Consumes: `alcanceSucursal` (Task 2), `resolverPermisosDeRol` (ya existe, `server.js:267`), `listarClientes(DB, alcance)` (Task 5), `listarClientesCRM(DB, alcance)` (Task 5).
 - Produces: rutas GET que exigen login y aplican el alcance del usuario.
 
-- [ ] **Step 1: Importar `alcanceSucursal` en server.js**
+- [x] **Step 1: Importar `alcanceSucursal` en server.js**
 
 En `backend/server.js:37`, agregar `alcanceSucursal` a la importación de `./auth`:
 
@@ -538,7 +538,7 @@ En `backend/server.js:37`, agregar `alcanceSucursal` a la importación de `./aut
 const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal } = require("./auth");
 ```
 
-- [ ] **Step 2: Cablear `/api/clientes` (GET lista)**
+- [x] **Step 2: Cablear `/api/clientes` (GET lista)**
 
 Reemplazar la ruta (`backend/server.js:379`):
 
@@ -549,7 +549,7 @@ app.get("/api/clientes", requiereLogin, (req, res) => {
 });
 ```
 
-- [ ] **Step 3: Cablear `/api/crm/clientes` (GET lista)**
+- [x] **Step 3: Cablear `/api/crm/clientes` (GET lista)**
 
 Reemplazar la ruta (`backend/server.js:398`):
 
@@ -560,7 +560,7 @@ app.get("/api/crm/clientes", requiereLogin, (req, res) => {
 });
 ```
 
-- [ ] **Step 4: Cablear `/api/ventas` (GET lista)**
+- [x] **Step 4: Cablear `/api/ventas` (GET lista)**
 
 Reemplazar la ruta (`backend/server.js:420`). Se inyecta el `sucursal_id` del alcance en los filtros que ya entiende `listarVentas`; para usuario amarrado esto ignora cualquier `sucursal_id` del query porque se sobrescribe:
 
@@ -574,7 +574,7 @@ app.get("/api/ventas", requiereLogin, (req, res) => {
 });
 ```
 
-- [ ] **Step 5: Cablear `/api/cortes` y `/api/cortes/en-curso`**
+- [x] **Step 5: Cablear `/api/cortes` y `/api/cortes/en-curso`**
 
 Reemplazar ambas rutas (`backend/server.js:442-448`):
 
@@ -591,7 +591,7 @@ app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", re
 });
 ```
 
-- [ ] **Step 6: Verificación manual end-to-end**
+- [x] **Step 6: Verificación manual end-to-end**
 
 Levantar el backend: `cd backend && npm start` (en otra terminal).
 
@@ -613,7 +613,7 @@ Expected:
 
 (La verificación de usuario amarrado se completa en Task 9 cuando haya datos repartidos y usuarios por sucursal; por ahora basta confirmar el 401 y el filtrado por query del admin.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/server.js
@@ -637,7 +637,7 @@ git commit -m "feat: rutas de lectura exigen login y aplican alcance por sucursa
   - `obtenerSeguimientosPostventaPendientes(DB, diasConfigurados, alcance)` — para amarrado, solo ventas de su sucursal.
   - `/api/predicciones` exige login y, para amarrado, solo considera ventas de su sucursal (vía filtro previo).
 
-- [ ] **Step 1: Escribir las pruebas (fallan primero)**
+- [x] **Step 1: Escribir las pruebas (fallan primero)**
 
 Crear `backend/crmAgregados.test.js`:
 
@@ -669,12 +669,12 @@ test("rankingVendedores amarrado solo trae vendedores de su sucursal", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test crmAgregados.test.js`
 Expected: FAIL — hoy `resumenPorSucursal` ignora el alcance y devuelve las 4 sucursales.
 
-- [ ] **Step 3: Modificar `resumenPorSucursal` en `crm.js`**
+- [x] **Step 3: Modificar `resumenPorSucursal` en `crm.js`**
 
 Reemplazar `resumenPorSucursal` (`backend/crm.js:159-166`):
 
@@ -692,7 +692,7 @@ function resumenPorSucursal(DB, alcance) {
 }
 ```
 
-- [ ] **Step 4: Modificar `rankingVendedores` en `crm.js`**
+- [x] **Step 4: Modificar `rankingVendedores` en `crm.js`**
 
 Reemplazar `rankingVendedores` (`backend/crm.js:169-176`):
 
@@ -710,7 +710,7 @@ function rankingVendedores(DB, alcance) {
 }
 ```
 
-- [ ] **Step 5: Modificar `obtenerSeguimientosPostventaPendientes` en `crm.js`**
+- [x] **Step 5: Modificar `obtenerSeguimientosPostventaPendientes` en `crm.js`**
 
 Reemplazar la línea del filtro inicial de ventas (`backend/crm.js:132-135`) para aceptar alcance. Cambiar la firma (`crm.js:126`) a `function obtenerSeguimientosPostventaPendientes(DB, diasConfigurados, alcance) {` y el filtro:
 
@@ -722,7 +722,7 @@ Reemplazar la línea del filtro inicial de ventas (`backend/crm.js:132-135`) par
     .filter((v) => !DB.crm.contactos_cliente.some((c) => c.venta_id === v.id && c.tipo === "postventa"))
 ```
 
-- [ ] **Step 6: Cablear las rutas CRM agregadas y predicciones en `server.js`**
+- [x] **Step 6: Cablear las rutas CRM agregadas y predicciones en `server.js`**
 
 Reemplazar las rutas (`backend/server.js:412-417`):
 
@@ -761,7 +761,7 @@ app.get("/api/predicciones", requiereLogin, (req, res) => {
 });
 ```
 
-- [ ] **Step 7: Correr pruebas y verificar que pasan**
+- [x] **Step 7: Correr pruebas y verificar que pasan**
 
 Run: `cd backend && node --test crmAgregados.test.js`
 Expected: PASS — 3 tests passing.
@@ -769,7 +769,7 @@ Expected: PASS — 3 tests passing.
 Run: `cd backend && npm test`
 Expected: PASS — todas las suites en verde.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/crm.js backend/server.js backend/crmAgregados.test.js
@@ -794,7 +794,7 @@ git commit -m "feat: endpoints agregados de CRM y predicciones respetan el alcan
   - `crearVenta(DB, datos)` — al descontar inventario pasa `sucursal_id: venta.sucursal_id` a `ajustarExistencia`.
   - Ruta POST `/api/ventas` y `/api/clientes` estampan `sucursal_id` según el usuario (token para amarrado, body/selección para global). GET `/api/productos` exige login y muestra existencia por sucursal.
 
-- [ ] **Step 1: Escribir la prueba (falla primero)**
+- [x] **Step 1: Escribir la prueba (falla primero)**
 
 Crear `backend/escrituraSucursal.test.js`:
 
@@ -834,12 +834,12 @@ test("listarProductos muestra la existencia de la sucursal pedida", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test escrituraSucursal.test.js`
 Expected: FAIL — `ajustarExistencia` busca `sucursal_id === 1` y no encuentra existencia del producto 2 en sucursal 1, lanza `"Este producto no tiene registro de existencia"`.
 
-- [ ] **Step 3: Generalizar `listarProductos` por sucursal**
+- [x] **Step 3: Generalizar `listarProductos` por sucursal**
 
 Reemplazar `listarProductos` (`backend/productos.js:13-28`):
 
@@ -873,7 +873,7 @@ function listarProductos(DB, sucursalId) {
 
 Nota: el default de sucursal lo aplica la ruta (Step 6), no la firma. Si algún llamador interno la usa sin argumento, `sucursalId` será `undefined` → `== null` es verdadero → suma total. Hoy el único llamador es la ruta `/api/productos`.
 
-- [ ] **Step 4: Generalizar `ajustarExistencia`**
+- [x] **Step 4: Generalizar `ajustarExistencia`**
 
 Reemplazar `ajustarExistencia` (`backend/productos.js:146-166`):
 
@@ -897,7 +897,7 @@ function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
 }
 ```
 
-- [ ] **Step 5: `crearVenta` pasa la sucursal al descontar y al reintegrar**
+- [x] **Step 5: `crearVenta` pasa la sucursal al descontar y al reintegrar**
 
 En `backend/ventas.js`, dentro de `crearVenta`, la llamada a `ajustarExistencia` (línea 83) pasa la sucursal:
 
@@ -915,7 +915,7 @@ Y en `cancelarVenta` (línea 155), el reintegro también:
           ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
 ```
 
-- [ ] **Step 6: Estampar sucursal en escrituras y cablear GET `/api/productos`**
+- [x] **Step 6: Estampar sucursal en escrituras y cablear GET `/api/productos`**
 
 En `backend/server.js`, reemplazar GET `/api/productos` (`backend/server.js:282`) para que exija login y muestre existencia de la sucursal en alcance:
 
@@ -970,7 +970,7 @@ app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", re
 });
 ```
 
-- [ ] **Step 7: Correr pruebas y verificar que pasan**
+- [x] **Step 7: Correr pruebas y verificar que pasan**
 
 Run: `cd backend && node --test escrituraSucursal.test.js`
 Expected: PASS — 3 tests passing.
@@ -978,7 +978,7 @@ Expected: PASS — 3 tests passing.
 Run: `cd backend && npm test`
 Expected: PASS — todas las suites (Tasks 1-7) en verde.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/productos.js backend/ventas.js backend/server.js backend/escrituraSucursal.test.js
@@ -999,7 +999,7 @@ git commit -m "feat: escrituras estampan sucursal del token; inventario por sucu
   - `consultarModulo(input, alcance, DB)` — cuando `alcance` NO es verTodas, fuerza el `sucursal_id` en los filtros de tablas que lo tengan; para `venta_detalle` (sin `sucursal_id`) filtra cruzando contra `ventas` de la sucursal.
   - El system prompt incluye el alcance del usuario y el catálogo de sucursales.
 
-- [ ] **Step 1: Escribir la prueba (falla primero)**
+- [x] **Step 1: Escribir la prueba (falla primero)**
 
 Crear `backend/consultarModuloSucursal.test.js`. Como `consultarModulo` está definido dentro de `server.js` (no exportado), esta tarea primero lo extrae a un módulo propio testeable.
 
@@ -1038,12 +1038,12 @@ test("usuario global ve todo", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test consultarModuloSucursal.test.js`
 Expected: FAIL — `Cannot find module './consultarModulo'`.
 
-- [ ] **Step 3: Extraer `consultarModulo` a su propio módulo con alcance**
+- [x] **Step 3: Extraer `consultarModulo` a su propio módulo con alcance**
 
 Crear `backend/consultarModulo.js` (mueve la lógica de `server.js:155-185` y le agrega el alcance):
 
@@ -1110,7 +1110,7 @@ function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB) {
 module.exports = { consultarModulo };
 ```
 
-- [ ] **Step 4: Usar el módulo extraído en `server.js`**
+- [x] **Step 4: Usar el módulo extraído en `server.js`**
 
 En `backend/server.js`, agregar la importación cerca de las otras (después de `server.js:39`):
 
@@ -1134,7 +1134,7 @@ Y en la llamada dentro del `map` de herramientas (`server.js:507`), pasar alcanc
           }
 ```
 
-- [ ] **Step 5: Inyectar el alcance en el system prompt**
+- [x] **Step 5: Inyectar el alcance en el system prompt**
 
 Reemplazar la firma y el final de `construirSystemPrompt` (`server.js:223`) para que reciba el alcance y las sucursales:
 
@@ -1175,7 +1175,7 @@ Y en la llamada a Claude (`server.js:487`), pasar el alcance:
         system: construirSystemPrompt(alcance, DB),
 ```
 
-- [ ] **Step 6: Correr pruebas**
+- [x] **Step 6: Correr pruebas**
 
 Run: `cd backend && node --test consultarModuloSucursal.test.js`
 Expected: PASS — 4 tests passing.
@@ -1183,11 +1183,11 @@ Expected: PASS — 4 tests passing.
 Run: `cd backend && npm test`
 Expected: PASS — todas las suites en verde.
 
-- [ ] **Step 7: Verificación manual del chat (opcional, requiere ANTHROPIC_API_KEY)**
+- [x] **Step 7: Verificación manual del chat (opcional, requiere ANTHROPIC_API_KEY)**
 
 Con el backend levantado y un token de usuario amarrado a sucursal 2, hacer POST a `/api/chat` con `{"mensajes":[{"role":"user","content":"¿cuánto vendimos en total?"}]}` y confirmar que la respuesta refleja solo la sucursal 2. (Si no hay API key, este paso se omite; las pruebas unitarias del Step 6 ya cubren la lógica de aislamiento.)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/server.js backend/consultarModulo.js backend/consultarModuloSucursal.test.js
@@ -1205,7 +1205,7 @@ git commit -m "feat: el Asistente de IA respeta el alcance por sucursal del usua
 - Consumes: nada.
 - Produces: datos semilla repartidos: ventas, existencias, clientes y vendedores en las 4 sucursales, para poder demostrar el aislamiento.
 
-- [ ] **Step 1: Repartir ventas entre las 4 sucursales**
+- [x] **Step 1: Repartir ventas entre las 4 sucursales**
 
 En `backend/server.js`, en `DB.pos.ventas` (líneas 52-58), cambiar los `sucursal_id` y `vendedor_id` para cubrir las 4 tiendas (dejar montos y fechas):
 
@@ -1219,7 +1219,7 @@ En `backend/server.js`, en `DB.pos.ventas` (líneas 52-58), cambiar los `sucursa
     ],
 ```
 
-- [ ] **Step 2: Repartir existencias entre las 4 sucursales**
+- [x] **Step 2: Repartir existencias entre las 4 sucursales**
 
 En `DB.inventario.existencias` (líneas 118-122), dar existencia a cada producto en las 4 sucursales (así ninguna venta se bloquea por falta de stock):
 
@@ -1236,7 +1236,7 @@ En `DB.inventario.existencias` (líneas 118-122), dar existencia a cada producto
     ],
 ```
 
-- [ ] **Step 3: Repartir clientes entre sucursales**
+- [x] **Step 3: Repartir clientes entre sucursales**
 
 En `DB.crm.clientes`, cambiar `sucursal_id` del cliente id 2 a `2` (Yajalón) y el id 1 se queda en `1` (Ocosingo). El id 0 (Público en General) se queda en 1 pero es compartido por lógica:
 
@@ -1245,7 +1245,7 @@ En `DB.crm.clientes`, cambiar `sucursal_id` del cliente id 2 a `2` (Yajalón) y 
         fecha_alta: "2025-06-15", vendedor_asignado_id: 3, sucursal_id: 2,
 ```
 
-- [ ] **Step 4: Verificación manual del aislamiento completo**
+- [x] **Step 4: Verificación manual del aislamiento completo**
 
 Levantar backend (`npm start`) y crear un usuario amarrado a Yajalón:
 
@@ -1262,7 +1262,7 @@ curl -s "http://localhost:4000/api/ventas?sucursal_id=1" -H "Authorization: Bear
 
 Expected: ambas llamadas del cajero devuelven únicamente ventas con `sucursal_id: 2`. El admin sí ve todas y puede filtrar con `?sucursal_id=`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/server.js
@@ -1281,7 +1281,7 @@ git commit -m "test: datos semilla repartidos entre las 4 sucursales para demost
 - Consumes: `obtenerRol`, `permisosDeRol`.
 - Produces: la respuesta de login y de `/api/auth/yo` incluye `sucursal_id`, `sucursal_nombre` y `ver_todas` (booleano derivado de los permisos del rol).
 
-- [ ] **Step 1: Escribir la prueba de la forma de la respuesta**
+- [x] **Step 1: Escribir la prueba de la forma de la respuesta**
 
 Crear `backend/authSucursal.test.js` (prueba pura de un helper que arma el payload de sesión, para no depender de HTTP):
 
@@ -1312,12 +1312,12 @@ test("armarSesion marca ver_todas=false para cajero", () => {
 });
 ```
 
-- [ ] **Step 2: Correr y verificar que falla**
+- [x] **Step 2: Correr y verificar que falla**
 
 Run: `cd backend && node --test authSucursal.test.js`
 Expected: FAIL — `Cannot find module './sesion'`.
 
-- [ ] **Step 3: Crear el helper `sesion.js`**
+- [x] **Step 3: Crear el helper `sesion.js`**
 
 Crear `backend/sesion.js`:
 
@@ -1350,7 +1350,7 @@ function armarSesion(DB, usuario) {
 module.exports = { armarSesion };
 ```
 
-- [ ] **Step 4: Usar `armarSesion` en las rutas de auth**
+- [x] **Step 4: Usar `armarSesion` en las rutas de auth**
 
 En `backend/server.js`, agregar la importación (después de `server.js:39`):
 
@@ -1383,7 +1383,7 @@ app.get("/api/auth/yo", requiereLogin, (req, res) => {
 });
 ```
 
-- [ ] **Step 5: Correr pruebas**
+- [x] **Step 5: Correr pruebas**
 
 Run: `cd backend && node --test authSucursal.test.js`
 Expected: PASS — 2 tests passing.
@@ -1391,7 +1391,7 @@ Expected: PASS — 2 tests passing.
 Run: `cd backend && npm test`
 Expected: PASS — todas las suites en verde.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/server.js backend/sesion.js backend/authSucursal.test.js
@@ -1414,7 +1414,7 @@ git commit -m "feat: login y /auth/yo devuelven sucursal y bandera ver_todas"
   - `apiFetch` agrega `?sucursal_id=<sucursal_activa>` a las llamadas cuando aplica.
   - `<SelectorSucursal>` visible solo si `ver_todas`; si no, muestra etiqueta fija.
 
-- [ ] **Step 1: Que `apiFetch` agregue la sucursal activa**
+- [x] **Step 1: Que `apiFetch` agregue la sucursal activa**
 
 Reemplazar `src/api.js`:
 
@@ -1451,7 +1451,7 @@ export async function apiFetch(ruta, opciones = {}) {
 }
 ```
 
-- [ ] **Step 2: Crear el componente `SelectorSucursal`**
+- [x] **Step 2: Crear el componente `SelectorSucursal`**
 
 Crear `src/SelectorSucursal.jsx`:
 
@@ -1505,7 +1505,7 @@ export default function SelectorSucursal({ usuario, onCambio }) {
 }
 ```
 
-- [ ] **Step 3: Inicializar `sucursal_activa` al hacer login y montar el selector**
+- [x] **Step 3: Inicializar `sucursal_activa` al hacer login y montar el selector**
 
 En `src/App.jsx`, tras un login exitoso (donde se guarda `usuario` en localStorage), inicializar la sucursal activa. Buscar el punto donde se procesa la respuesta del login y agregar:
 
@@ -1524,7 +1524,7 @@ import SelectorSucursal from "./SelectorSucursal";
 <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
 ```
 
-- [ ] **Step 4: Verificación manual en el navegador**
+- [x] **Step 4: Verificación manual en el navegador**
 
 Levantar frontend (`npm run dev` en la raíz) y backend (`cd backend && npm start`).
 
@@ -1533,7 +1533,7 @@ Levantar frontend (`npm run dev` en la raíz) y backend (`cd backend && npm star
 
 Expected: el aislamiento se observa en Dashboard, Consultas de Ventas, Corte de Caja y CRM.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/api.js src/SelectorSucursal.jsx src/App.jsx
