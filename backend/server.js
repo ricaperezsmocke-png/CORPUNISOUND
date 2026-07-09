@@ -35,7 +35,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPe
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal, dentroDeAlcance } = require("./auth");
+const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
@@ -95,10 +95,10 @@ const DB = {
       { id: 5, nombre: "Ana G.", sucursal_id: 4, meta_mensual: 50000 }
     ],
     sucursales: [
-      { id: 1, nombre: "Ocosingo", ciudad: "Chiapas" },
-      { id: 2, nombre: "Yajalón", ciudad: "Chiapas" },
-      { id: 3, nombre: "San Cristóbal", ciudad: "Chiapas" },
-      { id: 4, nombre: "Palenque", ciudad: "Chiapas" },
+      { id: 1, nombre: "Ocosingo", ciudad: "Chiapas", lat: null, lng: null },
+      { id: 2, nombre: "Yajalón", ciudad: "Chiapas", lat: null, lng: null },
+      { id: 3, nombre: "San Cristóbal", ciudad: "Chiapas", lat: null, lng: null },
+      { id: 4, nombre: "Palenque", ciudad: "Chiapas", lat: null, lng: null },
       { id: 5, nombre: "MercadoLibre", ciudad: "Online" },
     ],
     condiciones_pago: [],
@@ -173,7 +173,8 @@ const DB = {
   },
   admin: {
     roles: [],
-    usuarios: []
+    usuarios: [],
+    intentos_bloqueados_ubicacion: []
   },
   ml: {
     cuenta: null,
@@ -426,8 +427,28 @@ app.post("/api/auth/setup-inicial", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { usuario, password } = req.body;
+    const { usuario, password, sucursal_id_seleccionada, lat, lng } = req.body;
     const encontrado = await iniciarSesion(DB, usuario, password);
+    const resultado = validarUbicacionLogin(encontrado, sucursal_id_seleccionada, lat, lng, DB);
+    if (!resultado.ok) {
+      const sucursalDijo = DB.pos.sucursales.find((s) => s.id === Number(sucursal_id_seleccionada));
+      const nuevoId = DB.admin.intentos_bloqueados_ubicacion.length
+        ? Math.max(...DB.admin.intentos_bloqueados_ubicacion.map((i) => i.id)) + 1
+        : 1;
+      DB.admin.intentos_bloqueados_ubicacion.push({
+        id: nuevoId,
+        usuario: encontrado.usuario,
+        sucursal_dijo_id: sucursal_id_seleccionada != null && sucursal_id_seleccionada !== "" ? Number(sucursal_id_seleccionada) : null,
+        sucursal_dijo_nombre: sucursalDijo ? sucursalDijo.nombre : "—",
+        sucursal_real_id: encontrado.sucursal_id,
+        lat_detectada: lat != null ? Number(lat) : null,
+        lng_detectada: lng != null ? Number(lng) : null,
+        distancia_metros: resultado.distancia != null ? Math.round(resultado.distancia) : null,
+        motivo: resultado.motivo,
+        fecha: new Date().toISOString(),
+      });
+      return res.status(401).json({ error: mensajePorMotivoUbicacion(resultado.motivo), motivo: resultado.motivo });
+    }
     const token = firmarToken(encontrado);
     res.json({ token, usuario: armarSesion(DB, encontrado) });
   } catch (e) { res.status(401).json({ error: e.message }); }
