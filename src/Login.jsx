@@ -78,7 +78,7 @@ export default function Login({ onIngreso }) {
               <Input required value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="Usuario" />
               <Input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña (mínimo 6 caracteres)" />
               {error && <p className="text-destructive text-xs text-center">{error}</p>}
-              <Button disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
+              <Button type="submit" disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
                 {cargando ? "Creando..." : "Crear administrador"}
               </Button>
             </form>
@@ -95,7 +95,7 @@ export default function Login({ onIngreso }) {
                 <Input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña" className="pl-9" />
               </div>
               {error && <p className="text-destructive text-xs text-center">{error}</p>}
-              <Button disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
+              <Button type="submit" disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
                 {cargando ? "Entrando..." : "Iniciar sesión"}
               </Button>
             </form>
