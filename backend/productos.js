@@ -194,6 +194,24 @@ function crearCategoria(DB, nombre) {
   return nueva;
 }
 
+function listarDepartamentos(DB) {
+  return DB["catalogo-productos"].departamentos;
+}
+
+function crearDepartamento(DB, nombre) {
+  if (!nombre || !nombre.trim()) throw new Error("El nombre del departamento es obligatorio");
+  const nuevo = { id: siguienteId(DB["catalogo-productos"].departamentos), nombre: nombre.trim() };
+  DB["catalogo-productos"].departamentos.push(nuevo);
+  return nuevo;
+}
+
+function crearProveedor(DB, nombre) {
+  if (!nombre || !nombre.trim()) throw new Error("El nombre del proveedor es obligatorio");
+  const nuevo = { id: siguienteId(DB["catalogo-productos"].proveedores), nombre: nombre.trim(), contacto: "", tiempo_entrega_dias: 0, condiciones_pago: "" };
+  DB["catalogo-productos"].proveedores.push(nuevo);
+  return nuevo;
+}
+
 module.exports = {
   listarProductos,
   crearProducto,
@@ -203,5 +221,8 @@ module.exports = {
   ajustarExistencia,
   listarCategorias,
   crearCategoria,
+  listarDepartamentos,
+  crearDepartamento,
+  crearProveedor,
   generarClave,
 };

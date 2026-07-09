@@ -65,6 +65,7 @@ function construirDBPrueba() {
         { id: 2, nombre: "Bebidas", categoria_padre_id: null },
         { id: 3, nombre: "Limpieza", categoria_padre_id: null },
       ],
+      departamentos: [],
       proveedores: [],
       producto_proveedor: [],
     },
