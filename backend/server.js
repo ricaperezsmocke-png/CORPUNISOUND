@@ -39,6 +39,10 @@ const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
+const {
+  intercambiarCodigo, urlAutorizacion, listarPublicaciones,
+  publicarProducto, actualizarStockML, listarOrdenes, importarOrdenComoVenta,
+} = require("./mercadolibre");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -91,7 +95,8 @@ const DB = {
       { id: 1, nombre: "Ocosingo", ciudad: "Chiapas" },
       { id: 2, nombre: "Yajalón", ciudad: "Chiapas" },
       { id: 3, nombre: "San Cristóbal", ciudad: "Chiapas" },
-      { id: 4, nombre: "Palenque", ciudad: "Chiapas" }
+      { id: 4, nombre: "Palenque", ciudad: "Chiapas" },
+      { id: 5, nombre: "MercadoLibre", ciudad: "Online" },
     ],
     condiciones_pago: [],
     configuracion: null,
@@ -164,7 +169,12 @@ const DB = {
   admin: {
     roles: [],
     usuarios: []
-  }
+  },
+  ml: {
+    cuenta: null,
+    publicaciones: [],
+    ordenes_importadas: [],
+  },
 };
 
 sembrarRolesIniciales(DB);
@@ -649,6 +659,78 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── MercadoLibre ──────────────────────────────────────────────────────────────
+
+app.get("/api/ml/estado", requiereLogin, (req, res) => {
+  const c = DB.ml.cuenta;
+  res.json({
+    conectado:      !!c?.access_token,
+    configurado:    !!(process.env.ML_CLIENT_ID && process.env.ML_CLIENT_SECRET),
+    user_id:        c?.user_id || null,
+    conectado_en:   c?.conectado_en || null,
+  });
+});
+
+app.get("/api/ml/auth-url", requiereLogin, (req, res) => {
+  try {
+    const redirect = process.env.ML_REDIRECT_URI ||
+      `${req.protocol}://${req.get("host")}/api/ml/callback`;
+    res.json({ url: urlAutorizacion(redirect) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/ml/callback", async (req, res) => {
+  const { code } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  if (!code) return res.redirect(`${frontendUrl}?ml=error&msg=sin_codigo`);
+  const redirect = process.env.ML_REDIRECT_URI ||
+    `${req.protocol}://${req.get("host")}/api/ml/callback`;
+  try {
+    await intercambiarCodigo(DB, code, redirect);
+    guardar(DB);
+    res.redirect(`${frontendUrl}?ml=conectado`);
+  } catch (e) {
+    res.redirect(`${frontendUrl}?ml=error&msg=${encodeURIComponent(e.message)}`);
+  }
+});
+
+app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+  DB.ml.cuenta = null;
+  guardar(DB);
+  res.json({ ok: true });
+});
+
+app.get("/api/ml/publicaciones", requiereLogin, async (req, res) => {
+  try { res.json(await listarPublicaciones(DB)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/ml/publicaciones/locales", requiereLogin, (req, res) => {
+  res.json(DB.ml.publicaciones);
+});
+
+app.post("/api/ml/publicar", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), async (req, res) => {
+  try { res.json(await publicarProducto(DB, req.body.producto_id, req.body)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/ml/publicaciones/:itemId/stock", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), async (req, res) => {
+  try { res.json(await actualizarStockML(DB, req.params.itemId, Number(req.body.cantidad))); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/ml/ordenes", requiereLogin, async (req, res) => {
+  try { res.json(await listarOrdenes(DB, Number(req.query.limite) || 50)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("cerrar_venta", resolverPermisosDeRol), async (req, res) => {
+  try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const PUERTO = process.env.PORT || 4000;
 

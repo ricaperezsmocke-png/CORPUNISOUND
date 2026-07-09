@@ -10,6 +10,7 @@ const TITULOS = {
   roles:      "Roles y Personal",
   crm:        "CRM",
   corte:      "Corte de Caja",
+  ml:         "MercadoLibre",
 };
 
 export default function EncabezadoModulo({ vista, usuario, onVolver, onSalir }) {
