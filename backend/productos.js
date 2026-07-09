@@ -71,6 +71,7 @@ function crearProducto(DB, datos) {
     unidades_por_mayoreo: Number(datos.unidades_por_mayoreo) || 0,
     ubicacion: datos.ubicacion || "-",
     promocion: !!datos.promocion,
+    imagen_url: datos.imagen_url || "",
     activo: true,
   };
   producto.precio_venta = producto.precios[0]?.precioVenta || 0;
@@ -108,6 +109,7 @@ function actualizarProducto(DB, id, datos) {
     neto: datos.neto !== undefined ? !!datos.neto : actual.neto,
     precios: Array.isArray(datos.precios) ? datos.precios : actual.precios,
     unidades_por_mayoreo: datos.unidades_por_mayoreo !== undefined ? Number(datos.unidades_por_mayoreo) : actual.unidades_por_mayoreo,
+    imagen_url: datos.imagen_url !== undefined ? datos.imagen_url : (actual.imagen_url || ""),
   };
   actualizado.precio_venta = actualizado.precios[0]?.precioVenta || 0;
   DB["catalogo-productos"].productos[idx] = actualizado;

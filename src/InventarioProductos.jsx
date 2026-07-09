@@ -42,6 +42,7 @@ const FORM_VACIO = {
   precios: [{ utilidad: "", precioVenta: 0 }, { utilidad: "", precioVenta: 0 }, { utilidad: "", precioVenta: 0 }, { utilidad: "", precioVenta: 0 }],
   unidades_por_mayoreo: 0,
   existencia_inicial: 0, existencia_minima: 0, existencia_maxima: 0,
+  imagen_url: "",
 };
 
 export default function InventarioProductos({ onVolver, permisos }) {
@@ -60,6 +61,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
   const [form, setForm] = useState(FORM_VACIO);
   const [ajusteCantidad, setAjusteCantidad] = useState("");
   const [ajusteMotivo, setAjusteMotivo] = useState("");
+  const [cargandoImagen, setCargandoImagen] = useState(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2200); };
 
@@ -115,9 +117,28 @@ export default function InventarioProductos({ onVolver, permisos }) {
       precios: seleccionado.precios?.length === 4 ? seleccionado.precios : FORM_VACIO.precios,
       unidades_por_mayoreo: seleccionado.unidades_por_mayoreo || 0,
       existencia_inicial: seleccionado.existencia, existencia_minima: seleccionado.existencia_minima, existencia_maxima: seleccionado.existencia_maxima,
+      imagen_url: seleccionado.imagen_url || "",
     });
     setModoForm("editar");
     setModal("form");
+  };
+
+  const jalarImagenML = async () => {
+    const itemId = prompt("Ingresa el ID del ítem de MercadoLibre (ej: MLM123456789):");
+    if (!itemId) return;
+    setCargandoImagen(true);
+    try {
+      const r = await apiFetch(`/ml/item-imagen/${itemId.trim()}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      const url = d.thumbnail || (d.pictures && d.pictures[0]);
+      if (url) setForm((f) => ({ ...f, imagen_url: url }));
+      else mostrarAviso("El ítem no tiene imágenes");
+    } catch (e) {
+      mostrarAviso("❌ " + e.message);
+    } finally {
+      setCargandoImagen(false);
+    }
   };
 
   const actualizarTier = (idx, campo, valor) => {
@@ -305,10 +326,19 @@ export default function InventarioProductos({ onVolver, permisos }) {
             <div className="flex-1 flex items-center justify-center text-slate-300 text-center px-6">Selecciona un producto de la lista</div>
           ) : (
             <div className="p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-center gap-3 py-4 bg-slate-50 rounded-lg">
-                <ChevronLeft size={16} className="text-slate-300" />
-                <Camera size={28} className="text-slate-300" />
-                <ChevronRight size={16} className="text-slate-300" />
+              <div className="flex items-center justify-center bg-slate-50 rounded-lg" style={{ minHeight: 80 }}>
+                {seleccionado.imagen_url ? (
+                  <img
+                    src={seleccionado.imagen_url} alt=""
+                    className="max-h-28 max-w-full object-contain rounded py-1"
+                    onError={(e) => { e.target.style.display = "none"; e.target.parentNode.querySelector(".img-fallback").style.display = "flex"; }}
+                  />
+                ) : null}
+                <div className={`img-fallback items-center justify-center gap-3 py-4 ${seleccionado.imagen_url ? "hidden" : "flex"}`}>
+                  <ChevronLeft size={16} className="text-slate-300" />
+                  <Camera size={28} className="text-slate-300" />
+                  <ChevronRight size={16} className="text-slate-300" />
+                </div>
               </div>
               <div>
                 <div className="text-[11px] text-slate-400">{seleccionado.sku}</div>
@@ -453,6 +483,34 @@ export default function InventarioProductos({ onVolver, permisos }) {
                   </div>
                 </div>
               )}
+
+              <div className="border-t border-slate-200 pt-3">
+                <div className="text-xs font-semibold text-slate-500 mb-2">Imagen del producto</div>
+                <div className="flex gap-2">
+                  <input
+                    className={inputCls}
+                    value={form.imagen_url}
+                    onChange={(e) => setForm({ ...form, imagen_url: e.target.value })}
+                    placeholder="https://... URL de imagen"
+                  />
+                  <button
+                    type="button"
+                    onClick={jalarImagenML}
+                    disabled={cargandoImagen}
+                    className="shrink-0 bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-slate-800 text-xs font-semibold px-3 rounded"
+                  >
+                    {cargandoImagen ? "..." : "Jalar de ML"}
+                  </button>
+                </div>
+                {form.imagen_url && (
+                  <img
+                    src={form.imagen_url} alt="Vista previa"
+                    className="mt-2 h-20 w-20 object-cover rounded border border-slate-200"
+                    onError={(e) => { e.target.style.display = "none"; }}
+                  />
+                )}
+                <p className="text-[10px] text-slate-400 mt-1">Pega una URL directa o usa "Jalar de ML" ingresando el ID de un ítem (ej: MLM123456789)</p>
+              </div>
 
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>

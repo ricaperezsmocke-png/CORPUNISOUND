@@ -96,7 +96,7 @@ async function listarPublicaciones(DB) {
   const items  = [];
   for (const lote of lotes) {
     const r = await fetch(
-      `${ML_API}/items?ids=${lote.join(",")}&attributes=id,title,price,available_quantity,status,thumbnail,permalink,seller_sku`,
+      `${ML_API}/items?ids=${lote.join(",")}&attributes=id,title,price,available_quantity,status,thumbnail,permalink,seller_sku,pictures`,
       { headers: mlHeaders(token) }
     );
     const data = await r.json();
@@ -178,14 +178,16 @@ async function actualizarStockML(DB, mlItemId, cantidad) {
 
 async function actualizarPublicacion(DB, mlItemId, cambios) {
   const token = await tokenActivo(DB);
-  const { descripcion, ...campos } = cambios;
+  const { descripcion, imagenes, ...campos } = cambios;
 
-  // Campos principales: titulo → title, precio → price, cantidad → available_quantity, estado → status
   const body = {};
-  if (campos.title             !== undefined) body.title              = campos.title;
-  if (campos.price             !== undefined) body.price              = Number(campos.price);
+  if (campos.title              !== undefined) body.title              = campos.title;
+  if (campos.price              !== undefined) body.price              = Number(campos.price);
   if (campos.available_quantity !== undefined) body.available_quantity = Number(campos.available_quantity);
-  if (campos.status            !== undefined) body.status             = campos.status;
+  if (campos.status             !== undefined) body.status             = campos.status;
+  if (Array.isArray(imagenes)) {
+    body.pictures = imagenes.filter(Boolean).map((u) => ({ source: u }));
+  }
 
   if (Object.keys(body).length > 0) {
     const r = await fetch(`${ML_API}/items/${mlItemId}`, {

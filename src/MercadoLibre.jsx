@@ -197,10 +197,28 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
     status:             item.status             || "active",
     descripcion:        "",
   });
-  const [enviando, setEnviando] = useState(false);
-  const [error,    setError]    = useState(null);
+  const [imagenes, setImagenes]               = useState(
+    (item.pictures || []).map((p) => p.secure_url || p.url || "").filter(Boolean)
+  );
+  const [nuevaUrl,  setNuevaUrl]              = useState("");
+  const [imgCambiadas, setImgCambiadas]       = useState(false);
+  const [enviando, setEnviando]               = useState(false);
+  const [error,    setError]                  = useState(null);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const agregarImagen = () => {
+    const url = nuevaUrl.trim();
+    if (!url) return;
+    setImagenes((prev) => [...prev, url]);
+    setNuevaUrl("");
+    setImgCambiadas(true);
+  };
+
+  const quitarImagen = (idx) => {
+    setImagenes((prev) => prev.filter((_, i) => i !== idx));
+    setImgCambiadas(true);
+  };
 
   const enviar = async (e) => {
     e.preventDefault();
@@ -212,6 +230,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
         available_quantity: Number(form.available_quantity),
         status:             form.status,
         descripcion:        form.descripcion || undefined,
+        ...(imgCambiadas ? { imagenes } : {}),
       });
       onCerrar();
     } catch (err) { setError(err.message); }
@@ -278,6 +297,40 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
             <textarea value={form.descripcion} onChange={(e) => set("descripcion", e.target.value)}
               rows={3} placeholder="Nueva descripción del producto..."
               className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm resize-none" />
+          </div>
+
+          {/* Imágenes */}
+          <div>
+            <label className="text-xs text-slate-500 block mb-1.5">Imágenes de la publicación</label>
+            {imagenes.length > 0 && (
+              <div className="space-y-1.5 mb-2">
+                {imagenes.map((url, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded-lg p-1.5">
+                    <img src={url} alt="" className="w-10 h-10 object-cover rounded shrink-0"
+                      onError={(e) => { e.target.style.display = "none"; }} />
+                    <span className="text-[11px] text-slate-500 flex-1 truncate">{url}</span>
+                    <button type="button" onClick={() => quitarImagen(idx)}
+                      className="text-red-400 hover:text-red-600 px-1.5 text-sm shrink-0">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={nuevaUrl}
+                onChange={(e) => setNuevaUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarImagen())}
+                placeholder="URL de imagen (https://...)"
+                className="flex-1 border border-slate-300 rounded px-2.5 py-1.5 text-xs"
+              />
+              <button type="button" onClick={agregarImagen}
+                className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white text-xs px-3 rounded font-medium shrink-0">
+                + Agregar
+              </button>
+            </div>
+            {imgCambiadas && (
+              <p className="text-[10px] text-amber-600 mt-1">Las imágenes se actualizarán al guardar</p>
+            )}
           </div>
 
           {error && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}

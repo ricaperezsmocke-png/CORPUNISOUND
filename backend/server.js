@@ -736,6 +736,24 @@ app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("ce
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Obtiene thumbnail/imágenes de cualquier ítem público de ML (sin necesitar token de vendedor)
+app.get("/api/ml/item-imagen/:itemId", requiereLogin, async (req, res) => {
+  try {
+    const r = await fetch(
+      `https://api.mercadolibre.com/items/${req.params.itemId}?attributes=id,thumbnail,pictures`,
+      { headers: { Accept: "application/json" } }
+    );
+    if (!r.ok) return res.status(r.status).json({ error: "Ítem de ML no encontrado" });
+    const d = await r.json();
+    res.json({
+      thumbnail: d.thumbnail || null,
+      pictures:  (d.pictures || []).map((p) => p.secure_url || p.url || "").filter(Boolean),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PUERTO = process.env.PORT || 4000;
