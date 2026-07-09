@@ -124,7 +124,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Traspaso recibido");
       setModalRecibir(null);
-      await cargarTodo();
+      await Promise.all([cargarTodo(), cargarProductos(origenEfectivo)]);
     } catch (e) {
       mostrarAviso("❌ " + e.message);
     }
