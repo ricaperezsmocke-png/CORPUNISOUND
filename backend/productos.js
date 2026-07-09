@@ -44,7 +44,7 @@ function generarClave() {
   return "PROD" + String(Date.now()).slice(-8);
 }
 
-function crearProducto(DB, datos) {
+function crearProducto(DB, datos, sucursalId) {
   if (!datos.descripcion || !datos.descripcion.trim()) {
     throw new Error("La descripción del producto es obligatoria");
   }
@@ -77,17 +77,22 @@ function crearProducto(DB, datos) {
   producto.precio_venta = producto.precios[0]?.precioVenta || 0;
 
   DB["catalogo-productos"].productos.push(producto);
-  DB.inventario.existencias.push({
-    producto_id: nuevoId,
-    sucursal_id: 1,
-    cantidad_actual: Number(datos.existencia_inicial) || 0,
-    cantidad_minima: Number(datos.existencia_minima) || 0,
-    cantidad_maxima: Number(datos.existencia_maxima) || 0,
+
+  const sucursalOrigen = Number(sucursalId) || 1;
+  DB.pos.sucursales.forEach((s) => {
+    const esOrigen = s.id === sucursalOrigen;
+    DB.inventario.existencias.push({
+      producto_id: nuevoId,
+      sucursal_id: s.id,
+      cantidad_actual: esOrigen ? (Number(datos.existencia_inicial) || 0) : 0,
+      cantidad_minima: esOrigen ? (Number(datos.existencia_minima) || 0) : 0,
+      cantidad_maxima: esOrigen ? (Number(datos.existencia_maxima) || 0) : 0,
+    });
   });
   return producto;
 }
 
-function actualizarProducto(DB, id, datos) {
+function actualizarProducto(DB, id, datos, sucursalId) {
   const idx = DB["catalogo-productos"].productos.findIndex((p) => p.id === Number(id));
   if (idx === -1) throw new Error("Producto no encontrado");
 
@@ -115,7 +120,8 @@ function actualizarProducto(DB, id, datos) {
   DB["catalogo-productos"].productos[idx] = actualizado;
 
   if (datos.existencia_minima !== undefined || datos.existencia_maxima !== undefined) {
-    const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === 1);
+    const sucursalObjetivo = Number(sucursalId) || 1;
+    const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === sucursalObjetivo);
     if (exist) {
       if (datos.existencia_minima !== undefined) exist.cantidad_minima = Number(datos.existencia_minima);
       if (datos.existencia_maxima !== undefined) exist.cantidad_maxima = Number(datos.existencia_maxima);
@@ -131,7 +137,7 @@ function eliminarProducto(DB, id) {
   DB.inventario.existencias = DB.inventario.existencias.filter((e) => e.producto_id !== Number(id));
 }
 
-function clonarProducto(DB, id) {
+function clonarProducto(DB, id, sucursalId) {
   const original = DB["catalogo-productos"].productos.find((p) => p.id === Number(id));
   if (!original) throw new Error("Producto no encontrado");
   return crearProducto(DB, {
@@ -151,7 +157,7 @@ function clonarProducto(DB, id) {
     precios: original.precios,
     unidades_por_mayoreo: original.unidades_por_mayoreo,
     existencia_inicial: 0,
-  });
+  }, sucursalId);
 }
 
 function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
