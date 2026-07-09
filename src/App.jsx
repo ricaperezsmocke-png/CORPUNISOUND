@@ -77,7 +77,7 @@ function App() {
           <InventarioProductos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
         )}
         {vista === "traspasos" && (
-          <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
+          <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "roles" && (
           <AdminRoles onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />

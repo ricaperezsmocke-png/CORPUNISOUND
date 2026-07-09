@@ -15,7 +15,7 @@ const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm f
 
 const FORM_VACIO = { producto_id: "", cantidad: "", sucursal_destino_id: "", sucursal_origen_id: "", comentario: "" };
 
-export default function Traspasos({ onVolver, permisos }) {
+export default function Traspasos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [productos, setProductos] = useState([]);
   const [sucursales, setSucursales] = useState([]);
@@ -55,7 +55,9 @@ export default function Traspasos({ onVolver, permisos }) {
     if (!form.cantidad || Number(form.cantidad) <= 0) return mostrarAviso("Escribe una cantidad válida");
     if (!form.sucursal_destino_id) return mostrarAviso("Selecciona la sucursal destino");
     try {
-      const r = await apiFetch(`/traspasos`, { method: "POST", body: JSON.stringify(form) });
+      // sucursal_id=todas explícito: evita que apiFetch pise la sucursal_origen_id elegida
+      // en el formulario con la sucursal_activa ambiental del selector global.
+      const r = await apiFetch(`/traspasos?sucursal_id=todas`, { method: "POST", body: JSON.stringify(form) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Traspaso enviado — queda en tránsito hasta que destino confirme");
@@ -71,7 +73,9 @@ export default function Traspasos({ onVolver, permisos }) {
 
   const confirmarRecepcion = async () => {
     try {
-      const r = await apiFetch(`/traspasos/${modalRecibir.id}/recibir`, {
+      // sucursal_id=todas explícito: evita que apiFetch pise el destino real del traspaso
+      // (resuelto server-side) con la sucursal_activa ambiental del selector global.
+      const r = await apiFetch(`/traspasos/${modalRecibir.id}/recibir?sucursal_id=todas`, {
         method: "POST", body: JSON.stringify({ comentario: comentarioRecepcion }),
       });
       const data = await r.json();
@@ -86,6 +90,10 @@ export default function Traspasos({ onVolver, permisos }) {
 
   const pendientes = traspasos.filter((t) => t.estatus === "en_transito");
   const historial = traspasos.filter((t) => t.estatus === "recibido");
+
+  // Un traspaso pendiente solo se puede recibir si el usuario es global (puede recibir
+  // en nombre de cualquier sucursal) o si su propia sucursal es el destino real.
+  const puedeRecibir = (t) => !!usuario?.ver_todas || t.sucursal_destino_id === usuario?.sucursal_id;
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
@@ -158,7 +166,11 @@ export default function Traspasos({ onVolver, permisos }) {
                   <td className="py-2 px-3 text-slate-500">{new Date(t.fecha_envio).toLocaleString()}</td>
                   {tab === "pendientes" && (
                     <td className="py-2 px-3 text-right">
-                      <button onClick={() => abrirRecibir(t)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded">Confirmar recepción</button>
+                      {puedeRecibir(t) ? (
+                        <button onClick={() => abrirRecibir(t)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded">Confirmar recepción</button>
+                      ) : (
+                        <span className="text-xs text-slate-400">Enviado, en tránsito</span>
+                      )}
                     </td>
                   )}
                   {tab === "historial" && <td className="py-2 px-3 text-slate-500">{t.comentario_recepcion || "—"}</td>}
