@@ -64,3 +64,13 @@ test("validarUbicacionLogin: dentro del radio de tolerancia -> ok", () => {
   const r = validarUbicacionLogin(cajero, 2, 17.9583, -92.9128, DB); // mismo punto exacto
   assert.deepStrictEqual(r, { ok: true });
 });
+
+test("validarUbicacionLogin: lat/lng no numéricos (basura) se tratan igual que ausentes -> sin_permiso_ubicacion", () => {
+  const DB = construirDBPrueba();
+  const sucursal = DB.pos.sucursales.find((s) => s.id === 2);
+  sucursal.lat = 17.9583; sucursal.lng = -92.9128;
+  const cajero = { rol_id: 3, sucursal_id: 2 };
+  const r = validarUbicacionLogin(cajero, 2, "no-es-un-numero", "tampoco", DB);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.motivo, "sin_permiso_ubicacion");
+});

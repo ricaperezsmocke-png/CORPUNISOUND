@@ -119,7 +119,7 @@ export default function Login({ onIngreso }) {
                   onChange={(e) => setSucursalSeleccionada(e.target.value)}
                   className="w-full h-10 pl-9 pr-3 rounded-md border border-input bg-background text-sm"
                 >
-                  <option value="">Selecciona tu sucursal (si aplica)</option>
+                  <option value="">Selecciona tu sucursal</option>
                   {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>

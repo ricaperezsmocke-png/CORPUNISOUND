@@ -35,7 +35,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPe
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, firmarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
+const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
@@ -447,6 +447,7 @@ app.post("/api/auth/login", async (req, res) => {
         motivo: resultado.motivo,
         fecha: new Date().toISOString(),
       });
+      guardar(DB);
       return res.status(401).json({ error: mensajePorMotivoUbicacion(resultado.motivo), motivo: resultado.motivo });
     }
     const token = firmarToken(encontrado);
@@ -527,7 +528,19 @@ app.put("/api/clientes/:id", requiereLogin, (req, res) => {
 
 // ---------- Vendedores y Sucursales (catálogo compartido) ----------
 app.get("/api/vendedores", (req, res) => res.json(DB.pos.vendedores));
-app.get("/api/sucursales", (req, res) => res.json(DB.pos.sucursales));
+app.get("/api/sucursales", (req, res) => {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  let puedeVerUbicacion = false;
+  if (token) {
+    try {
+      const payload = verificarToken(token);
+      puedeVerUbicacion = resolverPermisosDeRol(payload.rol_id).includes("administrar_roles");
+    } catch { /* token inválido o ausente: se trata como no autenticado */ }
+  }
+  if (puedeVerUbicacion) return res.json(DB.pos.sucursales);
+  res.json(DB.pos.sucursales.map(({ lat, lng, ...resto }) => resto));
+});
 
 app.put("/api/sucursales/:id/ubicacion", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
   try {

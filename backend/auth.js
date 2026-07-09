@@ -144,8 +144,13 @@ function validarUbicacionLogin(usuario, sucursalSeleccionadaId, lat, lng, DB) {
   if (lat == null || lng == null) {
     return { ok: false, motivo: "sin_permiso_ubicacion" };
   }
+  const latN = Number(lat);
+  const lngN = Number(lng);
+  if (!Number.isFinite(latN) || !Number.isFinite(lngN)) {
+    return { ok: false, motivo: "sin_permiso_ubicacion" };
+  }
 
-  const distancia = distanciaMetros(Number(lat), Number(lng), sucursal.lat, sucursal.lng);
+  const distancia = distanciaMetros(latN, lngN, sucursal.lat, sucursal.lng);
   if (distancia > RADIO_TOLERANCIA_METROS) {
     return { ok: false, motivo: "ubicacion_no_coincide", distancia };
   }
