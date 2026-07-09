@@ -23,6 +23,7 @@ function listarProductos(DB, sucursalId) {
       exist = existenciasProducto.find((e) => e.sucursal_id === Number(sucursalId)) || null;
     }
     const categoria = DB["catalogo-productos"].categorias.find((c) => c.id === p.categoria_id);
+    const departamento = DB["catalogo-productos"].departamentos.find((d) => d.id === p.departamento_id);
     return {
       ...p,
       codigo: p.clave_alterna || p.sku,
@@ -32,6 +33,7 @@ function listarProductos(DB, sucursalId) {
       existencia_minima: exist ? exist.cantidad_minima : 0,
       existencia_maxima: exist ? exist.cantidad_maxima : 0,
       categoria_nombre: categoria ? categoria.nombre : "Sin definir",
+      departamento_nombre: departamento ? departamento.nombre : (p.departamento || "Sin definir"),
     };
   });
 }
@@ -56,7 +58,7 @@ function crearProducto(DB, datos, sucursalId) {
     servicio: !!datos.servicio,
     nombre: datos.descripcion.trim(),
     categoria_id: datos.categoria_id ? Number(datos.categoria_id) : null,
-    departamento: datos.departamento || "Sin definir",
+    departamento_id: datos.departamento_id ? Number(datos.departamento_id) : null,
     proveedor_id: datos.proveedor_id ? Number(datos.proveedor_id) : null,
     unidad_compra: datos.unidad_compra || "PZA",
     unidad_venta: datos.unidad_venta || "PZA",
@@ -104,7 +106,7 @@ function actualizarProducto(DB, id, datos, sucursalId) {
     servicio: datos.servicio !== undefined ? !!datos.servicio : actual.servicio,
     nombre: datos.descripcion ?? actual.nombre,
     categoria_id: datos.categoria_id !== undefined ? Number(datos.categoria_id) || null : actual.categoria_id,
-    departamento: datos.departamento ?? actual.departamento,
+    departamento_id: datos.departamento_id !== undefined ? (Number(datos.departamento_id) || null) : actual.departamento_id,
     proveedor_id: datos.proveedor_id !== undefined ? Number(datos.proveedor_id) || null : actual.proveedor_id,
     unidad_compra: datos.unidad_compra ?? actual.unidad_compra,
     unidad_venta: datos.unidad_venta ?? actual.unidad_venta,
@@ -146,7 +148,7 @@ function clonarProducto(DB, id, sucursalId) {
     servicio: original.servicio,
     descripcion: original.nombre + " (copia)",
     categoria_id: original.categoria_id,
-    departamento: original.departamento,
+    departamento_id: original.departamento_id,
     proveedor_id: original.proveedor_id,
     unidad_compra: original.unidad_compra,
     unidad_venta: original.unidad_venta,
