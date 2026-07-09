@@ -43,8 +43,8 @@ function UbicacionesTiendas({ mostrarAviso }) {
 
   const valoresDe = (s) => editando[s.id] || { lat: s.lat ?? "", lng: s.lng ?? "" };
 
-  const actualizarCampo = (id, campo, valor) => {
-    setEditando((prev) => ({ ...prev, [id]: { ...valoresDe({ id }), ...prev[id], [campo]: valor } }));
+  const actualizarCampo = (id, valoresActuales, campo, valor) => {
+    setEditando((prev) => ({ ...prev, [id]: { ...valoresActuales, [campo]: valor } }));
   };
 
   const usarMiUbicacion = (id) => {
@@ -88,14 +88,14 @@ function UbicacionesTiendas({ mostrarAviso }) {
                   <label className="text-xs text-slate-500 block mb-1">Latitud</label>
                   <input
                     type="number" step="any" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
-                    value={valores.lat} onChange={(e) => actualizarCampo(s.id, "lat", e.target.value)}
+                    value={valores.lat} onChange={(e) => actualizarCampo(s.id, valores, "lat", e.target.value)}
                   />
                 </div>
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Longitud</label>
                   <input
                     type="number" step="any" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
-                    value={valores.lng} onChange={(e) => actualizarCampo(s.id, "lng", e.target.value)}
+                    value={valores.lng} onChange={(e) => actualizarCampo(s.id, valores, "lng", e.target.value)}
                   />
                 </div>
               </div>
