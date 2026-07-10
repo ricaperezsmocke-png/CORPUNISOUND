@@ -39,6 +39,7 @@ const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucu
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
+const { crearRecepcion, listarRecepciones } = require("./compras");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const {
@@ -392,6 +393,19 @@ app.post("/api/traspasos/:id/recibir", requiereLogin, requierePermiso("realizar_
     // Usuario global: confirma en nombre de la sucursal destino real del traspaso (no necesita elegirla).
     const sucursal_id = alcance.verTodas ? (traspaso ? traspaso.sucursal_destino_id : null) : alcance.sucursalId;
     res.json(recibirTraspaso(DB, req.params.id, req.body, sucursal_id, req.usuarioToken));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarRecepciones(DB, alcance));
+});
+
+app.post("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    res.json(crearRecepcion(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
