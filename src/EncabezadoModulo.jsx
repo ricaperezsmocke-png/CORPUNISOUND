@@ -8,6 +8,7 @@ const TITULOS = {
   pos:        "Punto de Venta",
   inventario: "Inventario y Productos",
   traspasos:  "Traspasos entre Sucursales",
+  compras:    "Recepción de Compras",
   roles:      "Roles y Personal",
   crm:        "CRM",
   corte:      "Corte de Caja",
