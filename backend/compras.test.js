@@ -116,3 +116,29 @@ test("listarRecepciones: usuario global ve todas", () => {
   const todas = listarRecepciones(DB, { verTodas: true, sucursalId: null });
   assert.strictEqual(todas.length, 2);
 });
+
+test("crearRecepcion funciona con producto legacy sin precios array", () => {
+  const DB = conProveedor(construirDBPrueba());
+  // Simula producto legacy (como los 4 de seed) sin precios array
+  const productoLegacy = {
+    id: 99,
+    nombre: "Producto Legacy",
+    costo: 50,
+    precio_venta: 75,
+    // Sin precios array
+  };
+  DB["catalogo-productos"].productos.push(productoLegacy);
+
+  // Crear recepción con costo diferente del actual
+  const compra = crearRecepcion(DB, {
+    proveedor_id: 1,
+    factura: "A-999",
+    renglones: [{ producto_id: 99, cantidad: 5, costo: 100 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.ok(compra.id, "debe crear la recepción sin error");
+  assert.strictEqual(productoLegacy.costo, 100, "debe actualizar el costo del producto legacy");
+  assert.strictEqual(productoLegacy.precio_venta, 75, "debe mantener precio_venta si no hay precios array");
+  const existCedis = DB.inventario.existencias.find((e) => e.producto_id === 99 && e.sucursal_id === 6);
+  assert.strictEqual(existCedis.cantidad_actual, 5, "debe incrementar existencia en CEDIS");
+});

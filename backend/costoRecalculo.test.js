@@ -44,3 +44,34 @@ test("actualizarCostoDesdeCompra rechaza producto inexistente", () => {
   const DB = construirDBPrueba();
   assert.throws(() => actualizarCostoDesdeCompra(DB, 999, 50), /Producto no encontrado/);
 });
+
+test("actualizarCostoDesdeCompra no crash cuando producto no tiene precios array (legacy)", () => {
+  const DB = construirDBPrueba();
+  // Simula un producto legacy que solo tiene costo y precio_venta, no precios array
+  const producto = {
+    id: 99,
+    nombre: "Producto Legacy",
+    costo: 50,
+    precio_venta: 75,
+    // Sin precios array
+  };
+  DB["catalogo-productos"].productos.push(producto);
+
+  const actualizado = actualizarCostoDesdeCompra(DB, 99, 100);
+
+  assert.strictEqual(actualizado.costo, 100, "debe actualizar el costo");
+  assert.strictEqual(actualizado.precio_venta, 75, "debe mantener precio_venta si no hay precios array");
+  assert.strictEqual(actualizado.precios, undefined, "no debe inventar un precios array");
+});
+
+test("actualizarCostoDesdeCompra no crash cuando producto tiene precios=undefined explícitamente", () => {
+  const DB = construirDBPrueba();
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 100;
+  producto.precios = undefined;
+
+  const actualizado = actualizarCostoDesdeCompra(DB, 1, 200);
+
+  assert.strictEqual(actualizado.costo, 200, "debe actualizar el costo");
+  assert.strictEqual(actualizado.precios, undefined, "debe mantener precios como undefined");
+});
