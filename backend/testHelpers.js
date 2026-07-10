@@ -58,9 +58,9 @@ function construirDBPrueba() {
     },
     "catalogo-productos": {
       productos: [
-        { id: 1, sku: "AB-001", nombre: "Arroz 1kg", categoria_id: 1, precio_venta: 25, activo: true },
-        { id: 2, sku: "BE-001", nombre: "Refresco 600ml", categoria_id: 2, precio_venta: 16, activo: true },
-        { id: 3, sku: "LI-001", nombre: "Detergente 1L", categoria_id: 3, precio_venta: 32, activo: true },
+        { id: 1, sku: "AB-001", nombre: "Arroz 1kg", categoria_id: 1, precio_venta: 25, costo: 20, precios: [{ utilidad: 25, precioVenta: 25 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }], activo: true },
+        { id: 2, sku: "BE-001", nombre: "Refresco 600ml", categoria_id: 2, precio_venta: 16, costo: 12, precios: [{ utilidad: 33, precioVenta: 16 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }], activo: true },
+        { id: 3, sku: "LI-001", nombre: "Detergente 1L", categoria_id: 3, precio_venta: 32, costo: 20, precios: [{ utilidad: 60, precioVenta: 32 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }], activo: true },
       ],
       categorias: [
         { id: 1, nombre: "Abarrotes", categoria_padre_id: null },
