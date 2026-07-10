@@ -214,6 +214,22 @@ function crearProveedor(DB, nombre) {
   return nuevo;
 }
 
+function actualizarCostoDesdeCompra(DB, id, nuevoCosto) {
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(id));
+  if (!producto) throw new Error("Producto no encontrado");
+
+  const costo = Number(nuevoCosto);
+  if (!Number.isFinite(costo) || costo === producto.costo) return producto;
+
+  producto.costo = costo;
+  producto.precios = producto.precios.map((t) => ({
+    ...t,
+    precioVenta: Math.round(costo * (1 + (Number(t.utilidad) || 0) / 100) * 100) / 100,
+  }));
+  producto.precio_venta = producto.precios[0]?.precioVenta || 0;
+  return producto;
+}
+
 module.exports = {
   listarProductos,
   crearProducto,
@@ -221,6 +237,7 @@ module.exports = {
   eliminarProducto,
   clonarProducto,
   ajustarExistencia,
+  actualizarCostoDesdeCompra,
   listarCategorias,
   crearCategoria,
   listarDepartamentos,
