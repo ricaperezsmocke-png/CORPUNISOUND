@@ -40,6 +40,8 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     const cantidad = Number(r.cantidad);
     if (!producto_id) throw new Error("Cada renglón necesita un producto");
     if (!cantidad || cantidad <= 0) throw new Error("La cantidad debe ser mayor a cero");
+    const existeProducto = DB["catalogo-productos"].productos.some((p) => p.id === producto_id);
+    if (!existeProducto) throw new Error("Producto no encontrado");
     return { producto_id, cantidad, costo: Number(r.costo) };
   });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Truck, PackagePlus, History, X, Search, Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { PackagePlus, History, X, Search, Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiFetch } from "./api";
 
 function Campo({ label, children }) {
@@ -128,6 +128,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   };
 
   const registrarRecepcion = async () => {
+    if (usuario?.ver_todas && !sucursalOrigenId) return mostrarAviso("Selecciona la sucursal que recibe");
     if (!proveedorId) return mostrarAviso("Selecciona un proveedor");
     if (renglones.length === 0) return mostrarAviso("Agrega al menos un producto");
     for (const r of renglones) {

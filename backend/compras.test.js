@@ -142,3 +142,25 @@ test("crearRecepcion funciona con producto legacy sin precios array", () => {
   const existCedis = DB.inventario.existencias.find((e) => e.producto_id === 99 && e.sucursal_id === 6);
   assert.strictEqual(existCedis.cantidad_actual, 5, "debe incrementar existencia en CEDIS");
 });
+
+test("crearRecepcion no muta nada si un renglón posterior referencia un producto inexistente", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const existenciaAntes = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 6);
+  assert.strictEqual(existenciaAntes, undefined, "CEDIS no debe tener fila de existencia de producto 1 todavía");
+
+  assert.throws(
+    () => crearRecepcion(DB, {
+      proveedor_id: 1, factura: "A-200",
+      renglones: [
+        { producto_id: 1, cantidad: 10, costo: 50 },
+        { producto_id: 999, cantidad: 5, costo: 20 },
+      ],
+    }, 6, USUARIO_CEDIS),
+    /Producto no encontrado/
+  );
+
+  assert.strictEqual(DB.inventario.compras.length, 0, "no debe crear la compra");
+  assert.strictEqual(DB.inventario.compra_detalle.length, 0, "no debe crear ningún detalle");
+  const existCedisDespues = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 6);
+  assert.strictEqual(existCedisDespues, undefined, "no debe haber creado/afectado existencia del renglón 1 en CEDIS");
+});

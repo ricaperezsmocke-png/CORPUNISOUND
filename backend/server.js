@@ -40,6 +40,7 @@ const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones } = require("./compras");
+const { reconciliarSucursalesCedis } = require("./sucursales");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const {
@@ -201,6 +202,11 @@ if (estadoGuardado) {
   }
   console.log("✅ Datos restaurados desde almacenamiento persistente");
 }
+
+// Garantiza que CEDIS (sucursal 6) exista y que 5/6 tengan sin_ubicacion=true,
+// tanto si el DB viene del seed fresco como si viene de datos persistidos
+// anteriores a esta feature. Ver backend/sucursales.js.
+DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
 
 function listarModulosYTablas() {
   return Object.entries(DB).map(([id, tablas]) => ({ id, tablas: Object.keys(tablas) }));
