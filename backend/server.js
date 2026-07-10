@@ -99,7 +99,8 @@ const DB = {
       { id: 2, nombre: "Yajalón", ciudad: "Chiapas", lat: null, lng: null },
       { id: 3, nombre: "San Cristóbal", ciudad: "Chiapas", lat: null, lng: null },
       { id: 4, nombre: "Palenque", ciudad: "Chiapas", lat: null, lng: null },
-      { id: 5, nombre: "MercadoLibre", ciudad: "Online" },
+      { id: 5, nombre: "MercadoLibre", ciudad: "Online", sin_ubicacion: true },
+      { id: 6, nombre: "CEDIS", ciudad: "Chiapas", sin_ubicacion: true, lat: null, lng: null },
     ],
     condiciones_pago: [],
     configuracion: null,
@@ -546,7 +547,7 @@ app.put("/api/sucursales/:id/ubicacion", requiereLogin, requierePermiso("adminis
   try {
     const sucursal = DB.pos.sucursales.find((s) => s.id === Number(req.params.id));
     if (!sucursal) throw new Error("Sucursal no encontrada");
-    if (sucursal.ciudad === "Online") throw new Error("La sucursal virtual de MercadoLibre no usa ubicación");
+    if (sucursal.sin_ubicacion) throw new Error("Esta sucursal no usa ubicación GPS");
     const { lat, lng } = req.body;
     sucursal.lat = lat !== undefined && lat !== null && lat !== "" ? Number(lat) : null;
     sucursal.lng = lng !== undefined && lng !== null && lng !== "" ? Number(lng) : null;

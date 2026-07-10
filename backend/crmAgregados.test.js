@@ -13,9 +13,9 @@ test("resumenPorSucursal amarrado solo devuelve su sucursal", () => {
   assert.strictEqual(r[0].sucursal_id, 2);
 });
 
-test("resumenPorSucursal global devuelve las 4", () => {
+test("resumenPorSucursal global devuelve las 6", () => {
   const DB = construirDBPrueba();
-  assert.strictEqual(resumenPorSucursal(DB, TODAS).length, 4);
+  assert.strictEqual(resumenPorSucursal(DB, TODAS).length, 6);
 });
 
 test("rankingVendedores amarrado solo trae vendedores de su sucursal", () => {

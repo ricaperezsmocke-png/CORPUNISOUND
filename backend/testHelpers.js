@@ -29,6 +29,8 @@ function construirDBPrueba() {
         { id: 2, nombre: "Yajalón", ciudad: "Chiapas" },
         { id: 3, nombre: "San Cristóbal", ciudad: "Chiapas" },
         { id: 4, nombre: "Palenque", ciudad: "Chiapas" },
+        { id: 5, nombre: "MercadoLibre", ciudad: "Online", sin_ubicacion: true },
+        { id: 6, nombre: "CEDIS", ciudad: "Chiapas", sin_ubicacion: true },
       ],
       condiciones_pago: [],
       configuracion: null,

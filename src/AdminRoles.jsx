@@ -34,7 +34,7 @@ function UbicacionesTiendas({ mostrarAviso }) {
     try {
       const r = await apiFetch("/sucursales");
       const data = await r.json();
-      setSucursales(data.filter((s) => s.ciudad !== "Online"));
+      setSucursales(data.filter((s) => !s.sin_ubicacion));
     } catch { /* silencioso */ }
     finally { setCargando(false); }
   }, []);
