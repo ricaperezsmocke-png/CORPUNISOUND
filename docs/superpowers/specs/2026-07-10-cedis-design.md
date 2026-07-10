@@ -47,10 +47,17 @@ tenga que solicitarlo primero.
    productos: `precioVenta = costo * (1 + utilidad / 100)`).
 5. **Salida a tiendas sin cambios de flujo:** se usa Traspasos tal cual
    existe hoy. El CEDIS es simplemente una sucursal de origen válida más.
-6. **Sin GPS en el CEDIS**, igual que la sucursal virtual de ML. Se
-   generaliza el chequeo actual (que hoy exime por `ciudad === "Online"`)
-   a un flag explícito `sin_gps`, para no forzar al CEDIS —que sí es un
-   lugar físico— a fingir ser "Online".
+6. **Sin GPS en el CEDIS**, igual que la sucursal virtual de ML. La
+   validación de login (`validarUbicacionLogin` en `auth.js`) ya exime
+   automáticamente a cualquier sucursal sin `lat`/`lng` configuradas — eso
+   no cambia. Lo que sí cambia es que hoy dos lugares bloquean
+   *configurar* coordenadas mirando `sucursal.ciudad === "Online"`
+   (la pantalla "Ubicaciones de Tiendas" y la ruta que guarda
+   coordenadas); eso se generaliza a un flag explícito `sin_ubicacion`,
+   marcado en ML y en CEDIS, para no forzar al CEDIS —que sí es un lugar
+   físico— a fingir ser "Online". El selector de sucursal en Login sigue
+   filtrando solo por `ciudad === "Online"` sin cambios: el CEDIS sí debe
+   aparecer ahí para que su personal pueda iniciar sesión.
 
 ## Arquitectura
 
@@ -58,11 +65,19 @@ tenga que solicitarlo primero.
 
 **`backend/server.js`** — `DB.pos.sucursales`:
 ```js
-{ id: 6, nombre: "CEDIS", ciudad: "Chiapas", sin_gps: true, lat: null, lng: null }
+{ id: 6, nombre: "CEDIS", ciudad: "Chiapas", sin_ubicacion: true, lat: null, lng: null }
 ```
-Se agrega también `sin_gps: true` a la sucursal 5 (MercadoLibre), y el
-chequeo de GPS al login pasa de mirar `sucursal.ciudad === "Online"` a mirar
-`sucursal.sin_gps === true`.
+Se agrega también `sin_ubicacion: true` a la sucursal 5 (MercadoLibre). Los
+dos lugares que hoy bloquean configurar coordenadas mirando
+`sucursal.ciudad === "Online"` (la ruta `PUT /api/sucursales/:id/ubicacion`
+en `server.js`, y el filtro de la lista en `UbicacionesTiendas` dentro de
+`src/AdminRoles.jsx`) pasan a mirar `sucursal.sin_ubicacion === true`. El
+filtro de sucursales en `src/Login.jsx` (que decide qué aparece en el
+selector al iniciar sesión) NO cambia — sigue excluyendo solo
+`ciudad === "Online"`, así que el CEDIS permanece visible ahí. La función
+`validarUbicacionLogin` en `auth.js` no se toca: ya exime automáticamente a
+cualquier sucursal sin `lat`/`lng`, y como CEDIS y ML nunca podrán tener
+coordenadas configuradas, seguirán exentas sin más cambios.
 
 Como `crearProducto` (en `backend/productos.js`) ya recorre
 `DB.pos.sucursales` de forma genérica para sembrar existencia, y el
