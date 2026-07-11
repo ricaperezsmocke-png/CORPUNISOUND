@@ -39,7 +39,7 @@ const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucu
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
-const { crearRecepcion, listarRecepciones } = require("./compras");
+const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
@@ -419,6 +419,10 @@ app.post("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolv
     const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
     res.json(crearRecepcion(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/productos/:id/historial-costo", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
+  res.json(historialCostoProducto(DB, req.params.id));
 });
 
 app.get("/api/categorias", (req, res) => res.json(listarCategorias(DB)));

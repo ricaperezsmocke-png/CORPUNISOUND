@@ -10,6 +10,12 @@
  * (Postgres/MySQL) sin tener que tocar las rutas ni el frontend.
  */
 
+const TASA_IVA = 0.16;
+
+function costoConIva(costoNeto) {
+  return Math.round(Number(costoNeto) * (1 + TASA_IVA) * 100) / 100;
+}
+
 function listarProductos(DB, sucursalId) {
   return DB["catalogo-productos"].productos.map((p) => {
     // Global "todas" (sucursalId null): suma la existencia de todas las sucursales.
@@ -257,4 +263,6 @@ module.exports = {
   crearDepartamento,
   crearProveedor,
   generarClave,
+  TASA_IVA,
+  costoConIva,
 };

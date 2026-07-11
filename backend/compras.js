@@ -13,7 +13,7 @@
  * pierdan bajo el % de utilidad.
  */
 
-const { ajustarExistencia, actualizarCostoDesdeCompra, actualizarProducto } = require("./productos");
+const { ajustarExistencia, actualizarCostoDesdeCompra, actualizarProducto, costoConIva } = require("./productos");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -115,4 +115,26 @@ function listarRecepciones(DB, alcance) {
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 }
 
-module.exports = { crearRecepcion, listarRecepciones };
+function historialCostoProducto(DB, productoId) {
+  const id = Number(productoId);
+  const historial = DB.inventario.compra_detalle
+    .filter((d) => d.producto_id === id)
+    .map((d) => {
+      const compra = DB.inventario.compras.find((c) => c.id === d.compra_id);
+      return compra ? { costo: d.costo, fecha: compra.fecha } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+  if (historial.length === 0) return { ultimo: null, promedio: null };
+
+  const ultimoNeto = historial[historial.length - 1].costo;
+  const promedioNeto = Math.round((historial.reduce((acc, h) => acc + h.costo, 0) / historial.length) * 100) / 100;
+
+  return {
+    ultimo: { neto: ultimoNeto, conIva: costoConIva(ultimoNeto) },
+    promedio: { neto: promedioNeto, conIva: costoConIva(promedioNeto) },
+  };
+}
+
+module.exports = { crearRecepcion, listarRecepciones, historialCostoProducto };
