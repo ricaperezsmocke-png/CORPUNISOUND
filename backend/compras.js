@@ -2,10 +2,15 @@
  * compras.js — Recepción de mercancía de proveedores en el CEDIS.
  *
  * Cada recepción sube existencia a la sucursal de quien la registra (el
- * CEDIS, normalmente) y, si el costo capturado difiere del costo actual del
- * producto, actualiza el costo y recalcula los 4 precios de venta
- * conservando el % de utilidad de cada nivel (ver actualizarCostoDesdeCompra
- * en productos.js).
+ * CEDIS, normalmente). Antes de recalcular el costo, aplica el descuento
+ * por renglón (pesos y/o porcentaje) capturado en la recepción. Si el costo
+ * final difiere del costo actual del producto, actualiza el costo y
+ * recalcula los 4 precios de venta conservando el % de utilidad de cada
+ * nivel (ver actualizarCostoDesdeCompra en productos.js). Por último, si el
+ * renglón trae clave SAT, localización, IVA, neto o precios editados/
+ * confirmados a mano (desde la pantalla Artículo), esos valores se
+ * persisten en el producto DESPUÉS del recálculo automático, para que no se
+ * pierdan bajo el % de utilidad.
  */
 
 const { ajustarExistencia, actualizarCostoDesdeCompra, actualizarProducto } = require("./productos");
@@ -87,8 +92,8 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     if (clave_sat !== undefined || localizacion !== undefined || aplicaIva !== undefined || neto !== undefined || precios !== undefined) {
       actualizarProducto(DB, producto_id, {
         clave_sat, localizacion,
-        iva: aplicaIva !== undefined ? aplicaIva : undefined,
-        neto: neto !== undefined ? neto : undefined,
+        iva: aplicaIva,
+        neto: neto,
         precios: Array.isArray(precios) ? precios : undefined,
       }, sucursal_id);
     }

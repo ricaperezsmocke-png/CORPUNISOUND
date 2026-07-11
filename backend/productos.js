@@ -97,32 +97,37 @@ function crearProducto(DB, datos, sucursalId) {
 }
 
 function actualizarProducto(DB, id, datos, sucursalId) {
-  const idx = DB["catalogo-productos"].productos.findIndex((p) => p.id === Number(id));
-  if (idx === -1) throw new Error("Producto no encontrado");
+  const actual = DB["catalogo-productos"].productos.find((p) => p.id === Number(id));
+  if (!actual) throw new Error("Producto no encontrado");
 
-  const actual = DB["catalogo-productos"].productos[idx];
-  // Actualizar el objeto en lugar de reemplazarlo, así las referencias
-  // existentes (ej. en tests o en la UI) siguen siendo válidas.
-  if (datos.clave !== undefined) actual.sku = datos.clave;
-  if (datos.clave_alterna !== undefined) actual.clave_alterna = datos.clave_alterna;
-  if (datos.servicio !== undefined) actual.servicio = !!datos.servicio;
-  if (datos.descripcion !== undefined) actual.nombre = datos.descripcion;
-  if (datos.categoria_id !== undefined) actual.categoria_id = Number(datos.categoria_id) || null;
-  if (datos.departamento_id !== undefined) actual.departamento_id = Number(datos.departamento_id) || null;
-  if (datos.proveedor_id !== undefined) actual.proveedor_id = Number(datos.proveedor_id) || null;
-  if (datos.unidad_compra !== undefined) actual.unidad_compra = datos.unidad_compra;
-  if (datos.unidad_venta !== undefined) actual.unidad_venta = datos.unidad_venta;
-  if (datos.factor !== undefined) actual.factor = Number(datos.factor);
-  if (datos.iva !== undefined) actual.iva = !!datos.iva;
-  if (datos.precio_compra !== undefined) actual.costo = Number(datos.precio_compra);
-  if (datos.neto !== undefined) actual.neto = !!datos.neto;
-  if (Array.isArray(datos.precios)) actual.precios = datos.precios;
-  if (datos.unidades_por_mayoreo !== undefined) actual.unidades_por_mayoreo = Number(datos.unidades_por_mayoreo);
-  if (datos.imagen_url !== undefined) actual.imagen_url = datos.imagen_url;
-  if (datos.clave_sat !== undefined) actual.clave_sat = datos.clave_sat;
-  if (datos.localizacion !== undefined) actual.localizacion = datos.localizacion;
+  const actualizado = {
+    ...actual,
+    sku: datos.clave ?? actual.sku,
+    clave_alterna: datos.clave_alterna ?? actual.clave_alterna,
+    servicio: datos.servicio !== undefined ? !!datos.servicio : actual.servicio,
+    nombre: datos.descripcion ?? actual.nombre,
+    categoria_id: datos.categoria_id !== undefined ? (Number(datos.categoria_id) || null) : actual.categoria_id,
+    departamento_id: datos.departamento_id !== undefined ? (Number(datos.departamento_id) || null) : actual.departamento_id,
+    proveedor_id: datos.proveedor_id !== undefined ? (Number(datos.proveedor_id) || null) : actual.proveedor_id,
+    unidad_compra: datos.unidad_compra ?? actual.unidad_compra,
+    unidad_venta: datos.unidad_venta ?? actual.unidad_venta,
+    factor: datos.factor !== undefined ? Number(datos.factor) : actual.factor,
+    iva: datos.iva !== undefined ? !!datos.iva : actual.iva,
+    costo: datos.precio_compra !== undefined ? Number(datos.precio_compra) : actual.costo,
+    neto: datos.neto !== undefined ? !!datos.neto : actual.neto,
+    precios: Array.isArray(datos.precios) ? datos.precios : actual.precios,
+    unidades_por_mayoreo: datos.unidades_por_mayoreo !== undefined ? Number(datos.unidades_por_mayoreo) : actual.unidades_por_mayoreo,
+    imagen_url: datos.imagen_url !== undefined ? datos.imagen_url : (actual.imagen_url || ""),
+    clave_sat: datos.clave_sat !== undefined ? datos.clave_sat : (actual.clave_sat || ""),
+    localizacion: datos.localizacion !== undefined ? datos.localizacion : (actual.localizacion || ""),
+  };
+  actualizado.precio_venta = actualizado.precios[0]?.precioVenta || 0;
 
-  actual.precio_venta = actual.precios[0]?.precioVenta || 0;
+  // Object.assign en vez de reemplazar el slot del array: crearRecepcion
+  // (en compras.js) guarda una referencia viva a este mismo objeto y la
+  // sigue usando después de esta llamada, así que debe seguir siendo la
+  // misma identidad, solo con sus propiedades actualizadas.
+  Object.assign(actual, actualizado);
 
   if (datos.existencia_minima !== undefined || datos.existencia_maxima !== undefined) {
     const sucursalObjetivo = Number(sucursalId) || 1;
