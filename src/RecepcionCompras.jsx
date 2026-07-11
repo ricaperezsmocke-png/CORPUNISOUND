@@ -75,8 +75,11 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const [enEspera, setEnEspera] = useState([]);
   const [xmlParseado, setXmlParseado] = useState(null); // resultado de importar-xml
   const [matchesXml, setMatchesXml] = useState({}); // { [indiceConcepto]: producto_id | null }
+  const [confirmadosXml, setConfirmadosXml] = useState({}); // { [indiceConcepto]: true } — confirmación explícita del usuario
+  const [sugeridosXml, setSugeridosXml] = useState({}); // { [indiceConcepto]: true } — el match ORIGINAL fue auto-sugerido por clave SAT
   const [cargandoXml, setCargandoXml] = useState(false);
   const [uuidCfdiActual, setUuidCfdiActual] = useState(null);
+  const [productoIdsDeXml, setProductoIdsDeXml] = useState([]); // producto_ids que vinieron de la última importación XML confirmada
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -136,13 +139,20 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         const r = await apiFetch(`/compras/importar-xml`, { method: "POST", body: JSON.stringify({ xml: e.target.result }) });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error);
+        if (uuidCfdiActual && data.folioFiscal && data.folioFiscal !== uuidCfdiActual) {
+          mostrarAviso("⚠️ Ya habías importado otra factura en esta recepción — solo se registrará el folio fiscal de la más reciente");
+        }
         setXmlParseado(data);
         const sugeridos = {};
+        const marcasSugeridos = {};
         data.conceptos.forEach((c, idx) => {
           const match = productos.find((p) => p.clave_sat && c.clave_sat && p.clave_sat === c.clave_sat);
           sugeridos[idx] = match ? match.id : null;
+          if (match) marcasSugeridos[idx] = true;
         });
         setMatchesXml(sugeridos);
+        setSugeridosXml(marcasSugeridos);
+        setConfirmadosXml({});
         const proveedorExistente = proveedores.find((p) => p.rfc && p.rfc === data.emisor.rfc);
         if (proveedorExistente) setProveedorId(proveedorExistente.id);
       } catch (err) {
@@ -157,9 +167,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
   const confirmarImportacionXml = () => {
     const nuevos = xmlParseado.conceptos
-      .map((c, idx) => ({ concepto: c, producto_id: matchesXml[idx] }))
-      .filter((x) => x.producto_id);
-    if (nuevos.length === 0) return mostrarAviso("Vincula al menos un producto antes de continuar");
+      .map((c, idx) => ({ concepto: c, producto_id: matchesXml[idx], idx }))
+      .filter((x) => x.producto_id && confirmadosXml[x.idx] === true);
+    if (nuevos.length === 0) return mostrarAviso("Confirma al menos un producto antes de continuar");
 
     setRenglones((prev) => {
       const copia = [...prev];
@@ -182,9 +192,12 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       return copia;
     });
     setUuidCfdiActual(xmlParseado.folioFiscal);
+    setProductoIdsDeXml(nuevos.map((x) => x.producto_id));
     mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde la factura`);
     setXmlParseado(null);
     setMatchesXml({});
+    setConfirmadosXml({});
+    setSugeridosXml({});
     setModal(null);
   };
 
@@ -223,7 +236,12 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   };
 
   const quitarRenglon = (producto_id) => {
-    setRenglones((prev) => prev.filter((r) => r.producto_id !== producto_id));
+    const restantes = renglones.filter((r) => r.producto_id !== producto_id);
+    setRenglones(restantes);
+    if (productoIdsDeXml.length > 0 && !restantes.some((r) => productoIdsDeXml.includes(r.producto_id))) {
+      setUuidCfdiActual(null);
+      setProductoIdsDeXml([]);
+    }
     setFilaSeleccionada(null);
   };
 
@@ -234,6 +252,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const limpiarFormulario = () => {
     setProveedorId(""); setSucursalOrigenId(""); setFactura(""); setComentario(""); setRenglones([]); setFilaSeleccionada(null);
     setUuidCfdiActual(null);
+    setConfirmadosXml({}); setSugeridosXml({}); setProductoIdsDeXml([]);
   };
 
   const registrarRecepcion = async () => {
@@ -670,12 +689,19 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                     <th className="py-2 px-2 text-center font-medium w-16">Cant.</th>
                     <th className="py-2 px-2 text-right font-medium w-24">Costo</th>
                     <th className="py-2 px-2 text-left font-medium">Producto en tu catálogo</th>
+                    <th className="py-2 px-2 text-center font-medium w-24">Confirmar</th>
                   </tr>
                 </thead>
                 <tbody>
                   {xmlParseado.conceptos.map((c, idx) => (
                     <tr key={idx} className="border-b border-slate-100">
-                      <td className="py-2 px-2">{c.descripcion}<div className="text-[10px] text-slate-400">Clave SAT: {c.clave_sat}</div></td>
+                      <td className="py-2 px-2">
+                        {c.descripcion}
+                        {sugeridosXml[idx] && (
+                          <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Sugerido</span>
+                        )}
+                        <div className="text-[10px] text-slate-400">Clave SAT: {c.clave_sat}</div>
+                      </td>
                       <td className="py-2 px-2 text-center">{c.cantidad}</td>
                       <td className="py-2 px-2 text-right">${c.valor_unitario.toFixed(2)}</td>
                       <td className="py-2 px-2">
@@ -688,12 +714,22 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                           {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                         </select>
                       </td>
+                      <td className="py-2 px-2 text-center">
+                        <label className="inline-flex items-center gap-1 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={!!confirmadosXml[idx]}
+                            onChange={(e) => setConfirmadosXml((prev) => ({ ...prev, [idx]: e.target.checked }))}
+                          />
+                          Confirmar
+                        </label>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="flex gap-2">
-                <button onClick={() => { setXmlParseado(null); setMatchesXml({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
+                <button onClick={() => { setXmlParseado(null); setMatchesXml({}); setConfirmadosXml({}); setSugeridosXml({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
                 <button onClick={confirmarImportacionXml} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Agregar a la recepción</button>
               </div>
             </div>
