@@ -73,6 +73,10 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const [productoParaArticulo, setProductoParaArticulo] = useState(null);
   const [valorTemporal, setValorTemporal] = useState("");
   const [enEspera, setEnEspera] = useState([]);
+  const [xmlParseado, setXmlParseado] = useState(null); // resultado de importar-xml
+  const [matchesXml, setMatchesXml] = useState({}); // { [indiceConcepto]: producto_id | null }
+  const [cargandoXml, setCargandoXml] = useState(false);
+  const [uuidCfdiActual, setUuidCfdiActual] = useState(null);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -124,6 +128,66 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
+  const leerArchivoXml = (archivo) => {
+    setCargandoXml(true);
+    const lector = new FileReader();
+    lector.onload = async (e) => {
+      try {
+        const r = await apiFetch(`/compras/importar-xml`, { method: "POST", body: JSON.stringify({ xml: e.target.result }) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error);
+        setXmlParseado(data);
+        const sugeridos = {};
+        data.conceptos.forEach((c, idx) => {
+          const match = productos.find((p) => p.clave_sat && c.clave_sat && p.clave_sat === c.clave_sat);
+          sugeridos[idx] = match ? match.id : null;
+        });
+        setMatchesXml(sugeridos);
+        const proveedorExistente = proveedores.find((p) => p.rfc && p.rfc === data.emisor.rfc);
+        if (proveedorExistente) setProveedorId(proveedorExistente.id);
+      } catch (err) {
+        mostrarAviso("❌ " + err.message);
+        setModal(null);
+      } finally {
+        setCargandoXml(false);
+      }
+    };
+    lector.readAsText(archivo);
+  };
+
+  const confirmarImportacionXml = () => {
+    const nuevos = xmlParseado.conceptos
+      .map((c, idx) => ({ concepto: c, producto_id: matchesXml[idx] }))
+      .filter((x) => x.producto_id);
+    if (nuevos.length === 0) return mostrarAviso("Vincula al menos un producto antes de continuar");
+
+    setRenglones((prev) => {
+      const copia = [...prev];
+      nuevos.forEach(({ concepto, producto_id }) => {
+        const idx = copia.findIndex((r) => r.producto_id === producto_id);
+        const renglon = {
+          producto_id,
+          cantidad: concepto.cantidad,
+          costo: concepto.valor_unitario,
+          descuento_pesos: 0,
+          descuento_porcentaje: 0,
+          clave_sat: concepto.clave_sat,
+          localizacion: productoDe(producto_id)?.localizacion || "",
+          aplicaIva: concepto.aplica_iva,
+          neto: true,
+          precios: productoDe(producto_id)?.precios,
+        };
+        if (idx >= 0) copia[idx] = renglon; else copia.push(renglon);
+      });
+      return copia;
+    });
+    setUuidCfdiActual(xmlParseado.folioFiscal);
+    mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde la factura`);
+    setXmlParseado(null);
+    setMatchesXml({});
+    setModal(null);
+  };
+
   const abrirArticuloParaProducto = (producto) => {
     const existente = renglones.find((r) => r.producto_id === producto.id);
     setProductoParaArticulo({ producto, existente });
@@ -169,6 +233,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
   const limpiarFormulario = () => {
     setProveedorId(""); setSucursalOrigenId(""); setFactura(""); setComentario(""); setRenglones([]); setFilaSeleccionada(null);
+    setUuidCfdiActual(null);
   };
 
   const registrarRecepcion = async () => {
@@ -181,6 +246,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         factura,
         comentario,
         sucursal_id: sucursalOrigenId,
+        uuid_cfdi: uuidCfdiActual,
         renglones: renglones.map((r) => ({
           producto_id: r.producto_id, cantidad: r.cantidad, costo: r.costo,
           descuento_pesos: r.descuento_pesos, descuento_porcentaje: r.descuento_porcentaje,
@@ -567,6 +633,71 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               </button>
             ))}
           </div>
+        </Modal>
+      )}
+
+      {modal === "importarXml" && (
+        <Modal titulo="Importar factura XML (F8)" onCerrar={() => { setModal(null); setXmlParseado(null); }} ancho="max-w-3xl">
+          {!xmlParseado ? (
+            <div className="text-center py-10">
+              <input
+                type="file" accept=".xml"
+                onChange={(e) => e.target.files[0] && leerArchivoXml(e.target.files[0])}
+                className="mb-3"
+              />
+              {cargandoXml && <p className="text-slate-400 text-sm">Leyendo factura...</p>}
+              <p className="text-xs text-slate-400 mt-2">Selecciona el archivo XML (CFDI 4.0) que te mandó tu proveedor.</p>
+            </div>
+          ) : (
+            <div>
+              <div className="bg-slate-50 rounded p-3 mb-3 text-sm">
+                <div><b>Proveedor (RFC):</b> {xmlParseado.emisor.rfc} — {xmlParseado.emisor.nombre}</div>
+                {!proveedores.some((p) => p.rfc === xmlParseado.emisor.rfc) && (
+                  <button onClick={async () => {
+                    const r = await apiFetch(`/proveedores`, { method: "POST", body: JSON.stringify({ nombre: xmlParseado.emisor.nombre, rfc: xmlParseado.emisor.rfc }) });
+                    const nuevo = await r.json();
+                    setProveedores((prev) => [...prev, nuevo]);
+                    setProveedorId(nuevo.id);
+                  }} className="text-xs text-blue-700 hover:underline mt-1">
+                    + Dar de alta este proveedor
+                  </button>
+                )}
+              </div>
+              <table className="w-full text-sm border border-slate-200 rounded overflow-hidden mb-3">
+                <thead className="bg-[#1a7fe8] text-white">
+                  <tr>
+                    <th className="py-2 px-2 text-left font-medium">Descripción (factura)</th>
+                    <th className="py-2 px-2 text-center font-medium w-16">Cant.</th>
+                    <th className="py-2 px-2 text-right font-medium w-24">Costo</th>
+                    <th className="py-2 px-2 text-left font-medium">Producto en tu catálogo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {xmlParseado.conceptos.map((c, idx) => (
+                    <tr key={idx} className="border-b border-slate-100">
+                      <td className="py-2 px-2">{c.descripcion}<div className="text-[10px] text-slate-400">Clave SAT: {c.clave_sat}</div></td>
+                      <td className="py-2 px-2 text-center">{c.cantidad}</td>
+                      <td className="py-2 px-2 text-right">${c.valor_unitario.toFixed(2)}</td>
+                      <td className="py-2 px-2">
+                        <select
+                          className={inputCls}
+                          value={matchesXml[idx] ?? ""}
+                          onChange={(e) => setMatchesXml((prev) => ({ ...prev, [idx]: e.target.value ? Number(e.target.value) : null }))}
+                        >
+                          <option value="">Sin vincular — se ignora</option>
+                          {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex gap-2">
+                <button onClick={() => { setXmlParseado(null); setMatchesXml({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
+                <button onClick={confirmarImportacionXml} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Agregar a la recepción</button>
+              </div>
+            </div>
+          )}
         </Modal>
       )}
     </div>
