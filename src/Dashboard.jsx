@@ -13,7 +13,7 @@ const MODULOS = [
   { id: "compras",    nombre: "Recepción de Compras",   icono: Truck,          disponible: true, modulo: "inventario", permiso: "recibir_compra" },
   { id: "roles",      nombre: "Roles y Personal",        icono: ShieldCheck,  disponible: true, modulo: "admin" },
   { id: "crm",        nombre: "CRM",                     icono: Users,        disponible: true, modulo: "crm" },
-  { id: "ml",         nombre: "MercadoLibre",             icono: Store,        disponible: true, modulo: "pos" },
+  { id: "ml",         nombre: "MercadoLibre",             icono: Store,        disponible: true, modulo: "ml" },
 ];
 
 export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {

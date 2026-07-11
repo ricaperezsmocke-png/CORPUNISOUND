@@ -83,4 +83,28 @@ function sembrarRolesIniciales(DB) {
   });
 }
 
-module.exports = { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales };
+/**
+ * Reconciliación del rol "Administrador" contra el catálogo actual.
+ *
+ * sembrarRolesIniciales solo corre cuando DB.admin.roles está vacío; en
+ * cualquier instancia con datos ya persistidos en SQLite (como producción),
+ * los roles restaurados son un snapshot congelado del catálogo de cuando se
+ * sembraron. Al agregar un módulo nuevo (ej. "ml") o un permiso nuevo (ej.
+ * realizar_traspasos, recibir_compra), ni siquiera el Administrador los
+ * recibía, y los botones desaparecían para todos.
+ *
+ * Esta función se aplica siempre, después de la restauración, para garantizar
+ * que el Administrador tenga TODOS los módulos y permisos del catálogo
+ * (unión, sin duplicar, sin quitar nada). Los demás roles (Gerente, Cajero,
+ * personalizados) NO se tocan: agregarles permisos nuevos automáticamente
+ * sería una escalación de privilegio silenciosa — el admin los ajusta a mano
+ * desde Roles y Personal. Es idempotente: correrla varias veces da lo mismo.
+ */
+function reconciliarRoles(DB) {
+  const admin = DB.admin.roles.find((r) => r.nombre === "Administrador");
+  if (!admin) return;
+  admin.permisos = [...new Set([...admin.permisos, ...PERMISOS.map((p) => p.clave)])];
+  admin.modulos = [...new Set([...admin.modulos, ...MODULOS_SISTEMA.map((m) => m.id)])];
+}
+
+module.exports = { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles };

@@ -37,7 +37,7 @@ const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
-const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales } = require("./roles");
+const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
@@ -207,6 +207,12 @@ if (estadoGuardado) {
 // tanto si el DB viene del seed fresco como si viene de datos persistidos
 // anteriores a esta feature. Ver backend/sucursales.js.
 DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
+
+// Garantiza que el rol "Administrador" tenga TODOS los módulos y permisos del
+// catálogo actual, aunque venga de un snapshot persistido anterior a módulos
+// o permisos nuevos (ml, traspasos, compras...). Los demás roles no se tocan.
+// Ver backend/roles.js -> reconciliarRoles.
+reconciliarRoles(DB);
 
 function listarModulosYTablas() {
   return Object.entries(DB).map(([id, tablas]) => ({ id, tablas: Object.keys(tablas) }));
@@ -504,7 +510,9 @@ app.post("/api/roles/:id/clonar", requiereLogin, requierePermiso("administrar_ro
 
 // ---------- Usuarios / personal ----------
 app.get("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarUsuarios(DB)));
-app.post("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), async (req, res) => {
+// El botón "Dar de alta personal" está gateado con dar_alta_personal en el
+// frontend (AdminRoles.jsx); la ruta debe exigir la MISMA clave que el botón.
+app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await crearUsuario(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
@@ -534,7 +542,7 @@ app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolv
     res.json(crearCliente(DB, { ...req.body, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/clientes/:id", requiereLogin, (req, res) => {
+app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", resolverPermisosDeRol), (req, res) => {
   try {
     const existente = obtenerCliente(DB, req.params.id);
     const alcance = resolverAlcance(req);
@@ -639,14 +647,14 @@ app.get("/api/crm/ranking-vendedores", requiereLogin, (req, res) => {
 });
 
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
-app.get("/api/ventas", requiereLogin, (req, res) => {
+app.get("/api/ventas", requiereLogin, requierePermiso("ver_lista_ventas", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const filtros = { ...req.query };
   if (alcance.verTodas) delete filtros.sucursal_id;
   else filtros.sucursal_id = alcance.sucursalId;
   res.json(listarVentas(DB, filtros));
 });
-app.get("/api/ventas/:id", requiereLogin, (req, res) => {
+app.get("/api/ventas/:id", requiereLogin, requierePermiso("mostrar_detalle_venta", resolverPermisosDeRol), (req, res) => {
   try {
     const venta = obtenerVentaDetalle(DB, req.params.id);
     const alcance = resolverAlcance(req);
@@ -792,7 +800,7 @@ app.get("/api/ml/estado", requiereLogin, (req, res) => {
   });
 });
 
-app.get("/api/ml/auth-url", requiereLogin, (req, res) => {
+app.get("/api/ml/auth-url", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol), (req, res) => {
   try {
     const redirect = process.env.ML_REDIRECT_URI ||
       `${req.protocol}://${req.get("host")}/api/ml/callback`;
