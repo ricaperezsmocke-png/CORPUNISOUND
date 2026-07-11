@@ -44,6 +44,7 @@ const { reconciliarSucursalesCedis } = require("./sucursales");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const { buscarClavesSat } = require("./clavesSat");
+const { parsearFacturaXML } = require("./cfdi");
 const {
   intercambiarCodigo, urlAutorizacion, listarPublicaciones,
   publicarProducto, actualizarStockML, actualizarPublicacion,
@@ -420,6 +421,14 @@ app.post("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolv
     const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
     res.json(crearRecepcion(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/compras/importar-xml", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json(parsearFacturaXML(req.body.xml));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 app.get("/api/productos/:id/historial-costo", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {

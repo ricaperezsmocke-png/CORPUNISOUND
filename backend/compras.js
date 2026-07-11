@@ -26,6 +26,11 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     throw new Error("Agrega al menos un producto a la recepción");
   }
 
+  if (datos.uuid_cfdi) {
+    const yaRegistrada = DB.inventario.compras.some((c) => c.uuid_cfdi === datos.uuid_cfdi);
+    if (yaRegistrada) throw new Error("Esta factura ya fue registrada anteriormente (folio fiscal duplicado)");
+  }
+
   const sucursal_id = Number(sucursalId);
   const nuevoId = siguienteId(DB.inventario.compras);
   const compra = {
@@ -37,6 +42,7 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     usuario_id: usuario?.id ?? null,
     usuario_nombre: usuario?.nombre || "—",
     fecha: new Date().toISOString(),
+    uuid_cfdi: datos.uuid_cfdi || null,
   };
 
   let siguienteDetalleId = siguienteId(DB.inventario.compra_detalle);

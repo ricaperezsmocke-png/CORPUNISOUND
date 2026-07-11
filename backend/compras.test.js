@@ -264,3 +264,27 @@ test("crearRecepcion sin precios explícito en el renglón sigue recalculando co
 
   assert.strictEqual(producto.precios[0].precioVenta, 50, "40 * 1.25, formula normal preservando el % de utilidad");
 });
+
+test("crearRecepcion rechaza una factura ya registrada (mismo uuid_cfdi)", () => {
+  const DB = conProveedor(construirDBPrueba());
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100", uuid_cfdi: "ABCDEF12-3456-7890-ABCD-EF1234567890",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 40 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.throws(
+    () => crearRecepcion(DB, {
+      proveedor_id: 1, factura: "A-101", uuid_cfdi: "ABCDEF12-3456-7890-ABCD-EF1234567890",
+      renglones: [{ producto_id: 2, cantidad: 1, costo: 10 }],
+    }, 6, USUARIO_CEDIS),
+    /ya fue registrada/
+  );
+});
+
+test("crearRecepcion sin uuid_cfdi nunca choca con otras (no exige unicidad si no viene)", () => {
+  const DB = conProveedor(construirDBPrueba());
+  crearRecepcion(DB, { proveedor_id: 1, renglones: [{ producto_id: 1, cantidad: 5, costo: 40 }] }, 6, USUARIO_CEDIS);
+  assert.doesNotThrow(() =>
+    crearRecepcion(DB, { proveedor_id: 1, renglones: [{ producto_id: 2, cantidad: 1, costo: 10 }] }, 6, USUARIO_CEDIS)
+  );
+});
