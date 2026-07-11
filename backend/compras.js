@@ -8,7 +8,7 @@
  * en productos.js).
  */
 
-const { ajustarExistencia, actualizarCostoDesdeCompra } = require("./productos");
+const { ajustarExistencia, actualizarCostoDesdeCompra, actualizarProducto } = require("./productos");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -42,18 +42,27 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     if (!cantidad || cantidad <= 0) throw new Error("La cantidad debe ser mayor a cero");
     const existeProducto = DB["catalogo-productos"].productos.some((p) => p.id === producto_id);
     if (!existeProducto) throw new Error("Producto no encontrado");
-    return { producto_id, cantidad, costo: Number(r.costo) };
+    const costo = Number(r.costo);
+    const descuento_pesos = Number(r.descuento_pesos) || 0;
+    const descuento_porcentaje = Number(r.descuento_porcentaje) || 0;
+    const costoFinal = Math.round((costo - descuento_pesos) * (1 - descuento_porcentaje / 100) * 100) / 100;
+    return {
+      producto_id, cantidad, descuento_pesos, descuento_porcentaje, costoFinal,
+      clave_sat: r.clave_sat, localizacion: r.localizacion, aplicaIva: r.aplicaIva, neto: r.neto, precios: r.precios,
+    };
   });
 
   DB.inventario.compras.push(compra);
 
-  renglonesValidados.forEach(({ producto_id, cantidad, costo }) => {
+  renglonesValidados.forEach(({ producto_id, cantidad, descuento_pesos, descuento_porcentaje, costoFinal, clave_sat, localizacion, aplicaIva, neto, precios }) => {
     DB.inventario.compra_detalle.push({
       id: siguienteDetalleId++,
       compra_id: nuevoId,
       producto_id,
       cantidad,
-      costo,
+      costo: costoFinal,
+      descuento_pesos,
+      descuento_porcentaje,
     });
 
     const existe = DB.inventario.existencias.some((e) => e.producto_id === producto_id && e.sucursal_id === sucursal_id);
@@ -67,8 +76,21 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
       sucursal_id,
     });
 
-    if (Number.isFinite(costo) && costo > 0) {
-      actualizarCostoDesdeCompra(DB, producto_id, costo);
+    if (Number.isFinite(costoFinal) && costoFinal > 0) {
+      actualizarCostoDesdeCompra(DB, producto_id, costoFinal);
+    }
+
+    // La pantalla Artículo (frontend) puede traer clave SAT, localización,
+    // IVA, neto y precios ya editados/confirmados a mano — esto se aplica
+    // DESPUÉS de actualizarCostoDesdeCompra para que un precio editado a
+    // mano no se pierda bajo el recálculo automático por % de utilidad.
+    if (clave_sat !== undefined || localizacion !== undefined || aplicaIva !== undefined || neto !== undefined || precios !== undefined) {
+      actualizarProducto(DB, producto_id, {
+        clave_sat, localizacion,
+        iva: aplicaIva !== undefined ? aplicaIva : undefined,
+        neto: neto !== undefined ? neto : undefined,
+        precios: Array.isArray(precios) ? precios : undefined,
+      }, sucursal_id);
     }
   });
 

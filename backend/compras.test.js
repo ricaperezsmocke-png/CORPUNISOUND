@@ -164,3 +164,103 @@ test("crearRecepcion no muta nada si un renglón posterior referencia un product
   const existCedisDespues = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 6);
   assert.strictEqual(existCedisDespues, undefined, "no debe haber creado/afectado existencia del renglón 1 en CEDIS");
 });
+
+test("crearRecepcion aplica descuento en pesos antes de recalcular costo", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 20;
+  producto.precios = [{ utilidad: 25, precioVenta: 25 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }];
+
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 50, descuento_pesos: 10 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.strictEqual(producto.costo, 40, "50 - 10 de descuento");
+  const detalle = DB.inventario.compra_detalle.find((d) => d.producto_id === 1);
+  assert.strictEqual(detalle.costo, 40);
+  assert.strictEqual(detalle.descuento_pesos, 10);
+});
+
+test("crearRecepcion aplica descuento en porcentaje antes de recalcular costo", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 20;
+
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 100, descuento_porcentaje: 10 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.strictEqual(producto.costo, 90, "100 * (1 - 10%) = 90");
+});
+
+test("crearRecepcion combina descuento en pesos y porcentaje: pesos primero, luego porcentaje", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 20;
+
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 100, descuento_pesos: 10, descuento_porcentaje: 10 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.strictEqual(producto.costo, 81, "(100 - 10) * (1 - 10%) = 81");
+});
+
+test("crearRecepcion sin descuento se comporta igual que antes (compatibilidad)", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 20;
+
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 40 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.strictEqual(producto.costo, 40);
+});
+
+test("crearRecepcion guarda clave_sat y localizacion cuando el renglón los trae", () => {
+  const DB = conProveedor(construirDBPrueba());
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 40, clave_sat: "52161547", localizacion: "Pasillo 3" }],
+  }, 6, USUARIO_CEDIS);
+
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  assert.strictEqual(producto.clave_sat, "52161547");
+  assert.strictEqual(producto.localizacion, "Pasillo 3");
+});
+
+test("crearRecepcion respeta precios editados a mano en el renglón, sin dejar que actualizarCostoDesdeCompra los recalcule encima", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 20;
+  producto.precios = [{ utilidad: 25, precioVenta: 25 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }];
+
+  // Con la fórmula normal, costo 40 * 1.25 = 50 — pero el renglón trae un
+  // precio editado a mano (60) que debe prevalecer.
+  const preciosEditados = [{ utilidad: 50, precioVenta: 60 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }];
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 40, precios: preciosEditados }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.strictEqual(producto.costo, 40);
+  assert.strictEqual(producto.precios[0].precioVenta, 60, "debe prevalecer el precio editado a mano, no el recalculado (50)");
+});
+
+test("crearRecepcion sin precios explícito en el renglón sigue recalculando con la fórmula normal", () => {
+  const DB = conProveedor(construirDBPrueba());
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  producto.costo = 20;
+  producto.precios = [{ utilidad: 25, precioVenta: 25 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }];
+
+  crearRecepcion(DB, {
+    proveedor_id: 1, factura: "A-100",
+    renglones: [{ producto_id: 1, cantidad: 5, costo: 40 }],
+  }, 6, USUARIO_CEDIS);
+
+  assert.strictEqual(producto.precios[0].precioVenta, 50, "40 * 1.25, formula normal preservando el % de utilidad");
+});
