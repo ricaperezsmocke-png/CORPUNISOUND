@@ -43,6 +43,7 @@ const { crearRecepcion, listarRecepciones, historialCostoProducto } = require(".
 const { reconciliarSucursalesCedis } = require("./sucursales");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
+const { buscarClavesSat } = require("./clavesSat");
 const {
   intercambiarCodigo, urlAutorizacion, listarPublicaciones,
   publicarProducto, actualizarStockML, actualizarPublicacion,
@@ -435,6 +436,10 @@ app.get("/api/proveedores", (req, res) => res.json(DB["catalogo-productos"].prov
 app.post("/api/proveedores", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearProveedor(DB, req.body.nombre, req.body.rfc)); }
   catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/sat/claves", requiereLogin, (req, res) => {
+  res.json(buscarClavesSat(req.query.q, req.query.pagina));
 });
 
 app.get("/api/departamentos", (req, res) => res.json(listarDepartamentos(DB)));
