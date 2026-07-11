@@ -350,7 +350,12 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / RESULTADOS_POR_PAGINA));
   const productosPagina = productosFiltrados.slice((paginaBusqueda - 1) * RESULTADOS_POR_PAGINA, paginaBusqueda * RESULTADOS_POR_PAGINA);
 
-  const totalDescuento = renglones.reduce((acc, r) => acc + (Number(r.descuento_pesos) || 0) * r.cantidad + (r.costo * r.cantidad * (Number(r.descuento_porcentaje) || 0) / 100), 0);
+  const totalDescuento = renglones.reduce((acc, r) => {
+    const descPesos = Number(r.descuento_pesos) || 0;
+    const descPct = Number(r.descuento_porcentaje) || 0;
+    const costoFinal = Math.round(Math.max(0, (r.costo - descPesos) * (1 - descPct / 100)) * 100) / 100;
+    return acc + (r.costo - costoFinal) * r.cantidad;
+  }, 0);
   const totalImporte = renglones.reduce((acc, r) => {
     const costoFinal = Math.round((r.costo - (r.descuento_pesos || 0)) * (1 - (r.descuento_porcentaje || 0) / 100) * 100) / 100;
     return acc + costoFinal * r.cantidad;

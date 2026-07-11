@@ -61,10 +61,16 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
   const descPesosNumero = Number(descuentoPesos) || 0;
   const descPorcentajeNumero = Number(descuentoPorcentaje) || 0;
   const costoFinal = useMemo(() => {
-    return Math.round((costoNumero - descPesosNumero) * (1 - descPorcentajeNumero / 100) * 100) / 100;
+    const bruto = (costoNumero - descPesosNumero) * (1 - descPorcentajeNumero / 100);
+    return Math.round(Math.max(0, bruto) * 100) / 100;
   }, [costoNumero, descPesosNumero, descPorcentajeNumero]);
   const costoFinalConIva = Math.round(costoFinal * 1.16 * 100) / 100;
   const cantidadNumero = Number(cantidad) || 0;
+
+  useEffect(() => {
+    setPrecios((prev) => calcularTiers(costoFinal, prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [costoFinal]);
 
   const actualizarTier = (idx, valor) => {
     setPrecios((prev) => {
