@@ -72,6 +72,8 @@ function crearProducto(DB, datos, sucursalId) {
     unidad_medida: datos.unidad_venta || "pza",
     unidades_por_mayoreo: Number(datos.unidades_por_mayoreo) || 0,
     ubicacion: datos.ubicacion || "-",
+    clave_sat: datos.clave_sat || "",
+    localizacion: datos.localizacion || "",
     promocion: !!datos.promocion,
     imagen_url: datos.imagen_url || "",
     activo: true,
@@ -117,6 +119,8 @@ function actualizarProducto(DB, id, datos, sucursalId) {
     precios: Array.isArray(datos.precios) ? datos.precios : actual.precios,
     unidades_por_mayoreo: datos.unidades_por_mayoreo !== undefined ? Number(datos.unidades_por_mayoreo) : actual.unidades_por_mayoreo,
     imagen_url: datos.imagen_url !== undefined ? datos.imagen_url : (actual.imagen_url || ""),
+    clave_sat: datos.clave_sat !== undefined ? datos.clave_sat : (actual.clave_sat || ""),
+    localizacion: datos.localizacion !== undefined ? datos.localizacion : (actual.localizacion || ""),
   };
   actualizado.precio_venta = actualizado.precios[0]?.precioVenta || 0;
   DB["catalogo-productos"].productos[idx] = actualizado;
@@ -207,9 +211,9 @@ function crearDepartamento(DB, nombre) {
   return nuevo;
 }
 
-function crearProveedor(DB, nombre) {
+function crearProveedor(DB, nombre, rfc) {
   if (!nombre || !nombre.trim()) throw new Error("El nombre del proveedor es obligatorio");
-  const nuevo = { id: siguienteId(DB["catalogo-productos"].proveedores), nombre: nombre.trim(), contacto: "", tiempo_entrega_dias: 0, condiciones_pago: "" };
+  const nuevo = { id: siguienteId(DB["catalogo-productos"].proveedores), nombre: nombre.trim(), contacto: "", tiempo_entrega_dias: 0, condiciones_pago: "", rfc: rfc || "" };
   DB["catalogo-productos"].proveedores.push(nuevo);
   return nuevo;
 }

@@ -429,7 +429,7 @@ app.post("/api/categorias", requiereLogin, requierePermiso("crear_producto", res
 
 app.get("/api/proveedores", (req, res) => res.json(DB["catalogo-productos"].proveedores));
 app.post("/api/proveedores", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
-  try { res.json(crearProveedor(DB, req.body.nombre)); }
+  try { res.json(crearProveedor(DB, req.body.nombre, req.body.rfc)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
