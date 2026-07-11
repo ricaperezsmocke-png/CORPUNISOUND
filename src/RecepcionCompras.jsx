@@ -249,8 +249,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     };
     window.addEventListener("keydown", manejador);
     return () => window.removeEventListener("keydown", manejador);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modal, filaSeleccionada, renglones, productos]);
+  }, [modal, filaSeleccionada, renglones, productos, proveedorId, sucursalOrigenId, factura, comentario]);
 
   const productosFiltrados = useMemo(() => {
     let lista = productos.filter(
@@ -286,6 +285,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       </div>
 
       {tab === "nueva" ? (
+        cargando ? (
+          <p className="text-center text-slate-400 py-16">Cargando...</p>
+        ) : (
         <>
           <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
             <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => { setBusquedaTexto(""); setModal("buscar"); }} />
@@ -417,6 +419,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
             </div>
           </div>
         </>
+        )
       ) : (
         <div className="flex-1 overflow-y-auto p-5">
           <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -430,7 +433,10 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               </tr>
             </thead>
             <tbody>
-              {recepciones.length === 0 && (
+              {cargando && (
+                <tr><td colSpan={5} className="text-center text-slate-400 py-10">Cargando...</td></tr>
+              )}
+              {!cargando && recepciones.length === 0 && (
                 <tr><td colSpan={5} className="text-center text-slate-400 py-10">Sin recepciones registradas</td></tr>
               )}
               {recepciones.map((c) => (
