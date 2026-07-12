@@ -41,6 +41,8 @@ const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, elimina
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
+const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
+const { importarClavesSat } = require("./scripts/importarClavesSat");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const { buscarClavesSat } = require("./clavesSat");
@@ -215,6 +217,19 @@ DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
 // o permisos nuevos (ml, traspasos, compras...). Los demás roles no se tocan.
 // Ver backend/roles.js -> reconciliarRoles.
 reconciliarRoles(DB);
+
+// Garantiza el catálogo de Claves SAT (búsqueda en pantalla Artículo de Compras).
+// En Render, datos.sqlite no viaja con el deploy (está en .gitignore), así que
+// el catálogo se pierde en cada reinicio del dyno. Se reimporta solo, en
+// segundo plano, sin bloquear el arranque del servidor: mientras tanto la
+// búsqueda de Clave SAT simplemente devuelve vacío (ver clavesSat.js).
+if (necesitaImportarClavesSat(contarClavesSat())) {
+  console.log("📦 Catálogo de Claves SAT ausente o incompleto — importando en segundo plano...");
+  importarClavesSat().then(
+    (total) => console.log(`✅ Catálogo de Claves SAT importado: ${total} claves`),
+    (e) => console.error("⚠️  No se pudo importar el catálogo de Claves SAT (la búsqueda seguirá vacía hasta el próximo arranque):", e.message)
+  );
+}
 
 function listarModulosYTablas() {
   return Object.entries(DB).map(([id, tablas]) => ({ id, tablas: Object.keys(tablas) }));

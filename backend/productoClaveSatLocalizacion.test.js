@@ -33,6 +33,16 @@ test("actualizarProducto conserva clave_sat/localizacion si no se mandan", () =>
   assert.strictEqual(actualizado.localizacion, "Pasillo 3");
 });
 
+test("actualizarProducto no truena si el producto no tiene precios (legacy, datos persistidos antes de esta feature)", () => {
+  const DB = construirDBPrueba();
+  const legacy = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  delete legacy.precios; // simula un producto guardado en datos.sqlite antes de que existiera el array de precios
+  assert.doesNotThrow(() => actualizarProducto(DB, legacy.id, { clave_sat: "52161547" }, 1));
+  const actualizado = DB["catalogo-productos"].productos.find((p) => p.id === 1);
+  assert.strictEqual(actualizado.clave_sat, "52161547");
+  assert.strictEqual(actualizado.precio_venta, 0);
+});
+
 test("crearProveedor guarda rfc", () => {
   const DB = construirDBPrueba();
   const prov = crearProveedor(DB, "Distribuidora Norte", "DINX800101ABC");

@@ -3,13 +3,17 @@
  * y Servicios del SAT (c_ClaveProdServ, ~55,000 registros) a una tabla
  * de solo-lectura `claves_sat` dentro de datos.sqlite.
  *
- * Se corre UNA SOLA VEZ (o cuando el catálogo del SAT se actualice) — no es
- * parte del arranque normal del backend. La fuente es el paquete compilado
- * de phpcfdi/resources-sat-catalogs, que empaqueta los catálogos oficiales
- * del SAT en una base SQLite ya lista, actualizada automáticamente por ese
- * proyecto open-source.
+ * La fuente es el paquete compilado de phpcfdi/resources-sat-catalogs, que
+ * empaqueta los catálogos oficiales del SAT en una base SQLite ya lista,
+ * actualizada automáticamente por ese proyecto open-source.
  *
- * Uso: node backend/scripts/importarClavesSat.js
+ * server.js llama a `importarClavesSat()` automáticamente al arrancar,
+ * en segundo plano, si la tabla `claves_sat` está ausente o incompleta
+ * (ver backend/clavesSat.js -> necesitaImportarClavesSat). Esto cubre el
+ * caso de Render, donde datos.sqlite no viaja con el deploy (está en
+ * .gitignore) y el catálogo se pierde cada vez que se reinicia el dyno.
+ *
+ * También se puede correr a mano una sola vez: node backend/scripts/importarClavesSat.js
  */
 
 const https = require("https");
@@ -55,7 +59,7 @@ function encontrarColumna(db, tabla, candidatos) {
   );
 }
 
-async function main() {
+async function importarClavesSat({ dbPath = DB_PATH } = {}) {
   console.log("Descargando catálogo SAT (catalogs.db.bz2)...");
   await descargarYDescomprimir(URL_CATALOGO, ARCHIVO_TEMPORAL);
   console.log("Descarga y descompresión completas.");
@@ -73,7 +77,7 @@ async function main() {
     throw new Error(`Solo se encontraron ${filas.length} claves — se esperaban al menos ${MINIMO_FILAS_ESPERADAS}. Revisa la fuente antes de continuar.`);
   }
 
-  const db = new Database(DB_PATH);
+  const db = new Database(dbPath);
   db.exec(`
     DROP TABLE IF EXISTS claves_sat;
     CREATE TABLE claves_sat (clave TEXT PRIMARY KEY, descripcion TEXT NOT NULL);
@@ -84,10 +88,15 @@ async function main() {
   transaccion(filas);
   db.close();
 
-  console.log(`Listo: ${filas.length} claves SAT importadas a ${DB_PATH}`);
+  console.log(`Listo: ${filas.length} claves SAT importadas a ${dbPath}`);
+  return filas.length;
 }
 
-main().catch((e) => {
-  console.error("Error al importar el catálogo de Claves SAT:", e.message);
-  process.exit(1);
-});
+module.exports = { importarClavesSat };
+
+if (require.main === module) {
+  importarClavesSat().catch((e) => {
+    console.error("Error al importar el catálogo de Claves SAT:", e.message);
+    process.exit(1);
+  });
+}

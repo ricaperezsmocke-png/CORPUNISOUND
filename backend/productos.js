@@ -127,7 +127,7 @@ function actualizarProducto(DB, id, datos, sucursalId) {
     clave_sat: datos.clave_sat !== undefined ? datos.clave_sat : (actual.clave_sat || ""),
     localizacion: datos.localizacion !== undefined ? datos.localizacion : (actual.localizacion || ""),
   };
-  actualizado.precio_venta = actualizado.precios[0]?.precioVenta || 0;
+  actualizado.precio_venta = actualizado.precios?.[0]?.precioVenta || 0;
 
   // Object.assign en vez de reemplazar el slot del array: crearRecepcion
   // (en compras.js) guarda una referencia viva a este mismo objeto y la
