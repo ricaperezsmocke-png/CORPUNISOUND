@@ -114,14 +114,13 @@ function parsearExcel(archivoBase64, tipo) {
   return { filas, columnas_reconocidas: [...reconocidas], columnas_no_reconocidas };
 }
 
-
 function validarFilaArticulo(fila) {
   const errores = [];
   if (!fila.clave || !String(fila.clave).trim()) errores.push("Falta la clave");
-  if (!fila.descripcion || !String(fila.descripcion).trim()) errores.push("Falta la descripcion");
+  if (!fila.descripcion || !String(fila.descripcion).trim()) errores.push("Falta la descripción");
   for (const campo of ["costo", "precio1", "precio2", "precio3", "precio4", "existencia"]) {
     const v = fila[campo];
-    if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un numero valido`);
+    if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un número válido`);
   }
   return errores;
 }
@@ -132,7 +131,7 @@ function validarFilaCliente(fila) {
   if (!fila.nombre || !String(fila.nombre).trim()) errores.push("Falta el nombre");
   for (const campo of ["limite_credito", "dias_credito"]) {
     const v = fila[campo];
-    if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un numero valido`);
+    if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un número válido`);
   }
   return errores;
 }
@@ -161,7 +160,7 @@ const BUSCADORES = { articulos: buscarArticuloExistente, clientes: buscarCliente
 function previsualizarImportacion(DB, tipo, filas) {
   const validar = VALIDADORES[tipo];
   const buscar = BUSCADORES[tipo];
-  if (!validar || !buscar) throw new Error(`Tipo de importacion desconocido: ${tipo}`);
+  if (!validar || !buscar) throw new Error(`Tipo de importación desconocido: ${tipo}`);
 
   const resultado = filas.map((fila) => {
     const errores = validar(fila);
@@ -188,6 +187,5 @@ function previsualizarImportacion(DB, tipo, filas) {
 
   return { filas: resultado, resumen };
 }
-
 
 module.exports = { parsearExcel, previsualizarImportacion, normalizarTexto, TABLAS_ALIAS, VALIDADORES, BUSCADORES };

@@ -128,12 +128,47 @@ test("previsualizarImportacion marca invalida un costo no numerico", () => {
   assert.strictEqual(resultado[0].valida, false);
 });
 
+test("previsualizarImportacion de articulos hace match por clave_alterna si no coincide el sku", () => {
+  const DB = construirDBPrueba();
+  const producto = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  producto.clave_alterna = "COD-BARRAS-123";
+  const filas = [{ numero_fila: 2, clave: "COD-BARRAS-123", descripcion: "Arroz 1kg" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "articulos", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, producto.id);
+});
+
 test("previsualizarImportacion de clientes hace match por clave", () => {
   const DB = construirDBPrueba();
   const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary S.A." }];
   const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas);
   assert.strictEqual(resultado[0].accion, "actualizacion");
   assert.strictEqual(resultado[0].id_existente, 1);
+});
+
+test("previsualizarImportacion marca alta si la clave del cliente no existe", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "CLI-NUEVO", nombre: "Cliente Nuevo" }];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "clientes", filas);
+  assert.strictEqual(resultado[0].accion, "alta");
+  assert.strictEqual(resultado[0].id_existente, null);
+  assert.strictEqual(resumen.altas, 1);
+});
+
+test("previsualizarImportacion marca invalido un cliente sin clave", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "", nombre: "Sin clave" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas);
+  assert.strictEqual(resultado[0].valida, false);
+  assert.ok(resultado[0].errores.length > 0);
+});
+
+test("previsualizarImportacion marca invalido un limite_credito no numerico", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary", limite_credito: "no-es-numero" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas);
+  assert.strictEqual(resultado[0].valida, false);
+  assert.ok(resultado[0].errores.length > 0);
 });
 
 test("previsualizarImportacion de proveedores hace match por rfc", () => {
@@ -143,4 +178,21 @@ test("previsualizarImportacion de proveedores hace match por rfc", () => {
   const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
   assert.strictEqual(resultado[0].accion, "actualizacion");
   assert.strictEqual(resultado[0].id_existente, 9);
+});
+
+test("previsualizarImportacion marca alta si el rfc del proveedor no existe", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, rfc: "RFC-NUEVO-000", nombre: "Proveedor Nuevo" }];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].accion, "alta");
+  assert.strictEqual(resultado[0].id_existente, null);
+  assert.strictEqual(resumen.altas, 1);
+});
+
+test("previsualizarImportacion marca invalido un proveedor sin rfc", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, rfc: "", nombre: "Sin RFC" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].valida, false);
+  assert.ok(resultado[0].errores.length > 0);
 });
