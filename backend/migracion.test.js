@@ -61,8 +61,25 @@ test("parsearExcel de proveedores exige rfc y nombre", () => {
 });
 
 test("parsearExcel truena con mensaje claro si el archivo no es un Excel valido", () => {
-  const basura = Buffer.from("esto no es un excel").toString("base64");
-  assert.throws(() => parsearExcel(basura, "articulos"), /no se pudo leer como Excel/);
+  // XLSX.read tiene un fallback de texto/CSV muy permisivo: texto plano sin
+  // saltos de línea no lo hace tronar (se interpreta como una sola fila de
+  // encabezado sin datos). Para forzar un error real de lectura truncamos
+  // un .xlsx válido a solo sus primeros bytes: queda un ZIP incompleto que
+  // SheetJS no puede abrir.
+  const hoja = XLSX.utils.json_to_sheet([{ Clave: "AB-001" }]);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, "Datos");
+  const bufferCompleto = XLSX.write(libro, { type: "buffer", bookType: "xlsx" });
+  const truncado = bufferCompleto.subarray(0, 10).toString("base64");
+  assert.throws(() => parsearExcel(truncado, "articulos"), /no se pudo leer como Excel/);
+});
+
+test("parsearExcel truena con mensaje claro si el archivo no tiene filas de datos", () => {
+  const hoja = XLSX.utils.aoa_to_sheet([["Clave", "Descripción"]]);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, "Datos");
+  const base64 = XLSX.write(libro, { type: "base64", bookType: "xlsx" });
+  assert.throws(() => parsearExcel(base64, "articulos"), /no tiene filas de datos/);
 });
 
 test("parsearExcel truena si el tipo es desconocido", () => {

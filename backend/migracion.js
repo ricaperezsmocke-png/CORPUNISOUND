@@ -14,9 +14,6 @@
  */
 
 const XLSX = require("xlsx");
-const { crearProducto, actualizarProducto, ajustarExistencia, crearCategoria, crearDepartamento } = require("./productos");
-const { crearCliente, actualizarCliente } = require("./clientes");
-const { crearProveedor } = require("./productos");
 
 const TABLAS_ALIAS = {
   articulos: {
@@ -86,10 +83,11 @@ function parsearExcel(archivoBase64, tipo) {
     if (!libro.SheetNames.length) throw new Error("sin hojas");
     const hoja = libro.Sheets[libro.SheetNames[0]];
     filasCrudas = XLSX.utils.sheet_to_json(hoja, { defval: "" });
-    if (filasCrudas.length === 0) throw new Error("sin datos");
   } catch (e) {
     throw new Error("El archivo no se pudo leer como Excel (.xls/.xlsx válido)");
   }
+
+  if (filasCrudas.length === 0) throw new Error("El archivo no tiene filas de datos");
 
   const encabezados = Object.keys(filasCrudas[0]);
   const { mapa, reconocidas } = mapearEncabezados(encabezados, tabla);
