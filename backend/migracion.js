@@ -14,6 +14,7 @@
  */
 
 const XLSX = require("xlsx");
+const { crearProducto, actualizarProducto, ajustarExistencia, crearCategoria, crearDepartamento } = require("./productos");
 
 const TABLAS_ALIAS = {
   articulos: {
@@ -117,7 +118,8 @@ function parsearExcel(archivoBase64, tipo) {
 function validarFilaArticulo(fila) {
   const errores = [];
   if (!fila.clave || !String(fila.clave).trim()) errores.push("Falta la clave");
-  if (!fila.descripcion || !String(fila.descripcion).trim()) errores.push("Falta la descripción");
+  // Descripción no es validada aquí: es obligatoria solo al crear (crearProducto la valida),
+  // pero en importaciones de actualización puede no estar presente
   for (const campo of ["costo", "precio1", "precio2", "precio3", "precio4", "existencia"]) {
     const v = fila[campo];
     if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un número válido`);
@@ -157,6 +159,125 @@ function buscarProveedorExistente(DB, fila) {
 
 const BUSCADORES = { articulos: buscarArticuloExistente, clientes: buscarClienteExistente, proveedores: buscarProveedorExistente };
 
+function interpretarIva(valor) {
+  const norm = normalizarTexto(valor);
+  if (!norm) return false;
+  if (["no", "0", "false"].includes(norm)) return false;
+  return true;
+}
+
+function resolverCategoriaPorNombre(DB, nombre) {
+  if (!nombre || !String(nombre).trim()) return undefined;
+  const norm = normalizarTexto(nombre);
+  const existente = DB["catalogo-productos"].categorias.find((c) => normalizarTexto(c.nombre) === norm);
+  return existente ? existente.id : crearCategoria(DB, String(nombre).trim()).id;
+}
+
+function resolverDepartamentoPorNombre(DB, nombre) {
+  if (!nombre || !String(nombre).trim()) return undefined;
+  const norm = normalizarTexto(nombre);
+  const existente = DB["catalogo-productos"].departamentos.find((d) => normalizarTexto(d.nombre) === norm);
+  return existente ? existente.id : crearDepartamento(DB, String(nombre).trim()).id;
+}
+
+function construirPrecios(fila, existente, costoNuevo) {
+  const niveles = [fila.precio1, fila.precio2, fila.precio3, fila.precio4];
+  const algunoTraePrecio = niveles.some((v) => v !== undefined && v !== "" && Number.isFinite(Number(v)));
+  if (!algunoTraePrecio) return undefined;
+  const preciosActuales = Array.isArray(existente?.precios)
+    ? existente.precios
+    : [{ utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }, { utilidad: 0, precioVenta: 0 }];
+  return niveles.map((v, i) => {
+    if (v === undefined || v === "" || !Number.isFinite(Number(v))) return preciosActuales[i];
+    const precioVenta = Math.round(Number(v) * 100) / 100;
+    const utilidad = costoNuevo > 0 ? Math.round(((precioVenta / costoNuevo) - 1) * 10000) / 100 : 0;
+    return { utilidad, precioVenta };
+  });
+}
+
+function prepararDatosArticulo(DB, fila, existente, defaults) {
+  const errores = [];
+  const categoriaNombre = fila.categoria || defaults?.categoria;
+  const departamentoNombre = fila.departamento || defaults?.departamento;
+  const unidad = fila.unidad || defaults?.unidad;
+
+  if (!existente) {
+    if (!categoriaNombre) errores.push("Falta categoría (ni en el archivo ni en los datos por defecto)");
+    if (!departamentoNombre) errores.push("Falta departamento (ni en el archivo ni en los datos por defecto)");
+    if (!unidad) errores.push("Falta unidad (ni en el archivo ni en los datos por defecto)");
+  }
+  if (errores.length > 0) return { errores };
+
+  const costoNuevo = fila.costo !== undefined && fila.costo !== "" ? Number(fila.costo) : (existente ? existente.costo : 0);
+  const datos = {
+    descripcion: fila.descripcion,
+    clave: fila.clave,
+    clave_alterna: fila.clave_alterna || undefined,
+    categoria_id: resolverCategoriaPorNombre(DB, categoriaNombre),
+    departamento_id: resolverDepartamentoPorNombre(DB, departamentoNombre),
+    unidad_venta: unidad,
+    unidad_compra: unidad,
+    precio_compra: fila.costo !== undefined && fila.costo !== "" ? costoNuevo : undefined,
+    iva: fila.iva !== undefined && fila.iva !== "" ? interpretarIva(fila.iva) : (defaults?.iva !== undefined ? !!defaults.iva : undefined),
+    ubicacion: fila.ubicacion || undefined,
+  };
+  const precios = construirPrecios(fila, existente, costoNuevo);
+  if (precios) datos.precios = precios;
+
+  return { datos, errores: [] };
+}
+
+function aplicarFilaArticulo(DB, fila, existente, sucursal_id, defaults, nombreArchivo) {
+  const { datos, errores } = prepararDatosArticulo(DB, fila, existente, defaults);
+  if (errores.length > 0) throw new Error(errores.join("; "));
+
+  if (existente) {
+    const actualizado = actualizarProducto(DB, existente.id, datos, sucursal_id);
+    if (fila.existencia !== undefined && fila.existencia !== "") {
+      const exist = DB.inventario.existencias.find((e) => e.producto_id === existente.id && e.sucursal_id === Number(sucursal_id));
+      const actual = exist ? exist.cantidad_actual : 0;
+      const delta = Number(fila.existencia) - actual;
+      if (delta !== 0) ajustarExistencia(DB, existente.id, { cantidad: delta, motivo: `Importación SICAR — ${nombreArchivo || "archivo"}`, sucursal_id });
+    }
+    return actualizado;
+  }
+  return crearProducto(DB, { ...datos, existencia_inicial: fila.existencia !== undefined && fila.existencia !== "" ? Number(fila.existencia) : 0 }, sucursal_id);
+}
+
+const APLICADORES = { articulos: aplicarFilaArticulo };
+
+function aplicarImportacion(DB, tipo, filasConfirmadas, sucursal_id, defaults, nombreArchivo) {
+  const validar = VALIDADORES[tipo];
+  const buscar = BUSCADORES[tipo];
+  const aplicar = APLICADORES[tipo];
+  if (!validar || !buscar || !aplicar) throw new Error(`Tipo de importación desconocido: ${tipo}`);
+
+  const preparadas = filasConfirmadas.map((fila) => ({
+    fila,
+    erroresValidacion: validar(fila),
+    existente: buscar(DB, fila),
+  }));
+
+  let actualizados = 0;
+  let nuevos = 0;
+  const errores = [];
+
+  for (const { fila, erroresValidacion, existente } of preparadas) {
+    if (erroresValidacion.length > 0) {
+      errores.push({ numero_fila: fila.numero_fila, clave: fila.clave || fila.rfc, motivo: erroresValidacion.join("; ") });
+      continue;
+    }
+    try {
+      aplicar(DB, fila, existente, sucursal_id, defaults, nombreArchivo);
+      if (existente) actualizados++; else nuevos++;
+    } catch (e) {
+      errores.push({ numero_fila: fila.numero_fila, clave: fila.clave || fila.rfc, motivo: e.message });
+    }
+  }
+
+  return { actualizados, nuevos, errores };
+}
+
 function previsualizarImportacion(DB, tipo, filas) {
   const validar = VALIDADORES[tipo];
   const buscar = BUSCADORES[tipo];
@@ -188,4 +309,7 @@ function previsualizarImportacion(DB, tipo, filas) {
   return { filas: resultado, resumen };
 }
 
-module.exports = { parsearExcel, previsualizarImportacion, normalizarTexto, TABLAS_ALIAS, VALIDADORES, BUSCADORES };
+module.exports = {
+  parsearExcel, previsualizarImportacion, aplicarImportacion,
+  normalizarTexto, TABLAS_ALIAS, VALIDADORES, BUSCADORES,
+};

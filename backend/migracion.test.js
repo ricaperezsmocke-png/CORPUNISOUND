@@ -196,3 +196,78 @@ test("previsualizarImportacion marca invalido un proveedor sin rfc", () => {
   assert.strictEqual(resultado[0].valida, false);
   assert.ok(resultado[0].errores.length > 0);
 });
+
+const { aplicarImportacion } = require("./migracion");
+
+test("aplicarImportacion de articulos: alta nueva usa los defaults si el archivo no trae categoria/departamento/unidad", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "GTR-001", descripcion: "Guitarra acústica", costo: 1000, existencia: 5 }];
+  const resumen = aplicarImportacion(DB, "articulos", filas, 1, { categoria: "Instrumentos", departamento: "Cuerdas", unidad: "PZA" }, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 1);
+  assert.strictEqual(resumen.errores.length, 0);
+  const nuevo = DB["catalogo-productos"].productos.find((p) => p.sku === "GTR-001");
+  assert.ok(nuevo, "el producto debe haberse creado");
+  const categoria = DB["catalogo-productos"].categorias.find((c) => c.id === nuevo.categoria_id);
+  assert.strictEqual(categoria.nombre, "Instrumentos");
+});
+
+test("aplicarImportacion de articulos: alta nueva sin defaults ni datos en el archivo se reporta como error, no truena", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "GTR-002", descripcion: "Guitarra sin categoria" }];
+  const resumen = aplicarImportacion(DB, "articulos", filas, 1, {}, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 0);
+  assert.strictEqual(resumen.errores.length, 1);
+  assert.strictEqual(resumen.errores[0].numero_fila, 2);
+});
+
+test("aplicarImportacion de articulos: actualizacion solo cambia los campos presentes en el archivo", () => {
+  const DB = construirDBPrueba();
+  const antes = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  const nombreAntes = antes.nombre;
+  const filas = [{ numero_fila: 2, clave: "AB-001", descripcion: undefined, costo: 25 }];
+  aplicarImportacion(DB, "articulos", filas, 1, {}, "test.xlsx");
+  const despues = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  assert.strictEqual(despues.nombre, nombreAntes, "la descripcion no debia cambiar (no vino en el archivo)");
+  assert.strictEqual(despues.costo, 25);
+});
+
+test("aplicarImportacion de articulos: ajusta la existencia al VALOR del archivo, no la suma", () => {
+  const DB = construirDBPrueba();
+  const existAntes = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 1).cantidad_actual;
+  const filas = [{ numero_fila: 2, clave: "AB-001", existencia: existAntes + 7 }];
+  aplicarImportacion(DB, "articulos", filas, 1, {}, "test.xlsx");
+  const existDespues = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 1).cantidad_actual;
+  assert.strictEqual(existDespues, existAntes + 7);
+});
+
+test("aplicarImportacion de articulos: una fila con error no bloquea las demas", () => {
+  const DB = construirDBPrueba();
+  const filas = [
+    { numero_fila: 2, clave: "GTR-003", descripcion: "Sin categoria, debe fallar" },
+    { numero_fila: 3, clave: "AB-001", costo: 30 },
+  ];
+  const resumen = aplicarImportacion(DB, "articulos", filas, 1, {}, "test.xlsx");
+  assert.strictEqual(resumen.errores.length, 1);
+  assert.strictEqual(resumen.actualizados, 1);
+  const actualizado = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  assert.strictEqual(actualizado.costo, 30);
+});
+
+test("aplicarImportacion de articulos: si el archivo trae precios, la utilidad se recalcula hacia atras desde el costo", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "AB-001", costo: 20, precio1: 30 }];
+  aplicarImportacion(DB, "articulos", filas, 1, {}, "test.xlsx");
+  const actualizado = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  assert.strictEqual(actualizado.precios[0].precioVenta, 30);
+  assert.strictEqual(actualizado.precios[0].utilidad, 50);
+});
+
+test("aplicarImportacion de articulos: reimportar el mismo archivo no duplica (segunda pasada es actualizacion)", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "NUEVO-XYZ", descripcion: "Pandereta" }];
+  const defaults = { categoria: "Percusiones", departamento: "Percusiones", unidad: "PZA" };
+  aplicarImportacion(DB, "articulos", filas, 1, defaults, "test.xlsx");
+  const totalTrasPrimera = DB["catalogo-productos"].productos.length;
+  aplicarImportacion(DB, "articulos", filas, 1, defaults, "test.xlsx");
+  assert.strictEqual(DB["catalogo-productos"].productos.length, totalTrasPrimera, "no debe haber creado un segundo producto");
+});
