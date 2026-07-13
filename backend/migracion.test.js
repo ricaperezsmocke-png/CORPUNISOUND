@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const XLSX = require("xlsx");
-const { parsearExcel } = require("./migracion");
+const { parsearExcel, previsualizarImportacion } = require("./migracion");
 
 function construirExcelBase64(filas) {
   const hoja = XLSX.utils.json_to_sheet(filas);
@@ -85,4 +85,62 @@ test("parsearExcel truena con mensaje claro si el archivo no tiene filas de dato
 test("parsearExcel truena si el tipo es desconocido", () => {
   const base64 = construirExcelBase64([{ "Clave": "AB-001", "Descripción": "x" }]);
   assert.throws(() => parsearExcel(base64, "insumos"), /Tipo de importación desconocido/);
+});
+
+const { construirDBPrueba } = require("./testHelpers");
+
+test("previsualizarImportacion marca actualizacion si la clave del articulo ya existe", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "AB-001", descripcion: "Arroz 1kg editado", costo: 22 }];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "articulos", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, 1);
+  assert.strictEqual(resumen.actualizaciones, 1);
+  assert.strictEqual(resumen.altas, 0);
+});
+
+test("previsualizarImportacion marca alta si la clave del articulo no existe", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "NUEVO-001", descripcion: "Guitarra acustica" }];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "articulos", filas);
+  assert.strictEqual(resultado[0].accion, "alta");
+  assert.strictEqual(resultado[0].id_existente, null);
+  assert.strictEqual(resumen.altas, 1);
+});
+
+test("previsualizarImportacion marca invalida una fila sin clave, sin tumbar las demas", () => {
+  const DB = construirDBPrueba();
+  const filas = [
+    { numero_fila: 2, clave: "", descripcion: "Sin clave" },
+    { numero_fila: 3, clave: "NUEVO-002", descripcion: "Otra" },
+  ];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "articulos", filas);
+  assert.strictEqual(resultado[0].valida, false);
+  assert.ok(resultado[0].errores.length > 0);
+  assert.strictEqual(resultado[1].valida, true);
+  assert.strictEqual(resumen.invalidas, 1);
+});
+
+test("previsualizarImportacion marca invalida un costo no numerico", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "AB-001", descripcion: "Arroz", costo: "no-es-numero" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "articulos", filas);
+  assert.strictEqual(resultado[0].valida, false);
+});
+
+test("previsualizarImportacion de clientes hace match por clave", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary S.A." }];
+  const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, 1);
+});
+
+test("previsualizarImportacion de proveedores hace match por rfc", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, rfc: "PROV-RFC-YA-EXISTE", nombre: "Cualquiera" }];
+  DB["catalogo-productos"].proveedores.push({ id: 9, nombre: "Viejo", rfc: "PROV-RFC-YA-EXISTE", contacto: "" });
+  const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, 9);
 });

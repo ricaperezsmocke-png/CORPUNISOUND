@@ -114,4 +114,80 @@ function parsearExcel(archivoBase64, tipo) {
   return { filas, columnas_reconocidas: [...reconocidas], columnas_no_reconocidas };
 }
 
-module.exports = { parsearExcel, normalizarTexto, TABLAS_ALIAS };
+
+function validarFilaArticulo(fila) {
+  const errores = [];
+  if (!fila.clave || !String(fila.clave).trim()) errores.push("Falta la clave");
+  if (!fila.descripcion || !String(fila.descripcion).trim()) errores.push("Falta la descripcion");
+  for (const campo of ["costo", "precio1", "precio2", "precio3", "precio4", "existencia"]) {
+    const v = fila[campo];
+    if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un numero valido`);
+  }
+  return errores;
+}
+
+function validarFilaCliente(fila) {
+  const errores = [];
+  if (!fila.clave || !String(fila.clave).trim()) errores.push("Falta la clave");
+  if (!fila.nombre || !String(fila.nombre).trim()) errores.push("Falta el nombre");
+  for (const campo of ["limite_credito", "dias_credito"]) {
+    const v = fila[campo];
+    if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un numero valido`);
+  }
+  return errores;
+}
+
+function validarFilaProveedor(fila) {
+  const errores = [];
+  if (!fila.rfc || !String(fila.rfc).trim()) errores.push("Falta el RFC");
+  if (!fila.nombre || !String(fila.nombre).trim()) errores.push("Falta el nombre");
+  return errores;
+}
+
+const VALIDADORES = { articulos: validarFilaArticulo, clientes: validarFilaCliente, proveedores: validarFilaProveedor };
+
+function buscarArticuloExistente(DB, fila) {
+  return DB["catalogo-productos"].productos.find((p) => p.sku === fila.clave || (fila.clave && p.clave_alterna === fila.clave)) || null;
+}
+function buscarClienteExistente(DB, fila) {
+  return DB.crm.clientes.find((c) => c.clave === fila.clave) || null;
+}
+function buscarProveedorExistente(DB, fila) {
+  return DB["catalogo-productos"].proveedores.find((p) => p.rfc === fila.rfc) || null;
+}
+
+const BUSCADORES = { articulos: buscarArticuloExistente, clientes: buscarClienteExistente, proveedores: buscarProveedorExistente };
+
+function previsualizarImportacion(DB, tipo, filas) {
+  const validar = VALIDADORES[tipo];
+  const buscar = BUSCADORES[tipo];
+  if (!validar || !buscar) throw new Error(`Tipo de importacion desconocido: ${tipo}`);
+
+  const resultado = filas.map((fila) => {
+    const errores = validar(fila);
+    if (errores.length > 0) {
+      return { numero_fila: fila.numero_fila, datos: fila, accion: null, id_existente: null, valida: false, errores };
+    }
+    const existente = buscar(DB, fila);
+    return {
+      numero_fila: fila.numero_fila,
+      datos: fila,
+      accion: existente ? "actualizacion" : "alta",
+      id_existente: existente ? existente.id : null,
+      valida: true,
+      errores: [],
+    };
+  });
+
+  const resumen = {
+    total: resultado.length,
+    altas: resultado.filter((r) => r.valida && r.accion === "alta").length,
+    actualizaciones: resultado.filter((r) => r.valida && r.accion === "actualizacion").length,
+    invalidas: resultado.filter((r) => !r.valida).length,
+  };
+
+  return { filas: resultado, resumen };
+}
+
+
+module.exports = { parsearExcel, previsualizarImportacion, normalizarTexto, TABLAS_ALIAS, VALIDADORES, BUSCADORES };
