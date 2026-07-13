@@ -1028,21 +1028,14 @@ git commit -m "feat: exportarRespaldo de articulos/clientes/proveedores con cicl
 
 **Files:**
 - Modify: `backend/server.js`
-- Create: `backend/permisoMigrarDatosRutas.test.js`
 
 **Interfaces:**
 - Consumes: `parsearExcel`, `previsualizarImportacion`, `aplicarImportacion`, `exportarRespaldo` (Tasks 2-6); `requiereLogin`, `requierePermiso`, `alcanceSucursal` (ya existentes en `auth.js`).
 - Produces: `POST /api/migracion/previsualizar`, `POST /api/migracion/aplicar`, `GET /api/migracion/exportar`.
 
-- [ ] **Step 1: Escribir el test de permisos que falla**
+**Nota sobre pruebas de esta tarea:** no hay precedente en el proyecto de tests HTTP de integración (`permisoTraspasos.test.js` / `permisoRecibirCompra.test.js` solo verifican el catálogo de permisos, no levantan servidor). Esa cobertura ya se hizo en Task 1 (`permisoMigrarDatos.test.js`). No se crea ningún archivo de test nuevo en esta tarea — la verificación de que las rutas exigen el permiso `migrar_datos` de verdad se hace manualmente en Task 10 (verificación en navegador).
 
-Este test pega directo al servidor HTTP real (como ya no hay un test de integración HTTP en el proyecto, seguimos el patrón más simple: levantar el server en un puerto de prueba). Revisar primero si existe un helper de este tipo en el proyecto:
-
-Run: `cd backend && grep -rl "supertest\|http.createServer" *.test.js`
-
-Si no aparece nada (no hay precedente de test HTTP en el proyecto), este test se hace a nivel más simple, verificando directamente que las rutas están protegidas por `requierePermiso` — igual que ya hacen `permisoTraspasos.test.js` / `permisoRecibirCompra.test.js`, que NO levantan servidor HTTP, solo verifican el catálogo de permisos. Dado que ya cubrimos eso en Task 1 (`permisoMigrarDatos.test.js`), este Task 7 no necesita un test HTTP nuevo — la verificación real de que las rutas exigen el permiso se hace manualmente en Task 9 (verificación en navegador). Eliminar el archivo `backend/permisoMigrarDatosRutas.test.js` de los "Files" de este task (no se crea).
-
-- [ ] **Step 2: Subir el límite de `express.json` y agregar los requires**
+- [ ] **Step 1: Subir el límite de `express.json` y agregar los requires**
 
 En `backend/server.js`, cerca del inicio (después del require de `importarClavesSat`):
 
@@ -1061,7 +1054,7 @@ Y cambiar la línea `app.use(express.json());` por:
 app.use(express.json({ limit: "15mb" }));
 ```
 
-- [ ] **Step 3: Agregar las 3 rutas**
+- [ ] **Step 2: Agregar las 3 rutas**
 
 Agregar después del bloque de rutas de `/api/compras` (después de la ruta `/api/compras/importar-xml`):
 
@@ -1106,7 +1099,7 @@ app.get("/api/migracion/exportar", requiereLogin, requierePermiso("migrar_datos"
 });
 ```
 
-- [ ] **Step 4: Verificar que el backend arranca y los tests existentes siguen pasando**
+- [ ] **Step 3: Verificar que el backend arranca y los tests existentes siguen pasando**
 
 Run: `cd backend && node --test`
 Expected: PASS (todos los tests, incluidos los ~28 nuevos de `migracion.test.js` y los 2 de `permisoMigrarDatos.test.js`).
@@ -1114,7 +1107,7 @@ Expected: PASS (todos los tests, incluidos los ~28 nuevos de `migracion.test.js`
 Run: `cd backend && node server.js` (y detenerlo tras confirmar, con Ctrl+C o matando el proceso)
 Expected: arranca sin errores, línea `✓ Sistema de permisos validado: ...` se imprime.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add backend/server.js
