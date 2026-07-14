@@ -155,7 +155,10 @@ function validarFilaCliente(fila) {
 
 function validarFilaProveedor(fila) {
   const errores = [];
-  if (!fila.rfc || !String(fila.rfc).trim()) errores.push("Falta el RFC");
+  // RFC es opcional: 33 de 54 proveedores (61%) en un archivo real de SICAR
+  // no traen RFC. nombre sigue siendo obligatorio, es el único dato con el
+  // que se puede dar de alta o matchear al proveedor cuando falta el RFC
+  // (ver buscarProveedorExistente).
   if (!fila.nombre || !String(fila.nombre).trim()) errores.push("Falta el nombre");
   return errores;
 }
@@ -177,7 +180,14 @@ function buscarClienteExistente(DB, fila, sucursal_id) {
   return DB.crm.clientes.find((c) => c.clave === fila.clave && c.sucursal_id === Number(sucursal_id)) || null;
 }
 function buscarProveedorExistente(DB, fila, sucursal_id) {
-  return DB["catalogo-productos"].proveedores.find((p) => p.rfc === fila.rfc) || null;
+  // RFC sigue siendo la clave primaria/confiable de matching cuando viene en
+  // el archivo. Cuando falta (61% de los proveedores reales de SICAR no
+  // traen RFC), se hace fallback a nombre normalizado — igual que
+  // resolverCategoriaPorNombre/resolverDepartamentoPorNombre más abajo.
+  if (fila.rfc && String(fila.rfc).trim()) {
+    return DB["catalogo-productos"].proveedores.find((p) => p.rfc === fila.rfc) || null;
+  }
+  return DB["catalogo-productos"].proveedores.find((p) => normalizarTexto(p.nombre) === normalizarTexto(fila.nombre)) || null;
 }
 
 const BUSCADORES = { articulos: buscarArticuloExistente, clientes: buscarClienteExistente, proveedores: buscarProveedorExistente };

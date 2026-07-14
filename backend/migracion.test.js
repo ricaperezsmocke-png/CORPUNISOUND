@@ -242,12 +242,46 @@ test("previsualizarImportacion marca alta si el rfc del proveedor no existe", ()
   assert.strictEqual(resumen.altas, 1);
 });
 
-test("previsualizarImportacion marca invalido un proveedor sin rfc", () => {
+test("previsualizarImportacion de proveedores: fila sin rfc es valida (61% de los proveedores reales de SICAR no traen RFC)", () => {
   const DB = construirDBPrueba();
   const filas = [{ numero_fila: 2, rfc: "", nombre: "Sin RFC" }];
   const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].valida, true);
+  assert.strictEqual(resultado[0].errores.length, 0);
+});
+
+test("previsualizarImportacion marca invalido un proveedor sin nombre (nombre sigue siendo obligatorio)", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, rfc: "RFC-ALGO", nombre: "" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
   assert.strictEqual(resultado[0].valida, false);
   assert.ok(resultado[0].errores.length > 0);
+});
+
+test("previsualizarImportacion de proveedores: sin rfc, matchea por nombre normalizado contra un proveedor existente", () => {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].proveedores.push({ id: 20, nombre: "Distribuidora del Sur", rfc: "", contacto: "" });
+  const filas = [{ numero_fila: 2, rfc: "", nombre: "DISTRIBUIDORA DEL SUR" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, 20);
+});
+
+test("previsualizarImportacion de proveedores: sin rfc y sin match de nombre es alta", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, rfc: "", nombre: "Proveedor Totalmente Nuevo" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].accion, "alta");
+  assert.strictEqual(resultado[0].id_existente, null);
+});
+
+test("previsualizarImportacion de proveedores: con rfc presente sigue matcheando por rfc, no por nombre (regresion)", () => {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].proveedores.push({ id: 21, nombre: "Nombre Viejo", rfc: "RFC-REAL-001", contacto: "" });
+  const filas = [{ numero_fila: 2, rfc: "RFC-REAL-001", nombre: "Nombre Completamente Distinto" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "proveedores", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, 21);
 });
 
 const { aplicarImportacion } = require("./migracion");
@@ -466,6 +500,30 @@ test("aplicarImportacion de proveedores: alta nueva y actualizacion por rfc", ()
   const proveedor = DB["catalogo-productos"].proveedores.find((p) => p.rfc === "NUEVO-RFC-001");
   assert.strictEqual(proveedor.nombre, "Proveedor Nuevo Renombrado");
   assert.strictEqual(proveedor.contacto, "9199998877");
+});
+
+test("aplicarImportacion de proveedores: dos proveedores distintos sin rfc se dan de alta ambos, sin mezclarse", () => {
+  const DB = construirDBPrueba();
+  const filas = [
+    { numero_fila: 2, rfc: "", nombre: "Proveedor Uno Sin RFC" },
+    { numero_fila: 3, rfc: "", nombre: "Proveedor Dos Sin RFC" },
+  ];
+  const resumen = aplicarImportacion(DB, "proveedores", filas, null, {}, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 2);
+  assert.strictEqual(resumen.errores.length, 0);
+  const uno = DB["catalogo-productos"].proveedores.find((p) => p.nombre === "Proveedor Uno Sin RFC");
+  const dos = DB["catalogo-productos"].proveedores.find((p) => p.nombre === "Proveedor Dos Sin RFC");
+  assert.ok(uno && dos);
+  assert.notStrictEqual(uno.id, dos.id);
+});
+
+test("aplicarImportacion de proveedores: alta sin rfc y sin match de nombre queda con rfc vacio", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, rfc: "", nombre: "Proveedor Sin RFC Alta" }];
+  const resumen = aplicarImportacion(DB, "proveedores", filas, null, {}, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 1);
+  const nuevo = DB["catalogo-productos"].proveedores.find((p) => p.nombre === "Proveedor Sin RFC Alta");
+  assert.strictEqual(nuevo.rfc, "");
 });
 
 const { exportarRespaldo } = require("./migracion");
