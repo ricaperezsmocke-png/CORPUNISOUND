@@ -129,11 +129,28 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
 
         {previsualizacion && (
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex gap-4 text-xs text-slate-600 mb-2">
+            {previsualizacion.columnas_no_reconocidas?.length > 0 && (
+              <div className="mb-2 bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2 text-xs">
+                Columnas no reconocidas (se ignoraron): {previsualizacion.columnas_no_reconocidas.join(", ")}
+              </div>
+            )}
+            <div className="flex gap-4 items-center text-xs text-slate-600 mb-2">
               <span>Total: {previsualizacion.resumen.total}</span>
               <span className="text-emerald-600">Altas: {previsualizacion.resumen.altas}</span>
               <span className="text-blue-600">Actualizaciones: {previsualizacion.resumen.actualizaciones}</span>
               <span className="text-red-600">Inválidas: {previsualizacion.resumen.invalidas}</span>
+              <button
+                onClick={() => setConfirmados(Object.fromEntries(previsualizacion.filas.filter((f) => f.valida).map((f) => [f.numero_fila, true])))}
+                className="ml-auto border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Confirmar todas las válidas
+              </button>
+              <button
+                onClick={() => setConfirmados({})}
+                className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Quitar todas
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto border border-slate-200 rounded">
               <table className="w-full text-xs">
@@ -142,6 +159,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
                     <th className="py-2 px-2 text-left">Fila</th>
                     <th className="py-2 px-2 text-left">Clave/RFC</th>
                     <th className="py-2 px-2 text-left">Nombre</th>
+                    {tab === "articulos" && <th className="py-2 px-2 text-right">Costo</th>}
                     <th className="py-2 px-2 text-center">Acción</th>
                     <th className="py-2 px-2 text-center">Confirmar</th>
                   </tr>
@@ -152,6 +170,9 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
                       <td className="py-1.5 px-2">{f.numero_fila}</td>
                       <td className="py-1.5 px-2">{f.datos.clave || f.datos.rfc}</td>
                       <td className="py-1.5 px-2">{f.datos.descripcion || f.datos.nombre}</td>
+                      {tab === "articulos" && (
+                        <td className="py-1.5 px-2 text-right">{f.datos.costo !== undefined && f.datos.costo !== "" ? f.datos.costo : "—"}</td>
+                      )}
                       <td className="py-1.5 px-2 text-center">
                         {!f.valida
                           ? <span className="text-red-600" title={f.errores.join("; ")}>Inválida</span>
