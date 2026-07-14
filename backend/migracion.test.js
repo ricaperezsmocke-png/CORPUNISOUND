@@ -271,3 +271,55 @@ test("aplicarImportacion de articulos: reimportar el mismo archivo no duplica (s
   aplicarImportacion(DB, "articulos", filas, 1, defaults, "test.xlsx");
   assert.strictEqual(DB["catalogo-productos"].productos.length, totalTrasPrimera, "no debe haber creado un segundo producto");
 });
+
+test("aplicarImportacion de articulos: alta sin descripcion se reporta como error y NO crea categoria/departamento huerfanos", () => {
+  const DB = construirDBPrueba();
+  const categoriasAntes = DB["catalogo-productos"].categorias.length;
+  const departamentosAntes = DB["catalogo-productos"].departamentos.length;
+  const filas = [{ numero_fila: 2, clave: "GTR-004", categoria: "Instrumentos Nuevos", departamento: "Cuerdas Nuevas", unidad: "PZA" }];
+  const resumen = aplicarImportacion(DB, "articulos", filas, 1, {}, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 0);
+  assert.strictEqual(resumen.errores.length, 1);
+  assert.strictEqual(resumen.errores[0].numero_fila, 2);
+  assert.strictEqual(DB["catalogo-productos"].categorias.length, categoriasAntes, "no debio crear la categoria huerfana");
+  assert.strictEqual(DB["catalogo-productos"].departamentos.length, departamentosAntes, "no debio crear el departamento huerfano");
+  assert.ok(!DB["catalogo-productos"].categorias.some((c) => c.nombre === "Instrumentos Nuevos"));
+  assert.ok(!DB["catalogo-productos"].departamentos.some((d) => d.nombre === "Cuerdas Nuevas"));
+});
+
+test("aplicarImportacion de articulos: actualizacion NO aplica defaults del lote a categoria/departamento/unidad/iva omitidos en la fila", () => {
+  const DB = construirDBPrueba();
+  const antes = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  const categoriaIdAntes = antes.categoria_id;
+  const departamentoIdAntes = antes.departamento_id;
+  const unidadVentaAntes = antes.unidad_venta;
+  const ivaAntes = antes.iva;
+  const defaults = { categoria: "Instrumentos", departamento: "Cuerdas", unidad: "CAJA", iva: true };
+  const filas = [{ numero_fila: 2, clave: "AB-001", costo: 21 }];
+  aplicarImportacion(DB, "articulos", filas, 1, defaults, "test.xlsx");
+  const despues = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  assert.strictEqual(despues.costo, 21, "el costo si venia en el archivo, debe cambiar");
+  assert.strictEqual(despues.categoria_id, categoriaIdAntes, "la categoria no debia cambiar por el default del lote");
+  assert.strictEqual(despues.departamento_id, departamentoIdAntes, "el departamento no debia cambiar por el default del lote");
+  assert.strictEqual(despues.unidad_venta, unidadVentaAntes, "la unidad no debia cambiar por el default del lote");
+  assert.strictEqual(despues.iva, ivaAntes, "el iva no debia cambiar por el default del lote");
+});
+
+test("aplicarImportacion de articulos: si ajustar existencia fallaria (sin registro en esa sucursal), la fila falla SIN mutar el producto", () => {
+  const DB = construirDBPrueba();
+  // El producto AB-001 (id 1) solo tiene fila de existencia en la sucursal 1
+  // (ver testHelpers.js) — igual que un articulo dado de alta antes de que
+  // existiera CEDIS (sucursal 6). Importar hacia la sucursal 6 con una
+  // existencia en el archivo debe fallar SIN aplicar el resto de cambios.
+  const antes = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  const costoAntes = antes.costo;
+  const nombreAntes = antes.nombre;
+  const filas = [{ numero_fila: 2, clave: "AB-001", costo: 999, existencia: 5 }];
+  const resumen = aplicarImportacion(DB, "articulos", filas, 6, {}, "test.xlsx");
+  assert.strictEqual(resumen.errores.length, 1);
+  assert.strictEqual(resumen.actualizados, 0);
+  assert.match(resumen.errores[0].motivo, /no tiene registro de existencia/);
+  const despues = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  assert.strictEqual(despues.costo, costoAntes, "el costo NO debio cambiar: la fila fallo por completo");
+  assert.strictEqual(despues.nombre, nombreAntes);
+});

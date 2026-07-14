@@ -197,11 +197,24 @@ function construirPrecios(fila, existente, costoNuevo) {
 
 function prepararDatosArticulo(DB, fila, existente, defaults) {
   const errores = [];
-  const categoriaNombre = fila.categoria || defaults?.categoria;
-  const departamentoNombre = fila.departamento || defaults?.departamento;
-  const unidad = fila.unidad || defaults?.unidad;
+  // defaults solo aplica a altas: en una actualización, que la fila omita
+  // categoria/departamento/unidad/iva significa "no tocar ese campo", no
+  // "usar el default del lote" — si no, un lote con defaults pisaría en
+  // silencio esos campos de artículos ya existentes que el archivo de SICAR
+  // no traiga completos (ver hallazgo de revisión).
+  const categoriaNombre = fila.categoria || (!existente ? defaults?.categoria : undefined);
+  const departamentoNombre = fila.departamento || (!existente ? defaults?.departamento : undefined);
+  const unidad = fila.unidad || (!existente ? defaults?.unidad : undefined);
 
   if (!existente) {
+    // Estas validaciones deben correr ANTES de resolverCategoriaPorNombre/
+    // resolverDepartamentoPorNombre más abajo: esas funciones CREAN la
+    // categoría/departamento en la DB si no existen todavía. Si dejamos
+    // pasar una alta a la que le falta la descripción, crearProducto la
+    // rechaza después, pero la categoría/departamento ya se habría creado
+    // como huérfana (ver hallazgo de revisión — "revalidar todo ANTES de
+    // mutar nada").
+    if (!fila.descripcion || !String(fila.descripcion).trim()) errores.push("Falta descripción (obligatoria para dar de alta un artículo nuevo)");
     if (!categoriaNombre) errores.push("Falta categoría (ni en el archivo ni en los datos por defecto)");
     if (!departamentoNombre) errores.push("Falta departamento (ni en el archivo ni en los datos por defecto)");
     if (!unidad) errores.push("Falta unidad (ni en el archivo ni en los datos por defecto)");
@@ -218,7 +231,7 @@ function prepararDatosArticulo(DB, fila, existente, defaults) {
     unidad_venta: unidad,
     unidad_compra: unidad,
     precio_compra: fila.costo !== undefined && fila.costo !== "" ? costoNuevo : undefined,
-    iva: fila.iva !== undefined && fila.iva !== "" ? interpretarIva(fila.iva) : (defaults?.iva !== undefined ? !!defaults.iva : undefined),
+    iva: fila.iva !== undefined && fila.iva !== "" ? interpretarIva(fila.iva) : (!existente && defaults?.iva !== undefined ? !!defaults.iva : undefined),
     ubicacion: fila.ubicacion || undefined,
   };
   const precios = construirPrecios(fila, existente, costoNuevo);
@@ -232,11 +245,23 @@ function aplicarFilaArticulo(DB, fila, existente, sucursal_id, defaults, nombreA
   if (errores.length > 0) throw new Error(errores.join("; "));
 
   if (existente) {
+    const hayExistenciaEnArchivo = fila.existencia !== undefined && fila.existencia !== "";
+    // Precondición chequeada ANTES de actualizarProducto: ajustarExistencia
+    // truena si no hay fila de existencia para este producto+sucursal (p.ej.
+    // productos creados antes de que existiera la sucursal — ver CEDIS en
+    // sucursales.js). Si no chequeamos esto primero, actualizarProducto ya
+    // habría mutado costo/categoría/etc. y el error de existencia dejaría
+    // al producto en un estado a medias, aunque la fila se reporte como
+    // error completo (viola "un fallo en una fila no corrompe las demás").
+    const exist = hayExistenciaEnArchivo
+      ? DB.inventario.existencias.find((e) => e.producto_id === existente.id && e.sucursal_id === Number(sucursal_id))
+      : null;
+    if (hayExistenciaEnArchivo && !exist) {
+      throw new Error("Este producto no tiene registro de existencia en esta sucursal");
+    }
     const actualizado = actualizarProducto(DB, existente.id, datos, sucursal_id);
-    if (fila.existencia !== undefined && fila.existencia !== "") {
-      const exist = DB.inventario.existencias.find((e) => e.producto_id === existente.id && e.sucursal_id === Number(sucursal_id));
-      const actual = exist ? exist.cantidad_actual : 0;
-      const delta = Number(fila.existencia) - actual;
+    if (hayExistenciaEnArchivo) {
+      const delta = Number(fila.existencia) - exist.cantidad_actual;
       if (delta !== 0) ajustarExistencia(DB, existente.id, { cantidad: delta, motivo: `Importación SICAR — ${nombreArchivo || "archivo"}`, sucursal_id });
     }
     return actualizado;
