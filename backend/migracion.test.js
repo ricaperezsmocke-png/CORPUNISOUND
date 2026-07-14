@@ -412,6 +412,7 @@ test("exportarRespaldo de clientes excluye a Publico en General (id 0)", () => {
 
 test("exportarRespaldo de proveedores no depende de sucursal", () => {
   const DB = construirDBPrueba();
+  DB["catalogo-productos"].proveedores.push({ id: 50, nombre: "Distribuidora del Norte", rfc: "DINX800101ABC", contacto: "9191234567" });
   const base64 = exportarRespaldo(DB, "proveedores", null);
   const { filas } = parsearExcel(base64, "proveedores");
   assert.strictEqual(filas.length, DB["catalogo-productos"].proveedores.length);
