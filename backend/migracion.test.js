@@ -46,6 +46,39 @@ test("parsearExcel reporta columnas no reconocidas sin tronar", () => {
   assert.ok(columnas_no_reconocidas.includes("Columna Rara"));
 });
 
+test("parsearExcel de articulos reconoce el encabezado real de SICAR IMPUESTO (S/N) para iva", () => {
+  const base64 = construirExcelBase64([
+    { "Clave": "AB-001", "Descripción": "Arroz 1kg", "IMPUESTO (S/N)": "S" },
+  ]);
+  const { filas, columnas_reconocidas } = parsearExcel(base64, "articulos");
+  assert.strictEqual(filas[0].iva, "S");
+  assert.ok(columnas_reconocidas.includes("IMPUESTO (S/N)"));
+});
+
+test("aplicarImportacion de articulos: IMPUESTO (S/N) = S da iva true end-to-end", () => {
+  const DB = construirDBPrueba();
+  const base64 = construirExcelBase64([
+    { "Clave": "GTR-010", "Descripción": "Guitarra con IVA", "IMPUESTO (S/N)": "S" },
+  ]);
+  const { filas } = parsearExcel(base64, "articulos");
+  const defaults = { categoria: "Instrumentos", departamento: "Cuerdas", unidad: "PZA" };
+  aplicarImportacion(DB, "articulos", filas, 1, defaults, "test.xlsx");
+  const nuevo = DB["catalogo-productos"].productos.find((p) => p.sku === "GTR-010");
+  assert.strictEqual(nuevo.iva, true);
+});
+
+test("aplicarImportacion de articulos: IMPUESTO (S/N) = N da iva false end-to-end (bug real: 'N' normalizaba a 'n', que no estaba en la lista de valores falsos)", () => {
+  const DB = construirDBPrueba();
+  const base64 = construirExcelBase64([
+    { "Clave": "GTR-011", "Descripción": "Guitarra sin IVA", "IMPUESTO (S/N)": "N" },
+  ]);
+  const { filas } = parsearExcel(base64, "articulos");
+  const defaults = { categoria: "Instrumentos", departamento: "Cuerdas", unidad: "PZA" };
+  aplicarImportacion(DB, "articulos", filas, 1, defaults, "test.xlsx");
+  const nuevo = DB["catalogo-productos"].productos.find((p) => p.sku === "GTR-011");
+  assert.strictEqual(nuevo.iva, false);
+});
+
 test("parsearExcel de clientes exige clave y nombre", () => {
   const base64 = construirExcelBase64([{ "Clave": "CLI001", "Nombre": "Abarrotes Mary", "RFC": "XAXX010101000" }]);
   const { filas } = parsearExcel(base64, "clientes");

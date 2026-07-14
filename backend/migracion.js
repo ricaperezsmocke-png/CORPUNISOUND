@@ -31,7 +31,11 @@ const TABLAS_ALIAS = {
     precio4: ["Precio 4"],
     existencia: ["Existencia", "Exist.", "Inventario"],
     unidad: ["Unidad", "Unidad Venta", "Unidad de Venta"],
-    iva: ["IVA", "Impuesto", "Impuestos"],
+    // producto.iva es hoy un booleano simple, informativo — no se usa en
+    // checkout/pricing (confirmado por grep). Victor mencionó querer una tasa
+    // de IVA ajustable por sucursal (8%/16%) a futuro; eso es OTRA feature,
+    // fuera de alcance aquí — se deja como breadcrumb para quien la tome.
+    iva: ["IVA", "Impuesto", "Impuestos", "IMPUESTO (S/N)"],
     ubicacion: ["Ubicación", "Localización"],
   },
   clientes: {
@@ -195,7 +199,13 @@ const BUSCADORES = { articulos: buscarArticuloExistente, clientes: buscarCliente
 function interpretarIva(valor) {
   const norm = normalizarTexto(valor);
   if (!norm) return false;
-  if (["no", "0", "false"].includes(norm)) return false;
+  // "n" es el valor real de SICAR para IMPUESTO (S/N)/IMP I.V.A.16(S/N)/IMP
+  // IVA 8(S/N) cuando el artículo NO lleva IVA — normalizarTexto lo deja en
+  // "n", que antes NO estaba en esta lista y por lo tanto caía en el
+  // `return true` de abajo (bug real, confirmado con un archivo real de
+  // SICAR: todo artículo con "N" se importaba con iva: true).
+  if (["no", "n", "0", "false"].includes(norm)) return false;
+  if (["si", "s", "1", "true"].includes(norm)) return true;
   return true;
 }
 
