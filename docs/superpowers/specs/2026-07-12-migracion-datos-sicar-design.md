@@ -41,10 +41,15 @@ importador de SICAR (no hay flujo de regreso a SICAR).
    - **Artículos:** por clave (`sku` del producto; también se acepta
      coincidencia con `clave_alterna`). Si coincide → actualización; si no
      → alta nueva.
-   - **Clientes:** por `clave`. Se descartó el RFC como llave porque en el
-     schema real (`backend/clientes.js`) el RFC tiene default
-     `XAXX010101000` (el RFC genérico de "público en general"), así que
-     muchos clientes lo comparten y no sirve como identificador único.
+   - **Clientes:** por `clave` **+ `sucursal_id`** (nunca clave sola). Se
+     descartó el RFC como llave porque en el schema real
+     (`backend/clientes.js`) el RFC tiene default `XAXX010101000` (el RFC
+     genérico de "público en general"), así que muchos clientes lo comparten
+     y no sirve como identificador único. La sucursal se agregó al matching
+     tras la revisión final: cada sucursal corre su propia instalación
+     independiente de SICAR, que numera clientes por su cuenta — sin este
+     ajuste, un mismo `CLI001` de dos sucursales distintas se habría tratado
+     como el mismo cliente y se habría pisado uno con datos del otro.
    - **Proveedores:** por `rfc` (los proveedores no tienen clave propia en
      CORPUNISOUND; el RFC de proveedor sí es un dato fiscal real y único).
 3. **Sucursal obligatoria para Artículos y Clientes.** Cada instalación de
