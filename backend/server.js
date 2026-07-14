@@ -453,8 +453,19 @@ app.post("/api/compras/importar-xml", requiereLogin, requierePermiso("recibir_co
 app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
   try {
     const { tipo, archivo_base64 } = req.body;
+    // Mismo cálculo de sucursal_id que /api/migracion/aplicar (ver más abajo):
+    // la previsualización debe reflejar EXACTAMENTE el mismo matching que
+    // hará aplicar, o podrían mostrarle a Victor "actualización" y terminar
+    // aplicando una "alta" (o viceversa) — ver hallazgo de revisión de rama
+    // completa sobre matching de clientes por clave+sucursal.
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    let sucursal_id = null;
+    if (tipo === "articulos" || tipo === "clientes") {
+      sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || null) : alcance.sucursalId;
+      if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
+    }
     const { filas, columnas_reconocidas, columnas_no_reconocidas } = parsearExcel(archivo_base64, tipo);
-    const previsualizacion = previsualizarImportacion(DB, tipo, filas);
+    const previsualizacion = previsualizarImportacion(DB, tipo, filas, sucursal_id);
     res.json({ ...previsualizacion, columnas_reconocidas, columnas_no_reconocidas });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });

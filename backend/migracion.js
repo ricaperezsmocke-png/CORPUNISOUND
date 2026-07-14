@@ -162,13 +162,21 @@ function validarFilaProveedor(fila) {
 
 const VALIDADORES = { articulos: validarFilaArticulo, clientes: validarFilaCliente, proveedores: validarFilaProveedor };
 
-function buscarArticuloExistente(DB, fila) {
+// Los tres BUSCADORES comparten firma (DB, fila, sucursal_id) aunque solo
+// clientes la use: cada instalación de SICAR es una sucursal independiente
+// que numera sus propios clientes desde cero, así que una misma clave en
+// dos sucursales distintas son DOS personas reales distintas — nunca deben
+// matchear entre sí (decisión explícita de Victor, ver hallazgo crítico de
+// revisión de rama completa). Artículos matchea por sku/clave_alterna sin
+// sucursal (el sku es único en todo el catálogo); Proveedores son globales
+// por diseño (decisión 2 del spec) — ninguno de los dos debe cambiar aquí.
+function buscarArticuloExistente(DB, fila, sucursal_id) {
   return DB["catalogo-productos"].productos.find((p) => p.sku === fila.clave || (fila.clave && p.clave_alterna === fila.clave)) || null;
 }
-function buscarClienteExistente(DB, fila) {
-  return DB.crm.clientes.find((c) => c.clave === fila.clave) || null;
+function buscarClienteExistente(DB, fila, sucursal_id) {
+  return DB.crm.clientes.find((c) => c.clave === fila.clave && c.sucursal_id === Number(sucursal_id)) || null;
 }
-function buscarProveedorExistente(DB, fila) {
+function buscarProveedorExistente(DB, fila, sucursal_id) {
   return DB["catalogo-productos"].proveedores.find((p) => p.rfc === fila.rfc) || null;
 }
 
@@ -334,7 +342,7 @@ function aplicarImportacion(DB, tipo, filasConfirmadas, sucursal_id, defaults, n
   const preparadas = filasConfirmadas.map((fila) => ({
     fila,
     erroresValidacion: validar(fila),
-    existente: buscar(DB, fila),
+    existente: buscar(DB, fila, sucursal_id),
   }));
 
   let actualizados = 0;
@@ -357,7 +365,7 @@ function aplicarImportacion(DB, tipo, filasConfirmadas, sucursal_id, defaults, n
   return { actualizados, nuevos, errores };
 }
 
-function previsualizarImportacion(DB, tipo, filas) {
+function previsualizarImportacion(DB, tipo, filas, sucursal_id) {
   const validar = VALIDADORES[tipo];
   const buscar = BUSCADORES[tipo];
   if (!validar || !buscar) throw new Error(`Tipo de importación desconocido: ${tipo}`);
@@ -367,7 +375,7 @@ function previsualizarImportacion(DB, tipo, filas) {
     if (errores.length > 0) {
       return { numero_fila: fila.numero_fila, datos: fila, accion: null, id_existente: null, valida: false, errores };
     }
-    const existente = buscar(DB, fila);
+    const existente = buscar(DB, fila, sucursal_id);
     return {
       numero_fila: fila.numero_fila,
       datos: fila,

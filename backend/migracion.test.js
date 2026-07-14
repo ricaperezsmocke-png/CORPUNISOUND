@@ -181,9 +181,22 @@ test("previsualizarImportacion de articulos: una Clave numerica en el Excel si m
 test("previsualizarImportacion de clientes hace match por clave", () => {
   const DB = construirDBPrueba();
   const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary S.A." }];
-  const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas);
+  const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas, 1);
   assert.strictEqual(resultado[0].accion, "actualizacion");
   assert.strictEqual(resultado[0].id_existente, 1);
+});
+
+test("previsualizarImportacion de clientes: mismo clave en OTRA sucursal es alta, no actualizacion (evita mezclar clientes de sucursales distintas)", () => {
+  const DB = construirDBPrueba();
+  // CLI001 existe en sucursal_id 1 (ver testHelpers). SICAR numera clientes
+  // independientemente por instalación/sucursal, así que una Clave repetida
+  // en otra sucursal es una persona DISTINTA — nunca debe matchear/pisar.
+  const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Otro negocio, misma clave en Yajalón" }];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "clientes", filas, 2);
+  assert.strictEqual(resultado[0].accion, "alta");
+  assert.strictEqual(resultado[0].id_existente, null);
+  assert.strictEqual(resumen.altas, 1);
+  assert.strictEqual(resumen.actualizaciones, 0);
 });
 
 test("previsualizarImportacion marca alta si la clave del cliente no existe", () => {
@@ -410,12 +423,35 @@ test("aplicarImportacion de clientes: actualizacion no borra campos que no viene
   assert.strictEqual(despues.limite_credito, limiteAntes, "no debia perderse el limite de credito existente");
 });
 
-test("aplicarImportacion de clientes: no cambia la sucursal de un cliente ya existente", () => {
+test("aplicarImportacion de clientes: la actualizacion no toca el sucursal_id del cliente ya existente", () => {
   const DB = construirDBPrueba();
   const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary" }];
-  aplicarImportacion(DB, "clientes", filas, 3, {}, "test.xlsx");
-  const cliente = DB.crm.clientes.find((c) => c.clave === "CLI001");
+  aplicarImportacion(DB, "clientes", filas, 1, {}, "test.xlsx");
+  const cliente = DB.crm.clientes.find((c) => c.clave === "CLI001" && c.sucursal_id === 1);
+  assert.ok(cliente, "debio actualizar el cliente existente de la sucursal 1, no crear uno nuevo");
   assert.strictEqual(cliente.sucursal_id, 1, "el sucursal_id original no debe tocarse en una actualizacion");
+});
+
+test("aplicarImportacion de clientes: mismo clave en OTRA sucursal da de alta un cliente nuevo, sin pisar el de la sucursal original", () => {
+  const DB = construirDBPrueba();
+  // CLI001 existe en sucursal 1 (ver testHelpers). Cada instalación de SICAR
+  // numera clientes por su cuenta, así que la MISMA clave llegando de la
+  // sucursal 2 pertenece a una persona real distinta — debe darse de alta
+  // como cliente nuevo, nunca sobrescribir nombre/rfc/telefono del cliente
+  // de la sucursal 1 (ver hallazgo critico de revisión de rama completa).
+  const clienteOriginal = DB.crm.clientes.find((c) => c.clave === "CLI001");
+  const nombreOriginalAntes = clienteOriginal.nombre;
+  const totalClientesAntes = DB.crm.clientes.length;
+  const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Otro Negocio Yajalón", rfc: "XAXX010101000" }];
+  const resumen = aplicarImportacion(DB, "clientes", filas, 2, {}, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 1);
+  assert.strictEqual(resumen.actualizados, 0);
+  assert.strictEqual(DB.crm.clientes.length, totalClientesAntes + 1, "debio crear un cliente nuevo, no actualizar el existente");
+  const original = DB.crm.clientes.find((c) => c.id === clienteOriginal.id);
+  assert.strictEqual(original.nombre, nombreOriginalAntes, "el cliente de la sucursal 1 NO debio pisarse");
+  const nuevo = DB.crm.clientes.find((c) => c.clave === "CLI001" && c.sucursal_id === 2);
+  assert.ok(nuevo, "debe existir un cliente nuevo con la misma clave, en la sucursal 2");
+  assert.strictEqual(nuevo.nombre, "Otro Negocio Yajalón");
 });
 
 test("aplicarImportacion de proveedores: alta nueva y actualizacion por rfc", () => {

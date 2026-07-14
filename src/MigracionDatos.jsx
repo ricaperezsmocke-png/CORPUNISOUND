@@ -45,7 +45,10 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
     nombreArchivoRef.current = archivo.name;
     try {
       const archivo_base64 = await leerArchivoComoBase64(archivo);
-      const r = await apiFetch("/migracion/previsualizar", { method: "POST", body: JSON.stringify({ tipo: tab, archivo_base64 }) });
+      const r = await apiFetch("/migracion/previsualizar", {
+        method: "POST",
+        body: JSON.stringify({ tipo: tab, archivo_base64, sucursal_id: sucursalId || undefined }),
+      });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       setPrevisualizacion(data);
