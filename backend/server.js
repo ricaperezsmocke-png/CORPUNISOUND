@@ -43,6 +43,7 @@ const { crearRecepcion, listarRecepciones, historialCostoProducto } = require(".
 const { reconciliarSucursalesCedis } = require("./sucursales");
 const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
 const { importarClavesSat } = require("./scripts/importarClavesSat");
+const { parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo } = require("./migracion");
 const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const { buscarClavesSat } = require("./clavesSat");
@@ -66,7 +67,10 @@ const app = express();
 app.use(cors({
   origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
 }));
-app.use(express.json());
+// Límite subido de 100kb (default) a 15mb: el catálogo completo de un
+// respaldo/importación viaja como Excel en base64 dentro del body JSON,
+// igual filosofía que ya usa el importador de factura XML CFDI.
+app.use(express.json({ limit: "15mb" }));
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
 
@@ -444,6 +448,45 @@ app.post("/api/compras/importar-xml", requiereLogin, requierePermiso("recibir_co
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const { tipo, archivo_base64 } = req.body;
+    const { filas, columnas_reconocidas, columnas_no_reconocidas } = parsearExcel(archivo_base64, tipo);
+    const previsualizacion = previsualizarImportacion(DB, tipo, filas);
+    res.json({ ...previsualizacion, columnas_reconocidas, columnas_no_reconocidas });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/migracion/aplicar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const { tipo, filas, defaults, nombre_archivo } = req.body;
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    let sucursal_id = null;
+    if (tipo === "articulos" || tipo === "clientes") {
+      sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || null) : alcance.sucursalId;
+      if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
+    }
+    const resumen = aplicarImportacion(DB, tipo, filas, sucursal_id, defaults, nombre_archivo);
+    res.json(resumen);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/migracion/exportar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const { tipo } = req.query;
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    let sucursal_id = null;
+    if (tipo === "articulos" || tipo === "clientes") {
+      sucursal_id = alcance.verTodas ? (Number(req.query.sucursal_id) || null) : alcance.sucursalId;
+      if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal a exportar" });
+    }
+    const base64 = exportarRespaldo(DB, tipo, sucursal_id);
+    res.setHeader("Content-Disposition", `attachment; filename="respaldo-${tipo}.xlsx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(Buffer.from(base64, "base64"));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.get("/api/productos/:id/historial-costo", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
