@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { FileSpreadsheet, Download, Upload, ChevronLeft } from "lucide-react";
+import { FileSpreadsheet, Download, Upload } from "lucide-react";
 import { apiFetch } from "./api";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
@@ -37,8 +37,6 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
   useEffect(() => { apiFetch("/sucursales").then((r) => r.json()).then(setSucursales).catch(() => {}); }, []);
   useEffect(() => { setPrevisualizacion(null); setConfirmados({}); setResumen(null); setSucursalId(""); }, [tab]);
 
-  const necesitaSucursal = tipoActual.pideSucursal && (!usuario?.ver_todas || true) && usuario?.ver_todas;
-
   const subirArchivo = async (archivo) => {
     if (tipoActual.pideSucursal && usuario?.ver_todas && !sucursalId) {
       return mostrarAviso("Selecciona la sucursal de origen del archivo primero");
@@ -51,9 +49,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       setPrevisualizacion(data);
-      const confirmadosIniciales = {};
-      data.filas.forEach((f) => { if (f.valida) confirmadosIniciales[f.numero_fila] = true; });
-      setConfirmados(confirmadosIniciales);
+      setConfirmados({});
       setResumen(null);
     } catch (e) { mostrarAviso("❌ " + e.message); }
     finally { setCargando(false); if (inputArchivoRef.current) inputArchivoRef.current.value = ""; }
