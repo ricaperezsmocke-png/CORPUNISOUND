@@ -323,3 +323,29 @@ test("aplicarImportacion de articulos: si ajustar existencia fallaria (sin regis
   assert.strictEqual(despues.costo, costoAntes, "el costo NO debio cambiar: la fila fallo por completo");
   assert.strictEqual(despues.nombre, nombreAntes);
 });
+
+test("aplicarImportacion de articulos: actualizacion que falla por precondicion de existencia NO crea categoria/departamento huerfanos", () => {
+  const DB = construirDBPrueba();
+  // Igual que el test anterior (producto sin existencia en sucursal 6), pero
+  // ahora la fila ADEMAS trae una categoria nueva que todavia no existe en el
+  // catalogo. prepararDatosArticulo resuelve (y de paso CREA) esa categoria
+  // antes de que se checara la precondicion de existencia — si el orden no
+  // se corrige, la categoria queda huerfana aunque la fila se reporte como
+  // error completo.
+  const categoriasAntes = DB["catalogo-productos"].categorias.length;
+  const departamentosAntes = DB["catalogo-productos"].departamentos.length;
+  const antes = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  const costoAntes = antes.costo;
+  const nombreAntes = antes.nombre;
+  const filas = [{ numero_fila: 2, clave: "AB-001", costo: 999, categoria: "Categoria Huerfana Actualizacion", existencia: 5 }];
+  const resumen = aplicarImportacion(DB, "articulos", filas, 6, {}, "test.xlsx");
+  assert.strictEqual(resumen.errores.length, 1);
+  assert.strictEqual(resumen.actualizados, 0);
+  assert.match(resumen.errores[0].motivo, /no tiene registro de existencia/);
+  assert.strictEqual(DB["catalogo-productos"].categorias.length, categoriasAntes, "no debio crear la categoria huerfana");
+  assert.strictEqual(DB["catalogo-productos"].departamentos.length, departamentosAntes, "no debio crear el departamento huerfano");
+  assert.ok(!DB["catalogo-productos"].categorias.some((c) => c.nombre === "Categoria Huerfana Actualizacion"));
+  const despues = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  assert.strictEqual(despues.costo, costoAntes, "el costo NO debio cambiar: la fila fallo por completo");
+  assert.strictEqual(despues.nombre, nombreAntes);
+});

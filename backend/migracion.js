@@ -241,26 +241,34 @@ function prepararDatosArticulo(DB, fila, existente, defaults) {
 }
 
 function aplicarFilaArticulo(DB, fila, existente, sucursal_id, defaults, nombreArchivo) {
-  const { datos, errores } = prepararDatosArticulo(DB, fila, existente, defaults);
-  if (errores.length > 0) throw new Error(errores.join("; "));
-
+  let exist = null;
   if (existente) {
     const hayExistenciaEnArchivo = fila.existencia !== undefined && fila.existencia !== "";
-    // Precondición chequeada ANTES de actualizarProducto: ajustarExistencia
-    // truena si no hay fila de existencia para este producto+sucursal (p.ej.
-    // productos creados antes de que existiera la sucursal — ver CEDIS en
-    // sucursales.js). Si no chequeamos esto primero, actualizarProducto ya
-    // habría mutado costo/categoría/etc. y el error de existencia dejaría
-    // al producto en un estado a medias, aunque la fila se reporte como
-    // error completo (viola "un fallo en una fila no corrompe las demás").
-    const exist = hayExistenciaEnArchivo
+    // Precondición chequeada ANTES de prepararDatosArticulo (y por lo tanto
+    // antes de actualizarProducto): prepararDatosArticulo llama a
+    // resolverCategoriaPorNombre/resolverDepartamentoPorNombre, que CREAN la
+    // categoría/departamento en la DB si no existen todavía — igual que
+    // crearProducto en el caso de alta (ver hallazgo de revisión). Si
+    // dejáramos que prepararDatosArticulo corra primero y luego esta
+    // precondición truena (p.ej. productos creados antes de que existiera la
+    // sucursal — ver CEDIS en sucursales.js), la categoría/departamento
+    // quedaría huérfana aunque la fila se reporte como error completo (viola
+    // "revalidar todo ANTES de mutar nada" / "un fallo en una fila no
+    // corrompe las demás").
+    exist = hayExistenciaEnArchivo
       ? DB.inventario.existencias.find((e) => e.producto_id === existente.id && e.sucursal_id === Number(sucursal_id))
       : null;
     if (hayExistenciaEnArchivo && !exist) {
       throw new Error("Este producto no tiene registro de existencia en esta sucursal");
     }
+  }
+
+  const { datos, errores } = prepararDatosArticulo(DB, fila, existente, defaults);
+  if (errores.length > 0) throw new Error(errores.join("; "));
+
+  if (existente) {
     const actualizado = actualizarProducto(DB, existente.id, datos, sucursal_id);
-    if (hayExistenciaEnArchivo) {
+    if (fila.existencia !== undefined && fila.existencia !== "") {
       const delta = Number(fila.existencia) - exist.cantidad_actual;
       if (delta !== 0) ajustarExistencia(DB, existente.id, { cantidad: delta, motivo: `Importación SICAR — ${nombreArchivo || "archivo"}`, sucursal_id });
     }
