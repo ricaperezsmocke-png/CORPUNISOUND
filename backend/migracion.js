@@ -8,9 +8,12 @@
  * globales. El matching contra lo ya existente es SIEMPRE por clave/RFC,
  * nunca por nombre (ver spec 2026-07-12-migracion-datos-sicar-design.md).
  *
- * No hay todavía un archivo real de SICAR para confirmar los alias de
- * columna exactos — están concentrados en TABLAS_ALIAS para que ajustar
- * un nombre sea un cambio de una línea cuando llegue un archivo real.
+ * Los alias de columna en TABLAS_ALIAS ya están confirmados contra archivos
+ * reales de SICAR (Artículos, Clientes y Proveedores exportados desde una
+ * instalación real, julio 2026) — ver spec 2026-07-12-migracion-datos-sicar-design.md
+ * y el hallazgo de revisión que corrigió los mismatches encontrados. Siguen
+ * concentrados en TABLAS_ALIAS para que ajustar un nombre siga siendo un
+ * cambio de una línea si aparece una variante de export distinta.
  */
 
 const XLSX = require("xlsx");
@@ -44,7 +47,7 @@ const TABLAS_ALIAS = {
     rfc: ["RFC"],
     telefono: ["Teléfono"],
     celular: ["Celular"],
-    email: ["eMail", "Correo", "Email"],
+    email: ["eMail", "Correo", "Email", "Emails"],
     limite_credito: ["Límite de Crédito", "Límite Crédito"],
     dias_credito: ["Días de Crédito"],
   },
@@ -57,7 +60,11 @@ const TABLAS_ALIAS = {
 
 const COLUMNAS_MINIMAS = {
   articulos: ["clave", "descripcion"],
-  clientes: ["clave", "nombre"],
+  // El SICAR real de Victor NO tiene columna de Clave/Código para Clientes
+  // (confirmado leyendo el archivo real). clave sigue en TABLAS_ALIAS.clientes
+  // como campo opcional por si algún otro export sí la trae, pero ya no es
+  // obligatoria — ver buscarClienteExistente para el efecto en matching.
+  clientes: ["nombre"],
   proveedores: ["rfc", "nombre"],
 };
 
@@ -148,7 +155,11 @@ function validarFilaArticulo(fila) {
 
 function validarFilaCliente(fila) {
   const errores = [];
-  if (!fila.clave || !String(fila.clave).trim()) errores.push("Falta la clave");
+  // clave es opcional: el SICAR real de Victor no tiene columna de
+  // Clave/Código para Clientes en absoluto. Sin clave, cada fila siempre se
+  // da de alta como cliente nuevo (ver buscarClienteExistente) — Victor
+  // acepta que reimportar el mismo archivo cree clientes duplicados, para
+  // el uso ocasional/único que le va a dar a esta migración.
   if (!fila.nombre || !String(fila.nombre).trim()) errores.push("Falta el nombre");
   for (const campo of ["limite_credito", "dias_credito"]) {
     const v = fila[campo];
@@ -181,6 +192,13 @@ function buscarArticuloExistente(DB, fila, sucursal_id) {
   return DB["catalogo-productos"].productos.find((p) => p.sku === fila.clave || (fila.clave && p.clave_alterna === fila.clave)) || null;
 }
 function buscarClienteExistente(DB, fila, sucursal_id) {
+  // El SICAR real de Victor no trae clave para Clientes: fila.clave viene
+  // vacío/undefined en (casi) todas las filas reales. Sin este guard, dos
+  // clientes reales distintos importados en la misma sucursal con
+  // clave === "" harían match entre sí (comparando "" === "") en una
+  // segunda importación, mezclando/pisando a una persona con otra. "Sin
+  // clave" debe significar SIEMPRE alta nueva, nunca actualización.
+  if (!fila.clave || !String(fila.clave).trim()) return null;
   return DB.crm.clientes.find((c) => c.clave === fila.clave && c.sucursal_id === Number(sucursal_id)) || null;
 }
 function buscarProveedorExistente(DB, fila, sucursal_id) {

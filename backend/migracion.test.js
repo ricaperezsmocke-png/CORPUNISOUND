@@ -79,11 +79,35 @@ test("aplicarImportacion de articulos: IMPUESTO (S/N) = N da iva false end-to-en
   assert.strictEqual(nuevo.iva, false);
 });
 
-test("parsearExcel de clientes exige clave y nombre", () => {
+test("parsearExcel de clientes reconoce clave cuando esta presente (campo opcional, no obligatorio)", () => {
   const base64 = construirExcelBase64([{ "Clave": "CLI001", "Nombre": "Abarrotes Mary", "RFC": "XAXX010101000" }]);
   const { filas } = parsearExcel(base64, "clientes");
   assert.strictEqual(filas[0].clave, "CLI001");
   assert.strictEqual(filas[0].nombre, "Abarrotes Mary");
+});
+
+test("parsearExcel de clientes con encabezados reales de SICAR (sin columna de Clave) no truena", () => {
+  // El SICAR real de Victor no tiene columna de Clave/Código para Clientes
+  // en absoluto (confirmado leyendo el archivo). Antes, COLUMNAS_MINIMAS
+  // exigia clave y esto tronaba con "Faltan columnas obligatorias (clave)".
+  const base64 = construirExcelBase64([
+    {
+      "NOMBRE": "Cliente Ejemplo Uno",
+      "RFC": "XAXX010101000",
+      "TELÉFONO": "9191234567",
+      "EMAILS": "cliente@ejemplo.com",
+      "LIMITE DE CRÉDITO": 1000,
+      "DIAS DE CRÉDITO": 30,
+    },
+  ]);
+  const { filas } = parsearExcel(base64, "clientes");
+  assert.strictEqual(filas[0].nombre, "Cliente Ejemplo Uno");
+  assert.strictEqual(filas[0].rfc, "XAXX010101000");
+  assert.strictEqual(filas[0].telefono, "9191234567");
+  assert.strictEqual(filas[0].email, "cliente@ejemplo.com");
+  assert.strictEqual(filas[0].limite_credito, 1000);
+  assert.strictEqual(filas[0].dias_credito, 30);
+  assert.strictEqual(filas[0].clave, undefined);
 });
 
 test("parsearExcel de proveedores exige rfc y nombre", () => {
@@ -241,9 +265,19 @@ test("previsualizarImportacion marca alta si la clave del cliente no existe", ()
   assert.strictEqual(resumen.altas, 1);
 });
 
-test("previsualizarImportacion marca invalido un cliente sin clave", () => {
+test("previsualizarImportacion de clientes: fila sin clave es valida y siempre se marca alta (SICAR real no trae Clave para Clientes)", () => {
   const DB = construirDBPrueba();
   const filas = [{ numero_fila: 2, clave: "", nombre: "Sin clave" }];
+  const { filas: resultado, resumen } = previsualizarImportacion(DB, "clientes", filas, 1);
+  assert.strictEqual(resultado[0].valida, true);
+  assert.strictEqual(resultado[0].errores.length, 0);
+  assert.strictEqual(resultado[0].accion, "alta");
+  assert.strictEqual(resumen.altas, 1);
+});
+
+test("previsualizarImportacion marca invalido un cliente sin nombre (nombre sigue siendo obligatorio)", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "", nombre: "" }];
   const { filas: resultado } = previsualizarImportacion(DB, "clientes", filas);
   assert.strictEqual(resultado[0].valida, false);
   assert.ok(resultado[0].errores.length > 0);
@@ -519,6 +553,28 @@ test("aplicarImportacion de clientes: mismo clave en OTRA sucursal da de alta un
   const nuevo = DB.crm.clientes.find((c) => c.clave === "CLI001" && c.sucursal_id === 2);
   assert.ok(nuevo, "debe existir un cliente nuevo con la misma clave, en la sucursal 2");
   assert.strictEqual(nuevo.nombre, "Otro Negocio Yajalón");
+});
+
+test("aplicarImportacion de clientes: dos filas sin clave son SIEMPRE alta, incluso entre si, en llamadas sucesivas (SICAR real no trae clave)", () => {
+  // Guarda contra el escenario real: dos personas distintas importadas con
+  // clave === "" en la misma sucursal NO deben matchear entre si en una
+  // segunda pasada de importación (buscarClienteExistente debe regresar
+  // null sin correr .find() cuando fila.clave está vacío).
+  const DB = construirDBPrueba();
+  const filasUno = [{ numero_fila: 2, clave: "", nombre: "Cliente Sin Clave Uno" }];
+  const resumenUno = aplicarImportacion(DB, "clientes", filasUno, 1, {}, "test.xlsx");
+  assert.strictEqual(resumenUno.nuevos, 1);
+  assert.strictEqual(resumenUno.actualizados, 0);
+
+  const filasDos = [{ numero_fila: 2, clave: "", nombre: "Cliente Sin Clave Dos" }];
+  const resumenDos = aplicarImportacion(DB, "clientes", filasDos, 1, {}, "test.xlsx");
+  assert.strictEqual(resumenDos.nuevos, 1);
+  assert.strictEqual(resumenDos.actualizados, 0, "no debio matchear contra el cliente sin clave importado en la llamada anterior");
+
+  const uno = DB.crm.clientes.find((c) => c.nombre === "Cliente Sin Clave Uno");
+  const dos = DB.crm.clientes.find((c) => c.nombre === "Cliente Sin Clave Dos");
+  assert.ok(uno && dos);
+  assert.notStrictEqual(uno.id, dos.id);
 });
 
 test("aplicarImportacion de proveedores: alta nueva y actualizacion por rfc", () => {
