@@ -9,6 +9,7 @@ const TITULOS = {
   inventario: "Inventario y Productos",
   traspasos:  "Traspasos entre Sucursales",
   compras:    "Recepción de Compras",
+  migracion:  "Migración de Datos",
   roles:      "Roles y Personal",
   crm:        "CRM",
   corte:      "Corte de Caja",
