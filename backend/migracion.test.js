@@ -391,3 +391,28 @@ test("aplicarImportacion de proveedores: alta nueva y actualizacion por rfc", ()
   assert.strictEqual(proveedor.nombre, "Proveedor Nuevo Renombrado");
   assert.strictEqual(proveedor.contacto, "9199998877");
 });
+
+const { exportarRespaldo } = require("./migracion");
+
+test("exportarRespaldo de articulos genera un xlsx que el mismo parser vuelve a leer (ciclo completo)", () => {
+  const DB = construirDBPrueba();
+  const base64 = exportarRespaldo(DB, "articulos", 1);
+  const { filas } = parsearExcel(base64, "articulos");
+  const arroz = filas.find((f) => f.clave === "AB-001");
+  assert.ok(arroz, "el articulo exportado debe volver a reconocerse al reimportar");
+  assert.strictEqual(Number(arroz.costo), DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001").costo);
+});
+
+test("exportarRespaldo de clientes excluye a Publico en General (id 0)", () => {
+  const DB = construirDBPrueba();
+  const base64 = exportarRespaldo(DB, "clientes", 1);
+  const { filas } = parsearExcel(base64, "clientes");
+  assert.ok(!filas.some((f) => f.nombre === "Público en General"));
+});
+
+test("exportarRespaldo de proveedores no depende de sucursal", () => {
+  const DB = construirDBPrueba();
+  const base64 = exportarRespaldo(DB, "proveedores", null);
+  const { filas } = parsearExcel(base64, "proveedores");
+  assert.strictEqual(filas.length, DB["catalogo-productos"].proveedores.length);
+});

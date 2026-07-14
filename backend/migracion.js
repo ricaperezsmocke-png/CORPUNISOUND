@@ -374,7 +374,78 @@ function previsualizarImportacion(DB, tipo, filas) {
   return { filas: resultado, resumen };
 }
 
+function primerAlias(tipo, campo) {
+  return TABLAS_ALIAS[tipo][campo][0];
+}
+
+function exportarFilasArticulos(DB, sucursal_id) {
+  const T = (campo) => primerAlias("articulos", campo);
+  return DB["catalogo-productos"].productos.map((p) => {
+    const exist = DB.inventario.existencias.find((e) => e.producto_id === p.id && e.sucursal_id === Number(sucursal_id));
+    const categoria = DB["catalogo-productos"].categorias.find((c) => c.id === p.categoria_id);
+    const departamento = DB["catalogo-productos"].departamentos.find((d) => d.id === p.departamento_id);
+    const precios = Array.isArray(p.precios) ? p.precios : [];
+    return {
+      [T("clave")]: p.sku,
+      [T("clave_alterna")]: p.clave_alterna || "",
+      [T("descripcion")]: p.nombre,
+      [T("categoria")]: categoria ? categoria.nombre : "",
+      [T("departamento")]: departamento ? departamento.nombre : "",
+      [T("costo")]: p.costo || 0,
+      [T("precio1")]: precios[0]?.precioVenta || 0,
+      [T("precio2")]: precios[1]?.precioVenta || 0,
+      [T("precio3")]: precios[2]?.precioVenta || 0,
+      [T("precio4")]: precios[3]?.precioVenta || 0,
+      [T("existencia")]: exist ? exist.cantidad_actual : 0,
+      [T("unidad")]: p.unidad_venta || "",
+      [T("iva")]: p.iva ? "SI" : "NO",
+      [T("ubicacion")]: p.ubicacion || "",
+    };
+  });
+}
+
+function exportarFilasClientes(DB, sucursal_id) {
+  const T = (campo) => primerAlias("clientes", campo);
+  return DB.crm.clientes
+    .filter((c) => c.id !== 0 && (sucursal_id == null || c.sucursal_id === Number(sucursal_id)))
+    .map((c) => ({
+      [T("clave")]: c.clave || "",
+      [T("nombre")]: c.nombre,
+      [T("rfc")]: c.rfc || "",
+      [T("telefono")]: c.telefono || "",
+      [T("celular")]: c.celular || "",
+      [T("email")]: c.email || "",
+      [T("limite_credito")]: c.limite_credito || 0,
+      [T("dias_credito")]: c.dias_credito || 0,
+    }));
+}
+
+function exportarFilasProveedores(DB) {
+  const T = (campo) => primerAlias("proveedores", campo);
+  return DB["catalogo-productos"].proveedores.map((p) => ({
+    [T("rfc")]: p.rfc || "",
+    [T("nombre")]: p.nombre,
+    [T("contacto")]: p.contacto || "",
+  }));
+}
+
+const CONSTRUCTORES_EXPORT = {
+  articulos: exportarFilasArticulos,
+  clientes: exportarFilasClientes,
+  proveedores: (DB) => exportarFilasProveedores(DB),
+};
+
+function exportarRespaldo(DB, tipo, sucursal_id) {
+  const construir = CONSTRUCTORES_EXPORT[tipo];
+  if (!construir) throw new Error(`Tipo de exportación desconocido: ${tipo}`);
+  const filas = construir(DB, sucursal_id);
+  const hoja = XLSX.utils.json_to_sheet(filas);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, "Datos");
+  return XLSX.write(libro, { type: "base64", bookType: "xlsx" });
+}
+
 module.exports = {
-  parsearExcel, previsualizarImportacion, aplicarImportacion,
+  parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo,
   normalizarTexto, TABLAS_ALIAS, VALIDADORES, BUSCADORES,
 };
