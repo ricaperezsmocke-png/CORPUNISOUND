@@ -349,3 +349,45 @@ test("aplicarImportacion de articulos: actualizacion que falla por precondicion 
   assert.strictEqual(despues.costo, costoAntes, "el costo NO debio cambiar: la fila fallo por completo");
   assert.strictEqual(despues.nombre, nombreAntes);
 });
+
+test("aplicarImportacion de clientes: alta nueva usa la sucursal seleccionada", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "CLI999", nombre: "Cliente Nuevo SICAR", rfc: "XAXX010101000" }];
+  const resumen = aplicarImportacion(DB, "clientes", filas, 2, {}, "test.xlsx");
+  assert.strictEqual(resumen.nuevos, 1);
+  const nuevo = DB.crm.clientes.find((c) => c.clave === "CLI999");
+  assert.strictEqual(nuevo.sucursal_id, 2);
+});
+
+test("aplicarImportacion de clientes: actualizacion no borra campos que no vienen en el archivo", () => {
+  const DB = construirDBPrueba();
+  const antes = DB.crm.clientes.find((c) => c.clave === "CLI001");
+  const limiteAntes = antes.limite_credito;
+  const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary", telefono: "9191234567" }];
+  aplicarImportacion(DB, "clientes", filas, 1, {}, "test.xlsx");
+  const despues = DB.crm.clientes.find((c) => c.clave === "CLI001");
+  assert.strictEqual(despues.telefono, "9191234567");
+  assert.strictEqual(despues.limite_credito, limiteAntes, "no debia perderse el limite de credito existente");
+});
+
+test("aplicarImportacion de clientes: no cambia la sucursal de un cliente ya existente", () => {
+  const DB = construirDBPrueba();
+  const filas = [{ numero_fila: 2, clave: "CLI001", nombre: "Abarrotes Mary" }];
+  aplicarImportacion(DB, "clientes", filas, 3, {}, "test.xlsx");
+  const cliente = DB.crm.clientes.find((c) => c.clave === "CLI001");
+  assert.strictEqual(cliente.sucursal_id, 1, "el sucursal_id original no debe tocarse en una actualizacion");
+});
+
+test("aplicarImportacion de proveedores: alta nueva y actualizacion por rfc", () => {
+  const DB = construirDBPrueba();
+  const altas = [{ numero_fila: 2, rfc: "NUEVO-RFC-001", nombre: "Proveedor Nuevo", contacto: "9191112233" }];
+  const resumenAlta = aplicarImportacion(DB, "proveedores", altas, null, {}, "test.xlsx");
+  assert.strictEqual(resumenAlta.nuevos, 1);
+
+  const actualizaciones = [{ numero_fila: 2, rfc: "NUEVO-RFC-001", nombre: "Proveedor Nuevo Renombrado", contacto: "9199998877" }];
+  const resumenUpdate = aplicarImportacion(DB, "proveedores", actualizaciones, null, {}, "test.xlsx");
+  assert.strictEqual(resumenUpdate.actualizados, 1);
+  const proveedor = DB["catalogo-productos"].proveedores.find((p) => p.rfc === "NUEVO-RFC-001");
+  assert.strictEqual(proveedor.nombre, "Proveedor Nuevo Renombrado");
+  assert.strictEqual(proveedor.contacto, "9199998877");
+});

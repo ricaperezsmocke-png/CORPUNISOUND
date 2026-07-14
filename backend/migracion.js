@@ -14,7 +14,8 @@
  */
 
 const XLSX = require("xlsx");
-const { crearProducto, actualizarProducto, ajustarExistencia, crearCategoria, crearDepartamento } = require("./productos");
+const { crearProducto, actualizarProducto, ajustarExistencia, crearCategoria, crearDepartamento, crearProveedor } = require("./productos");
+const { crearCliente, actualizarCliente } = require("./clientes");
 
 const TABLAS_ALIAS = {
   articulos: {
@@ -277,7 +278,38 @@ function aplicarFilaArticulo(DB, fila, existente, sucursal_id, defaults, nombreA
   return crearProducto(DB, { ...datos, existencia_inicial: fila.existencia !== undefined && fila.existencia !== "" ? Number(fila.existencia) : 0 }, sucursal_id);
 }
 
-const APLICADORES = { articulos: aplicarFilaArticulo };
+function aplicarFilaCliente(DB, fila, existente, sucursal_id) {
+  const datosCrudos = {
+    clave: fila.clave,
+    nombre: fila.nombre,
+    rfc: fila.rfc || undefined,
+    telefono: fila.telefono || undefined,
+    celular: fila.celular || undefined,
+    email: fila.email || undefined,
+    limite_credito: fila.limite_credito !== undefined && fila.limite_credito !== "" ? Number(fila.limite_credito) : undefined,
+    dias_credito: fila.dias_credito !== undefined && fila.dias_credito !== "" ? Number(fila.dias_credito) : undefined,
+  };
+  if (existente) {
+    // actualizarCliente hace un spread plano — NUNCA mandarle valores
+    // undefined, o sobrescribiría campos existentes con undefined.
+    const datosLimpios = Object.fromEntries(Object.entries(datosCrudos).filter(([, v]) => v !== undefined));
+    return actualizarCliente(DB, existente.id, datosLimpios);
+  }
+  return crearCliente(DB, { ...datosCrudos, sucursal_id });
+}
+
+function aplicarFilaProveedor(DB, fila, existente) {
+  if (existente) {
+    if (fila.nombre) existente.nombre = fila.nombre;
+    if (fila.contacto) existente.contacto = fila.contacto;
+    return existente;
+  }
+  const nuevo = crearProveedor(DB, fila.nombre, fila.rfc);
+  if (fila.contacto) nuevo.contacto = fila.contacto;
+  return nuevo;
+}
+
+const APLICADORES = { articulos: aplicarFilaArticulo, clientes: aplicarFilaCliente, proveedores: aplicarFilaProveedor };
 
 function aplicarImportacion(DB, tipo, filasConfirmadas, sucursal_id, defaults, nombreArchivo) {
   const validar = VALIDADORES[tipo];
