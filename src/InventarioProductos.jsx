@@ -5,6 +5,8 @@ import {
 } from "lucide-react";
 
 import { apiFetch } from "./api";
+import RecepcionCompras from "./RecepcionCompras.jsx";
+import MigracionDatos from "./MigracionDatos.jsx";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = {
@@ -45,8 +47,15 @@ const FORM_VACIO = {
   imagen_url: "",
 };
 
-export default function InventarioProductos({ onVolver, permisos }) {
+const TABS = [
+  { id: "productos", etiqueta: "Productos" },
+  { id: "compras", etiqueta: "Recepción de Compras", permiso: "recibir_compra" },
+  { id: "migracion", etiqueta: "Migración de Datos", permiso: "migrar_datos" },
+];
+
+export default function InventarioProductos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+  const [tab, setTab] = useState("productos");
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [proveedores, setProveedores] = useState([]);
@@ -264,6 +273,7 @@ export default function InventarioProductos({ onVolver, permisos }) {
   // ---------- Atajos de teclado ----------
   useEffect(() => {
     const manejador = (e) => {
+      if (tab !== "productos") return;
       if (modal) return;
       if (e.key === "F3" && puede("crear_producto")) { e.preventDefault(); abrirCrear(); }
       else if (e.key === "F4" && puede("editar_producto")) { e.preventDefault(); abrirEditar(); }
@@ -276,10 +286,25 @@ export default function InventarioProductos({ onVolver, permisos }) {
     window.addEventListener("keydown", manejador);
     return () => window.removeEventListener("keydown", manejador);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modal, seleccionado, productos]);
+  }, [modal, seleccionado, productos, tab]);
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+      {/* Pestañas del módulo */}
+      <div className="bg-white border-b border-slate-100 flex items-center px-2 shrink-0">
+        {TABS.filter((t) => !t.permiso || puede(t.permiso)).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2.5 text-xs font-medium border-b-2 ${tab === t.id ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
+          >
+            {t.etiqueta}
+          </button>
+        ))}
+      </div>
+
+      {tab === "productos" && (
+      <div className="flex-1 min-h-0 w-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       {/* Barra de herramientas */}
       <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("crear_producto") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={abrirCrear} />}
@@ -577,6 +602,11 @@ export default function InventarioProductos({ onVolver, permisos }) {
           </div>
         </div>
       )}
+      </div>
+      )}
+
+      {tab === "compras" && <RecepcionCompras onVolver={onVolver} permisos={permisos} usuario={usuario} />}
+      {tab === "migracion" && <MigracionDatos onVolver={onVolver} permisos={permisos} usuario={usuario} />}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React from "react";
-import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft, Truck, FileSpreadsheet } from "lucide-react";
+import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft } from "lucide-react";
 import AsistenteIA from "./AsistenteIA";
 import SelectorSucursal from "./SelectorSucursal.jsx";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,6 @@ const MODULOS = [
   { id: "corte",      nombre: "Corte de Caja",          icono: Landmark,     disponible: true, modulo: "corte",     permiso: "realizar_corte_caja" },
   { id: "inventario", nombre: "Inventario y Productos",  icono: Boxes,        disponible: true, modulo: "inventario" },
   { id: "traspasos",  nombre: "Traspasos entre Sucursales", icono: ArrowRightLeft, disponible: true, modulo: "inventario", permiso: "realizar_traspasos" },
-  { id: "compras",    nombre: "Recepción de Compras",   icono: Truck,          disponible: true, modulo: "inventario", permiso: "recibir_compra" },
-  { id: "migracion",  nombre: "Migración de Datos",     icono: FileSpreadsheet, disponible: true, modulo: "inventario", permiso: "migrar_datos" },
   { id: "roles",      nombre: "Roles y Personal",        icono: ShieldCheck,  disponible: true, modulo: "admin" },
   { id: "crm",        nombre: "CRM",                     icono: Users,        disponible: true, modulo: "crm" },
   { id: "ml",         nombre: "MercadoLibre",             icono: Store,        disponible: true, modulo: "ml" },
