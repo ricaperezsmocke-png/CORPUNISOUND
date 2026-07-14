@@ -104,11 +104,25 @@ function parsearExcel(archivoBase64, tipo) {
 
   const columnas_no_reconocidas = encabezados.filter((e) => !reconocidas.has(e));
 
+  // XLSX.sheet_to_json regresa una celda que "parece número" como Number de
+  // JS, no como string (ej. una Clave "12345" sin formato de texto en la
+  // hoja). El matching de más abajo (buscarArticuloExistente, etc.) usa
+  // === contra sku/clave/rfc guardados como string, y crearProducto hace
+  // .trim() sobre datos.clave — ambos truenan/fallan en silencio si esto
+  // sigue siendo number. Se normaliza aquí, una sola vez, para que TODO lo
+  // que consuma una fila (validación, matching, aplicación) siempre reciba
+  // string. Ojo: solo se stringifica si hay un valor real — String(null) o
+  // String(undefined) producirían el string literal "null"/"undefined".
+  const CAMPOS_CLAVE = ["clave", "clave_alterna", "rfc"];
   const filas = filasCrudas.map((filaCruda, i) => {
     const fila = { numero_fila: i + 2 };
     for (const campo of Object.keys(tabla)) {
       const encabezado = mapa[campo];
-      fila[campo] = encabezado ? filaCruda[encabezado] : undefined;
+      let valor = encabezado ? filaCruda[encabezado] : undefined;
+      if (CAMPOS_CLAVE.includes(campo) && valor !== undefined && valor !== null && valor !== "") {
+        valor = String(valor).trim();
+      }
+      fila[campo] = valor;
     }
     return fila;
   });

@@ -87,6 +87,35 @@ test("parsearExcel truena si el tipo es desconocido", () => {
   assert.throws(() => parsearExcel(base64, "insumos"), /Tipo de importación desconocido/);
 });
 
+test("parsearExcel normaliza una Clave numerica (celda de Excel sin formato de texto) a string", () => {
+  // XLSX.sheet_to_json regresa las celdas que parecen numero como Number de
+  // JS, no como string. Si un SICAR real trae la Clave como "12345" sin
+  // formato de texto, esto debe salir como "12345" (string), no 12345 (number).
+  const base64 = construirExcelBase64([
+    { "Clave": 12345, "Descripción": "Arroz 1kg" },
+  ]);
+  const { filas } = parsearExcel(base64, "articulos");
+  assert.strictEqual(filas[0].clave, "12345");
+  assert.strictEqual(typeof filas[0].clave, "string");
+});
+
+test("parsearExcel normaliza un RFC numerico a string", () => {
+  const base64 = construirExcelBase64([
+    { "RFC": 800101123, "Nombre": "Proveedor con RFC numerico" },
+  ]);
+  const { filas } = parsearExcel(base64, "proveedores");
+  assert.strictEqual(filas[0].rfc, "800101123");
+  assert.strictEqual(typeof filas[0].rfc, "string");
+});
+
+test("parsearExcel no convierte clave/rfc ausentes en el string literal 'undefined'", () => {
+  const base64 = construirExcelBase64([
+    { "Clave": "AB-001", "Descripción": "Arroz 1kg" },
+  ]);
+  const { filas } = parsearExcel(base64, "articulos");
+  assert.strictEqual(filas[0].clave_alterna, undefined);
+});
+
 const { construirDBPrueba } = require("./testHelpers");
 
 test("previsualizarImportacion marca actualizacion si la clave del articulo ya existe", () => {
@@ -133,6 +162,17 @@ test("previsualizarImportacion de articulos hace match por clave_alterna si no c
   const producto = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
   producto.clave_alterna = "COD-BARRAS-123";
   const filas = [{ numero_fila: 2, clave: "COD-BARRAS-123", descripcion: "Arroz 1kg" }];
+  const { filas: resultado } = previsualizarImportacion(DB, "articulos", filas);
+  assert.strictEqual(resultado[0].accion, "actualizacion");
+  assert.strictEqual(resultado[0].id_existente, producto.id);
+});
+
+test("previsualizarImportacion de articulos: una Clave numerica en el Excel si matchea contra un sku string ya existente (fix celdas numericas)", () => {
+  const DB = construirDBPrueba();
+  const producto = DB["catalogo-productos"].productos.find((p) => p.sku === "AB-001");
+  producto.sku = "12345"; // sku string, como los guarda CORPUNISOUND
+  const base64 = construirExcelBase64([{ "Clave": 12345, "Descripción": "Arroz 1kg editado" }]);
+  const { filas } = parsearExcel(base64, "articulos");
   const { filas: resultado } = previsualizarImportacion(DB, "articulos", filas);
   assert.strictEqual(resultado[0].accion, "actualizacion");
   assert.strictEqual(resultado[0].id_existente, producto.id);
