@@ -97,15 +97,29 @@ function parsearReporteVentasSicar(csvTexto) {
   };
 }
 
-function buscarProductoPorClave(DB, clave) {
-  return DB["catalogo-productos"].productos.find((p) => p.sku === clave || p.clave_alterna === clave) || null;
+/**
+ * Construye un índice clave -> producto (por sku y por clave_alterna) para
+ * evitar un `.find()` de recorrido lineal sobre todo el catálogo por cada
+ * agregado. Se arma UNA vez por llamada (no por agregado) — con catálogos
+ * reales de cientos/miles de productos y decenas de miles de agregados, la
+ * búsqueda lineal repetida es el cuello de botella real (ver hallazgo de
+ * revisión de rendimiento).
+ */
+function construirIndiceProductosPorClave(DB) {
+  const indice = new Map();
+  for (const p of DB["catalogo-productos"].productos) {
+    if (p.sku) indice.set(p.sku, p);
+    if (p.clave_alterna) indice.set(p.clave_alterna, p);
+  }
+  return indice;
 }
 
 function previsualizarHistorialVentas(DB, agregados) {
+  const indice = construirIndiceProductosPorClave(DB);
   const clavesReconocidas = new Set();
   const clavesIgnoradas = new Set();
   for (const a of agregados) {
-    const producto = buscarProductoPorClave(DB, a.clave);
+    const producto = indice.get(a.clave) || null;
     (producto ? clavesReconocidas : clavesIgnoradas).add(a.clave);
   }
   return {
@@ -117,25 +131,35 @@ function previsualizarHistorialVentas(DB, agregados) {
 
 function aplicarHistorialVentas(DB, agregados, sucursal_id) {
   if (!Array.isArray(DB.pos.historial_ventas_mensual)) DB.pos.historial_ventas_mensual = [];
+  const indiceProductos = construirIndiceProductosPorClave(DB);
+
+  // Índice de renglones existentes por (producto_id, sucursal_id, periodo)
+  // para que "encontrar el renglón a reemplazar" sea O(1) en vez de una
+  // búsqueda lineal sobre un arreglo que crece con cada renglón aplicado
+  // (lo que volvía a este paso O(A²) sobre todo el import). Se actualiza
+  // al vuelo cuando se agrega un renglón nuevo, para que un agregado
+  // posterior en la MISMA llamada que apunte a la misma clave lo encuentre.
+  const indiceExistentes = new Map();
+  for (const h of DB.pos.historial_ventas_mensual) {
+    indiceExistentes.set(`${h.producto_id}|${h.sucursal_id}|${h.periodo}`, h);
+  }
+
   const productosActualizados = new Set();
   let renglonesAplicados = 0;
 
   for (const a of agregados) {
-    const producto = buscarProductoPorClave(DB, a.clave);
+    const producto = indiceProductos.get(a.clave) || null;
     if (!producto) continue;
 
-    const existente = DB.pos.historial_ventas_mensual.find(
-      (h) => h.producto_id === producto.id && h.sucursal_id === Number(sucursal_id) && h.periodo === a.periodo
-    );
+    const sucursalIdNum = Number(sucursal_id);
+    const llave = `${producto.id}|${sucursalIdNum}|${a.periodo}`;
+    const existente = indiceExistentes.get(llave);
     if (existente) {
       existente.cantidad = a.cantidad;
     } else {
-      DB.pos.historial_ventas_mensual.push({
-        producto_id: producto.id,
-        sucursal_id: Number(sucursal_id),
-        periodo: a.periodo,
-        cantidad: a.cantidad,
-      });
+      const nuevo = { producto_id: producto.id, sucursal_id: sucursalIdNum, periodo: a.periodo, cantidad: a.cantidad };
+      DB.pos.historial_ventas_mensual.push(nuevo);
+      indiceExistentes.set(llave, nuevo);
     }
     productosActualizados.add(producto.id);
     renglonesAplicados++;
