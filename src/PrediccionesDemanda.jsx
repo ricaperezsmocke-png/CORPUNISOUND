@@ -30,6 +30,12 @@ function fechaMinima() {
   return d.toISOString().slice(0, 10);
 }
 
+function fechaMaxima() {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 24);
+  return d.toISOString().slice(0, 10);
+}
+
 // Meses entre hoy y la fecha elegida, con tope de 24 (más allá de eso una
 // regresión lineal simple pierde sentido estadístico - ver spec, sección
 // "Riesgo abierto").
@@ -172,7 +178,8 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
 
           <div>
             <label className="text-xs text-slate-500 block mb-1">Predecir hasta</label>
-            <input type="date" className={inputCls} min={fechaMinima()} value={fechaLimite} onChange={(e) => setFechaLimite(e.target.value)} />
+            <input type="date" className={inputCls} min={fechaMinima()} max={fechaMaxima()} value={fechaLimite} onChange={(e) => setFechaLimite(e.target.value)} />
+            <p className="text-[11px] text-slate-500 mt-1">Máximo 24 meses hacia adelante.</p>
           </div>
 
           <button onClick={calcular} disabled={cargando} className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white py-2 rounded font-semibold flex items-center justify-center gap-2">
