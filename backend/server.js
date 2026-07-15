@@ -342,7 +342,7 @@ app.use((req, res, next) => {
 
 app.get("/api/salud", (req, res) => res.json({ ok: true, modulos: listarModulosYTablas() }));
 
-app.get("/api/predicciones", requiereLogin, (req, res) => {
+app.get("/api/predicciones", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { producto_id, categoria_id, meses_adelante } = req.query;
   // Para el amarrado, se predice solo sobre las ventas de su sucursal.
