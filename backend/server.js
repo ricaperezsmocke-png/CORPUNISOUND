@@ -18,6 +18,7 @@ const express = require("express");
 const cors = require("cors");
 const Anthropic = require("@anthropic-ai/sdk");
 const { predecirDemanda } = require("./predicciones");
+const { parsearReporteVentasSicar, previsualizarHistorialVentas, aplicarHistorialVentas } = require("./historialVentas");
 const {
   listarProductos, crearProducto, actualizarProducto, eliminarProducto,
   clonarProducto, ajustarExistencia, listarCategorias, crearCategoria,
@@ -70,7 +71,10 @@ app.use(cors({
 // Límite subido de 100kb (default) a 15mb: el catálogo completo de un
 // respaldo/importación viaja como Excel en base64 dentro del body JSON,
 // igual filosofía que ya usa el importador de factura XML CFDI.
-app.use(express.json({ limit: "15mb" }));
+// Límite subido a 50mb: el reporte de ventas histórico de una sucursal
+// (años de tickets) puede pesar varios MB en crudo, más al viajar en
+// base64 dentro del body JSON — misma filosofía que Migración de Datos.
+app.use(express.json({ limit: "50mb" }));
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
 
@@ -345,16 +349,48 @@ app.get("/api/salud", (req, res) => res.json({ ok: true, modulos: listarModulosY
 app.get("/api/predicciones", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { producto_id, categoria_id, meses_adelante } = req.query;
-  // Para el amarrado, se predice solo sobre las ventas de su sucursal.
+  // Para el amarrado, se predice solo sobre las ventas (y el historial
+  // importado) de su sucursal.
   const DBScope = alcance.verTodas
     ? DB
-    : { ...DB, pos: { ...DB.pos, ventas: DB.pos.ventas.filter((v) => Number(v.sucursal_id) === alcance.sucursalId) } };
+    : {
+        ...DB,
+        pos: {
+          ...DB.pos,
+          ventas: DB.pos.ventas.filter((v) => Number(v.sucursal_id) === alcance.sucursalId),
+          historial_ventas_mensual: (DB.pos.historial_ventas_mensual || []).filter((h) => Number(h.sucursal_id) === alcance.sucursalId),
+        },
+      };
   const resultado = predecirDemanda(DBScope, {
     producto_id: producto_id ? Number(producto_id) : undefined,
     categoria_id: categoria_id ? Number(categoria_id) : undefined,
     meses_adelante: meses_adelante ? Number(meses_adelante) : undefined
   });
   res.json(resultado);
+});
+
+app.post("/api/predicciones/historial/previsualizar", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
+  try {
+    const { archivo_base64 } = req.body;
+    const csvTexto = Buffer.from(archivo_base64, "base64").toString("utf8");
+    const { agregados, resumen } = parsearReporteVentasSicar(csvTexto);
+    const previsualizacion = previsualizarHistorialVentas(DB, agregados);
+    res.json({ ...resumen, ...previsualizacion, agregados });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/predicciones/historial/aplicar", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
+  try {
+    const { agregados } = req.body;
+    if (!Array.isArray(agregados) || agregados.length === 0) {
+      return res.status(400).json({ error: "No hay datos previsualizados para aplicar" });
+    }
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? Number(req.body.sucursal_id) : alcance.sucursalId;
+    if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
+    const resultado = aplicarHistorialVentas(DB, agregados, sucursal_id);
+    res.json(resultado);
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ---------- Catálogo de productos / inventario (CRUD real) ----------
