@@ -385,8 +385,16 @@ app.post("/api/predicciones/historial/aplicar", requiereLogin, requierePermiso("
     if (!Array.isArray(agregados) || agregados.length === 0) {
       return res.status(400).json({ error: "No hay datos previsualizados para aplicar" });
     }
-    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? Number(req.body.sucursal_id) : alcance.sucursalId;
+    // OJO: no usar alcanceSucursal()/req.query aquí. apiFetch agrega
+    // automáticamente ?sucursal_id=<seleccion del encabezado> a TODA
+    // request, así que un admin con "ver_todas_las_sucursales" pero con
+    // una sucursal específica elegida arriba en el encabezado global haría
+    // que alcance.verTodas diera false y pisara la sucursal que el usuario
+    // eligió explícitamente en ESTE formulario (req.body.sucursal_id).
+    // Aquí se resuelve directo con el permiso real del usuario.
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const puedeVerTodas = Array.isArray(permisos) && permisos.includes("ver_todas_las_sucursales");
+    const sucursal_id = puedeVerTodas ? Number(req.body.sucursal_id) : req.usuarioToken.sucursal_id;
     if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     const resultado = aplicarHistorialVentas(DB, agregados, sucursal_id);
     res.json(resultado);
