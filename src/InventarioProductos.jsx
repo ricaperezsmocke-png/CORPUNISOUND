@@ -7,6 +7,7 @@ import {
 import { apiFetch } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
 import MigracionDatos from "./MigracionDatos.jsx";
+import PrediccionesDemanda from "./PrediccionesDemanda.jsx";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = {
@@ -51,6 +52,7 @@ const TABS = [
   { id: "productos", etiqueta: "Productos" },
   { id: "compras", etiqueta: "Recepción de Compras", permiso: "recibir_compra" },
   { id: "migracion", etiqueta: "Migración de Datos", permiso: "migrar_datos" },
+  { id: "predicciones", etiqueta: "Predicciones", permiso: "ver_predicciones" },
 ];
 
 export default function InventarioProductos({ onVolver, permisos, usuario }) {
@@ -607,6 +609,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
       {tab === "compras" && <RecepcionCompras onVolver={onVolver} permisos={permisos} usuario={usuario} />}
       {tab === "migracion" && <MigracionDatos onVolver={onVolver} permisos={permisos} usuario={usuario} />}
+      {tab === "predicciones" && <PrediccionesDemanda onVolver={onVolver} permisos={permisos} usuario={usuario} />}
     </div>
   );
 }
