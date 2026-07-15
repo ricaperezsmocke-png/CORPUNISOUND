@@ -134,7 +134,13 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
     (resultado.prediccion || []).forEach((p) => {
       filas[p.periodo] = { ...(filas[p.periodo] || { periodo: p.periodo }), prediccion: p.cantidad_estimada };
     });
-    return Object.values(filas).sort((a, b) => a.periodo.localeCompare(b.periodo));
+    const filasOrdenadas = Object.values(filas).sort((a, b) => a.periodo.localeCompare(b.periodo));
+    // El histórico y la predicción son periodos consecutivos, nunca el mismo
+    // mes — sin esto, las dos líneas quedarían con un salto visual entre
+    // ellas en vez de verse conectadas.
+    const ultimoHistorico = [...filasOrdenadas].reverse().find((f) => f.historico !== undefined);
+    if (ultimoHistorico) ultimoHistorico.prediccion = ultimoHistorico.historico;
+    return filasOrdenadas;
   }, [resultado]);
 
   return (
