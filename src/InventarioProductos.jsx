@@ -7,7 +7,9 @@ import {
 import { apiFetch } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
 import MigracionDatos from "./MigracionDatos.jsx";
-import PrediccionesDemanda from "./PrediccionesDemanda.jsx";
+// Carga diferida: recharts (usado solo aqui) es una dependencia pesada -
+// que no se descargue para todo el mundo, solo para quien abre esta pestaña.
+const PrediccionesDemanda = React.lazy(() => import("./PrediccionesDemanda.jsx"));
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = {
@@ -609,7 +611,11 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
       {tab === "compras" && <RecepcionCompras onVolver={onVolver} permisos={permisos} usuario={usuario} />}
       {tab === "migracion" && <MigracionDatos onVolver={onVolver} permisos={permisos} usuario={usuario} />}
-      {tab === "predicciones" && <PrediccionesDemanda onVolver={onVolver} permisos={permisos} usuario={usuario} />}
+      {tab === "predicciones" && (
+        <React.Suspense fallback={<p className="text-center text-slate-400 py-16">Cargando...</p>}>
+          <PrediccionesDemanda onVolver={onVolver} permisos={permisos} usuario={usuario} />
+        </React.Suspense>
+      )}
     </div>
   );
 }
