@@ -13,6 +13,7 @@ function obtenerVentasMensuales(DB, { producto_id, categoria_id } = {}) {
   const ventas = DB.pos.ventas;
   const detalle = DB.pos.venta_detalle;
   const productos = DB["catalogo-productos"].productos;
+  const historial = DB.pos.historial_ventas_mensual || [];
 
   const fechaPorVenta = {};
   ventas.forEach((v) => { fechaPorVenta[v.id] = v.fecha; });
@@ -29,6 +30,17 @@ function obtenerVentasMensuales(DB, { producto_id, categoria_id } = {}) {
     if (categoria_id && prod.categoria_id !== Number(categoria_id)) return;
     const mes = fecha.slice(0, 7); // "YYYY-MM"
     porMes[mes] = (porMes[mes] || 0) + Number(d.cantidad);
+  });
+
+  // Historial importado de SICAR (backend/historialVentas.js) - ya viene
+  // agregado por mes, se suma directamente sin pasar por venta_detalle.
+  // Nunca toca DB.pos.ventas/venta_detalle - ver spec 2026-07-15.
+  historial.forEach((h) => {
+    const prod = infoPorProducto[h.producto_id];
+    if (!prod) return;
+    if (producto_id && prod.id !== Number(producto_id)) return;
+    if (categoria_id && prod.categoria_id !== Number(categoria_id)) return;
+    porMes[h.periodo] = (porMes[h.periodo] || 0) + Number(h.cantidad);
   });
 
   return porMes;
