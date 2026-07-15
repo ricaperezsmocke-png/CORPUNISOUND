@@ -69,12 +69,21 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
   const [filtroCategoria, setFiltroCategoria] = useState("");
   const [paginaBusqueda, setPaginaBusqueda] = useState(1);
 
+  const [mostrarImportar, setMostrarImportar] = useState(false);
+  const [sucursales, setSucursales] = useState([]);
+  const [sucursalImportar, setSucursalImportar] = useState("");
+  const [previsualizacionHistorial, setPrevisualizacionHistorial] = useState(null);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const inputHistorialRef = React.useRef(null);
+
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 3000); };
 
   useEffect(() => {
     apiFetch("/productos").then((r) => r.json()).then(setProductos).catch(() => {});
     apiFetch("/categorias").then((r) => r.json()).then(setCategorias).catch(() => {});
   }, []);
+
+  useEffect(() => { apiFetch("/sucursales").then((r) => r.json()).then(setSucursales).catch(() => {}); }, []);
 
   useEffect(() => { setResultado(null); }, [modo, productoId, categoriaId]);
 
@@ -122,6 +131,53 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
       mostrarAviso("❌ " + e.message);
     } finally {
       setCargando(false);
+    }
+  };
+
+  const leerArchivoComoBase64 = (archivo) =>
+    new Promise((resolve, reject) => {
+      const lector = new FileReader();
+      lector.onload = () => resolve(String(lector.result).split(",")[1]);
+      lector.onerror = reject;
+      lector.readAsDataURL(archivo);
+    });
+
+  const subirHistorial = async (archivo) => {
+    if (usuario?.ver_todas && !sucursalImportar) {
+      return mostrarAviso("Selecciona la sucursal de origen del archivo primero");
+    }
+    setCargandoHistorial(true);
+    setPrevisualizacionHistorial(null);
+    try {
+      const archivo_base64 = await leerArchivoComoBase64(archivo);
+      const r = await apiFetch("/predicciones/historial/previsualizar", { method: "POST", body: JSON.stringify({ archivo_base64 }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      setPrevisualizacionHistorial(data);
+    } catch (e) {
+      mostrarAviso("❌ " + e.message);
+    } finally {
+      setCargandoHistorial(false);
+      if (inputHistorialRef.current) inputHistorialRef.current.value = "";
+    }
+  };
+
+  const aplicarHistorial = async () => {
+    setCargandoHistorial(true);
+    try {
+      const r = await apiFetch("/predicciones/historial/aplicar", {
+        method: "POST",
+        body: JSON.stringify({ agregados: previsualizacionHistorial.agregados, sucursal_id: sucursalImportar || undefined }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso(`Historial aplicado: ${data.renglones_aplicados} renglones, ${data.producto_id_actualizados} productos actualizados`);
+      setPrevisualizacionHistorial(null);
+      setMostrarImportar(false);
+    } catch (e) {
+      mostrarAviso("❌ " + e.message);
+    } finally {
+      setCargandoHistorial(false);
     }
   };
 
@@ -252,6 +308,44 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
             </table>
           </div>
         )}
+
+        <div className="bg-white border border-slate-200 rounded-lg p-4 max-w-xl">
+          <button onClick={() => setMostrarImportar((v) => !v)} className="text-sm font-semibold text-blue-700 hover:text-blue-800">
+            {mostrarImportar ? "▾" : "▸"} Importar historial de ventas (SICAR)
+          </button>
+          {mostrarImportar && (
+            <div className="mt-3 flex flex-col gap-3">
+              <p className="text-xs text-slate-500">
+                Sube el reporte de ventas de SICAR (CSV, "Reporte General de Ventas") de una sucursal para mejorar la confianza de las predicciones con historial real.
+              </p>
+              {usuario?.ver_todas && (
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Sucursal de origen del archivo</label>
+                  <select className={inputCls} value={sucursalImportar} onChange={(e) => setSucursalImportar(e.target.value)}>
+                    <option value="">Selecciona...</option>
+                    {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  </select>
+                </div>
+              )}
+              <input ref={inputHistorialRef} type="file" accept=".csv" disabled={cargandoHistorial}
+                onChange={(e) => e.target.files[0] && subirHistorial(e.target.files[0])} />
+
+              {cargandoHistorial && <p className="text-slate-400 text-center py-2">Procesando...</p>}
+
+              {previsualizacionHistorial && (
+                <div className="bg-slate-50 border border-slate-200 rounded p-3 flex flex-col gap-2 text-xs">
+                  <p><b>{previsualizacionHistorial.tickets_leidos}</b> tickets leídos, <b>{previsualizacionHistorial.renglones_leidos}</b> renglones de producto.</p>
+                  <p>Periodo: {previsualizacionHistorial.fecha_min} a {previsualizacionHistorial.fecha_max}</p>
+                  <p className="text-emerald-700"><b>{previsualizacionHistorial.claves_reconocidas}</b> claves de producto reconocidas</p>
+                  <p className="text-amber-700"><b>{previsualizacionHistorial.claves_ignoradas}</b> claves no reconocidas (se ignoran)</p>
+                  <button onClick={aplicarHistorial} disabled={cargandoHistorial} className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white py-2 rounded font-semibold mt-1">
+                    Aplicar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {aviso && (
