@@ -97,4 +97,51 @@ function parsearReporteVentasSicar(csvTexto) {
   };
 }
 
-module.exports = { parsearReporteVentasSicar };
+function buscarProductoPorClave(DB, clave) {
+  return DB["catalogo-productos"].productos.find((p) => p.sku === clave || p.clave_alterna === clave) || null;
+}
+
+function previsualizarHistorialVentas(DB, agregados) {
+  const clavesReconocidas = new Set();
+  const clavesIgnoradas = new Set();
+  for (const a of agregados) {
+    const producto = buscarProductoPorClave(DB, a.clave);
+    (producto ? clavesReconocidas : clavesIgnoradas).add(a.clave);
+  }
+  return {
+    claves_reconocidas: clavesReconocidas.size,
+    claves_ignoradas: clavesIgnoradas.size,
+    total_renglones_agregados: agregados.length,
+  };
+}
+
+function aplicarHistorialVentas(DB, agregados, sucursal_id) {
+  if (!Array.isArray(DB.pos.historial_ventas_mensual)) DB.pos.historial_ventas_mensual = [];
+  const productosActualizados = new Set();
+  let renglonesAplicados = 0;
+
+  for (const a of agregados) {
+    const producto = buscarProductoPorClave(DB, a.clave);
+    if (!producto) continue;
+
+    const existente = DB.pos.historial_ventas_mensual.find(
+      (h) => h.producto_id === producto.id && h.sucursal_id === Number(sucursal_id) && h.periodo === a.periodo
+    );
+    if (existente) {
+      existente.cantidad = a.cantidad;
+    } else {
+      DB.pos.historial_ventas_mensual.push({
+        producto_id: producto.id,
+        sucursal_id: Number(sucursal_id),
+        periodo: a.periodo,
+        cantidad: a.cantidad,
+      });
+    }
+    productosActualizados.add(producto.id);
+    renglonesAplicados++;
+  }
+
+  return { producto_id_actualizados: productosActualizados.size, renglones_aplicados: renglonesAplicados };
+}
+
+module.exports = { parsearReporteVentasSicar, previsualizarHistorialVentas, aplicarHistorialVentas };

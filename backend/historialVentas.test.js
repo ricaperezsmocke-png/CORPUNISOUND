@@ -1,6 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const { parsearReporteVentasSicar } = require("./historialVentas");
+const { construirDBPrueba } = require("./testHelpers");
+const { previsualizarHistorialVentas, aplicarHistorialVentas } = require("./historialVentas");
 
 // Fragmento sintético que replica la estructura real confirmada del
 // "Reporte General de Ventas" de SICAR (5 líneas de encabezado/filtros,
@@ -102,4 +104,58 @@ test("parsearReporteVentasSicar ignora una linea de producto con cantidad no num
   const { agregados, resumen } = parsearReporteVentasSicar(csv);
   assert.strictEqual(agregados.length, 0);
   assert.strictEqual(resumen.tickets_leidos, 1);
+});
+
+test("previsualizarHistorialVentas cuenta claves reconocidas y no reconocidas", () => {
+  const DB = construirDBPrueba(); // AB-001, BE-001, LI-001 existen
+  const agregados = [
+    { clave: "AB-001", periodo: "2020-01", cantidad: 10 },
+    { clave: "NO-EXISTE-YA", periodo: "2020-01", cantidad: 5 },
+  ];
+  const resultado = previsualizarHistorialVentas(DB, agregados);
+  assert.strictEqual(resultado.claves_reconocidas, 1);
+  assert.strictEqual(resultado.claves_ignoradas, 1);
+  assert.strictEqual(resultado.total_renglones_agregados, 2);
+});
+
+test("aplicarHistorialVentas crea renglones nuevos en DB.pos.historial_ventas_mensual", () => {
+  const DB = construirDBPrueba();
+  const agregados = [{ clave: "AB-001", periodo: "2020-01", cantidad: 25 }];
+  const resultado = aplicarHistorialVentas(DB, agregados, 1);
+  assert.strictEqual(resultado.producto_id_actualizados, 1);
+  assert.strictEqual(resultado.renglones_aplicados, 1);
+  assert.strictEqual(DB.pos.historial_ventas_mensual.length, 1);
+  assert.deepStrictEqual(DB.pos.historial_ventas_mensual[0], { producto_id: 1, sucursal_id: 1, periodo: "2020-01", cantidad: 25 });
+});
+
+test("aplicarHistorialVentas ignora claves que no coinciden con ningun producto, sin tronar", () => {
+  const DB = construirDBPrueba();
+  const agregados = [{ clave: "NO-EXISTE-YA", periodo: "2020-01", cantidad: 5 }];
+  const resultado = aplicarHistorialVentas(DB, agregados, 1);
+  assert.strictEqual(resultado.renglones_aplicados, 0);
+  assert.strictEqual(DB.pos.historial_ventas_mensual.length, 0);
+});
+
+test("aplicarHistorialVentas reimportado reemplaza el valor, no lo suma encima", () => {
+  const DB = construirDBPrueba();
+  aplicarHistorialVentas(DB, [{ clave: "AB-001", periodo: "2020-01", cantidad: 25 }], 1);
+  aplicarHistorialVentas(DB, [{ clave: "AB-001", periodo: "2020-01", cantidad: 40 }], 1);
+  assert.strictEqual(DB.pos.historial_ventas_mensual.length, 1, "no debe crear un segundo renglon para la misma combinacion");
+  assert.strictEqual(DB.pos.historial_ventas_mensual[0].cantidad, 40);
+});
+
+test("aplicarHistorialVentas distingue la misma clave y mes en sucursales distintas", () => {
+  const DB = construirDBPrueba();
+  aplicarHistorialVentas(DB, [{ clave: "AB-001", periodo: "2020-01", cantidad: 25 }], 1);
+  aplicarHistorialVentas(DB, [{ clave: "AB-001", periodo: "2020-01", cantidad: 60 }], 2);
+  assert.strictEqual(DB.pos.historial_ventas_mensual.length, 2);
+});
+
+test("aplicarHistorialVentas nunca toca DB.pos.ventas ni DB.pos.venta_detalle", () => {
+  const DB = construirDBPrueba();
+  const ventasAntes = JSON.stringify(DB.pos.ventas);
+  const detalleAntes = JSON.stringify(DB.pos.venta_detalle);
+  aplicarHistorialVentas(DB, [{ clave: "AB-001", periodo: "2020-01", cantidad: 25 }], 1);
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), ventasAntes);
+  assert.strictEqual(JSON.stringify(DB.pos.venta_detalle), detalleAntes);
 });

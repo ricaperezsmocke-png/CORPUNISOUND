@@ -19,6 +19,7 @@ function construirDBPrueba() {
         { id: 2, venta_id: 2, producto_id: 2, cantidad: 40, precio_unitario: 16, descuento: 0, subtotal: 640 },
         { id: 3, venta_id: 3, producto_id: 3, cantidad: 25, precio_unitario: 32, descuento: 0, subtotal: 800 },
       ],
+      historial_ventas_mensual: [],
       vendedores: [
         { id: 1, nombre: "Ana López", sucursal_id: 1, meta_mensual: 50000 },
         { id: 3, nombre: "María R.", sucursal_id: 2, meta_mensual: 50000 },
