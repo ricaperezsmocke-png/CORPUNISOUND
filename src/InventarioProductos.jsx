@@ -120,6 +120,19 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     setModal("form");
   };
 
+  const precioTiersParaEditar = (p) => {
+    if (p.precios?.length === 4) return p.precios;
+    const costo = Number(p.costo) || 0;
+    const precioVenta = Number(p.precio_venta) || 0;
+    const utilidad = costo > 0 ? Math.round(((precioVenta - costo) / costo) * 10000) / 100 : 0;
+    return [
+      { utilidad, precioVenta },
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+    ];
+  };
+
   const abrirEditar = () => {
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     setForm({
@@ -129,7 +142,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       proveedor_id: seleccionado.proveedor_id || "",
       unidad_compra: seleccionado.unidad_compra, unidad_venta: seleccionado.unidad_venta, factor: seleccionado.factor,
       iva: seleccionado.iva, precio_compra: seleccionado.costo, neto: seleccionado.neto,
-      precios: seleccionado.precios?.length === 4 ? seleccionado.precios : FORM_VACIO.precios,
+      precios: precioTiersParaEditar(seleccionado),
       unidades_por_mayoreo: seleccionado.unidades_por_mayoreo || 0,
       existencia_inicial: seleccionado.existencia, existencia_minima: seleccionado.existencia_minima, existencia_maxima: seleccionado.existencia_maxima,
       imagen_url: seleccionado.imagen_url || "",
