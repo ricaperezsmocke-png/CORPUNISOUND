@@ -371,7 +371,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       setModal("vendedor");
       return mostrarAviso("Selecciona el vendedor antes de cerrar la venta");
     }
-    if (mostrarCampoEfectivo && Number(efectivoRecibido) < totalConCondicion) {
+    if (!esCotizacion && mostrarCampoEfectivo && Number(efectivoRecibido) < totalConCondicion) {
       return mostrarAviso("El efectivo recibido es menor al total");
     }
 
