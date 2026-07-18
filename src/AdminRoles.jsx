@@ -168,7 +168,7 @@ function IntentosBloqueados() {
   );
 }
 
-export default function AdminRoles({ onVolver, permisos }) {
+export default function AdminRoles({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [vistaAdmin, setVistaAdmin] = useState("roles"); // "roles" | "ubicaciones" | "bloqueados"
   const [roles, setRoles] = useState([]);
@@ -183,6 +183,8 @@ export default function AdminRoles({ onVolver, permisos }) {
   const [aviso, setAviso] = useState(null);
   const [modalPersonal, setModalPersonal] = useState(false);
   const [formPersonal, setFormPersonal] = useState({ nombre: "", usuario: "", password: "", rol_id: "" });
+  const [personaEditando, setPersonaEditando] = useState(null); // usuario seleccionado o null
+  const [formEditarPersonal, setFormEditarPersonal] = useState({ nombre: "", rol_id: "", password: "" });
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2200); };
 
@@ -319,6 +321,49 @@ export default function AdminRoles({ onVolver, permisos }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
+  const abrirEditarPersonal = (u) => {
+    setPersonaEditando(u);
+    setFormEditarPersonal({ nombre: u.nombre, rol_id: u.rol_id, password: "" });
+  };
+
+  const guardarEdicionPersonal = async () => {
+    if (!formEditarPersonal.nombre.trim()) return mostrarAviso("El nombre no puede quedar vacío");
+    if (!formEditarPersonal.rol_id) return mostrarAviso("Selecciona un rol");
+    try {
+      const payload = { nombre: formEditarPersonal.nombre, rol_id: formEditarPersonal.rol_id };
+      if (formEditarPersonal.password) payload.password = formEditarPersonal.password;
+      const r = await apiFetch(`/usuarios/${personaEditando.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Personal actualizado");
+      setPersonaEditando(null);
+      await cargarTodo();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const alternarActivoPersonal = async () => {
+    try {
+      const r = await apiFetch(`/usuarios/${personaEditando.id}`, { method: "PUT", body: JSON.stringify({ activo: !personaEditando.activo }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso(personaEditando.activo ? "Personal desactivado" : "Personal activado");
+      setPersonaEditando(null);
+      await cargarTodo();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const eliminarPersonal = async () => {
+    if (!confirm(`¿Eliminar a "${personaEditando.nombre}" del sistema? Esta acción no se puede deshacer.`)) return;
+    try {
+      const r = await apiFetch(`/usuarios/${personaEditando.id}`, { method: "DELETE" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Personal eliminado");
+      setPersonaEditando(null);
+      await cargarTodo();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       <div className="bg-white border-b border-slate-100 flex items-center overflow-x-auto shrink-0">
@@ -399,7 +444,7 @@ export default function AdminRoles({ onVolver, permisos }) {
                     <tr><td colSpan={5} className="text-center text-slate-400 py-10">Sin personal registrado</td></tr>
                   )}
                   {usuarios.map((u) => (
-                    <tr key={u.id} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
+                    <tr key={u.id} onClick={() => abrirEditarPersonal(u)} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
                       <td className="py-2 px-3">{u.nombre}</td>
                       <td className="py-2 px-3 text-slate-500">{u.usuario}</td>
                       <td className="py-2 px-3">{nombreRol(u.rol_id)}</td>
@@ -544,6 +589,49 @@ export default function AdminRoles({ onVolver, permisos }) {
               <button onClick={guardarPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
                 <Check size={15} /> Guardar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {personaEditando && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-sm text-slate-700">Editar personal</h3>
+              <button onClick={() => setPersonaEditando(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
+            </div>
+            <div className="p-4 flex flex-col gap-3">
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
+                <input className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.nombre} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Rol</label>
+                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
+                  {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Nueva contraseña (opcional — déjalo en blanco para no cambiarla)</label>
+                <input type="password" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.password} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
+              </div>
+              <button onClick={guardarEdicionPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
+                <Check size={15} /> Guardar cambios
+              </button>
+              {usuario?.id !== personaEditando.id && (
+                <div className="flex gap-2">
+                  <button onClick={alternarActivoPersonal} className="flex-1 border border-slate-300 hover:bg-slate-50 text-slate-700 py-2 rounded-lg font-semibold text-sm transition-colors">
+                    {personaEditando.activo ? "Desactivar" : "Activar"}
+                  </button>
+                  <button onClick={eliminarPersonal} className="flex-1 border border-red-300 hover:bg-red-50 text-red-600 py-2 rounded-lg font-semibold text-sm transition-colors">
+                    Eliminar
+                  </button>
+                </div>
+              )}
+              {usuario?.id === personaEditando.id && (
+                <p className="text-[11px] text-slate-400 text-center">No puedes desactivarte o eliminarte a ti mismo mientras tienes la sesión abierta.</p>
+              )}
             </div>
           </div>
         </div>
