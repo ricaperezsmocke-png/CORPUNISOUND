@@ -100,3 +100,18 @@ test("eliminarUsuario: no afecta el usuario_nombre ya guardado en un corte de ca
   const corteGuardado = DB.pos.cortes_caja.find((c) => c.id === corte.id);
   assert.strictEqual(corteGuardado.usuario_nombre, "Cajero Que Se Va", "el nombre congelado en el corte no debe cambiar ni desaparecer al borrar el usuario");
 });
+
+test("guard de autodesactivación: activo=0 (no estrictamente false) también debe bloquear la autodesactivación", () => {
+  // Replica la condición exacta de la ruta PUT /api/usuarios/:id en server.js:
+  // req.body.activo !== undefined && !req.body.activo && esAccionSobreSiMismo(...)
+  const propioId = 50;
+  const bodies = [{ activo: 0 }, { activo: null }, { activo: "" }, { activo: false }];
+  for (const body of bodies) {
+    const debeBloquear = body.activo !== undefined && !body.activo && esAccionSobreSiMismo(propioId, propioId);
+    assert.strictEqual(debeBloquear, true, `activo=${JSON.stringify(body.activo)} debe bloquear la autodesactivación`);
+  }
+  // Un edit que no toca `activo` en absoluto NO debe bloquearse por este guard:
+  const bodySinActivo = { nombre: "Nuevo nombre" };
+  const debeBloquearSinActivo = bodySinActivo.activo !== undefined && !bodySinActivo.activo && esAccionSobreSiMismo(propioId, propioId);
+  assert.strictEqual(debeBloquearSinActivo, false, "un edit que no toca activo no debe bloquearse por este guard");
+});

@@ -648,7 +648,7 @@ app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", re
 });
 app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), async (req, res) => {
   try {
-    if (req.body.activo === false && esAccionSobreSiMismo(req.params.id, req.usuarioToken.id)) {
+    if (req.body.activo !== undefined && !req.body.activo && esAccionSobreSiMismo(req.params.id, req.usuarioToken.id)) {
       throw new Error("No puedes desactivarte a ti mismo mientras tienes la sesión abierta");
     }
     res.json(await actualizarUsuario(DB, req.params.id, req.body));
