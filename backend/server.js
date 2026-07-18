@@ -45,7 +45,7 @@ const { reconciliarSucursalesCedis } = require("./sucursales");
 const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
 const { importarClavesSat } = require("./scripts/importarClavesSat");
 const { parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo } = require("./migracion");
-const { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion } = require("./usuarios");
+const { listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, esAccionSobreSiMismo, iniciarSesion } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const { buscarClavesSat } = require("./clavesSat");
 const { parsearFacturaXML } = require("./cfdi");
@@ -646,8 +646,13 @@ app.get("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", res
 app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await crearUsuario(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
-  try { res.json(actualizarUsuario(DB, req.params.id, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
+app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), async (req, res) => {
+  try {
+    if (req.body.activo === false && esAccionSobreSiMismo(req.params.id, req.usuarioToken.id)) {
+      throw new Error("No puedes desactivarte a ti mismo mientras tienes la sesión abierta");
+    }
+    res.json(await actualizarUsuario(DB, req.params.id, req.body));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ---------- Clientes ----------

@@ -34,17 +34,31 @@ async function crearUsuario(DB, datos) {
   return sinPassword;
 }
 
-function actualizarUsuario(DB, id, datos) {
+async function actualizarUsuario(DB, id, datos) {
   const idx = DB.admin.usuarios.findIndex((u) => u.id === Number(id));
   if (idx === -1) throw new Error("Usuario no encontrado");
+  if (datos.password && datos.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres");
+
   DB.admin.usuarios[idx] = {
     ...DB.admin.usuarios[idx],
     nombre: datos.nombre ?? DB.admin.usuarios[idx].nombre,
     rol_id: datos.rol_id !== undefined ? Number(datos.rol_id) : DB.admin.usuarios[idx].rol_id,
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };
+  if (datos.password) {
+    DB.admin.usuarios[idx].password_hash = await hashearPassword(datos.password);
+  }
   const { password_hash, ...sinPassword } = DB.admin.usuarios[idx];
   return sinPassword;
+}
+
+function esAccionSobreSiMismo(idObjetivo, idSolicitante) {
+  return Number(idObjetivo) === Number(idSolicitante);
+}
+
+function eliminarUsuario(DB, id, datos) {
+  // Implementado en Task 2
+  throw new Error("No implementado");
 }
 
 async function iniciarSesion(DB, usuario, password) {
@@ -55,4 +69,4 @@ async function iniciarSesion(DB, usuario, password) {
   return encontrado;
 }
 
-module.exports = { listarUsuarios, crearUsuario, actualizarUsuario, iniciarSesion };
+module.exports = { listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, esAccionSobreSiMismo, iniciarSesion };
