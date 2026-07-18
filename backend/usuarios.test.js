@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
 const { actualizarUsuario, esAccionSobreSiMismo } = require("./usuarios");
+const { crearCorte } = require("./cortes");
 
 function sembrarUsuarioDePrueba(DB, overrides = {}) {
   DB.admin.usuarios.push({
@@ -61,4 +62,41 @@ test("esAccionSobreSiMismo: true cuando el id objetivo es el mismo que el solici
 
 test("esAccionSobreSiMismo: false cuando son distintos", () => {
   assert.strictEqual(esAccionSobreSiMismo(50, 51), false);
+});
+
+test("eliminarUsuario: remueve al usuario correctamente", () => {
+  const DB = construirDBPrueba();
+  sembrarUsuarioDePrueba(DB);
+
+  const { eliminarUsuario } = require("./usuarios");
+  const resultado = eliminarUsuario(DB, 50);
+
+  assert.deepStrictEqual(resultado, { ok: true });
+  assert.strictEqual(DB.admin.usuarios.find((u) => u.id === 50), undefined, "el usuario ya no debe existir en la lista");
+});
+
+test("eliminarUsuario: lanza error si el id no existe", () => {
+  const DB = construirDBPrueba();
+  const { eliminarUsuario } = require("./usuarios");
+
+  assert.throws(() => eliminarUsuario(DB, 999), /Usuario no encontrado/);
+});
+
+test("eliminarUsuario: no afecta el usuario_nombre ya guardado en un corte de caja existente", () => {
+  const DB = construirDBPrueba();
+  sembrarUsuarioDePrueba(DB, { nombre: "Cajero Que Se Va" });
+
+  const corte = crearCorte(DB, {
+    sucursal_id: 1,
+    usuario_id: 50,
+    usuario_nombre: "Cajero Que Se Va",
+    contado: { efectivo: 100 },
+    retiro: {},
+  });
+
+  const { eliminarUsuario } = require("./usuarios");
+  eliminarUsuario(DB, 50);
+
+  const corteGuardado = DB.pos.cortes_caja.find((c) => c.id === corte.id);
+  assert.strictEqual(corteGuardado.usuario_nombre, "Cajero Que Se Va", "el nombre congelado en el corte no debe cambiar ni desaparecer al borrar el usuario");
 });

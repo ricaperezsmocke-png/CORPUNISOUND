@@ -655,6 +655,15 @@ app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles",
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+  try {
+    if (esAccionSobreSiMismo(req.params.id, req.usuarioToken.id)) {
+      throw new Error("No puedes eliminarte a ti mismo mientras tienes la sesión abierta");
+    }
+    res.json(eliminarUsuario(DB, req.params.id));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // ---------- Clientes ----------
 app.get("/api/clientes", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));

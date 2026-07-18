@@ -56,9 +56,11 @@ function esAccionSobreSiMismo(idObjetivo, idSolicitante) {
   return Number(idObjetivo) === Number(idSolicitante);
 }
 
-function eliminarUsuario(DB, id, datos) {
-  // Implementado en Task 2
-  throw new Error("No implementado");
+function eliminarUsuario(DB, id) {
+  const idx = DB.admin.usuarios.findIndex((u) => u.id === Number(id));
+  if (idx === -1) throw new Error("Usuario no encontrado");
+  DB.admin.usuarios.splice(idx, 1);
+  return { ok: true };
 }
 
 async function iniciarSesion(DB, usuario, password) {
