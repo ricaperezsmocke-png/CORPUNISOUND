@@ -202,7 +202,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
           </button>
         )}
         {puede("registrar_propina") && (
-          <button className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50">
+          <button onClick={() => mostrarAviso("Registro de propina — próximamente")} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50">
             <CircleDollarSign size={18} className="text-amber-500" />
             <span className="text-[10px] font-medium text-slate-500">Propina</span>
           </button>
