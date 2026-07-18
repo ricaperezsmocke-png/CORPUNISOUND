@@ -623,7 +623,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       )}
 
       {tab === "compras" && <RecepcionCompras onVolver={onVolver} permisos={permisos} usuario={usuario} />}
-      {tab === "migracion" && <MigracionDatos onVolver={onVolver} permisos={permisos} usuario={usuario} />}
+      {tab === "migracion" && <MigracionDatos onVolver={onVolver} permisos={permisos} usuario={usuario} onImportado={cargarTodo} />}
       {tab === "predicciones" && (
         <React.Suspense fallback={<p className="text-center text-slate-400 py-16">Cargando...</p>}>
           <PrediccionesDemanda onVolver={onVolver} permisos={permisos} usuario={usuario} />

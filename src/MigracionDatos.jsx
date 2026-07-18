@@ -18,7 +18,7 @@ function leerArchivoComoBase64(archivo) {
   });
 }
 
-export default function MigracionDatos({ onVolver, permisos, usuario }) {
+export default function MigracionDatos({ onVolver, permisos, usuario, onImportado }) {
   const [tab, setTab] = useState("articulos");
   const [sucursales, setSucursales] = useState([]);
   const [sucursalId, setSucursalId] = useState("");
@@ -73,6 +73,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario }) {
       setPrevisualizacion(null);
       setConfirmados({});
       mostrarAviso(`${data.nuevos} nuevos, ${data.actualizados} actualizados${data.errores.length ? `, ${data.errores.length} con error` : ""}`);
+      if (tab === "articulos" && onImportado) onImportado();
     } catch (e) { mostrarAviso("❌ " + e.message); }
     finally { setCargando(false); }
   };
