@@ -106,6 +106,16 @@ function actualizarProducto(DB, id, datos, sucursalId) {
   const actual = DB["catalogo-productos"].productos.find((p) => p.id === Number(id));
   if (!actual) throw new Error("Producto no encontrado");
 
+  const preciosEntrantes = Array.isArray(datos.precios) ? datos.precios : actual.precios;
+  const todosLosNivelesEnCero = Array.isArray(preciosEntrantes) && preciosEntrantes.length > 0
+    && preciosEntrantes.every((t) => !Number(t?.precioVenta));
+  if (todosLosNivelesEnCero && Number(actual.precio_venta) > 0) {
+    throw new Error(
+      "Los 4 niveles de precio llegaron en $0.00, pero el producto ya tenía precio de venta. " +
+      "Revisa los campos de precio antes de guardar (probablemente un error al editar, no una intención real de dejarlo en $0.00)."
+    );
+  }
+
   const actualizado = {
     ...actual,
     sku: datos.clave ?? actual.sku,

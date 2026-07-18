@@ -33,7 +33,7 @@ test("actualizarProducto: conserva el precio_venta si el frontend manda un preci
   assert.strictEqual(actualizado.nombre, "Producto legacy (renombrado)", "el cambio solicitado sí debe aplicarse");
 });
 
-test("actualizarProducto: sigue permitiendo bajar el precio a 0 si el usuario lo hace a propósito", () => {
+test("actualizarProducto: rechaza guardar si los 4 niveles llegan en $0.00 y el producto ya tenía precio (guardia contra el bug original)", () => {
   const DB = construirDBPrueba();
   DB["catalogo-productos"].productos.push({
     id: 100, sku: "LEGACY-02", nombre: "Producto legacy 2", categoria_id: null,
@@ -54,6 +54,61 @@ test("actualizarProducto: sigue permitiendo bajar el precio a 0 si el usuario lo
     ],
   };
 
-  const actualizado = actualizarProducto(DB, 100, datos, 1);
-  assert.strictEqual(actualizado.precio_venta, 0, "si el usuario manda 0 explícitamente, debe respetarse (no es el bug de este fix)");
+  assert.throws(
+    () => actualizarProducto(DB, 100, datos, 1),
+    /\$0\.00/,
+    "debe rechazar guardar un producto que ya tenía precio si los 4 niveles llegan en $0.00 — es la señal del bug original (campos vacíos), no una decisión real del usuario"
+  );
+  const sinCambios = DB["catalogo-productos"].productos.find((p) => p.id === 100);
+  assert.strictEqual(sinCambios.precio_venta, 25, "el producto no debe quedar modificado si se rechazó el guardado");
+});
+
+test("actualizarProducto: permite un precio bajo pero no cero (ej. producto en $0.01) sin bloquear", () => {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].productos.push({
+    id: 101, sku: "LEGACY-03", nombre: "Producto legacy 3", categoria_id: null,
+    departamento_id: null, proveedor_id: null, unidad_compra: "PZA", unidad_venta: "PZA",
+    factor: 1, iva: true, costo: 18, neto: true, unidad_medida: "pza",
+    unidades_por_mayoreo: 0, ubicacion: "-", clave_sat: "", localizacion: "",
+    promocion: false, imagen_url: "", activo: true, precio_venta: 25,
+  });
+
+  const datos = {
+    descripcion: "Producto legacy 3",
+    precio_compra: 18,
+    precios: [
+      { utilidad: 0.01, precioVenta: 0.01 },
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+    ],
+  };
+
+  const actualizado = actualizarProducto(DB, 101, datos, 1);
+  assert.strictEqual(actualizado.precio_venta, 0.01, "un precio bajo pero distinto de cero en al menos un nivel no debe bloquearse");
+});
+
+test("actualizarProducto: no bloquea un producto que ya estaba en $0.00 (no hay nada que proteger)", () => {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].productos.push({
+    id: 102, sku: "LEGACY-04", nombre: "Producto ya en cero", categoria_id: null,
+    departamento_id: null, proveedor_id: null, unidad_compra: "PZA", unidad_venta: "PZA",
+    factor: 1, iva: true, costo: 18, neto: true, unidad_medida: "pza",
+    unidades_por_mayoreo: 0, ubicacion: "-", clave_sat: "", localizacion: "",
+    promocion: false, imagen_url: "", activo: true, precio_venta: 0,
+  });
+
+  const datos = {
+    descripcion: "Producto ya en cero (renombrado)",
+    precio_compra: 18,
+    precios: [
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+      { utilidad: 0, precioVenta: 0 },
+    ],
+  };
+
+  const actualizado = actualizarProducto(DB, 102, datos, 1);
+  assert.strictEqual(actualizado.precio_venta, 0, "si el producto ya estaba en $0.00, no hay valor previo que proteger — debe permitirse guardar");
 });
