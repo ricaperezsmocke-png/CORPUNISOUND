@@ -55,6 +55,24 @@ test("actualizarUsuario: rechaza una contraseña nueva de menos de 6 caracteres"
   );
 });
 
+test("actualizarUsuario: cambia la sucursal cuando se manda sucursal_id", async () => {
+  const DB = construirDBPrueba();
+  sembrarUsuarioDePrueba(DB, { sucursal_id: 1 });
+
+  await actualizarUsuario(DB, 50, { sucursal_id: 3 });
+
+  assert.strictEqual(DB.admin.usuarios.find((u) => u.id === 50).sucursal_id, 3);
+});
+
+test("actualizarUsuario: NO cambia la sucursal cuando no se manda", async () => {
+  const DB = construirDBPrueba();
+  sembrarUsuarioDePrueba(DB, { sucursal_id: 2 });
+
+  await actualizarUsuario(DB, 50, { nombre: "Empleado Renombrado" });
+
+  assert.strictEqual(DB.admin.usuarios.find((u) => u.id === 50).sucursal_id, 2, "la sucursal no debe tocarse si no viene en el body");
+});
+
 test("esAccionSobreSiMismo: true cuando el id objetivo es el mismo que el solicitante", () => {
   assert.strictEqual(esAccionSobreSiMismo(50, 50), true);
   assert.strictEqual(esAccionSobreSiMismo("50", 50), true, "debe comparar como número, no como string");

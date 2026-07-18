@@ -43,6 +43,7 @@ async function actualizarUsuario(DB, id, datos) {
     ...DB.admin.usuarios[idx],
     nombre: datos.nombre ?? DB.admin.usuarios[idx].nombre,
     rol_id: datos.rol_id !== undefined ? Number(datos.rol_id) : DB.admin.usuarios[idx].rol_id,
+    sucursal_id: datos.sucursal_id !== undefined ? Number(datos.sucursal_id) : DB.admin.usuarios[idx].sucursal_id,
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };
   if (datos.password) {

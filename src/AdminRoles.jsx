@@ -182,9 +182,9 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [modalPersonal, setModalPersonal] = useState(false);
-  const [formPersonal, setFormPersonal] = useState({ nombre: "", usuario: "", password: "", rol_id: "" });
+  const [formPersonal, setFormPersonal] = useState({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "" });
   const [personaEditando, setPersonaEditando] = useState(null); // usuario seleccionado o null
-  const [formEditarPersonal, setFormEditarPersonal] = useState({ nombre: "", rol_id: "", password: "" });
+  const [formEditarPersonal, setFormEditarPersonal] = useState({ nombre: "", rol_id: "", password: "", sucursal_id: "" });
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2200); };
 
@@ -307,8 +307,8 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   };
 
   const guardarPersonal = async () => {
-    if (!formPersonal.nombre || !formPersonal.usuario || !formPersonal.password || !formPersonal.rol_id) {
-      return mostrarAviso("Completa nombre, usuario, contraseña y rol");
+    if (!formPersonal.nombre || !formPersonal.usuario || !formPersonal.password || !formPersonal.rol_id || !formPersonal.sucursal_id) {
+      return mostrarAviso("Completa nombre, usuario, contraseña, rol y sucursal");
     }
     try {
       const r = await apiFetch("/usuarios", { method: "POST", body: JSON.stringify(formPersonal) });
@@ -316,21 +316,22 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Personal agregado");
       setModalPersonal(false);
-      setFormPersonal({ nombre: "", usuario: "", password: "", rol_id: "" });
+      setFormPersonal({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "" });
       cargarTodo();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
   const abrirEditarPersonal = (u) => {
     setPersonaEditando(u);
-    setFormEditarPersonal({ nombre: u.nombre, rol_id: u.rol_id, password: "" });
+    setFormEditarPersonal({ nombre: u.nombre, rol_id: u.rol_id, password: "", sucursal_id: u.sucursal_id });
   };
 
   const guardarEdicionPersonal = async () => {
     if (!formEditarPersonal.nombre.trim()) return mostrarAviso("El nombre no puede quedar vacío");
     if (!formEditarPersonal.rol_id) return mostrarAviso("Selecciona un rol");
+    if (!formEditarPersonal.sucursal_id) return mostrarAviso("Selecciona una sucursal");
     try {
-      const payload = { nombre: formEditarPersonal.nombre, rol_id: formEditarPersonal.rol_id };
+      const payload = { nombre: formEditarPersonal.nombre, rol_id: formEditarPersonal.rol_id, sucursal_id: formEditarPersonal.sucursal_id };
       if (formEditarPersonal.password) payload.password = formEditarPersonal.password;
       const r = await apiFetch(`/usuarios/${personaEditando.id}`, { method: "PUT", body: JSON.stringify(payload) });
       const data = await r.json();
@@ -586,6 +587,13 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
+                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.sucursal_id} onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
+                  <option value="">Selecciona una sucursal</option>
+                  {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </select>
+              </div>
               <button onClick={guardarPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
                 <Check size={15} /> Guardar
               </button>
@@ -610,6 +618,12 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                 <label className="text-xs text-slate-500 block mb-1">Rol</label>
                 <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
+                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
+                  {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
               <div>
