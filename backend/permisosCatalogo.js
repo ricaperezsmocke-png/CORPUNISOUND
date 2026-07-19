@@ -85,6 +85,8 @@ const PERMISOS = [
   { clave: "dar_alta_personal", etiqueta: "Dar de Alta Personal", modulo: "admin", implementado: true },
   { clave: "usar_asistente_ia", etiqueta: "Usar el Asistente de IA del Inicio", modulo: "admin", implementado: true },
   { clave: "ver_todas_las_sucursales", etiqueta: "Ver Todas las Sucursales", modulo: "admin", implementado: true },
+  { clave: "conectar_cuenta_drive", etiqueta: "Conectar / Desconectar Google Drive", modulo: "admin", implementado: true },
+  { clave: "gestionar_expedientes", etiqueta: "Gestionar Expedientes de Personal (Google Drive)", modulo: "admin", implementado: true },
 
   // ---- MercadoLibre ----
   { clave: "gestionar_publicaciones_ml", etiqueta: "Publicar y Editar en MercadoLibre", modulo: "ml", implementado: true },

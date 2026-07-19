@@ -189,12 +189,16 @@ const DB = {
   admin: {
     roles: [],
     usuarios: [],
-    intentos_bloqueados_ubicacion: []
+    intentos_bloqueados_ubicacion: [],
+    documentos_personal: [],
   },
   ml: {
     cuenta: null,
     publicaciones: [],
     ordenes_importadas: [],
+  },
+  drive: {
+    cuenta: null,
   },
 };
 

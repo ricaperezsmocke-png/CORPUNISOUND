@@ -72,7 +72,8 @@ function construirDBPrueba() {
       proveedores: [],
       producto_proveedor: [],
     },
-    admin: { roles: [], usuarios: [] },
+    admin: { roles: [], usuarios: [], documentos_personal: [] },
+    drive: { cuenta: null },
   };
   sembrarRolesIniciales(DB);
   return DB;
