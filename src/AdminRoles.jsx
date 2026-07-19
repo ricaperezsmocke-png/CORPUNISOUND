@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Edit3, RefreshCw, Trash2, Copy, Share2, Download,
-  Search, ShieldCheck, UserPlus, X, Check, MapPin, ShieldAlert
+  Search, ShieldCheck, UserPlus, X, Check, MapPin, ShieldAlert,
+  Link, CheckCircle, AlertTriangle, Upload, FileText
 } from "lucide-react";
 import { apiFetch } from "./api";
 
@@ -176,6 +177,7 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const [catalogo, setCatalogo] = useState({ permisos: [], modulos: [] });
   const [usuarios, setUsuarios] = useState([]);
   const [sucursales, setSucursales] = useState([]);
+  const [estadoDrive, setEstadoDrive] = useState(null);
   const [vistaRoles, setVistaRoles] = useState("roles"); // "roles" | "personal"
   const [busquedaPermiso, setBusquedaPermiso] = useState("");
   const [cargando, setCargando] = useState(true);
@@ -192,11 +194,12 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     setCargando(true);
     setError(null);
     try {
-      const [rRoles, rCatalogo, rUsuarios, rSucursales] = await Promise.all([
+      const [rRoles, rCatalogo, rUsuarios, rSucursales, rDrive] = await Promise.all([
         apiFetch("/roles"),
         apiFetch("/permisos-catalogo"),
         apiFetch("/usuarios"),
         apiFetch("/sucursales"),
+        apiFetch("/drive/estado"),
       ]);
       if (!rRoles.ok) throw new Error("No se pudieron cargar los roles");
       const roles = await rRoles.json();
@@ -205,6 +208,7 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       if (rCatalogo.ok) setCatalogo(await rCatalogo.json());
       if (rUsuarios.ok) setUsuarios(await rUsuarios.json());
       if (rSucursales.ok) setSucursales(await rSucursales.json());
+      if (rDrive.ok) setEstadoDrive(await rDrive.json());
     } catch (e) {
       setError("No se pudo conectar con el backend, o tu usuario no tiene permiso para administrar roles.");
     } finally {
@@ -213,6 +217,19 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   }, []);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("drive") === "conectado") {
+      mostrarAviso("✅ Google Drive conectado correctamente");
+      window.history.replaceState({}, "", window.location.pathname);
+      cargarTodo();
+    } else if (params.get("drive") === "error") {
+      mostrarAviso("❌ Error al conectar Google Drive: " + (params.get("msg") || "desconocido"));
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const rolActivo = roles.find((r) => r.id === rolActivoId) || null;
 
@@ -365,6 +382,13 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
+  const conectarDrive = async () => {
+    const r = await apiFetch("/drive/auth-url");
+    if (!r.ok) { const d = await r.json(); return mostrarAviso("❌ " + d.error); }
+    const { url } = await r.json();
+    window.location.href = url;
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       <div className="bg-white border-b border-slate-100 flex items-center overflow-x-auto shrink-0">
@@ -410,6 +434,25 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
               )}
             </div>
           </div>
+
+          {puede("conectar_cuenta_drive") && (
+            <div className="bg-white border-b border-slate-100 flex items-center gap-2 px-4 py-2 shrink-0">
+              <span className="text-xs text-slate-500">Google Drive (expedientes de personal):</span>
+              {estadoDrive?.conectado ? (
+                <span className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+                  <CheckCircle size={12} /> Conectado
+                </span>
+              ) : !estadoDrive?.configurado ? (
+                <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  <AlertTriangle size={12} /> GOOGLE_CLIENT_ID no configurado en el backend
+                </span>
+              ) : (
+                <button onClick={conectarDrive} className="flex items-center gap-1.5 text-xs bg-blue-700 hover:bg-blue-800 text-white rounded px-3 py-1.5 font-medium">
+                  <Link size={12} /> Conectar Google Drive
+                </button>
+              )}
+            </div>
+          )}
 
           {error && <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2">{error}</div>}
 
