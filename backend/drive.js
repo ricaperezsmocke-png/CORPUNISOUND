@@ -85,7 +85,57 @@ function urlAutorizacion(redirectUri) {
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
 }
 
+function driveHeaders(token, extra = {}) {
+  return { Authorization: `Bearer ${token}`, ...extra };
+}
+
+async function buscarCarpeta(DB, nombre, carpetaPadreId) {
+  const token = await tokenActivo(DB);
+  const nombreEscapado = nombre.replace(/'/g, "\\'");
+  let q = `name='${nombreEscapado}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  if (carpetaPadreId) q += ` and '${carpetaPadreId}' in parents`;
+  const r = await fetch(`${DRIVE_API}?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+    headers: driveHeaders(token),
+  });
+  if (!r.ok) throw new Error("Error al buscar carpeta en Google Drive: " + (await r.text()));
+  const data = await r.json();
+  return data.files?.[0]?.id || null;
+}
+
+async function crearCarpeta(DB, nombre, carpetaPadreId) {
+  const token = await tokenActivo(DB);
+  const metadata = { name: nombre, mimeType: "application/vnd.google-apps.folder" };
+  if (carpetaPadreId) metadata.parents = [carpetaPadreId];
+  const r = await fetch(`${DRIVE_API}?fields=id`, {
+    method: "POST",
+    headers: driveHeaders(token, { "Content-Type": "application/json" }),
+    body: JSON.stringify(metadata),
+  });
+  if (!r.ok) throw new Error("Error al crear carpeta en Google Drive: " + (await r.text()));
+  const data = await r.json();
+  return data.id;
+}
+
+async function asegurarCarpetaRaiz(DB) {
+  if (DB.drive.carpeta_raiz_id) return DB.drive.carpeta_raiz_id;
+  let id = await buscarCarpeta(DB, CARPETA_RAIZ_NOMBRE, null);
+  if (!id) id = await crearCarpeta(DB, CARPETA_RAIZ_NOMBRE, null);
+  DB.drive.carpeta_raiz_id = id;
+  return id;
+}
+
+async function asegurarCarpetaEmpleado(DB, usuarioObj) {
+  if (usuarioObj.drive_folder_id) return usuarioObj.drive_folder_id;
+  const raizId = await asegurarCarpetaRaiz(DB);
+  const nombreCarpeta = `${usuarioObj.nombre} (${usuarioObj.usuario})`;
+  let id = await buscarCarpeta(DB, nombreCarpeta, raizId);
+  if (!id) id = await crearCarpeta(DB, nombreCarpeta, raizId);
+  usuarioObj.drive_folder_id = id;
+  return id;
+}
+
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
+  asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   CARPETA_RAIZ_NOMBRE,
 };

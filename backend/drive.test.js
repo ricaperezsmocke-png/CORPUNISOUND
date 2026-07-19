@@ -59,3 +59,63 @@ test("tokenActivo NO refresca si el token sigue vigente", async (t) => {
 test("tokenActivo lanza error si no hay cuenta conectada", async () => {
   await assert.rejects(() => tokenActivo({ drive: { cuenta: null } }), /No hay cuenta de Google Drive conectada/);
 });
+
+test("asegurarCarpetaRaiz crea la carpeta si no existe y cachea el id", async (t) => {
+  let llamada = 0;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    llamada++;
+    if (String(url).includes("q=")) {
+      // Búsqueda: no la encuentra
+      return { ok: true, json: async () => ({ files: [] }) };
+    }
+    // Creación
+    return { ok: true, json: async () => ({ id: "carpeta-raiz-123" }) };
+  });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+
+  const id1 = await asegurarCarpetaRaiz(DB);
+  assert.strictEqual(id1, "carpeta-raiz-123");
+  assert.strictEqual(DB.drive.carpeta_raiz_id, "carpeta-raiz-123");
+  assert.strictEqual(llamada, 2, "debe buscar y luego crear");
+
+  const id2 = await asegurarCarpetaRaiz(DB);
+  assert.strictEqual(id2, "carpeta-raiz-123");
+  assert.strictEqual(llamada, 2, "la segunda llamada debe reusar el id cacheado, sin llamar a fetch de nuevo");
+});
+
+test("asegurarCarpetaRaiz reusa la carpeta si ya existe en Drive", async (t) => {
+  t.mock.method(globalThis, "fetch", async (url) => {
+    assert.ok(String(url).includes("q="), "debe ser una búsqueda, no una creación");
+    return { ok: true, json: async () => ({ files: [{ id: "ya-existia-456", name: "Expedientes de Personal" }] }) };
+  });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+
+  const id = await asegurarCarpetaRaiz(DB);
+  assert.strictEqual(id, "ya-existia-456");
+});
+
+test("asegurarCarpetaEmpleado crea la subcarpeta 'Nombre (usuario)' y la cachea en el objeto usuario", async (t) => {
+  let llamada = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    llamada++;
+    return { ok: true, json: async () => (llamada <= 2 ? { files: [] } : { id: `folder-${llamada}` }) };
+  });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const usuarioObj = { id: 10, nombre: "Juan Pérez", usuario: "juanp" };
+
+  const id = await asegurarCarpetaEmpleado(DB, usuarioObj);
+
+  assert.ok(id, "debe regresar un id de carpeta");
+  assert.strictEqual(usuarioObj.drive_folder_id, id, "debe cachear el id en el propio objeto usuario");
+});
+
+test("asegurarCarpetaEmpleado reusa drive_folder_id si ya está en el usuario", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const usuarioObj = { id: 10, nombre: "Juan Pérez", usuario: "juanp", drive_folder_id: "folder-ya-cacheado" };
+
+  const id = await asegurarCarpetaEmpleado(DB, usuarioObj);
+
+  assert.strictEqual(id, "folder-ya-cacheado");
+  assert.strictEqual(fetchMock.mock.calls.length, 0);
+});
