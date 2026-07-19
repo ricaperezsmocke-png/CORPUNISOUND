@@ -25,6 +25,25 @@ const MOTIVO_TEXTO = {
   sin_permiso_ubicacion: "Sin permiso de ubicación",
 };
 
+const CATEGORIAS_DOCUMENTO = [
+  { id: "curriculum", etiqueta: "Curriculum" },
+  { id: "acta_nacimiento", etiqueta: "Acta de Nacimiento" },
+  { id: "comprobante_domicilio", etiqueta: "Comprobante de Domicilio" },
+  { id: "ine", etiqueta: "INE" },
+  { id: "contrato", etiqueta: "Contrato" },
+];
+const TIPOS_ARCHIVO_PERMITIDOS = ["application/pdf", "image/jpeg", "image/png"];
+const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
+
+function leerArchivoComoBase64(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = () => resolve(String(lector.result).split(",")[1]);
+    lector.onerror = reject;
+    lector.readAsDataURL(archivo);
+  });
+}
+
 function UbicacionesTiendas({ mostrarAviso }) {
   const [sucursales, setSucursales] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -187,6 +206,9 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const [formPersonal, setFormPersonal] = useState({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "" });
   const [personaEditando, setPersonaEditando] = useState(null); // usuario seleccionado o null
   const [formEditarPersonal, setFormEditarPersonal] = useState({ nombre: "", rol_id: "", password: "", sucursal_id: "" });
+  const [tabPersonaEditando, setTabPersonaEditando] = useState("datos"); // "datos" | "documentos"
+  const [documentosPersona, setDocumentosPersona] = useState([]);
+  const [cargandoDocumentos, setCargandoDocumentos] = useState(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2200); };
 
@@ -341,6 +363,8 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const abrirEditarPersonal = (u) => {
     setPersonaEditando(u);
     setFormEditarPersonal({ nombre: u.nombre, rol_id: u.rol_id, password: "", sucursal_id: u.sucursal_id });
+    setTabPersonaEditando("datos");
+    setDocumentosPersona([]);
   };
 
   const guardarEdicionPersonal = async () => {
@@ -382,12 +406,58 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
+  const cargarDocumentosPersona = useCallback(async (usuarioId) => {
+    setCargandoDocumentos(true);
+    try {
+      const r = await apiFetch(`/usuarios/${usuarioId}/documentos`);
+      if (r.ok) setDocumentosPersona(await r.json());
+    } catch { /* silencioso */ }
+    finally { setCargandoDocumentos(false); }
+  }, []);
+
+  const subirDocumentoPersona = async (categoria, archivo) => {
+    if (!TIPOS_ARCHIVO_PERMITIDOS.includes(archivo.type)) {
+      return mostrarAviso("❌ Solo se permiten archivos PDF, JPG o PNG");
+    }
+    if (archivo.size > TAMANO_MAXIMO_BYTES) {
+      return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
+    }
+    try {
+      const contenido_base64 = await leerArchivoComoBase64(archivo);
+      const r = await apiFetch(`/usuarios/${personaEditando.id}/documentos`, {
+        method: "POST",
+        body: JSON.stringify({ categoria, nombre_archivo: archivo.name, tipo_mime: archivo.type, contenido_base64 }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Documento subido");
+      await cargarDocumentosPersona(personaEditando.id);
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const eliminarDocumentoPersona = async (documentoId) => {
+    if (!confirm("¿Eliminar este documento? También se borra de Google Drive.")) return;
+    try {
+      const r = await apiFetch(`/usuarios/${personaEditando.id}/documentos/${documentoId}`, { method: "DELETE" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Documento eliminado");
+      await cargarDocumentosPersona(personaEditando.id);
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
   const conectarDrive = async () => {
     const r = await apiFetch("/drive/auth-url");
     if (!r.ok) { const d = await r.json(); return mostrarAviso("❌ " + d.error); }
     const { url } = await r.json();
     window.location.href = url;
   };
+
+  useEffect(() => {
+    if (personaEditando && tabPersonaEditando === "documentos") {
+      cargarDocumentosPersona(personaEditando.id);
+    }
+  }, [personaEditando, tabPersonaEditando, cargarDocumentosPersona]);
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
@@ -647,47 +717,113 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
 
       {personaEditando && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-              <h3 className="font-semibold text-sm text-slate-700">Editar personal</h3>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between shrink-0">
+              <h3 className="font-semibold text-sm text-slate-700">Editar personal — {personaEditando.nombre}</h3>
               <button onClick={() => setPersonaEditando(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
-            <div className="p-4 flex flex-col gap-3">
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
-                <input className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.nombre} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Rol</label>
-                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
-                  {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
-                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
-                  {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Nueva contraseña (opcional — déjalo en blanco para no cambiarla)</label>
-                <input type="password" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.password} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
-              </div>
-              <button onClick={guardarEdicionPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
-                <Check size={15} /> Guardar cambios
+
+            <div className="flex border-b border-slate-100 shrink-0">
+              <button
+                onClick={() => setTabPersonaEditando("datos")}
+                className={`px-4 py-2 text-xs font-medium border-b-2 ${tabPersonaEditando === "datos" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
+              >
+                Datos
               </button>
-              {usuario?.id !== personaEditando.id && (
-                <div className="flex gap-2">
-                  <button onClick={alternarActivoPersonal} className="flex-1 border border-slate-300 hover:bg-slate-50 text-slate-700 py-2 rounded-lg font-semibold text-sm transition-colors">
-                    {personaEditando.activo ? "Desactivar" : "Activar"}
-                  </button>
-                  <button onClick={eliminarPersonal} className="flex-1 border border-red-300 hover:bg-red-50 text-red-600 py-2 rounded-lg font-semibold text-sm transition-colors">
-                    Eliminar
-                  </button>
-                </div>
+              {puede("gestionar_expedientes") && (
+                <button
+                  onClick={() => setTabPersonaEditando("documentos")}
+                  className={`px-4 py-2 text-xs font-medium border-b-2 ${tabPersonaEditando === "documentos" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
+                >
+                  Documentos
+                </button>
               )}
-              {usuario?.id === personaEditando.id && (
-                <p className="text-[11px] text-slate-400 text-center">No puedes desactivarte o eliminarte a ti mismo mientras tienes la sesión abierta.</p>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-4">
+              {tabPersonaEditando === "datos" ? (
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
+                    <input className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.nombre} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Rol</label>
+                    <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
+                      {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
+                    <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
+                      {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Nueva contraseña (opcional — déjalo en blanco para no cambiarla)</label>
+                    <input type="password" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.password} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
+                  </div>
+                  <button onClick={guardarEdicionPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
+                    <Check size={15} /> Guardar cambios
+                  </button>
+                  {usuario?.id !== personaEditando.id && (
+                    <div className="flex gap-2">
+                      <button onClick={alternarActivoPersonal} className="flex-1 border border-slate-300 hover:bg-slate-50 text-slate-700 py-2 rounded-lg font-semibold text-sm transition-colors">
+                        {personaEditando.activo ? "Desactivar" : "Activar"}
+                      </button>
+                      <button onClick={eliminarPersonal} className="flex-1 border border-red-300 hover:bg-red-50 text-red-600 py-2 rounded-lg font-semibold text-sm transition-colors">
+                        Eliminar
+                      </button>
+                    </div>
+                  )}
+                  {usuario?.id === personaEditando.id && (
+                    <p className="text-[11px] text-slate-400 text-center">No puedes desactivarte o eliminarte a ti mismo mientras tienes la sesión abierta.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {!estadoDrive?.conectado ? (
+                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                      Conecta Google Drive en la parte de arriba de Roles y Personal para poder subir documentos.
+                    </p>
+                  ) : cargandoDocumentos ? (
+                    <p className="text-center text-slate-400 py-8 text-sm">Cargando...</p>
+                  ) : (
+                    CATEGORIAS_DOCUMENTO.map((cat) => {
+                      const archivos = documentosPersona.filter((d) => d.categoria === cat.id);
+                      return (
+                        <div key={cat.id} className="border border-slate-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold text-slate-600">{cat.etiqueta}</span>
+                            <label className="flex items-center gap-1 text-xs text-blue-700 hover:text-blue-800 cursor-pointer font-medium">
+                              <Upload size={13} /> Subir
+                              <input
+                                type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                                onChange={(e) => { if (e.target.files[0]) subirDocumentoPersona(cat.id, e.target.files[0]); e.target.value = ""; }}
+                              />
+                            </label>
+                          </div>
+                          {archivos.length === 0 ? (
+                            <p className="text-[11px] text-slate-400">Sin archivos subidos</p>
+                          ) : (
+                            <ul className="flex flex-col gap-1">
+                              {archivos.map((d) => (
+                                <li key={d.id} className="flex items-center justify-between text-xs bg-slate-50 rounded px-2 py-1.5">
+                                  <a href={d.drive_link} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-blue-700 hover:underline truncate">
+                                    <FileText size={12} /> {d.nombre_archivo}
+                                  </a>
+                                  <button onClick={() => eliminarDocumentoPersona(d.id)} className="text-slate-400 hover:text-red-600 shrink-0 ml-2">
+                                    <Trash2 size={13} />
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               )}
             </div>
           </div>
