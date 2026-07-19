@@ -134,8 +134,44 @@ async function asegurarCarpetaEmpleado(DB, usuarioObj) {
   return id;
 }
 
+async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpetaId }) {
+  const token = await tokenActivo(DB);
+  const boundary = `unisound_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const metadata = { name: nombre, parents: [carpetaId] };
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelim = `\r\n--${boundary}--`;
+  const parteMetadata = delimiter + "Content-Type: application/json; charset=UTF-8\r\n\r\n" + JSON.stringify(metadata);
+  const encabezadoMedia = delimiter + `Content-Type: ${mimeType}\r\n\r\n`;
+  const body = Buffer.concat([
+    Buffer.from(parteMetadata, "utf8"),
+    Buffer.from(encabezadoMedia, "utf8"),
+    contenidoBuffer,
+    Buffer.from(closeDelim, "utf8"),
+  ]);
+
+  const r = await fetch(`${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,webViewLink`, {
+    method: "POST",
+    headers: driveHeaders(token, { "Content-Type": `multipart/related; boundary=${boundary}` }),
+    body,
+  });
+  if (!r.ok) throw new Error("Error al subir archivo a Google Drive: " + (await r.text()));
+  return await r.json();
+}
+
+async function eliminarArchivoDeDrive(DB, fileId) {
+  const token = await tokenActivo(DB);
+  const r = await fetch(`${DRIVE_API}/${fileId}`, {
+    method: "DELETE",
+    headers: driveHeaders(token),
+  });
+  if (!r.ok && r.status !== 404) {
+    throw new Error("Error al borrar archivo en Google Drive: " + (await r.text()));
+  }
+}
+
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
+  subirArchivoADrive, eliminarArchivoDeDrive,
   CARPETA_RAIZ_NOMBRE,
 };
