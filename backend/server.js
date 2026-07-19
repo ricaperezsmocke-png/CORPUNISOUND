@@ -54,6 +54,8 @@ const {
   publicarProducto, actualizarStockML, actualizarPublicacion,
   listarOrdenes, importarOrdenComoVenta,
 } = require("./mercadolibre");
+const drive = require("./drive");
+const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -189,12 +191,16 @@ const DB = {
   admin: {
     roles: [],
     usuarios: [],
-    intentos_bloqueados_ubicacion: []
+    intentos_bloqueados_ubicacion: [],
+    documentos_personal: [],
   },
   ml: {
     cuenta: null,
     publicaciones: [],
     ordenes_importadas: [],
+  },
+  drive: {
+    cuenta: null,
   },
 };
 
@@ -661,6 +667,58 @@ app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_role
       throw new Error("No puedes eliminarte a ti mismo mientras tienes la sesión abierta");
     }
     res.json(eliminarUsuario(DB, req.params.id));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- Expedientes de Personal (Google Drive) ----------
+
+app.get("/api/drive/estado", requiereLogin, (req, res) => {
+  const c = DB.drive.cuenta;
+  res.json({
+    conectado:    !!c?.access_token,
+    configurado:  !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    conectado_en: c?.conectado_en || null,
+  });
+});
+
+app.get("/api/drive/auth-url", requiereLogin, requierePermiso("conectar_cuenta_drive", resolverPermisosDeRol), (req, res) => {
+  try {
+    const redirect = process.env.GOOGLE_REDIRECT_URI ||
+      `${req.protocol}://${req.get("host")}/api/drive/callback`;
+    res.json({ url: drive.urlAutorizacion(redirect) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/drive/callback", async (req, res) => {
+  const { code } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  if (!code) return res.redirect(`${frontendUrl}?drive=error&msg=sin_codigo`);
+  const redirect = process.env.GOOGLE_REDIRECT_URI ||
+    `${req.protocol}://${req.get("host")}/api/drive/callback`;
+  try {
+    await drive.intercambiarCodigo(DB, code, redirect);
+    guardar(DB);
+    res.redirect(`${frontendUrl}?drive=conectado`);
+  } catch (e) {
+    res.redirect(`${frontendUrl}?drive=error&msg=${encodeURIComponent(e.message)}`);
+  }
+});
+
+app.post("/api/usuarios/:id/documentos", requiereLogin, requierePermiso("gestionar_expedientes", resolverPermisosDeRol), async (req, res) => {
+  try {
+    if (!DB.drive.cuenta) throw new Error("Conecta Google Drive primero");
+    res.json(await subirDocumento(DB, req.params.id, req.body, req.usuarioToken.id, drive));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/usuarios/:id/documentos", requiereLogin, requierePermiso("gestionar_expedientes", resolverPermisosDeRol), (req, res) => {
+  res.json(listarDocumentos(DB, req.params.id));
+});
+
+app.delete("/api/usuarios/:id/documentos/:documentoId", requiereLogin, requierePermiso("gestionar_expedientes", resolverPermisosDeRol), async (req, res) => {
+  try {
+    if (!DB.drive.cuenta) throw new Error("Conecta Google Drive primero");
+    res.json(await eliminarDocumento(DB, req.params.id, req.params.documentoId, drive));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
