@@ -1,0 +1,91 @@
+/**
+ * drive.js — Integración con la Google Drive API v3 para los expedientes
+ * de Personal. Sigue el mismo patrón que mercadolibre.js: llamadas REST
+ * directas con fetch, sin la librería googleapis.
+ *
+ * Variables de entorno requeridas:
+ *   GOOGLE_CLIENT_ID     — Client ID de tu app en Google Cloud Console
+ *   GOOGLE_CLIENT_SECRET — Client Secret de tu app
+ *   GOOGLE_REDIRECT_URI  — (opcional) URL de callback; si no se define,
+ *                          se calcula a partir del host de la petición.
+ *
+ * El scope usado (drive.file) solo da acceso a los archivos/carpetas que
+ * este sistema crea — nunca a todo el Drive de la cuenta conectada.
+ */
+
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_SCOPE     = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_API        = "https://www.googleapis.com/drive/v3/files";
+const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
+
+const CARPETA_RAIZ_NOMBRE = "Expedientes de Personal";
+
+async function intercambiarCodigo(DB, codigo, redirectUri) {
+  const params = new URLSearchParams({
+    grant_type:    "authorization_code",
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    code:          codigo,
+    redirect_uri:  redirectUri,
+  });
+  const r = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params,
+  });
+  if (!r.ok) throw new Error("Google OAuth error: " + (await r.text()));
+  const d = await r.json();
+  DB.drive.cuenta = {
+    access_token:  d.access_token,
+    refresh_token: d.refresh_token,
+    expires_at:    Date.now() + d.expires_in * 1000,
+    conectado_en:  new Date().toISOString(),
+  };
+  return DB.drive.cuenta;
+}
+
+async function refrescarToken(DB) {
+  if (!DB.drive.cuenta?.refresh_token) throw new Error("Sin cuenta de Google Drive conectada");
+  const params = new URLSearchParams({
+    grant_type:    "refresh_token",
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    refresh_token: DB.drive.cuenta.refresh_token,
+  });
+  const r = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params,
+  });
+  if (!r.ok) throw new Error("Error al refrescar el token de Google Drive — reconéctalo en Roles y Personal");
+  const d = await r.json();
+  DB.drive.cuenta.access_token = d.access_token;
+  DB.drive.cuenta.expires_at   = Date.now() + d.expires_in * 1000;
+  if (d.refresh_token) DB.drive.cuenta.refresh_token = d.refresh_token;
+  return DB.drive.cuenta.access_token;
+}
+
+async function tokenActivo(DB) {
+  if (!DB.drive?.cuenta?.access_token) throw new Error("No hay cuenta de Google Drive conectada");
+  if (Date.now() > DB.drive.cuenta.expires_at - 120_000) await refrescarToken(DB);
+  return DB.drive.cuenta.access_token;
+}
+
+function urlAutorizacion(redirectUri) {
+  if (!process.env.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID no configurado en variables de entorno");
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    redirect_uri:  redirectUri,
+    scope:         GOOGLE_SCOPE,
+    access_type:   "offline",
+    prompt:        "consent",
+  });
+  return `${GOOGLE_AUTH_URL}?${params.toString()}`;
+}
+
+module.exports = {
+  intercambiarCodigo, urlAutorizacion, tokenActivo,
+  CARPETA_RAIZ_NOMBRE,
+};
