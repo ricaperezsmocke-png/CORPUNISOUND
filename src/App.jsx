@@ -80,7 +80,7 @@ function App() {
           <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "roles" && (
-          <AdminRoles onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
+          <AdminRoles onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "crm" && (
           <CRM onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
