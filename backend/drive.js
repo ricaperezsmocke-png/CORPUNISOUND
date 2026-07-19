@@ -6,8 +6,7 @@
  * Variables de entorno requeridas:
  *   GOOGLE_CLIENT_ID     — Client ID de tu app en Google Cloud Console
  *   GOOGLE_CLIENT_SECRET — Client Secret de tu app
- *   GOOGLE_REDIRECT_URI  — (opcional) URL de callback; si no se define,
- *                          se calcula a partir del host de la petición.
+ *   GOOGLE_REDIRECT_URI  — URL de callback que se pasa a urlAutorizacion().
  *
  * El scope usado (drive.file) solo da acceso a los archivos/carpetas que
  * este sistema crea — nunca a todo el Drive de la cuenta conectada.

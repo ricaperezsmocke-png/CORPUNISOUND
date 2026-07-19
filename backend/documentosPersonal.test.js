@@ -111,6 +111,16 @@ test("eliminarDocumento borra el registro y llama a drive.eliminarArchivoDeDrive
   assert.strictEqual(DB.admin.documentos_personal.length, 0);
 });
 
+test("eliminarDocumento NO borra la metadata si drive.eliminarArchivoDeDrive falla", async () => {
+  const DB = construirDBPrueba();
+  sembrarEmpleado(DB);
+  const registro = await subirDocumento(DB, 10, { categoria: "contrato", nombre_archivo: "c.pdf", tipo_mime: "application/pdf", contenido_base64: "eA==" }, 1, driveFalso());
+  const driveQueFalla = driveFalso({ eliminarArchivoDeDrive: async () => { throw new Error("Google Drive no responde"); } });
+
+  await assert.rejects(() => eliminarDocumento(DB, 10, registro.id, driveQueFalla), /Google Drive no responde/);
+  assert.strictEqual(DB.admin.documentos_personal.length, 1, "la metadata no debe borrarse si Drive falla");
+});
+
 test("eliminarDocumento lanza error si el documento no existe para ese empleado", async () => {
   const DB = construirDBPrueba();
   sembrarEmpleado(DB);

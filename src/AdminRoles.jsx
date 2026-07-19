@@ -505,7 +505,7 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
             </div>
           </div>
 
-          {puede("conectar_cuenta_drive") && (
+          {puede("conectar_cuenta_drive") && estadoDrive && (
             <div className="bg-white border-b border-slate-100 flex items-center gap-2 px-4 py-2 shrink-0">
               <span className="text-xs text-slate-500">Google Drive (expedientes de personal):</span>
               {estadoDrive?.conectado ? (
