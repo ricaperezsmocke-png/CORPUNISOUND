@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "./api";
 import ArticuloCompra from "./ArticuloCompra";
+import { sugerirProducto } from "./sugerirProducto";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick }) {
   return (
@@ -83,6 +84,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const [iaParseado, setIaParseado] = useState(null); // resultado de importar-ia: { conceptos: [...] }
   const [matchesIa, setMatchesIa] = useState({}); // { [indiceConcepto]: producto_id | null }
   const [confirmadosIa, setConfirmadosIa] = useState({}); // { [indiceConcepto]: true }
+  const [sugeridosIa, setSugeridosIa] = useState({}); // { [indiceConcepto]: true } — el match ORIGINAL fue auto-sugerido por código o descripción
   const [cargandoIa, setCargandoIa] = useState(false);
   const [errorLegibilidadIa, setErrorLegibilidadIa] = useState(null); // mensaje si el documento no fue legible
 
@@ -184,7 +186,14 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         const data = await r.json();
         if (!r.ok) throw new Error(data.error);
         setIaParseado(data);
-        setMatchesIa({});
+        const sugeridos = {};
+        const marcasSugeridos = {};
+        data.conceptos.forEach((c, idx) => {
+          const match = sugerirProducto({ codigo: c.codigo, descripcion: c.descripcion }, productos);
+          if (match) { sugeridos[idx] = match.producto_id; marcasSugeridos[idx] = true; }
+        });
+        setMatchesIa(sugeridos);
+        setSugeridosIa(marcasSugeridos);
         setConfirmadosIa({});
       } catch (err) {
         setErrorLegibilidadIa(err.message);
@@ -261,6 +270,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     setIaParseado(null);
     setMatchesIa({});
     setConfirmadosIa({});
+    setSugeridosIa({});
     setModal(null);
   };
 
@@ -857,19 +867,19 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                     <tr key={idx} className="border-b border-slate-100">
                       <td className="py-2 px-2">
                         {c.descripcion}
+                        {sugeridosIa[idx] && (
+                          <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Sugerido</span>
+                        )}
                         {c.aplica_iva && <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">IVA</span>}
                       </td>
                       <td className="py-2 px-2 text-center">{c.cantidad}</td>
                       <td className="py-2 px-2 text-right">${Number(c.costo_unitario).toFixed(2)}</td>
                       <td className="py-2 px-2">
-                        <select
-                          className={inputCls}
-                          value={matchesIa[idx] ?? ""}
-                          onChange={(e) => setMatchesIa((prev) => ({ ...prev, [idx]: e.target.value ? Number(e.target.value) : null }))}
-                        >
-                          <option value="">Sin vincular — se ignora</option>
-                          {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                        </select>
+                        <BuscadorProductoFila
+                          productos={productos}
+                          productoId={matchesIa[idx] ?? null}
+                          onSeleccionar={(id) => setMatchesIa((prev) => ({ ...prev, [idx]: id }))}
+                        />
                       </td>
                       <td className="py-2 px-2 text-center">
                         <label className="inline-flex items-center gap-1 text-xs text-slate-600">
@@ -886,7 +896,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                 </tbody>
               </table>
               <div className="flex gap-2">
-                <button onClick={() => { setIaParseado(null); setMatchesIa({}); setConfirmadosIa({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
+                <button onClick={() => { setIaParseado(null); setMatchesIa({}); setConfirmadosIa({}); setSugeridosIa({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
                 <button onClick={confirmarImportacionIa} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Agregar a la recepción</button>
               </div>
             </div>
@@ -902,6 +912,59 @@ function Campo({ label, children }) {
     <div>
       <label className="text-xs text-slate-500 block mb-1">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function BuscadorProductoFila({ productos, productoId, onSeleccionar }) {
+  const [texto, setTexto] = useState(() => productos.find((p) => p.id === productoId)?.nombre || "");
+  const [abierto, setAbierto] = useState(false);
+
+  useEffect(() => {
+    setTexto(productos.find((p) => p.id === productoId)?.nombre || "");
+  }, [productoId, productos]);
+
+  const coincidencias = useMemo(() => {
+    const t = texto.trim().toLowerCase();
+    if (!t) return [];
+    return productos
+      .filter((p) =>
+        p.nombre.toLowerCase().includes(t) ||
+        p.sku.toLowerCase().includes(t) ||
+        (p.codigo || "").toLowerCase().includes(t)
+      )
+      .slice(0, 8);
+  }, [texto, productos]);
+
+  return (
+    <div className="relative">
+      <input
+        className={inputCls}
+        value={texto}
+        onChange={(e) => {
+          setTexto(e.target.value);
+          setAbierto(true);
+          if (!e.target.value) onSeleccionar(null);
+        }}
+        onFocus={() => setAbierto(true)}
+        onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Clave, código o nombre..."
+      />
+      {abierto && coincidencias.length > 0 && (
+        <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded shadow-lg">
+          {coincidencias.map((p) => (
+            <div
+              key={p.id}
+              onMouseDown={() => { onSeleccionar(p.id); setTexto(p.nombre); setAbierto(false); }}
+              className="px-2 py-1.5 text-sm hover:bg-blue-50 cursor-pointer"
+            >
+              <div className="text-[11px] text-slate-400">{p.sku}</div>
+              <div>{p.nombre}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!texto && <div className="text-[11px] text-slate-400 mt-0.5">Sin vincular — se ignora</div>}
     </div>
   );
 }
