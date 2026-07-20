@@ -25,6 +25,7 @@ export default function ReporteVentas({ onVolver }) {
   const [tab, setTab] = useState("general");
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     apiFetch("/sucursales").then((r) => r.ok && r.json()).then((d) => d && setSucursales(d));
@@ -33,14 +34,21 @@ export default function ReporteVentas({ onVolver }) {
 
   const consultar = useCallback(async () => {
     setCargando(true);
-    const params = new URLSearchParams();
-    if (fechaInicial) params.set("fecha_inicio", fechaInicial);
-    if (fechaFinal) params.set("fecha_fin", fechaFinal);
-    if (sucursalId) params.set("sucursal_id", sucursalId);
-    if (vendedorId) params.set("vendedor_id", vendedorId);
-    const r = await apiFetch(`/reportes/ventas?${params.toString()}`);
-    if (r.ok) setDatos(await r.json());
-    setCargando(false);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (fechaInicial) params.set("fecha_inicio", fechaInicial);
+      if (fechaFinal) params.set("fecha_fin", fechaFinal);
+      if (sucursalId) params.set("sucursal_id", sucursalId);
+      if (vendedorId) params.set("vendedor_id", vendedorId);
+      const r = await apiFetch(`/reportes/ventas?${params.toString()}`);
+      if (!r.ok) throw new Error("El backend respondió con error");
+      setDatos(await r.json());
+    } catch (e) {
+      setError("No se pudo conectar con el backend.");
+    } finally {
+      setCargando(false);
+    }
   }, [fechaInicial, fechaFinal, sucursalId, vendedorId]);
 
   useEffect(() => { consultar(); }, [consultar]);
@@ -72,6 +80,8 @@ export default function ReporteVentas({ onVolver }) {
         </button>
         <h2 className="font-semibold text-slate-700 ml-2">Reporte de Ventas</h2>
       </div>
+
+      {error && <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2 shrink-0">{error}</div>}
 
       <BarraAccionesReporte onConsultar={consultar} onExportarExcel={exportarExcel} />
 
