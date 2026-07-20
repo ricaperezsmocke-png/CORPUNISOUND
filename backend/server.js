@@ -49,6 +49,7 @@ const { listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, esAcci
 const { armarSesion } = require("./sesion");
 const { buscarClavesSat } = require("./clavesSat");
 const { parsearFacturaXML } = require("./cfdi");
+const { analizarFacturaImagen } = require("./facturaIA");
 const {
   intercambiarCodigo, urlAutorizacion, listarPublicaciones,
   publicarProducto, actualizarStockML, actualizarPublicacion,
@@ -495,6 +496,24 @@ app.post("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolv
 app.post("/api/compras/importar-xml", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
   try {
     res.json(parsearFacturaXML(req.body.xml));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/compras/importar-ia", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: "Falta configurar ANTHROPIC_API_KEY en el archivo .env del backend" });
+    }
+    const { archivo_base64, tipo_mime } = req.body;
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(tipo_mime)) {
+      throw new Error("Tipo de archivo no permitido — solo PDF, JPG o PNG");
+    }
+    const tamanoBytes = Buffer.from(archivo_base64, "base64").length;
+    if (tamanoBytes > 10 * 1024 * 1024) throw new Error("El archivo no puede pesar más de 10 MB");
+    const resultado = await analizarFacturaImagen(anthropic, archivo_base64, tipo_mime);
+    res.json(resultado);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

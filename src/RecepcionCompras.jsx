@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   Search, Edit3, Hash, Ban, Percent, FileCode, ClipboardList,
   X, Plus, Minus, Package, Truck, Users, FileMinus, Clock, RotateCcw,
-  History, ChevronLeft, ChevronRight
+  History, ChevronLeft, ChevronRight, ScanLine
 } from "lucide-react";
 import { apiFetch } from "./api";
 import ArticuloCompra from "./ArticuloCompra";
@@ -80,6 +80,11 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const [cargandoXml, setCargandoXml] = useState(false);
   const [uuidCfdiActual, setUuidCfdiActual] = useState(null);
   const [productoIdsDeXml, setProductoIdsDeXml] = useState([]); // producto_ids que vinieron de la última importación XML confirmada
+  const [iaParseado, setIaParseado] = useState(null); // resultado de importar-ia: { conceptos: [...] }
+  const [matchesIa, setMatchesIa] = useState({}); // { [indiceConcepto]: producto_id | null }
+  const [confirmadosIa, setConfirmadosIa] = useState({}); // { [indiceConcepto]: true }
+  const [cargandoIa, setCargandoIa] = useState(false);
+  const [errorLegibilidadIa, setErrorLegibilidadIa] = useState(null); // mensaje si el documento no fue legible
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -165,6 +170,31 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     lector.readAsText(archivo);
   };
 
+  const leerArchivoFacturaImagen = (archivo) => {
+    setCargandoIa(true);
+    setErrorLegibilidadIa(null);
+    const lector = new FileReader();
+    lector.onload = async () => {
+      try {
+        const contenido_base64 = String(lector.result).split(",")[1];
+        const r = await apiFetch(`/compras/importar-ia`, {
+          method: "POST",
+          body: JSON.stringify({ archivo_base64: contenido_base64, tipo_mime: archivo.type }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error);
+        setIaParseado(data);
+        setMatchesIa({});
+        setConfirmadosIa({});
+      } catch (err) {
+        setErrorLegibilidadIa(err.message);
+      } finally {
+        setCargandoIa(false);
+      }
+    };
+    lector.readAsDataURL(archivo);
+  };
+
   const confirmarImportacionXml = () => {
     const nuevos = xmlParseado.conceptos
       .map((c, idx) => ({ concepto: c, producto_id: matchesXml[idx], idx }))
@@ -198,6 +228,39 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     setMatchesXml({});
     setConfirmadosXml({});
     setSugeridosXml({});
+    setModal(null);
+  };
+
+  const confirmarImportacionIa = () => {
+    const nuevos = iaParseado.conceptos
+      .map((c, idx) => ({ concepto: c, producto_id: matchesIa[idx], idx }))
+      .filter((x) => x.producto_id && confirmadosIa[x.idx] === true);
+    if (nuevos.length === 0) return mostrarAviso("Confirma al menos un producto antes de continuar");
+
+    setRenglones((prev) => {
+      const copia = [...prev];
+      nuevos.forEach(({ concepto, producto_id }) => {
+        const idx = copia.findIndex((r) => r.producto_id === producto_id);
+        const renglon = {
+          producto_id,
+          cantidad: concepto.cantidad,
+          costo: concepto.costo_unitario,
+          descuento_pesos: 0,
+          descuento_porcentaje: 0,
+          clave_sat: productoDe(producto_id)?.clave_sat || "",
+          localizacion: productoDe(producto_id)?.localizacion || "",
+          aplicaIva: concepto.aplica_iva,
+          neto: true,
+          precios: productoDe(producto_id)?.precios,
+        };
+        if (idx >= 0) copia[idx] = renglon; else copia.push(renglon);
+      });
+      return copia;
+    });
+    mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde el documento escaneado`);
+    setIaParseado(null);
+    setMatchesIa({});
+    setConfirmadosIa({});
     setModal(null);
   };
 
@@ -321,6 +384,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         setValorTemporal(String(renglones[filaSeleccionada].descuento_porcentaje || 0)); setModal("descuento");
       }
       else if (e.key === "F8" && !dentroDeModal) { e.preventDefault(); setModal("importarXml"); }
+      else if (e.key === "F9" && !dentroDeModal) { e.preventDefault(); setModal("importarIa"); }
       else if (e.key === "F10") { e.preventDefault(); mostrarAviso("Pedido — próximamente"); }
       else if (e.key === "Escape") { if (dentroDeModal) setModal(null); else registrarRecepcion(); }
       else if (e.altKey && !dentroDeModal) {
@@ -408,6 +472,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               setValorTemporal(String(renglones[filaSeleccionada].descuento_porcentaje || 0)); setModal("descuento");
             }} />
             <BotonBarra icono={FileCode} etiqueta="Imp. XML" atajo="F8" onClick={() => setModal("importarXml")} />
+            <BotonBarra icono={ScanLine} etiqueta="Escanear IA" atajo="F9" onClick={() => setModal("importarIa")} />
             <BotonBarra icono={ClipboardList} etiqueta="Pedido" atajo="F10" onClick={() => mostrarAviso("Pedido — próximamente")} />
           </div>
 
@@ -749,6 +814,80 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               <div className="flex gap-2">
                 <button onClick={() => { setXmlParseado(null); setMatchesXml({}); setConfirmadosXml({}); setSugeridosXml({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
                 <button onClick={confirmarImportacionXml} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Agregar a la recepción</button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {modal === "importarIa" && (
+        <Modal titulo="Escanear Factura con IA (F9)" onCerrar={() => { setModal(null); setIaParseado(null); setErrorLegibilidadIa(null); }} ancho="max-w-3xl">
+          {!iaParseado ? (
+            <div className="text-center py-10">
+              <input
+                type="file" accept=".pdf,.jpg,.jpeg,.png"
+                onChange={(e) => e.target.files[0] && leerArchivoFacturaImagen(e.target.files[0])}
+                className="mb-3"
+              />
+              {cargandoIa && <p className="text-slate-400 text-sm">Leyendo documento con IA...</p>}
+              {errorLegibilidadIa && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3 mt-3 mx-auto max-w-md">
+                  ❌ {errorLegibilidadIa}
+                </p>
+              )}
+              <p className="text-xs text-slate-400 mt-2">Sube una foto o PDF de la factura o nota de remisión del proveedor.</p>
+            </div>
+          ) : (
+            <div>
+              <div className="bg-amber-50 border border-amber-200 rounded p-2 mb-3 text-xs text-amber-700">
+                Estos datos los leyó una IA a partir de una imagen/PDF — revisa cada línea antes de confirmar, especialmente el costo.
+              </div>
+              <table className="w-full text-sm border border-slate-200 rounded overflow-hidden mb-3">
+                <thead className="bg-[#1a7fe8] text-white">
+                  <tr>
+                    <th className="py-2 px-2 text-left font-medium">Descripción (leída por IA)</th>
+                    <th className="py-2 px-2 text-center font-medium w-16">Cant.</th>
+                    <th className="py-2 px-2 text-right font-medium w-24">Costo</th>
+                    <th className="py-2 px-2 text-left font-medium">Producto en tu catálogo</th>
+                    <th className="py-2 px-2 text-center font-medium w-24">Confirmar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {iaParseado.conceptos.map((c, idx) => (
+                    <tr key={idx} className="border-b border-slate-100">
+                      <td className="py-2 px-2">
+                        {c.descripcion}
+                        {c.aplica_iva && <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">IVA</span>}
+                      </td>
+                      <td className="py-2 px-2 text-center">{c.cantidad}</td>
+                      <td className="py-2 px-2 text-right">${Number(c.costo_unitario).toFixed(2)}</td>
+                      <td className="py-2 px-2">
+                        <select
+                          className={inputCls}
+                          value={matchesIa[idx] ?? ""}
+                          onChange={(e) => setMatchesIa((prev) => ({ ...prev, [idx]: e.target.value ? Number(e.target.value) : null }))}
+                        >
+                          <option value="">Sin vincular — se ignora</option>
+                          {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                        </select>
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <label className="inline-flex items-center gap-1 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={!!confirmadosIa[idx]}
+                            onChange={(e) => setConfirmadosIa((prev) => ({ ...prev, [idx]: e.target.checked }))}
+                          />
+                          Confirmar
+                        </label>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex gap-2">
+                <button onClick={() => { setIaParseado(null); setMatchesIa({}); setConfirmadosIa({}); }} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
+                <button onClick={confirmarImportacionIa} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Agregar a la recepción</button>
               </div>
             </div>
           )}
