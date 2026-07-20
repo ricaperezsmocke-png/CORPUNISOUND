@@ -29,6 +29,7 @@ const TOOL_EXTRAER_FACTURA = {
           type: "object",
           properties: {
             descripcion: { type: "string", description: "Descripción o nombre del producto tal como aparece en el documento." },
+            codigo: { type: ["string", "null"], description: "Código, clave o SKU que aparezca impreso junto a esta línea en el documento, tal como está escrito. Usa null si el documento no muestra ningún código para esa línea — no inventes uno." },
             cantidad: { type: "number", description: "Cantidad de ese producto." },
             costo_unitario: { type: "number", description: "Precio de compra unitario. Si el documento desglosa el IVA por separado, usa el precio SIN IVA (neto) de esa línea, no el total con impuesto." },
             aplica_iva: { type: "boolean", description: "true si esa línea lleva IVA aplicado según el documento." },
@@ -62,7 +63,7 @@ async function analizarFacturaImagen(anthropic, archivoBase64, tipoMime) {
         bloqueDocumento,
         {
           type: "text",
-          text: "Esta imagen o PDF es una factura o nota de remisión de un proveedor. Primero evalúa si se puede leer con confianza razonable (campo legible). Si NO es legible, explica por qué en motivo_no_legible y deja conceptos como un arreglo vacío — no adivines datos que no se puedan leer con confianza. Si SÍ es legible, extrae cada línea de producto: descripción, cantidad, costo unitario (precio de compra neto, sin IVA, si el documento permite distinguirlo) y si esa línea aplica IVA. No inventes ni redondees datos que no estén claramente en el documento.",
+          text: "Esta imagen o PDF es una factura o nota de remisión de un proveedor. Primero evalúa si se puede leer con confianza razonable (campo legible). Si NO es legible, explica por qué en motivo_no_legible y deja conceptos como un arreglo vacío — no adivines datos que no se puedan leer con confianza. Si SÍ es legible, extrae cada línea de producto: descripción, código o clave si el documento la imprime junto a esa línea (usa null si no hay ninguna — no inventes uno), cantidad, costo unitario (precio de compra neto, sin IVA, si el documento permite distinguirlo) y si esa línea aplica IVA. No inventes ni redondees datos que no estén claramente en el documento.",
         },
       ],
     }],

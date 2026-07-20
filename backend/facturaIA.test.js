@@ -78,6 +78,28 @@ test("analizarFacturaImagen manda un bloque type: document para PDF y type: imag
   assert.strictEqual(contenidoEnviado[0].source.media_type, "image/jpeg");
 });
 
+test("analizarFacturaImagen propaga el campo codigo de cada concepto cuando Claude lo incluye", async () => {
+  const anthropic = anthropicFalso({
+    legible: true,
+    motivo_no_legible: null,
+    conceptos: [
+      { descripcion: "Cuerdas de guitarra acústica", codigo: "CG-100", cantidad: 10, costo_unitario: 45.5, aplica_iva: true },
+      { descripcion: "Producto sin código en la factura", codigo: null, cantidad: 1, costo_unitario: 20, aplica_iva: false },
+    ],
+  });
+
+  const resultado = await analizarFacturaImagen(anthropic, "ZmFrZS1iYXNlNjQ=", "image/jpeg");
+
+  assert.strictEqual(resultado.conceptos[0].codigo, "CG-100");
+  assert.strictEqual(resultado.conceptos[1].codigo, null);
+});
+
+test("TOOL_EXTRAER_FACTURA declara codigo como opcional en el schema de cada concepto", () => {
+  const propiedadesConcepto = TOOL_EXTRAER_FACTURA.input_schema.properties.conceptos.items;
+  assert.ok(propiedadesConcepto.properties.codigo, "el schema debe declarar la propiedad codigo");
+  assert.ok(!propiedadesConcepto.required.includes("codigo"), "codigo no debe ser requerido");
+});
+
 test("TOOL_EXTRAER_FACTURA exige legible y conceptos en su schema", () => {
   assert.strictEqual(TOOL_EXTRAER_FACTURA.name, "extraer_factura");
   assert.ok(TOOL_EXTRAER_FACTURA.input_schema.required.includes("legible"));
