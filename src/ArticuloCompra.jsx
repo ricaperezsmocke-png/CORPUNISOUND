@@ -189,7 +189,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
             </div>
             <div className="text-xs text-slate-500 bg-slate-50 rounded p-2 flex justify-between">
               <span>Precio sin impuestos — unitario: <b>${costoFinal.toFixed(2)}</b> · total línea: <b>${(costoFinal * cantidadNumero).toFixed(2)}</b></span>
-              {aplicaIva && <span>Con IVA (unitario): <b>${costoFinalConIva.toFixed(2)}</b></span>}
+              {aplicaIva && <span>Con IVA — unitario: <b>${costoFinalConIva.toFixed(2)}</b> · total línea: <b>${(costoFinalConIva * cantidadNumero).toFixed(2)}</b></span>}
             </div>
           </div>
 

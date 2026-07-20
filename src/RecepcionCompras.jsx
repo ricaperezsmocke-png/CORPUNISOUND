@@ -356,9 +356,18 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     const costoFinal = Math.round(Math.max(0, (r.costo - descPesos) * (1 - descPct / 100)) * 100) / 100;
     return acc + (r.costo - costoFinal) * r.cantidad;
   }, 0);
-  const totalImporte = renglones.reduce((acc, r) => {
+  // El costo neto (sin IVA) sigue siendo la base para calcular márgenes/precios de venta —
+  // el IVA solo se suma aquí, al importe que se muestra y se totaliza, para que coincida
+  // con el total real de la factura del proveedor.
+  const importeRenglon = (r) => {
     const costoFinal = Math.round((r.costo - (r.descuento_pesos || 0)) * (1 - (r.descuento_porcentaje || 0) / 100) * 100) / 100;
-    return acc + costoFinal * r.cantidad;
+    const importeNeto = costoFinal * r.cantidad;
+    return r.aplicaIva ? Math.round(importeNeto * 1.16 * 100) / 100 : importeNeto;
+  };
+  const totalImporte = renglones.reduce((acc, r) => acc + importeRenglon(r), 0);
+  const totalIva = renglones.reduce((acc, r) => {
+    const costoFinal = Math.round((r.costo - (r.descuento_pesos || 0)) * (1 - (r.descuento_porcentaje || 0) / 100) * 100) / 100;
+    return acc + (r.aplicaIva ? (costoFinal * r.cantidad) * 0.16 : 0);
   }, 0);
 
   return (
@@ -474,7 +483,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                     {renglones.map((r, idx) => {
                       const producto = productoDe(r.producto_id);
                       const costoFinal = Math.round((r.costo - (r.descuento_pesos || 0)) * (1 - (r.descuento_porcentaje || 0) / 100) * 100) / 100;
-                      const importe = costoFinal * r.cantidad;
+                      const importe = importeRenglon(r);
                       const seleccionada = filaSeleccionada === idx;
                       return (
                         <tr key={r.producto_id} onClick={() => setFilaSeleccionada(idx)} className={`border-b border-slate-100 cursor-pointer ${seleccionada ? "bg-blue-50" : "hover:bg-slate-50"}`}>
@@ -490,7 +499,10 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                           <td className="py-2 px-2 text-center text-slate-500">{producto?.existencia ?? "—"}</td>
                           <td className="py-2 px-2 text-right text-slate-500">{r.descuento_pesos ? `$${Number(r.descuento_pesos).toFixed(2)}` : r.descuento_porcentaje ? `${r.descuento_porcentaje}%` : "-"}</td>
                           <td className="py-2 px-2 text-right">${costoFinal.toFixed(2)}</td>
-                          <td className="py-2 px-2 text-right font-medium">${importe.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right font-medium">
+                            ${importe.toFixed(2)}
+                            {r.aplicaIva && <span className="block text-[10px] font-normal text-slate-400">IVA incl.</span>}
+                          </td>
                         </tr>
                       );
                     })}
@@ -500,6 +512,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
               <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex items-center justify-between text-xs shrink-0 text-slate-600">
                 <span className="text-red-400">Devoluciones Pro: <b>$0.00</b></span>
+                <span className="text-slate-500">IVA: <b>${totalIva.toFixed(2)}</b></span>
                 <span className="text-red-400">Descuento: <b>${totalDescuento.toFixed(2)}</b></span>
               </div>
               <div className="px-4 py-3 flex items-center justify-end gap-3 shrink-0 border-t border-slate-100" style={{ background: "linear-gradient(90deg, #1262b8 0%, #1a7fe8 100%)" }}>
