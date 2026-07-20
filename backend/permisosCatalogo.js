@@ -92,6 +92,9 @@ const PERMISOS = [
   { clave: "gestionar_publicaciones_ml", etiqueta: "Publicar y Editar en MercadoLibre", modulo: "ml", implementado: true },
   { clave: "importar_ordenes_ml",        etiqueta: "Importar Órdenes de MercadoLibre",  modulo: "ml", implementado: true },
   { clave: "conectar_cuenta_ml",         etiqueta: "Conectar / Desconectar Cuenta ML",  modulo: "ml", implementado: true },
+
+  // ---- Reportes ----
+  { clave: "ver_reportes", etiqueta: "Ver Reportes de Sistema", modulo: "reportes", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
@@ -101,6 +104,7 @@ const MODULOS_SISTEMA = [
   { id: "crm",       nombre: "Clientes" },
   { id: "admin",     nombre: "Roles y Personal" },
   { id: "ml",        nombre: "MercadoLibre" },
+  { id: "reportes",  nombre: "Reportes" },
 ];
 
 function listarPermisos() {
