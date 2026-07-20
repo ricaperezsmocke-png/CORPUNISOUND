@@ -118,8 +118,8 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
         <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
           <h3 className="font-semibold text-sm text-slate-700 flex items-center gap-2"><Package size={16} /> Artículo</h3>
           <button onClick={onCancelar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400"><X size={16} /></button>
@@ -217,8 +217,8 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
         </div>
 
         {modalSat && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4" onClick={() => setModalSat(false)}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4 animate-overlay-in" onClick={() => setModalSat(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto animate-panel-in" onClick={(e) => e.stopPropagation()}>
               <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
                 <h4 className="font-semibold text-sm text-slate-700">Buscar Clave SAT</h4>
                 <button onClick={() => setModalSat(false)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400"><X size={16} /></button>
