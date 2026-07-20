@@ -57,6 +57,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
+const { reporteVentas } = require("./reportes");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -1101,6 +1102,12 @@ app.get("/api/ml/item-imagen/:itemId", requiereLogin, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get("/api/reportes/ventas", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, vendedor_id, cliente_id, tipo_documento } = req.query;
+  res.json(reporteVentas(DB, { fecha_inicio, fecha_fin, vendedor_id, cliente_id, tipo_documento }, alcance));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
