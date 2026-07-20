@@ -236,12 +236,12 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       </div>
 
       {aviso && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[60]">{aviso}</div>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[60] animate-toast-in">{aviso}</div>
       )}
 
       {modal === "detalle" && detalle && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
               <h3 className="font-semibold text-sm">Detalle — Folio {detalle.id}</h3>
               <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
@@ -282,8 +282,8 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       )}
 
       {modal === "cancelar" && seleccionada && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Cancelar venta — Folio {seleccionada.id}</h3>
               <button onClick={() => setModal(null)} className="hover:bg-red-700 rounded p-1"><X size={18} /></button>

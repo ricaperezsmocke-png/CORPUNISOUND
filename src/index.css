@@ -38,3 +38,45 @@ html, body, #root {
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  :root {
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+
+  @keyframes overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes panel-in {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translate(-50%, 8px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  .animate-overlay-in {
+    animation: overlay-in 160ms var(--ease-out);
+  }
+
+  .animate-panel-in {
+    animation: panel-in 200ms var(--ease-out);
+  }
+
+  .animate-toast-in {
+    animation: toast-in 220ms var(--ease-out);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-overlay-in,
+    .animate-panel-in,
+    .animate-toast-in {
+      animation-duration: 1ms;
+    }
+  }
+}

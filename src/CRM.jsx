@@ -427,7 +427,7 @@ export default function CRM({ onVolver, permisos }) {
         </div>}
       </div>
 
-      {aviso && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0f172a", color: "#fff", fontSize: 13, padding: "10px 18px", borderRadius: 20, boxShadow: "0 8px 24px rgba(0,0,0,.2)", zIndex: 300 }}>{aviso}</div>}
+      {aviso && <div className="animate-toast-in" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0f172a", color: "#fff", fontSize: 13, padding: "10px 18px", borderRadius: 20, boxShadow: "0 8px 24px rgba(0,0,0,.2)", zIndex: 300 }}>{aviso}</div>}
 
       {modal === "cliente" && <Modal onClose={() => setModal(null)}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Nuevo cliente</div>

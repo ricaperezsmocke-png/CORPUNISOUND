@@ -24,8 +24,8 @@ const $fmt = (n) => `$ ${Number(n || 0).toFixed(2)}`;
 function TicketCorte({ corte, onCerrar }) {
   const hayDiferencia = Math.abs(corte.total_diferencia || 0) >= 0.01;
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto animate-panel-in">
         <div className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 bg-white">
           <h3 className="font-semibold text-sm">Ticket de Corte de Caja #{corte.id}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded p-1"><X size={18} /></button>
@@ -248,12 +248,12 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
         </div>
       </div>
 
-      {aviso && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[60]">{aviso}</div>}
+      {aviso && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[60] animate-toast-in">{aviso}</div>}
 
       {/* ===== MODAL: CORTE DE CAJA (calcado de SICAR) ===== */}
       {modal === "corte" && enCurso && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
             <div className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Corte de Caja</h3>
               <button onClick={() => setModal(null)} className="hover:bg-slate-100 rounded p-1"><X size={18} /></button>
@@ -368,8 +368,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
       {/* ===== MODAL: HISTORIAL DE CORTES ===== */}
       {modal === "historial" && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
               <h3 className="font-semibold text-sm">Historial de Cortes</h3>
               <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
