@@ -153,9 +153,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         const sugeridos = {};
         const marcasSugeridos = {};
         data.conceptos.forEach((c, idx) => {
-          const match = productos.find((p) => p.clave_sat && c.clave_sat && p.clave_sat === c.clave_sat);
-          sugeridos[idx] = match ? match.id : null;
-          if (match) marcasSugeridos[idx] = true;
+          const match = sugerirProducto({ codigo: c.clave_sat, descripcion: c.descripcion }, productos, { incluirClaveSat: true });
+          if (match) { sugeridos[idx] = match.producto_id; marcasSugeridos[idx] = true; }
         });
         setMatchesXml(sugeridos);
         setSugeridosXml(marcasSugeridos);
@@ -798,14 +797,11 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                       <td className="py-2 px-2 text-center">{c.cantidad}</td>
                       <td className="py-2 px-2 text-right">${c.valor_unitario.toFixed(2)}</td>
                       <td className="py-2 px-2">
-                        <select
-                          className={inputCls}
-                          value={matchesXml[idx] ?? ""}
-                          onChange={(e) => setMatchesXml((prev) => ({ ...prev, [idx]: e.target.value ? Number(e.target.value) : null }))}
-                        >
-                          <option value="">Sin vincular — se ignora</option>
-                          {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                        </select>
+                        <BuscadorProductoFila
+                          productos={productos}
+                          productoId={matchesXml[idx] ?? null}
+                          onSeleccionar={(id) => setMatchesXml((prev) => ({ ...prev, [idx]: id }))}
+                        />
                       </td>
                       <td className="py-2 px-2 text-center">
                         <label className="inline-flex items-center gap-1 text-xs text-slate-600">
