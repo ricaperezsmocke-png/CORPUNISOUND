@@ -35,6 +35,7 @@ test("filtrarCorteEnCursoPorPermiso pone los montos y conteos en 0 sin el permis
   assert.deepStrictEqual(r, {
     desde: "2026-07-01T10:00:00.000Z",
     ventas_incluidas: 0,
+    abonos_incluidos: 0,
     calculado: { EFECTIVO: 0, CHEQUE: 0, VALES: 0, TARJETA: 0 },
     total_calculado: 0,
     transferencias: 0,
