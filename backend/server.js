@@ -57,6 +57,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja } = require("./reportes");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -1101,6 +1102,48 @@ app.get("/api/ml/item-imagen/:itemId", requiereLogin, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get("/api/reportes/ventas", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, vendedor_id, cliente_id, tipo_documento } = req.query;
+  res.json(reporteVentas(DB, { fecha_inicio, fecha_fin, vendedor_id, cliente_id, tipo_documento }, alcance));
+});
+
+app.get("/api/reportes/utilidad", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, vendedor_id } = req.query;
+  res.json(reporteUtilidad(DB, { fecha_inicio, fecha_fin, vendedor_id }, alcance));
+});
+
+app.get("/api/reportes/compras", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, proveedor_id } = req.query;
+  res.json(reporteCompras(DB, { fecha_inicio, fecha_fin, proveedor_id }, alcance));
+});
+
+app.get("/api/reportes/cortes-caja", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin } = req.query;
+  res.json(reporteCortesCaja(DB, { fecha_inicio, fecha_fin }, alcance));
+});
+
+app.get("/api/reportes/existencias", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { departamento_id, estado } = req.query;
+  res.json(reporteExistencias(DB, { departamento_id, estado }, alcance));
+});
+
+app.get("/api/reportes/clientes", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { cliente_id } = req.query;
+  res.json(reporteEstadoCuentaClientes(DB, { cliente_id }, alcance));
+});
+
+app.get("/api/reportes/movimientos-caja", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin } = req.query;
+  res.json(reporteMovimientosCaja(DB, { fecha_inicio, fecha_fin }, alcance));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

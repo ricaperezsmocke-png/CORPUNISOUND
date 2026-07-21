@@ -79,4 +79,10 @@ html, body, #root {
       animation-duration: 1ms;
     }
   }
+
+  @media print {
+    .no-imprimir {
+      display: none !important;
+    }
+  }
 }
