@@ -890,7 +890,12 @@ test("reporteVentas: incluye un arreglo de abonos con el detalle de cada pago pa
 });
 
 test("reporteUtilidad: un apartado pendiente no cuenta como utilidad hasta liquidarse", () => {
+  // Nota: construirDBPrueba() ya siembra 3 ventas cerradas normales (ids 1-3),
+  // así que el reporte NUNCA parte de $0 — se compara antes/después para
+  // aislar exactamente lo que el apartado pendiente aporta (debe ser nada).
   const DB = construirDBPrueba();
+  const antes = reporteUtilidad(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+
   crearApartado(DB, {
     cliente_id: 1,
     lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
@@ -898,27 +903,35 @@ test("reporteUtilidad: un apartado pendiente no cuenta como utilidad hasta liqui
     anticipo_forma_pago: "EFECTIVO",
   }, 1, { nombre: "Ana" });
 
-  const r = reporteUtilidad(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
-  assert.strictEqual(r.totales.venta, 0, "el apartado sigue pendiente, no debe sumar utilidad todavía");
+  const despues = reporteUtilidad(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  assert.strictEqual(despues.totales.venta, antes.totales.venta, "el apartado sigue pendiente, no debe sumar utilidad todavía");
 });
 
 test("reporteMovimientosCaja: los abonos de un apartado entran como entradas por su propia forma de pago", () => {
+  // Las ventas semilla ya usan EFECTIVO/TARJETA — se usa CHEQUE (forma de
+  // pago que ninguna venta sembrada usa) para que la aserción exacta no
+  // dependa de esos datos previos.
   const DB = construirDBPrueba();
   crearApartado(DB, {
     cliente_id: 1,
     lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
     anticipo_monto: 12,
-    anticipo_forma_pago: "TARJETA",
+    anticipo_forma_pago: "CHEQUE",
   }, 1, { nombre: "Ana" });
 
   const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
-  const tarjeta = r.entradas.find((f) => f.forma_pago === "TARJETA");
-  assert.ok(tarjeta);
-  assert.strictEqual(tarjeta.total, 12);
+  const cheque = r.entradas.find((f) => f.forma_pago === "CHEQUE");
+  assert.ok(cheque);
+  assert.strictEqual(cheque.total, 12);
 });
 
 test("reporteMovimientosCaja: NO duplica el dinero cuando el apartado se liquida en el rango consultado", () => {
+  // Igual que en reporteUtilidad arriba: se compara antes/después para
+  // aislar el aporte exacto del apartado frente a las 3 ventas semilla
+  // (que ya suman $4100 en total_entradas por sí solas).
   const DB = construirDBPrueba();
+  const antes = reporteMovimientosCaja(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+
   const venta = crearApartado(DB, {
     cliente_id: 1,
     lineas: [{ producto_id: 1, cantidad: 2, precio_unitario: 25, descuento_pct: 0 }],
@@ -928,7 +941,8 @@ test("reporteMovimientosCaja: NO duplica el dinero cuando el apartado se liquida
   registrarAbono(DB, venta.id, { monto: 30, forma_pago: "TARJETA" }, { nombre: "Ana" }); // liquida ($50)
 
   const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
-  assert.strictEqual(r.totales.total_entradas, 50, "solo los dos abonos (20+30), nunca también el total de la venta");
+  const delta = Math.round((r.totales.total_entradas - antes.totales.total_entradas) * 100) / 100;
+  assert.strictEqual(delta, 50, "solo los dos abonos (20+30), nunca también el total de la venta");
 });
 
 test("reporteEstadoCuentaClientes: incluye el saldo de monedero de cada cliente", () => {
