@@ -431,3 +431,134 @@ test("reporteMovimientosCaja: suma correctamente múltiples salidas (retiros) en
   assert.strictEqual(r.salidas.length, 3, "deben incluir los 3 cortes con retiro");
   assert.strictEqual(r.totales.total_salidas, 900 + 500 + 200, "suma de retiros debe ser 1600");
 });
+
+const { crearApartado, registrarAbono } = require("./apartados");
+
+test("reporteVentas: un apartado pendiente (sin liquidar) no aparece en ningún lado del reporte", () => {
+  const DB = construirDBPrueba();
+  crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 10,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" });
+
+  const r = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  assert.ok(!r.general.some((f) => f.tipo_documento === "Apartado"), "no debe aparecer mientras está pendiente");
+});
+
+test("reporteVentas: un apartado liquidado aparece como venta cerrada, con fecha_liquidacion", () => {
+  const DB = construirDBPrueba();
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 10,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" });
+  registrarAbono(DB, venta.id, { monto: 15, forma_pago: "TARJETA" }, { nombre: "Ana" }); // liquida ($25)
+
+  const r = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  const fila = r.general.find((f) => f.id === venta.id);
+  assert.ok(fila, "debe aparecer una vez liquidado");
+  assert.strictEqual(fila.estatus, "cerrada");
+  assert.strictEqual(fila.tipo_documento, "Apartado");
+  assert.ok(fila.fecha_liquidacion);
+  assert.ok(r.totales.total_vigente >= 25);
+});
+
+test("reporteVentas: filtro tipo_documento='Apartado' aísla solo los apartados ya liquidados", () => {
+  const DB = construirDBPrueba();
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 25,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" }); // anticipo cubre el total → liquida de inmediato
+
+  const r = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31", tipo_documento: "Apartado" }, ALCANCE_TODAS);
+  assert.strictEqual(r.general.length, 1);
+  assert.strictEqual(r.general[0].id, venta.id);
+});
+
+test("reporteVentas: incluye un arreglo de abonos con el detalle de cada pago parcial", () => {
+  const DB = construirDBPrueba();
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 2, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 20,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" });
+  registrarAbono(DB, venta.id, { monto: 10, forma_pago: "TARJETA" }, { nombre: "Ana" });
+
+  const r = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  assert.strictEqual(r.abonos.length, 2);
+  assert.strictEqual(r.abonos[0].monto, 20);
+  assert.strictEqual(r.abonos[0].forma_pago, "EFECTIVO");
+  assert.strictEqual(r.abonos[1].monto, 10);
+  assert.strictEqual(r.abonos[1].forma_pago, "TARJETA");
+  assert.strictEqual(r.abonos[0].cliente_nombre, "Abarrotes Mary");
+});
+
+test("reporteUtilidad: un apartado pendiente no cuenta como utilidad hasta liquidarse", () => {
+  // Nota: construirDBPrueba() ya siembra 3 ventas cerradas normales (ids 1-3),
+  // así que el reporte NUNCA parte de $0 — se compara antes/después para
+  // aislar exactamente lo que el apartado pendiente aporta (debe ser nada).
+  const DB = construirDBPrueba();
+  const antes = reporteUtilidad(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+
+  crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 10,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" });
+
+  const despues = reporteUtilidad(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  assert.strictEqual(despues.totales.venta, antes.totales.venta, "el apartado sigue pendiente, no debe sumar utilidad todavía");
+});
+
+test("reporteMovimientosCaja: los abonos de un apartado entran como entradas por su propia forma de pago", () => {
+  // Las ventas semilla ya usan EFECTIVO/TARJETA — se usa CHEQUE (forma de
+  // pago que ninguna venta sembrada usa) para que la aserción exacta no
+  // dependa de esos datos previos.
+  const DB = construirDBPrueba();
+  crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 12,
+    anticipo_forma_pago: "CHEQUE",
+  }, 1, { nombre: "Ana" });
+
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  const cheque = r.entradas.find((f) => f.forma_pago === "CHEQUE");
+  assert.ok(cheque);
+  assert.strictEqual(cheque.total, 12);
+});
+
+test("reporteMovimientosCaja: NO duplica el dinero cuando el apartado se liquida en el rango consultado", () => {
+  // Igual que en reporteUtilidad arriba: se compara antes/después para
+  // aislar el aporte exacto del apartado frente a las 3 ventas semilla
+  // (que ya suman $4100 en total_entradas por sí solas).
+  const DB = construirDBPrueba();
+  const antes = reporteMovimientosCaja(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 2, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 20,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" });
+  registrarAbono(DB, venta.id, { monto: 30, forma_pago: "TARJETA" }, { nombre: "Ana" }); // liquida ($50)
+
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  const delta = Math.round((r.totales.total_entradas - antes.totales.total_entradas) * 100) / 100;
+  assert.strictEqual(delta, 50, "solo los dos abonos (20+30), nunca también el total de la venta");
+});
+
+test("reporteEstadoCuentaClientes: incluye el saldo de monedero de cada cliente", () => {
+  const DB = construirDBPrueba();
+  DB.crm.clientes.find((c) => c.id === 1).monedero = 75;
+  const r = reporteEstadoCuentaClientes(DB, {}, ALCANCE_TODAS);
+  const fila = r.filas.find((f) => f.id === 1);
+  assert.strictEqual(fila.monedero, 75);
+});

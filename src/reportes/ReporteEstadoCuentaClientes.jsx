@@ -31,8 +31,8 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
   const exportarExcel = () => {
     if (!datos) return;
     descargarCSV("estado_de_cuenta_clientes.csv",
-      ["Clave", "Nombre", "Límite de Crédito", "Saldo", "Crédito Disponible"],
-      datos.filas.map((f) => [f.clave, f.nombre, f.limite_credito, f.saldo, f.credito_disponible]));
+      ["Clave", "Nombre", "Límite de Crédito", "Saldo", "Crédito Disponible", "Monedero"],
+      datos.filas.map((f) => [f.clave, f.nombre, f.limite_credito, f.saldo, f.credito_disponible, f.monedero]));
   };
 
   return (
@@ -58,11 +58,12 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
                 <th className="py-2 px-3 text-right font-medium">Límite</th>
                 <th className="py-2 px-3 text-right font-medium">Saldo</th>
                 <th className="py-2 px-3 text-right font-medium">Disponible</th>
+                <th className="py-2 px-3 text-right font-medium">Monedero</th>
               </tr>
             </thead>
             <tbody>
-              {cargando && <tr><td colSpan={5} className="text-center text-slate-400 py-16">Consultando...</td></tr>}
-              {!cargando && datos && datos.filas.length === 0 && <tr><td colSpan={5} className="text-center text-slate-400 py-16">Sin clientes</td></tr>}
+              {cargando && <tr><td colSpan={6} className="text-center text-slate-400 py-16">Consultando...</td></tr>}
+              {!cargando && datos && datos.filas.length === 0 && <tr><td colSpan={6} className="text-center text-slate-400 py-16">Sin clientes</td></tr>}
               {datos && datos.filas.map((f) => (
                 <tr key={f.id} onClick={() => setClienteId(String(f.id))}
                   className={`border-b border-slate-100 cursor-pointer ${String(f.id) === clienteId ? "bg-blue-50" : "hover:bg-slate-50"}`}>
@@ -71,6 +72,7 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
                   <td className="py-2 px-3 text-right">${f.limite_credito.toFixed(2)}</td>
                   <td className="py-2 px-3 text-right">${f.saldo.toFixed(2)}</td>
                   <td className="py-2 px-3 text-right font-medium">${f.credito_disponible.toFixed(2)}</td>
+                  <td className="py-2 px-3 text-right text-emerald-700">${f.monedero.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

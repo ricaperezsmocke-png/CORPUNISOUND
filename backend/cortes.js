@@ -23,7 +23,9 @@ function fechaHoraDeVenta(v) {
   return v.fecha_hora || `${v.fecha}T00:00:00.000Z`;
 }
 
-/** Ventas del turno en curso: cerradas, de la sucursal, posteriores al último corte */
+/** Ventas del turno en curso: cerradas, de la sucursal, posteriores al último corte.
+ *  Excluye Apartados — su dinero se cuenta por abono real (ver abonosDelTurno),
+ *  nunca por el total completo de la venta, para no duplicarlo al liquidarse. */
 function ventasDelTurno(DB, sucursal_id) {
   const cortes = DB.pos.cortes_caja.filter((c) => c.sucursal_id === Number(sucursal_id));
   const ultimoCorte = cortes.length ? cortes.reduce((a, b) => (a.fecha_hora > b.fecha_hora ? a : b)) : null;
@@ -34,26 +36,53 @@ function ventasDelTurno(DB, sucursal_id) {
     ventas: DB.pos.ventas.filter(
       (v) =>
         v.estatus === "cerrada" &&
+        v.tipo_documento !== "Apartado" &&
         v.sucursal_id === Number(sucursal_id) &&
         (!desde || fechaHoraDeVenta(v) > desde)
     ),
   };
 }
 
+/** Abonos de apartados (incluye el anticipo) del turno en curso de esta sucursal. */
+function abonosDelTurno(DB, sucursal_id, desde) {
+  return DB.pos.apartado_abonos.filter(
+    (a) => a.sucursal_id === Number(sucursal_id) && (!desde || a.fecha_hora > desde)
+  );
+}
+
+/** Suma `monto` a `calculado[forma]` si es una de las 4 formas físicas del
+ *  corte; si no, regresa el delta correspondiente a transferencias/crédito
+ *  (o cae a EFECTIVO si la forma no se reconoce) — mismo criterio que ya
+ *  usaba calcularCorteEnCurso para ventas, ahora compartido con abonos. */
+function acumularPorFormaPago(calculado, forma, monto) {
+  if (calculado[forma] !== undefined) {
+    calculado[forma] += monto;
+    return { transferencias: 0, credito: 0 };
+  }
+  if (forma === "TRANSFERENCIA") return { transferencias: monto, credito: 0 };
+  if (forma === "CRÉDITO" || forma === "CREDITO") return { transferencias: 0, credito: monto };
+  calculado.EFECTIVO += monto;
+  return { transferencias: 0, credito: 0 };
+}
+
 /** Lo que el sistema calcula que debería haber en caja, por forma de pago */
 function calcularCorteEnCurso(DB, sucursal_id) {
   const { desde, ventas } = ventasDelTurno(DB, sucursal_id);
+  const abonos = abonosDelTurno(DB, sucursal_id, desde);
 
   const calculado = { EFECTIVO: 0, CHEQUE: 0, VALES: 0, TARJETA: 0 };
   let transferencias = 0;
   let credito = 0;
 
   ventas.forEach((v) => {
-    const metodo = (v.metodo_pago || "EFECTIVO").toUpperCase();
-    if (calculado[metodo] !== undefined) calculado[metodo] += v.total;
-    else if (metodo === "TRANSFERENCIA") transferencias += v.total;
-    else if (metodo === "CRÉDITO" || metodo === "CREDITO") credito += v.total;
-    else calculado.EFECTIVO += v.total; // formas no mapeadas caen a efectivo
+    const r = acumularPorFormaPago(calculado, (v.metodo_pago || "EFECTIVO").toUpperCase(), v.total);
+    transferencias += r.transferencias;
+    credito += r.credito;
+  });
+  abonos.forEach((a) => {
+    const r = acumularPorFormaPago(calculado, (a.forma_pago || "EFECTIVO").toUpperCase(), a.monto);
+    transferencias += r.transferencias;
+    credito += r.credito;
   });
 
   const redondear = (n) => Math.round(n * 100) / 100;
@@ -62,6 +91,7 @@ function calcularCorteEnCurso(DB, sucursal_id) {
   return {
     desde,
     ventas_incluidas: ventas.length,
+    abonos_incluidos: abonos.length,
     calculado,
     total_calculado: redondear(FORMAS_CORTE.reduce((a, f) => a + calculado[f], 0)),
     transferencias: redondear(transferencias),
@@ -124,6 +154,7 @@ function filtrarCorteEnCursoPorPermiso(resultado, permisos) {
   return {
     desde: resultado.desde,
     ventas_incluidas: 0,
+    abonos_incluidos: 0,
     calculado: calculadoEnCero,
     total_calculado: 0,
     transferencias: 0,
