@@ -1,6 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
+const { obtenerConfiguracion } = require("./configuracion");
 const {
   crearApartado, registrarAbono, cancelarApartado, procesarVencimientos,
   listarApartados, obtenerApartadosProximosAVencer, saldoPendiente,
@@ -28,8 +29,18 @@ test("crearApartado: rechaza anticipo en $0", () => {
   );
 });
 
+test("crearApartado: rechaza un anticipo mayor al total del apartado", () => {
+  const DB = construirDBPrueba();
+  assert.throws(
+    () => crearApartado(DB, { cliente_id: 1, lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }], anticipo_monto: 999, anticipo_forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" }),
+    /anticipo/i
+  );
+});
+
 test("crearApartado: rechaza apartar más de lo que hay en existencia", () => {
   const DB = construirDBPrueba();
+  obtenerConfiguracion(DB); // inicializa config
+  DB.pos.configuracion.permitir_ventas_sin_existencia = false; // forzar bloqueo por stock en la prueba
   assert.throws(
     () => crearApartado(DB, { cliente_id: 1, lineas: [{ producto_id: 1, cantidad: 9999, precio_unitario: 25, descuento_pct: 0 }], anticipo_monto: 10, anticipo_forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" }),
     /existencia/i
@@ -133,6 +144,7 @@ test("procesarVencimientos: no toca apartados que todavía están dentro del lí
 test("listarApartados: solo devuelve los vigentes (ya corrió el vencimiento automático primero)", () => {
   const DB = construirDBPrueba();
   const vigente = crearApartado(DB, { cliente_id: 1, lineas: lineasBase(), anticipo_monto: 20, anticipo_forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" });
+  DB.inventario.existencias.push({ producto_id: 2, sucursal_id: 1, cantidad_actual: 10, cantidad_minima: 0, cantidad_maxima: 0 });
   const vencido = crearApartado(DB, { cliente_id: 1, lineas: [{ producto_id: 2, cantidad: 1, precio_unitario: 16, descuento_pct: 0 }], anticipo_monto: 5, anticipo_forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" });
   DB.pos.ventas.find((v) => v.id === vencido.id).fecha_limite = "2000-01-01";
 

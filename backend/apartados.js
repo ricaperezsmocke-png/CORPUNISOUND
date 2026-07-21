@@ -13,6 +13,7 @@
  */
 
 const { ajustarExistencia } = require("./productos");
+const { obtenerConfiguracion } = require("./configuracion");
 
 const DIAS_LIMITE_APARTADO = 60;
 const DIAS_AVISO_POR_VENCER = 7;
@@ -52,26 +53,34 @@ function crearApartado(DB, datos, sucursalId, usuario) {
   const sucursal_id = Number(sucursalId) || 1;
 
   // Misma validación de existencia suficiente que crearVenta (ventas.js) —
-  // no dejar apartar más de lo que hay, agrupando por producto por si el
-  // mismo producto aparece en más de un renglón.
-  const cantidadPedida = {};
-  datos.lineas.forEach((l) => {
-    if (!l.producto_id) return;
-    cantidadPedida[l.producto_id] = (cantidadPedida[l.producto_id] || 0) + (Number(l.cantidad) || 0);
-  });
-  Object.entries(cantidadPedida).forEach(([productoId, cantidad]) => {
-    const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(productoId) && e.sucursal_id === sucursal_id);
-    if (!exist) return; // sin registro de existencia en esta sucursal — no se puede validar, se deja pasar (igual que ajustarExistencia)
-    if (cantidad > exist.cantidad_actual) {
-      const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(productoId));
-      throw new Error(`No hay existencia suficiente de "${producto?.nombre || "producto"}" (disponible: ${exist.cantidad_actual}, solicitado: ${cantidad})`);
-    }
-  });
+  // respeta la configuración "Permitir Ventas de Artículos Sin Existencia":
+  // si NO está activa, un producto sin registro de existencia en esta
+  // sucursal se trata como disponible: 0 (bloquea), agrupando por producto
+  // por si el mismo producto aparece en más de un renglón.
+  const config = obtenerConfiguracion(DB);
+  if (!config.permitir_ventas_sin_existencia) {
+    const cantidadPedida = {};
+    datos.lineas.forEach((l) => {
+      if (!l.producto_id) return;
+      cantidadPedida[l.producto_id] = (cantidadPedida[l.producto_id] || 0) + (Number(l.cantidad) || 0);
+    });
+    Object.entries(cantidadPedida).forEach(([productoId, cantidad]) => {
+      const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(productoId) && e.sucursal_id === sucursal_id);
+      const disponible = exist ? exist.cantidad_actual : 0;
+      if (cantidad > disponible) {
+        const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(productoId));
+        throw new Error(`No hay existencia suficiente de "${producto?.nombre || "producto"}" (disponible: ${disponible}, solicitado: ${cantidad})`);
+      }
+    });
+  }
 
   const nuevoId = siguienteId(DB.pos.ventas);
   const subtotal = datos.lineas.reduce((a, l) => a + Number(l.cantidad) * Number(l.precio_unitario), 0);
   const descuento = datos.lineas.reduce((a, l) => a + (Number(l.cantidad) * Number(l.precio_unitario) * (Number(l.descuento_pct) || 0)) / 100, 0);
   const total = Math.round((subtotal - descuento) * 100) / 100;
+  if (anticipoMonto > total) {
+    throw new Error(`El anticipo no puede ser mayor al total del apartado ($${total.toFixed(2)})`);
+  }
   const fechaHoy = hoy();
   const fechaLimiteObj = new Date();
   fechaLimiteObj.setDate(fechaLimiteObj.getDate() + DIAS_LIMITE_APARTADO);
