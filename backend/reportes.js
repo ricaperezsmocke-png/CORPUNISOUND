@@ -271,4 +271,41 @@ function reporteEstadoCuentaClientes(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes };
+function reporteMovimientosCaja(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin } = filtros;
+  const ventas = filtrarPorSucursal(DB.pos.ventas, alcance)
+    .filter((v) => v.estatus !== "cancelada")
+    .filter((v) => enRango(v.fecha, fecha_inicio, fecha_fin));
+
+  const entradasMapa = new Map();
+  ventas.forEach((v) => {
+    const forma = (v.metodo_pago || "EFECTIVO").toUpperCase();
+    const actual = entradasMapa.get(forma) || { forma_pago: forma, total: 0 };
+    actual.total += v.total;
+    entradasMapa.set(forma, actual);
+  });
+  const entradas = [...entradasMapa.values()]
+    .map((f) => ({ ...f, total: redondear(f.total) }))
+    .sort((a, b) => b.total - a.total);
+
+  const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+  const cortes = filtrarPorSucursal(DB.pos.cortes_caja, alcance)
+    .filter((c) => enRango(c.fecha, fecha_inicio, fecha_fin));
+  const salidas = cortes
+    .filter((c) => Number(c.total_retiro) > 0)
+    .map((c) => ({
+      id: c.id, fecha: c.fecha, sucursal_nombre: nombreSucursal(c.sucursal_id),
+      usuario_nombre: c.usuario_nombre, total_retiro: c.total_retiro,
+    }))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  return {
+    entradas, salidas,
+    totales: {
+      total_entradas: redondear(entradas.reduce((a, f) => a + f.total, 0)),
+      total_salidas: redondear(salidas.reduce((a, f) => a + f.total_retiro, 0)),
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja };

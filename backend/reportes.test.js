@@ -367,3 +367,67 @@ test("reporteEstadoCuentaClientes: suma correctamente totales con múltiples cli
   assert.strictEqual(r.totales.saldo_total, 1200 + 500, "saldo_total debe ser suma de ambos clientes");
   assert.strictEqual(r.totales.limite_total, 5000 + 3000, "limite_total debe ser suma de ambos clientes");
 });
+
+const { reporteMovimientosCaja } = require("./reportes");
+
+test("reporteMovimientosCaja: agrupa entradas (ventas) por forma de pago", () => {
+  const DB = construirDBPrueba();
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  const efectivo = r.entradas.find((f) => f.forma_pago === "EFECTIVO");
+  const tarjeta = r.entradas.find((f) => f.forma_pago === "TARJETA");
+  assert.strictEqual(efectivo.total, 1200 + 2100, "ventas 1 y 3 son en efectivo");
+  assert.strictEqual(tarjeta.total, 800, "venta 2 es con tarjeta");
+  assert.strictEqual(r.totales.total_entradas, 1200 + 800 + 2100);
+});
+
+test("reporteMovimientosCaja: no cuenta ventas canceladas como entrada", () => {
+  const DB = construirDBPrueba();
+  DB.pos.ventas[0].estatus = "cancelada";
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  assert.strictEqual(r.totales.total_entradas, 800 + 2100);
+});
+
+test("reporteMovimientosCaja: lista los retiros de cada corte como salida", () => {
+  const DB = construirDBPrueba();
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 1000, total_contado: 1000, total_diferencia: 0, total_retiro: 900,
+  });
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  assert.strictEqual(r.salidas.length, 1);
+  assert.strictEqual(r.salidas[0].total_retiro, 900);
+  assert.strictEqual(r.totales.total_salidas, 900);
+});
+
+test("reporteMovimientosCaja: ignora cortes sin retiro", () => {
+  const DB = construirDBPrueba();
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 500, total_contado: 500, total_diferencia: 0, total_retiro: 0,
+  });
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  assert.strictEqual(r.salidas.length, 0);
+});
+
+test("reporteMovimientosCaja: suma correctamente múltiples salidas (retiros) en totales", () => {
+  const DB = construirDBPrueba();
+  // Corte 1: sucursal 1, retiro 900
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 1000, total_contado: 1000, total_diferencia: 0, total_retiro: 900,
+  });
+  // Corte 2: sucursal 1, retiro 500 (distinto)
+  DB.pos.cortes_caja.push({
+    id: 2, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-15",
+    total_calculado: 600, total_contado: 600, total_diferencia: 0, total_retiro: 500,
+  });
+  // Corte 3: sucursal 2, retiro 200 (distinto)
+  DB.pos.cortes_caja.push({
+    id: 3, sucursal_id: 2, usuario_nombre: "María R.", fecha: "2026-06-20",
+    total_calculado: 300, total_contado: 300, total_diferencia: 0, total_retiro: 200,
+  });
+  const r = reporteMovimientosCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  assert.strictEqual(r.salidas.length, 3, "deben incluir los 3 cortes con retiro");
+  assert.strictEqual(r.totales.total_salidas, 900 + 500 + 200, "suma de retiros debe ser 1600");
+});
