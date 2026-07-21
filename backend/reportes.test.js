@@ -109,3 +109,48 @@ test("reporteUtilidad: calcula el margen porcentual del total", () => {
   assert.strictEqual(r.totales.costo, 20 * 20 + 12 * 40 + 20 * 25);
   assert.ok(r.totales.margen_pct > 0);
 });
+
+const { reporteCompras } = require("./reportes");
+
+function seedCompra(DB) {
+  DB["catalogo-productos"].proveedores.push({ id: 1, nombre: "Proveedor Uno", rfc: "" });
+  DB.inventario.compras.push({ id: 1, proveedor_id: 1, factura: "F-001", sucursal_id: 1, fecha: "2026-06-01T10:00:00.000Z" });
+  DB.inventario.compra_detalle.push({ id: 1, compra_id: 1, producto_id: 1, cantidad: 10, costo: 18 });
+}
+
+test("reporteCompras: agrupa por proveedor y por artículo, con total", () => {
+  const DB = construirDBPrueba();
+  seedCompra(DB);
+  const r = reporteCompras(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.general.length, 1);
+  assert.strictEqual(r.general[0].total, 180);
+  assert.strictEqual(r.porProveedor[0].proveedor, "Proveedor Uno");
+  assert.strictEqual(r.porProveedor[0].total, 180);
+  assert.strictEqual(r.porArticulo[0].producto, "Arroz 1kg");
+  assert.strictEqual(r.porArticulo[0].cantidad, 10);
+  assert.strictEqual(r.totales.total, 180);
+  assert.strictEqual(r.totales.numero_compras, 1);
+});
+
+test("reporteCompras: filtra por proveedor_id", () => {
+  const DB = construirDBPrueba();
+  seedCompra(DB);
+  DB["catalogo-productos"].proveedores.push({ id: 2, nombre: "Proveedor Dos", rfc: "" });
+  DB.inventario.compras.push({ id: 2, proveedor_id: 2, factura: "F-002", sucursal_id: 1, fecha: "2026-06-02T10:00:00.000Z" });
+  DB.inventario.compra_detalle.push({ id: 2, compra_id: 2, producto_id: 2, cantidad: 5, costo: 10 });
+
+  const r = reporteCompras(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30", proveedor_id: 2 }, ALCANCE_TODAS);
+  assert.strictEqual(r.general.length, 1);
+  assert.strictEqual(r.general[0].proveedor_nombre, "Proveedor Dos");
+});
+
+test("reporteCompras: respeta el alcance de sucursal", () => {
+  const DB = construirDBPrueba();
+  seedCompra(DB);
+  DB.inventario.compras.push({ id: 2, proveedor_id: 1, factura: "F-003", sucursal_id: 2, fecha: "2026-06-03T10:00:00.000Z" });
+  DB.inventario.compra_detalle.push({ id: 2, compra_id: 2, producto_id: 1, cantidad: 3, costo: 18 });
+
+  const r = reporteCompras(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, { verTodas: false, sucursalId: 1 });
+  assert.strictEqual(r.general.length, 1, "solo la compra de la sucursal 1");
+});

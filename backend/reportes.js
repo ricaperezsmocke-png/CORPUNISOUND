@@ -125,4 +125,47 @@ function reporteUtilidad(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad };
+function reporteCompras(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin, proveedor_id } = filtros;
+  let compras = filtrarPorSucursal(DB.inventario.compras, alcance)
+    .filter((c) => enRango(c.fecha.slice(0, 10), fecha_inicio, fecha_fin));
+  if (proveedor_id) compras = compras.filter((c) => c.proveedor_id === Number(proveedor_id));
+
+  const idsCompras = new Set(compras.map((c) => c.id));
+  const detalle = DB.inventario.compra_detalle.filter((d) => idsCompras.has(d.compra_id));
+
+  const nombreProveedor = (id) => (DB["catalogo-productos"].proveedores.find((p) => p.id === id) || {}).nombre || "—";
+  const totalDeCompra = (compraId) => DB.inventario.compra_detalle
+    .filter((d) => d.compra_id === compraId)
+    .reduce((a, d) => a + d.costo * d.cantidad, 0);
+
+  const general = compras.map((c) => ({
+    id: c.id, fecha: c.fecha.slice(0, 10), proveedor_nombre: nombreProveedor(c.proveedor_id),
+    factura: c.factura || "", total: redondear(totalDeCompra(c.id)),
+  })).sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  const porProveedorMapa = new Map();
+  general.forEach((f) => {
+    const actual = porProveedorMapa.get(f.proveedor_nombre) || { proveedor: f.proveedor_nombre, numero_compras: 0, total: 0 };
+    actual.numero_compras += 1; actual.total += f.total;
+    porProveedorMapa.set(f.proveedor_nombre, actual);
+  });
+
+  const porArticuloMapa = new Map();
+  detalle.forEach((d) => {
+    const producto = DB["catalogo-productos"].productos.find((p) => p.id === d.producto_id);
+    const nombre = producto ? producto.nombre : "Producto";
+    const actual = porArticuloMapa.get(nombre) || { producto: nombre, cantidad: 0, importe: 0 };
+    actual.cantidad += d.cantidad; actual.importe += d.costo * d.cantidad;
+    porArticuloMapa.set(nombre, actual);
+  });
+
+  return {
+    general,
+    porProveedor: [...porProveedorMapa.values()].map((f) => ({ ...f, total: redondear(f.total) })).sort((a, b) => b.total - a.total),
+    porArticulo: [...porArticuloMapa.values()].map((f) => ({ ...f, importe: redondear(f.importe) })).sort((a, b) => b.importe - a.importe),
+    totales: { numero_compras: general.length, total: redondear(general.reduce((a, f) => a + f.total, 0)) },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras };
