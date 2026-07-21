@@ -303,7 +303,7 @@ export default function CRM({ onVolver, permisos }) {
 
         {/* TAB HOY */}
         {tab === "hoy" && <div>
-          {apartadosPorVencer.length > 0 && (
+          {apartadosPorVencer.length > 0 && puede("registrar_contacto_cliente") && (
             <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: "#b45309", fontWeight: 600, marginBottom: 8 }}>⏰ Apartados por vencer · {apartadosPorVencer.length}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
