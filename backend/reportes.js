@@ -77,4 +77,52 @@ function reporteVentas(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas };
+function reporteUtilidad(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin, vendedor_id } = filtros;
+  let ventas = filtrarPorSucursal(DB.pos.ventas, alcance)
+    .filter((v) => v.estatus !== "cancelada")
+    .filter((v) => enRango(v.fecha, fecha_inicio, fecha_fin));
+  if (vendedor_id) ventas = ventas.filter((v) => v.vendedor_id === Number(vendedor_id));
+
+  const idsVentas = new Set(ventas.map((v) => v.id));
+  const detalle = DB.pos.venta_detalle.filter((d) => idsVentas.has(d.venta_id));
+
+  let ventaTotal = 0, costoTotal = 0;
+  const porArticuloMapa = new Map();
+  const porDepartamentoMapa = new Map();
+
+  detalle.forEach((d) => {
+    const producto = DB["catalogo-productos"].productos.find((p) => p.id === d.producto_id);
+    const costoUnitario = producto ? Number(producto.costo) || 0 : 0;
+    const costoLinea = costoUnitario * d.cantidad;
+    const ventaLinea = d.subtotal;
+    ventaTotal += ventaLinea;
+    costoTotal += costoLinea;
+
+    const nombreArticulo = d.descripcion || (producto ? producto.nombre : "Producto");
+    const filaArt = porArticuloMapa.get(nombreArticulo) || { producto: nombreArticulo, venta: 0, costo: 0 };
+    filaArt.venta += ventaLinea; filaArt.costo += costoLinea;
+    porArticuloMapa.set(nombreArticulo, filaArt);
+
+    const departamento = producto && producto.departamento_id
+      ? (DB["catalogo-productos"].departamentos.find((dep) => dep.id === producto.departamento_id) || {}).nombre
+      : null;
+    const nombreDepto = departamento || "Sin departamento";
+    const filaDepto = porDepartamentoMapa.get(nombreDepto) || { departamento: nombreDepto, venta: 0, costo: 0 };
+    filaDepto.venta += ventaLinea; filaDepto.costo += costoLinea;
+    porDepartamentoMapa.set(nombreDepto, filaDepto);
+  });
+
+  const conUtilidad = (f) => ({ ...f, venta: redondear(f.venta), costo: redondear(f.costo), utilidad: redondear(f.venta - f.costo) });
+
+  return {
+    porArticulo: [...porArticuloMapa.values()].map(conUtilidad).sort((a, b) => b.utilidad - a.utilidad),
+    porDepartamento: [...porDepartamentoMapa.values()].map(conUtilidad).sort((a, b) => b.utilidad - a.utilidad),
+    totales: {
+      venta: redondear(ventaTotal), costo: redondear(costoTotal), utilidad: redondear(ventaTotal - costoTotal),
+      margen_pct: ventaTotal > 0 ? redondear(((ventaTotal - costoTotal) / ventaTotal) * 100) : 0,
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad };

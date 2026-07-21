@@ -63,3 +63,49 @@ test("reporteVentas: filtra por vendedor_id", () => {
   assert.strictEqual(r.general.length, 1);
   assert.strictEqual(r.general[0].vendedor_nombre, "María R.");
 });
+
+const { reporteUtilidad } = require("./reportes");
+
+test("reporteUtilidad: calcula venta, costo y utilidad con el costo actual del producto", () => {
+  const DB = construirDBPrueba();
+  // producto 1: costo 20, la venta 1 vendió 20 unidades en $500 (venta_detalle id 1)
+  const r = reporteUtilidad(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  const arroz = r.porArticulo.find((f) => f.producto === "Arroz 1kg");
+  assert.ok(arroz);
+  assert.strictEqual(arroz.venta, 500);
+  assert.strictEqual(arroz.costo, 20 * 20, "costo actual (20) por cantidad (20)");
+  assert.strictEqual(arroz.utilidad, 500 - 400);
+});
+
+test("reporteUtilidad: agrupa por departamento, usa 'Sin departamento' si el producto no tiene uno", () => {
+  const DB = construirDBPrueba();
+  const r = reporteUtilidad(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  const sinDepto = r.porDepartamento.find((f) => f.departamento === "Sin departamento");
+  assert.ok(sinDepto, "los productos semilla no tienen departamento_id");
+});
+
+test("reporteUtilidad: agrupa por el departamento real cuando el producto lo tiene", () => {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].departamentos.push({ id: 1, nombre: "Abarrotes" });
+  DB["catalogo-productos"].productos.find((p) => p.id === 1).departamento_id = 1;
+  const r = reporteUtilidad(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  const abarrotes = r.porDepartamento.find((f) => f.departamento === "Abarrotes");
+  assert.ok(abarrotes);
+  assert.strictEqual(abarrotes.venta, 500);
+});
+
+test("reporteUtilidad: no incluye ventas canceladas", () => {
+  const DB = construirDBPrueba();
+  DB.pos.ventas[0].estatus = "cancelada";
+  const r = reporteUtilidad(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  const arroz = r.porArticulo.find((f) => f.producto === "Arroz 1kg");
+  assert.strictEqual(arroz, undefined, "la única venta de arroz estaba cancelada");
+});
+
+test("reporteUtilidad: calcula el margen porcentual del total", () => {
+  const DB = construirDBPrueba();
+  const r = reporteUtilidad(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+  assert.strictEqual(r.totales.venta, 500 + 640 + 800);
+  assert.strictEqual(r.totales.costo, 20 * 20 + 12 * 40 + 20 * 25);
+  assert.ok(r.totales.margen_pct > 0);
+});
