@@ -868,6 +868,10 @@ app.get("/api/crm/postventa-pendientes", requiereLogin, (req, res) => {
   const config = obtenerConfiguracion(DB);
   res.json(obtenerSeguimientosPostventaPendientes(DB, config.dias_seguimiento_postventa, alcance));
 });
+app.get("/api/crm/apartados-por-vencer", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(obtenerApartadosProximosAVencer(DB, alcance));
+});
 app.get("/api/crm/ranking-vendedores", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   res.json(rankingVendedores(DB, alcance));
