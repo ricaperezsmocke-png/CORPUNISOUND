@@ -168,4 +168,29 @@ function reporteCompras(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras };
+function reporteCortesCaja(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin } = filtros;
+  const cortes = filtrarPorSucursal(DB.pos.cortes_caja, alcance)
+    .filter((c) => enRango(c.fecha, fecha_inicio, fecha_fin));
+
+  const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+
+  const filas = cortes.map((c) => ({
+    id: c.id, fecha: c.fecha, sucursal_nombre: nombreSucursal(c.sucursal_id), usuario_nombre: c.usuario_nombre,
+    total_calculado: c.total_calculado, total_contado: c.total_contado, total_diferencia: c.total_diferencia,
+    total_retiro: c.total_retiro,
+  })).sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  return {
+    filas,
+    totales: {
+      numero_cortes: filas.length,
+      total_calculado: redondear(filas.reduce((a, f) => a + f.total_calculado, 0)),
+      total_contado: redondear(filas.reduce((a, f) => a + f.total_contado, 0)),
+      total_diferencia: redondear(filas.reduce((a, f) => a + f.total_diferencia, 0)),
+      total_retiro: redondear(filas.reduce((a, f) => a + f.total_retiro, 0)),
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja };

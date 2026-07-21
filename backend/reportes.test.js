@@ -154,3 +154,42 @@ test("reporteCompras: respeta el alcance de sucursal", () => {
   const r = reporteCompras(DB, { fecha_inicio: "2026-05-01", fecha_fin: "2026-06-30" }, { verTodas: false, sucursalId: 1 });
   assert.strictEqual(r.general.length, 1, "solo la compra de la sucursal 1");
 });
+
+const { reporteCortesCaja } = require("./reportes");
+
+function seedCorte(DB) {
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 1000, total_contado: 980, total_diferencia: -20, total_retiro: 900,
+  });
+}
+
+test("reporteCortesCaja: lista cortes en el rango y suma totales", () => {
+  const DB = construirDBPrueba();
+  seedCorte(DB);
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas.length, 1);
+  assert.strictEqual(r.filas[0].sucursal_nombre, "Ocosingo");
+  assert.strictEqual(r.totales.numero_cortes, 1);
+  assert.strictEqual(r.totales.total_calculado, 1000);
+  assert.strictEqual(r.totales.total_contado, 980);
+  assert.strictEqual(r.totales.total_diferencia, -20);
+  assert.strictEqual(r.totales.total_retiro, 900);
+});
+
+test("reporteCortesCaja: respeta el rango de fechas y el alcance de sucursal", () => {
+  const DB = construirDBPrueba();
+  seedCorte(DB);
+  DB.pos.cortes_caja.push({
+    id: 2, sucursal_id: 2, usuario_nombre: "María R.", fecha: "2026-06-15",
+    total_calculado: 500, total_contado: 500, total_diferencia: 0, total_retiro: 400,
+  });
+
+  const fueraDeRango = reporteCortesCaja(DB, { fecha_inicio: "2026-07-01", fecha_fin: "2026-07-31" }, ALCANCE_TODAS);
+  assert.strictEqual(fueraDeRango.filas.length, 0);
+
+  const soloSucursal1 = reporteCortesCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, { verTodas: false, sucursalId: 1 });
+  assert.strictEqual(soloSucursal1.filas.length, 1);
+  assert.strictEqual(soloSucursal1.filas[0].sucursal_nombre, "Ocosingo");
+});
