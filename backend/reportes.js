@@ -241,4 +241,34 @@ function reporteExistencias(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias };
+function reporteEstadoCuentaClientes(DB, filtros, alcance) {
+  const { cliente_id } = filtros;
+  const clientes = filtrarPorSucursal(DB.crm.clientes.filter((c) => c.id !== 0), alcance);
+
+  const filas = clientes.map((c) => ({
+    id: c.id, clave: c.clave || "", nombre: c.nombre,
+    limite_credito: Number(c.limite_credito) || 0, saldo: Number(c.saldo) || 0,
+    credito_disponible: Math.max(0, (Number(c.limite_credito) || 0) - (Number(c.saldo) || 0)),
+  })).sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  let detalleCliente = null;
+  if (cliente_id) {
+    const ventasCredito = DB.pos.ventas
+      .filter((v) => v.cliente_id === Number(cliente_id) && v.estatus !== "cancelada")
+      .filter((v) => (v.metodo_pago || "").toUpperCase().startsWith("CR"))
+      .map((v) => ({ id: v.id, fecha: v.fecha, total: v.total }))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+    detalleCliente = { cliente_id: Number(cliente_id), ventas_credito: ventasCredito };
+  }
+
+  return {
+    filas, detalleCliente,
+    totales: {
+      numero_clientes: filas.length,
+      saldo_total: redondear(filas.reduce((a, f) => a + f.saldo, 0)),
+      limite_total: redondear(filas.reduce((a, f) => a + f.limite_credito, 0)),
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes };

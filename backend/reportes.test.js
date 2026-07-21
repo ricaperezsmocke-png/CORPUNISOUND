@@ -311,3 +311,59 @@ test("reporteExistencias: suma correctamente r.totales con múltiples existencia
   assert.strictEqual(r.totales.valor_a_costo, (120 + 50) * 20 + 80 * 12 + 60 * 20);
   assert.strictEqual(r.totales.valor_a_precio_venta, (120 + 50) * 25 + 80 * 16 + 60 * 32);
 });
+
+const { reporteEstadoCuentaClientes } = require("./reportes");
+
+test("reporteEstadoCuentaClientes: calcula credito_disponible y excluye a Público en General", () => {
+  const DB = construirDBPrueba();
+  DB.crm.clientes.find((c) => c.id === 1).saldo = 1200;
+  const r = reporteEstadoCuentaClientes(DB, {}, ALCANCE_TODAS);
+
+  assert.ok(!r.filas.some((f) => f.id === 0), "Público en General no debe aparecer");
+  const mary = r.filas.find((f) => f.id === 1);
+  assert.strictEqual(mary.limite_credito, 5000);
+  assert.strictEqual(mary.saldo, 1200);
+  assert.strictEqual(mary.credito_disponible, 3800);
+  assert.strictEqual(r.totales.numero_clientes, 2);
+});
+
+test("reporteEstadoCuentaClientes: con cliente_id trae el detalle de sus ventas a crédito", () => {
+  const DB = construirDBPrueba();
+  DB.pos.ventas.push({ id: 99, fecha: "2026-06-20", fecha_hora: "2026-06-20T10:00:00.000Z", sucursal_id: 1, vendedor_id: 1, cliente_id: 1, total: 300, metodo_pago: "CRÉDITO", estatus: "cerrada", motivo_cancelacion: null });
+  const r = reporteEstadoCuentaClientes(DB, { cliente_id: 1 }, ALCANCE_TODAS);
+
+  assert.ok(r.detalleCliente);
+  assert.strictEqual(r.detalleCliente.cliente_id, 1);
+  assert.strictEqual(r.detalleCliente.ventas_credito.length, 1);
+  assert.strictEqual(r.detalleCliente.ventas_credito[0].total, 300);
+});
+
+test("reporteEstadoCuentaClientes: sin cliente_id no trae detalle", () => {
+  const DB = construirDBPrueba();
+  const r = reporteEstadoCuentaClientes(DB, {}, ALCANCE_TODAS);
+  assert.strictEqual(r.detalleCliente, null);
+});
+
+test("reporteEstadoCuentaClientes: respeta el alcance de sucursal", () => {
+  const DB = construirDBPrueba();
+  const r = reporteEstadoCuentaClientes(DB, {}, { verTodas: false, sucursalId: 2 });
+  assert.strictEqual(r.filas.length, 1);
+  assert.strictEqual(r.filas[0].nombre, "Juan Pérez");
+});
+
+test("reporteEstadoCuentaClientes: suma correctamente totales con múltiples clientes distintos", () => {
+  const DB = construirDBPrueba();
+  // Cliente 1 (Mary): limite_credito 5000, saldo 1200
+  DB.crm.clientes.find((c) => c.id === 1).saldo = 1200;
+  // Cliente 2 (Juan): limite_credito 0, saldo 0 -> modificar para tener valores distintos
+  DB.crm.clientes.find((c) => c.id === 2).saldo = 500;
+  DB.crm.clientes.find((c) => c.id === 2).limite_credito = 3000;
+
+  const r = reporteEstadoCuentaClientes(DB, {}, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas.length, 2, "deben estar los 2 clientes no-Público");
+  assert.strictEqual(r.totales.numero_clientes, 2);
+  // Verificar sums exactos: saldo_total = 1200 + 500 = 1700, limite_total = 5000 + 3000 = 8000
+  assert.strictEqual(r.totales.saldo_total, 1200 + 500, "saldo_total debe ser suma de ambos clientes");
+  assert.strictEqual(r.totales.limite_total, 5000 + 3000, "limite_total debe ser suma de ambos clientes");
+});
