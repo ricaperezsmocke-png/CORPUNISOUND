@@ -31,6 +31,9 @@ const {
   obtenerSeguimientosPostventaPendientes
 } = require("./crm");
 const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta } = require("./ventas");
+const {
+  crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
+} = require("./apartados");
 const { obtenerConfiguracion, actualizarConfiguracion } = require("./configuracion");
 const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
@@ -122,7 +125,8 @@ const DB = {
     ],
     condiciones_pago: [],
     configuracion: null,
-    cortes_caja: []
+    cortes_caja: [],
+    apartado_abonos: [],
   },
   crm: {
     clientes: [
@@ -905,7 +909,35 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
     if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
       return res.status(404).json({ error: "Venta no encontrada" });
     }
+    if (venta && venta.tipo_documento === "Apartado") {
+      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+    }
     res.json(cancelarVenta(DB, req.params.id, req.body.motivo));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- Apartados ----------
+app.get("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarApartados(DB, alcance));
+});
+app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(crearApartado(DB, req.body, sucursal_id, usuario));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+  try {
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(registrarAbono(DB, req.params.id, req.body, usuario));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
