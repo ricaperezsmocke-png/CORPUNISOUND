@@ -1,5 +1,5 @@
 import React from "react";
-import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft } from "lucide-react";
+import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft, FileBarChart } from "lucide-react";
 import AsistenteIA from "./AsistenteIA";
 import SelectorSucursal from "./SelectorSucursal.jsx";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ const MODULOS = [
   { id: "roles",      nombre: "Roles y Personal",        icono: ShieldCheck,  disponible: true, modulo: "admin" },
   { id: "crm",        nombre: "CRM",                     icono: Users,        disponible: true, modulo: "crm" },
   { id: "ml",         nombre: "MercadoLibre",             icono: Store,        disponible: true, modulo: "ml" },
+  { id: "reportes",   nombre: "Reportes",                 icono: FileBarChart, disponible: true, modulo: "reportes", permiso: "ver_reportes" },
 ];
 
 export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {

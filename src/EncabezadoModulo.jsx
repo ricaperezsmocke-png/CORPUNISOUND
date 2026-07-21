@@ -12,6 +12,7 @@ const TITULOS = {
   crm:        "CRM",
   corte:      "Corte de Caja",
   ml:         "MercadoLibre",
+  reportes:   "Reportes",
 };
 
 export default function EncabezadoModulo({ vista, usuario, onVolver, onSalir }) {
