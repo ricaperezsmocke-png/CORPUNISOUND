@@ -237,3 +237,53 @@ test("reporteCortesCaja: incluye cortes con total_retiro=0 en las sumas (no filt
   assert.strictEqual(r.totales.total_retiro, 0, "suma de total_retiro debe ser 0");
   assert.strictEqual(r.totales.total_calculado, 1000, "total_calculado debe ser 1000");
 });
+
+const { reporteExistencias } = require("./reportes");
+
+test("reporteExistencias: calcula valor de inventario a costo y a precio de venta", () => {
+  const DB = construirDBPrueba();
+  const r = reporteExistencias(DB, {}, ALCANCE_TODAS);
+  const arroz = r.filas.find((f) => f.nombre === "Arroz 1kg");
+  assert.ok(arroz);
+  assert.strictEqual(arroz.cantidad, 120, "existencia semilla del producto 1 en sucursal 1");
+  assert.strictEqual(arroz.valor_a_costo, 120 * 20);
+  assert.strictEqual(arroz.valor_a_precio_venta, 120 * 25);
+});
+
+test("reporteExistencias: filtra por estado 'bajo_minimo'", () => {
+  const DB = construirDBPrueba();
+  DB.inventario.existencias.push({ producto_id: 1, sucursal_id: 4, cantidad_actual: 5, cantidad_minima: 30, cantidad_maxima: 300 });
+  const r = reporteExistencias(DB, { estado: "bajo_minimo" }, { verTodas: false, sucursalId: 4 });
+  assert.strictEqual(r.filas.length, 1);
+  assert.strictEqual(r.filas[0].nombre, "Arroz 1kg");
+});
+
+test("reporteExistencias: filtra por estado 'sin_existencia'", () => {
+  const DB = construirDBPrueba();
+  const r = reporteExistencias(DB, { estado: "sin_existencia" }, { verTodas: false, sucursalId: 1 });
+  // producto 2 y 3 no tienen registro de existencia en sucursal 1 en el DB de prueba
+  const nombres = r.filas.map((f) => f.nombre);
+  assert.ok(nombres.includes("Refresco 600ml"));
+});
+
+test("reporteExistencias: marca productos sin ninguna línea de venta como sin movimiento", () => {
+  const DB = construirDBPrueba();
+  // producto 1 sí tiene venta_detalle (id 1); producto 2 y 3 tienen otras ventas.
+  // Ninguno de los 3 productos semilla queda sin movimiento; se agrega un 4to sin ventas.
+  DB["catalogo-productos"].productos.push({ id: 4, sku: "X-1", nombre: "Sin Ventas", costo: 5, precio_venta: 8, precios: [], activo: true });
+  DB.inventario.existencias.push({ producto_id: 4, sucursal_id: 1, cantidad_actual: 10, cantidad_minima: 0, cantidad_maxima: 0 });
+
+  const r = reporteExistencias(DB, {}, ALCANCE_TODAS);
+  const sinMovimientoNombres = r.sinMovimiento.map((f) => f.nombre);
+  assert.ok(sinMovimientoNombres.includes("Sin Ventas"));
+  assert.ok(!sinMovimientoNombres.includes("Arroz 1kg"), "Arroz sí tiene venta_detalle");
+});
+
+test("reporteExistencias: filtra por departamento_id", () => {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].departamentos.push({ id: 1, nombre: "Abarrotes" });
+  DB["catalogo-productos"].productos.find((p) => p.id === 1).departamento_id = 1;
+  const r = reporteExistencias(DB, { departamento_id: 1 }, ALCANCE_TODAS);
+  assert.strictEqual(r.filas.length, 1);
+  assert.strictEqual(r.filas[0].nombre, "Arroz 1kg");
+});

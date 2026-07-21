@@ -193,4 +193,52 @@ function reporteCortesCaja(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja };
+function reporteExistencias(DB, filtros, alcance) {
+  const { departamento_id, estado } = filtros;
+  const sucursalesVisibles = alcance.verTodas
+    ? DB.pos.sucursales.map((s) => s.id)
+    : [alcance.sucursalId];
+
+  const filas = DB["catalogo-productos"].productos
+    .filter((p) => !departamento_id || p.departamento_id === Number(departamento_id))
+    .map((p) => {
+      const existenciasProducto = DB.inventario.existencias.filter(
+        (e) => e.producto_id === p.id && sucursalesVisibles.includes(e.sucursal_id)
+      );
+      const cantidad = existenciasProducto.reduce((a, e) => a + (e.cantidad_actual || 0), 0);
+      const minima = existenciasProducto.reduce((a, e) => a + (e.cantidad_minima || 0), 0);
+      const maxima = existenciasProducto.reduce((a, e) => a + (e.cantidad_maxima || 0), 0);
+      const departamento = DB["catalogo-productos"].departamentos.find((d) => d.id === p.departamento_id);
+      const costo = Number(p.costo) || 0;
+      const precioVenta = Number(p.precio_venta) || 0;
+      return {
+        producto_id: p.id, nombre: p.nombre, sku: p.sku,
+        departamento_nombre: departamento ? departamento.nombre : "Sin departamento",
+        cantidad, minima, maxima, costo, precio_venta: precioVenta,
+        valor_a_costo: redondear(cantidad * costo),
+        valor_a_precio_venta: redondear(cantidad * precioVenta),
+      };
+    })
+    .filter((f) => {
+      if (estado === "con_existencia") return f.cantidad > 0;
+      if (estado === "sin_existencia") return f.cantidad <= 0;
+      if (estado === "sobre_maximo") return f.maxima > 0 && f.cantidad > f.maxima;
+      if (estado === "bajo_minimo") return f.minima > 0 && f.cantidad < f.minima;
+      return true;
+    })
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  const idsConMovimiento = new Set(DB.pos.venta_detalle.map((d) => d.producto_id));
+  const sinMovimiento = filas.filter((f) => !idsConMovimiento.has(f.producto_id));
+
+  return {
+    filas, sinMovimiento,
+    totales: {
+      numero_articulos: filas.length,
+      valor_a_costo: redondear(filas.reduce((a, f) => a + f.valor_a_costo, 0)),
+      valor_a_precio_venta: redondear(filas.reduce((a, f) => a + f.valor_a_precio_venta, 0)),
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias };

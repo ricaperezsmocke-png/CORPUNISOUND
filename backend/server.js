@@ -57,7 +57,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
-const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja } = require("./reportes");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias } = require("./reportes");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -1126,6 +1126,12 @@ app.get("/api/reportes/cortes-caja", requiereLogin, requierePermiso("ver_reporte
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { fecha_inicio, fecha_fin } = req.query;
   res.json(reporteCortesCaja(DB, { fecha_inicio, fecha_fin }, alcance));
+});
+
+app.get("/api/reportes/existencias", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { departamento_id, estado } = req.query;
+  res.json(reporteExistencias(DB, { departamento_id, estado }, alcance));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
