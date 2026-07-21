@@ -193,3 +193,47 @@ test("reporteCortesCaja: respeta el rango de fechas y el alcance de sucursal", (
   assert.strictEqual(soloSucursal1.filas.length, 1);
   assert.strictEqual(soloSucursal1.filas[0].sucursal_nombre, "Ocosingo");
 });
+
+test("reporteCortesCaja: suma correctamente múltiples cortes en totales", () => {
+  const DB = construirDBPrueba();
+  // Corte 1: sucursal 1, valores distintos
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 1000, total_contado: 980, total_diferencia: -20, total_retiro: 900,
+  });
+  // Corte 2: sucursal 1, valores distintos
+  DB.pos.cortes_caja.push({
+    id: 2, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-15",
+    total_calculado: 2500, total_contado: 2450, total_diferencia: -50, total_retiro: 2400,
+  });
+  // Corte 3: sucursal 2, valores distintos
+  DB.pos.cortes_caja.push({
+    id: 3, sucursal_id: 2, usuario_nombre: "María R.", fecha: "2026-06-20",
+    total_calculado: 500, total_contado: 510, total_diferencia: 10, total_retiro: 0,
+  });
+
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas.length, 3, "deben incluir los 3 cortes");
+  assert.strictEqual(r.totales.numero_cortes, 3);
+  // Verificar sumas correctas: 1000+2500+500=4000, 980+2450+510=3940, etc.
+  assert.strictEqual(r.totales.total_calculado, 1000 + 2500 + 500, "suma de total_calculado debe ser 4000");
+  assert.strictEqual(r.totales.total_contado, 980 + 2450 + 510, "suma de total_contado debe ser 3940");
+  assert.strictEqual(r.totales.total_diferencia, -20 + -50 + 10, "suma de total_diferencia debe ser -60");
+  assert.strictEqual(r.totales.total_retiro, 900 + 2400 + 0, "suma de total_retiro debe ser 3300, incluyendo el 0");
+});
+
+test("reporteCortesCaja: incluye cortes con total_retiro=0 en las sumas (no filtra falsy)", () => {
+  const DB = construirDBPrueba();
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 1000, total_contado: 1000, total_diferencia: 0, total_retiro: 0,
+  });
+
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas.length, 1, "el corte con total_retiro=0 debe estar en filas");
+  assert.strictEqual(r.filas[0].total_retiro, 0, "total_retiro debe ser 0");
+  assert.strictEqual(r.totales.total_retiro, 0, "suma de total_retiro debe ser 0");
+  assert.strictEqual(r.totales.total_calculado, 1000, "total_calculado debe ser 1000");
+});
