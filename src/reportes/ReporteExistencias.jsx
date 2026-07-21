@@ -117,7 +117,7 @@ export default function ReporteExistencias({ onVolver }) {
               </tr>
             </thead>
             <tbody>
-              {filas.length === 0 && <tr><td colSpan={6} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
+              {filas.length === 0 && <tr><td colSpan={tab === "existencias" ? 6 : 4} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
               {filas.map((f) => (
                 <tr key={f.producto_id} className="border-b border-slate-100">
                   <td className="py-2 px-3">{f.nombre}</td>

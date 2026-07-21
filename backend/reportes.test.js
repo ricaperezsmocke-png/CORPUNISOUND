@@ -287,3 +287,27 @@ test("reporteExistencias: filtra por departamento_id", () => {
   assert.strictEqual(r.filas.length, 1);
   assert.strictEqual(r.filas[0].nombre, "Arroz 1kg");
 });
+
+test("reporteExistencias: suma correctamente r.totales con múltiples existencias por producto", () => {
+  const DB = construirDBPrueba();
+  // Agregar una segunda existencia para producto 1 (Arroz) en sucursal 2
+  DB.inventario.existencias.push({ producto_id: 1, sucursal_id: 2, cantidad_actual: 50, cantidad_minima: 10, cantidad_maxima: 150 });
+
+  const r = reporteExistencias(DB, {}, ALCANCE_TODAS);
+
+  // Verificar que el producto 1 sumó ambas existencias:
+  // - Sucursal 1: 120 unidades
+  // - Sucursal 2: 50 unidades (nueva)
+  // - Total: 170 unidades
+  const arroz = r.filas.find((f) => f.nombre === "Arroz 1kg");
+  assert.strictEqual(arroz.cantidad, 120 + 50, "Arroz debe sumar ambas existencias");
+
+  // Verificar totales con aritmética literal:
+  // Producto 1 (Arroz): (120+50)*20 = 3400 a costo, (120+50)*25 = 4250 a precio
+  // Producto 2 (Refresco): 80*12 = 960 a costo, 80*16 = 1280 a precio
+  // Producto 3 (Detergente): 60*20 = 1200 a costo, 60*32 = 1920 a precio
+  // Totales: numero_articulos=3, valor_a_costo=3400+960+1200=5560, valor_a_precio_venta=4250+1280+1920=7450
+  assert.strictEqual(r.totales.numero_articulos, 3);
+  assert.strictEqual(r.totales.valor_a_costo, (120 + 50) * 20 + 80 * 12 + 60 * 20);
+  assert.strictEqual(r.totales.valor_a_precio_venta, (120 + 50) * 25 + 80 * 16 + 60 * 32);
+});
