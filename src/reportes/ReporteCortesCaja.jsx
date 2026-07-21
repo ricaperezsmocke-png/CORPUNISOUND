@@ -50,8 +50,8 @@ export default function ReporteCortesCaja({ onVolver }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2 no-imprimir">
-        <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline">
+      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+        <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
         </button>
         <h2 className="font-semibold text-slate-700 ml-2">Reporte de Cortes de Caja</h2>
@@ -106,7 +106,7 @@ export default function ReporteCortesCaja({ onVolver }) {
       </div>
 
       {datos && (
-        <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 no-imprimir">
+        <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
           <span>{datos.totales.numero_cortes} corte(s)</span>
           <span>Calculado: ${datos.totales.total_calculado.toFixed(2)} — Contado: ${datos.totales.total_contado.toFixed(2)} — Retiro: <b>${datos.totales.total_retiro.toFixed(2)}</b></span>
         </div>

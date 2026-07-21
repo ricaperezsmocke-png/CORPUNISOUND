@@ -69,8 +69,8 @@ export default function ReporteCompras({ onVolver }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2 no-imprimir">
-        <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline">
+      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+        <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
         </button>
         <h2 className="font-semibold text-slate-700 ml-2">Reporte de Compras</h2>
@@ -163,7 +163,7 @@ export default function ReporteCompras({ onVolver }) {
       </div>
 
       {datos && (
-        <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 no-imprimir">
+        <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
           <span>{datos.totales.numero_compras} recepción(es)</span>
           <span>Total: <b>${datos.totales.total.toFixed(2)}</b></span>
         </div>
