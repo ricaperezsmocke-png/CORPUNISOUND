@@ -5,12 +5,13 @@ import {
   FileText, User, Users, Zap, ClipboardList, FileMinus,
   Clock, RotateCcw, Layers, Cloud, Info, UserCircle2, ShoppingCart,
   Printer, Mail, X, Plus, Minus, Package, UserPlus, MapPin,
-  ChevronLeft, ChevronRight, Sparkles, SlidersHorizontal
+  ChevronLeft, ChevronRight, Sparkles, SlidersHorizontal, Bookmark
 } from "lucide-react";
 
 import { apiFetch } from "./api";
 import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
+import ModalApartados from "./ModalApartados.jsx";
 
 const VENDEDORES = [
   { id: 1, nombre: "Ana López" },
@@ -463,6 +464,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         else if (k === "t" && puede("cargar_cotizacion")) { e.preventDefault(); setEsCotizacion((v) => !v); mostrarAviso(esCotizacion ? "Modo venta normal" : "Modo cotización: no descuenta inventario"); }
         else if (k === "n" && puede("agregar_nota_credito_venta")) { e.preventDefault(); mostrarAviso("Nota de crédito — requiere folio de venta previo"); }
         else if (k === "e" && puede("poner_ticket_en_espera")) { e.preventDefault(); ponerEnEspera(); }
+        else if (k === "p" && puede("gestionar_apartados")) { e.preventDefault(); setModal("apartados"); }
         else if (k === "r") { e.preventDefault(); setModal("espera"); }
         else if (k === "y") { e.preventDefault(); mostrarAviso("Carga masiva — próximamente"); }
       }
@@ -593,6 +595,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           {puede("agregar_articulo_rapido") && <BotonLateral icono={Zap} etiqueta="A. Ráp" atajo="Alt+A" color="text-amber-500" onClick={() => setModal("rapido")} />}
           {puede("cargar_cotizacion") && <BotonLateral icono={ClipboardList} etiqueta="Cotiz." atajo="Alt+T" color={esCotizacion ? "text-red-600" : "text-red-400"} onClick={() => setEsCotizacion((v) => !v)} />}
           {puede("agregar_nota_credito_venta") && <BotonLateral icono={FileMinus} etiqueta="Nota Cr." atajo="Alt+N" color="text-red-500" onClick={() => mostrarAviso("Nota de crédito — requiere folio de venta previo")} />}
+          {puede("gestionar_apartados") && <BotonLateral icono={Bookmark} etiqueta="Apartados" atajo="Alt+P" color="text-purple-600" onClick={() => setModal("apartados")} />}
           {puede("poner_ticket_en_espera") && <BotonLateral icono={Clock} etiqueta="Espera" atajo="Alt+E" color="text-slate-500" onClick={ponerEnEspera} />}
           <BotonLateral icono={RotateCcw} etiqueta="Rec." atajo="Alt+R" color="text-blue-500" onClick={() => setModal("espera")} />
           <BotonLateral icono={Layers} etiqueta="Masiva" atajo="Alt+Y" color="text-slate-500" onClick={() => mostrarAviso("Carga masiva — próximamente")} />
@@ -913,6 +916,18 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             ))}
           </div>
         </Modal>
+      )}
+
+      {modal === "apartados" && (
+        <ModalApartados
+          onCerrar={() => setModal(null)}
+          carrito={carrito}
+          cliente={cliente}
+          vendedor={vendedor}
+          condicionesPago={condicionesPago}
+          permisos={permisos}
+          onApartadoCreado={() => { limpiarTicket(); cargarProductos(); }}
+        />
       )}
 
       {/* ===== MODAL: DATOS DE CLIENTE (alta) ===== */}
