@@ -36,6 +36,7 @@ function construirDBPrueba() {
       condiciones_pago: [],
       configuracion: null,
       cortes_caja: [],
+      apartado_abonos: [],
     },
     crm: {
       clientes: [

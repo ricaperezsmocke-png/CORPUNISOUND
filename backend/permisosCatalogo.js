@@ -55,6 +55,7 @@ const PERMISOS = [
   { clave: "cancelar_sin_autenticacion", etiqueta: "Permitir Cancelar Ventas sin Autenticación de Usuario con Privilegios", modulo: "pos", implementado: false },
   { clave: "ver_xml_cfdi", etiqueta: "Ver XML del CFDI", modulo: "pos", implementado: false },
   { clave: "editar_configuracion_pos", etiqueta: "Editar Configuración del Punto de Venta", modulo: "pos", implementado: true },
+  { clave: "gestionar_apartados", etiqueta: "Gestionar Apartados", modulo: "pos", implementado: true },
 
   // ---- Corte de Caja ----
   { clave: "realizar_corte_caja", etiqueta: "Realizar Corte de Caja", modulo: "corte", implementado: true },

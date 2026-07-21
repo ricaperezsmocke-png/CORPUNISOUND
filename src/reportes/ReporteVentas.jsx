@@ -8,11 +8,14 @@ import { descargarCSV } from "./exportarCSV.js";
 const hoyFmt = () => new Date().toISOString().slice(0, 10);
 const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
 
+const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión", "Apartado"];
+
 const TABS = [
   { id: "general", etiqueta: "General" },
   { id: "porArticulo", etiqueta: "Por Artículo" },
   { id: "porVendedor", etiqueta: "Por Vendedor" },
   { id: "canceladas", etiqueta: "Canceladas" },
+  { id: "abonos", etiqueta: "Abonos" },
 ];
 
 export default function ReporteVentas({ onVolver }) {
@@ -20,6 +23,7 @@ export default function ReporteVentas({ onVolver }) {
   const [fechaFinal, setFechaFinal] = useState(hoyFmt());
   const [sucursalId, setSucursalId] = useState("");
   const [vendedorId, setVendedorId] = useState("");
+  const [documentoFiltro, setDocumentoFiltro] = useState("Todos");
   const [sucursales, setSucursales] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [tab, setTab] = useState("general");
@@ -41,6 +45,7 @@ export default function ReporteVentas({ onVolver }) {
       if (fechaFinal) params.set("fecha_fin", fechaFinal);
       if (sucursalId) params.set("sucursal_id", sucursalId);
       if (vendedorId) params.set("vendedor_id", vendedorId);
+      if (documentoFiltro !== "Todos") params.set("tipo_documento", documentoFiltro);
       const r = await apiFetch(`/reportes/ventas?${params.toString()}`);
       if (!r.ok) throw new Error("El backend respondió con error");
       setDatos(await r.json());
@@ -49,7 +54,7 @@ export default function ReporteVentas({ onVolver }) {
     } finally {
       setCargando(false);
     }
-  }, [fechaInicial, fechaFinal, sucursalId, vendedorId]);
+  }, [fechaInicial, fechaFinal, sucursalId, vendedorId, documentoFiltro]);
 
   useEffect(() => { consultar(); }, [consultar]);
 
@@ -57,18 +62,22 @@ export default function ReporteVentas({ onVolver }) {
     if (!datos) return;
     if (tab === "general") {
       descargarCSV(`ventas_general_${fechaInicial}_a_${fechaFinal}.csv`,
-        ["Fecha", "Folio", "Sucursal", "Documento", "Cliente", "Vendedor", "Estado", "Total"],
-        datos.general.map((f) => [f.fecha, f.id, f.sucursal_nombre, f.tipo_documento, f.cliente_nombre, f.vendedor_nombre, f.estatus, f.total]));
+        ["Fecha", "Fecha Liquidación", "Folio", "Sucursal", "Documento", "Cliente", "Vendedor", "Estado", "Total"],
+        datos.general.map((f) => [f.fecha, f.fecha_liquidacion || "", f.id, f.sucursal_nombre, f.tipo_documento, f.cliente_nombre, f.vendedor_nombre, f.estatus, f.total]));
     } else if (tab === "porArticulo") {
       descargarCSV(`ventas_por_articulo_${fechaInicial}_a_${fechaFinal}.csv`,
         ["Producto", "Cantidad", "Importe"], datos.porArticulo.map((f) => [f.producto, f.cantidad, f.importe]));
     } else if (tab === "porVendedor") {
       descargarCSV(`ventas_por_vendedor_${fechaInicial}_a_${fechaFinal}.csv`,
         ["Vendedor", "No. Ventas", "Total"], datos.porVendedor.map((f) => [f.vendedor, f.numero_ventas, f.total]));
-    } else {
+    } else if (tab === "canceladas") {
       descargarCSV(`ventas_canceladas_${fechaInicial}_a_${fechaFinal}.csv`,
         ["Fecha", "Folio", "Sucursal", "Cliente", "Vendedor", "Total"],
         datos.canceladas.map((f) => [f.fecha, f.id, f.sucursal_nombre, f.cliente_nombre, f.vendedor_nombre, f.total]));
+    } else {
+      descargarCSV(`ventas_abonos_${fechaInicial}_a_${fechaFinal}.csv`,
+        ["Fecha", "Folio Apartado", "Cliente", "Forma de Pago", "Monto"],
+        datos.abonos.map((a) => [a.fecha, a.venta_id, a.cliente_nombre, a.forma_pago, a.monto]));
     }
   };
 
@@ -90,13 +99,21 @@ export default function ReporteVentas({ onVolver }) {
         onCambiarFechaInicial={setFechaInicial} onCambiarFechaFinal={setFechaFinal}
         sucursales={sucursales} sucursalId={sucursalId} onCambiarSucursal={setSucursalId}
         hijos={
-          <div>
-            <label className="text-xs text-slate-500 block mb-1">Vendedor</label>
-            <select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
-              <option value="">Todos</option>
-              {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
-            </select>
-          </div>
+          <>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Documento</label>
+              <select value={documentoFiltro} onChange={(e) => setDocumentoFiltro(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+                {TIPOS_DOCUMENTO.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Vendedor</label>
+              <select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+                <option value="">Todos</option>
+                {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+              </select>
+            </div>
+          </>
         }
       />
 
@@ -119,6 +136,7 @@ export default function ReporteVentas({ onVolver }) {
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>
+                <th className="py-2 px-3 text-left font-medium">Fecha Liquidación</th>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>
                 <th className="py-2 px-3 text-left font-medium">Sucursal</th>
                 <th className="py-2 px-3 text-left font-medium">Documento</th>
@@ -129,10 +147,11 @@ export default function ReporteVentas({ onVolver }) {
               </tr>
             </thead>
             <tbody>
-              {datos.general.length === 0 && <tr><td colSpan={8} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
+              {datos.general.length === 0 && <tr><td colSpan={9} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
               {datos.general.map((f) => (
                 <tr key={f.id} className={`border-b border-slate-100 ${f.estatus === "cancelada" ? "opacity-50" : ""}`}>
                   <td className="py-2 px-3">{f.fecha}</td>
+                  <td className="py-2 px-3 text-slate-400">{f.fecha_liquidacion || "—"}</td>
                   <td className="py-2 px-3 font-medium">{f.id}</td>
                   <td className="py-2 px-3">{f.sucursal_nombre}</td>
                   <td className="py-2 px-3">{f.tipo_documento}</td>
@@ -176,7 +195,7 @@ export default function ReporteVentas({ onVolver }) {
               ))}
             </tbody>
           </table>
-        ) : (
+        ) : tab === "canceladas" ? (
           <table className="w-full text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Folio</th><th className="py-2 px-3 text-left font-medium">Sucursal</th><th className="py-2 px-3 text-left font-medium">Cliente</th><th className="py-2 px-3 text-left font-medium">Vendedor</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
@@ -191,6 +210,24 @@ export default function ReporteVentas({ onVolver }) {
                   <td className="py-2 px-3">{f.cliente_nombre}</td>
                   <td className="py-2 px-3">{f.vendedor_nombre}</td>
                   <td className="py-2 px-3 text-right font-medium">${Number(f.total).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-[#1a7fe8] text-white sticky top-0">
+              <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Folio Apartado</th><th className="py-2 px-3 text-left font-medium">Cliente</th><th className="py-2 px-3 text-left font-medium">Forma de Pago</th><th className="py-2 px-3 text-right font-medium">Monto</th></tr>
+            </thead>
+            <tbody>
+              {datos.abonos.length === 0 && <tr><td colSpan={5} className="text-center text-slate-400 py-16">Sin abonos en el rango</td></tr>}
+              {datos.abonos.map((a) => (
+                <tr key={a.id} className="border-b border-slate-100">
+                  <td className="py-2 px-3">{a.fecha}</td>
+                  <td className="py-2 px-3 font-medium">{a.venta_id}</td>
+                  <td className="py-2 px-3">{a.cliente_nombre}</td>
+                  <td className="py-2 px-3">{a.forma_pago}</td>
+                  <td className="py-2 px-3 text-right font-medium">${Number(a.monto).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

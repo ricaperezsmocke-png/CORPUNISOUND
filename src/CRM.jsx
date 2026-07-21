@@ -130,6 +130,7 @@ export default function CRM({ onVolver, permisos }) {
   const [resumenSuc, setResumenSuc] = useState([]);
   const [ranking, setRanking] = useState([]);
   const [postventaPendientes, setPostventaPendientes] = useState([]);
+  const [apartadosPorVencer, setApartadosPorVencer] = useState([]);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
   const [aviso, setAviso] = useState(null);
@@ -138,14 +139,15 @@ export default function CRM({ onVolver, permisos }) {
     setCargando(true);
     setError(null);
     try {
-      const [rCli, rSuc, rVen, rPost] = await Promise.all([
-        apiFetch("/crm/clientes"), apiFetch("/sucursales"), apiFetch("/vendedores"), apiFetch("/crm/postventa-pendientes"),
+      const [rCli, rSuc, rVen, rPost, rApart] = await Promise.all([
+        apiFetch("/crm/clientes"), apiFetch("/sucursales"), apiFetch("/vendedores"), apiFetch("/crm/postventa-pendientes"), apiFetch("/crm/apartados-por-vencer"),
       ]);
       if (!rCli.ok) throw new Error("No se pudo cargar el CRM");
       setClientes(await rCli.json());
       setSucursales(rSuc.ok ? await rSuc.json() : []);
       setVendedores(rVen.ok ? await rVen.json() : []);
       setPostventaPendientes(rPost.ok ? await rPost.json() : []);
+      setApartadosPorVencer(rApart.ok ? await rApart.json() : []);
     } catch (e) {
       setError("No se pudo conectar con el backend, o tu usuario no tiene acceso al CRM.");
     } finally {
@@ -213,6 +215,22 @@ export default function CRM({ onVolver, permisos }) {
     return `Hola ${item.cliente_nombre}! 👋\n\nHace unos días compraste ${productos} en Unisound Imusa.\n\n¿Cómo te ha ido con tu producto? Nos encantaría saber tu opinión.\n\n— Unisound Imusa`;
   };
 
+  const registrarApartadoPorVencer = async (item) => {
+    try {
+      const r = await apiFetch(`/crm/clientes/${item.cliente_id}/contactos`, {
+        method: "POST",
+        body: JSON.stringify({ tipo: "apartado_por_vencer", venta_id: item.venta_id }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+      setApartadosPorVencer((prev) => prev.filter((p) => p.venta_id !== item.venta_id));
+      mostrarAviso("Contacto registrado");
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const mensajeApartado = (item) => {
+    return `Hola ${item.cliente_nombre}! 👋\n\nTu apartado #${item.venta_id} en Unisound Imusa está por vencer en ${item.dias_restantes} día(s) — te queda un saldo pendiente de $${item.saldo_pendiente.toFixed(2)}.\n\n¡Te esperamos para completarlo y llevarte tu producto!\n\n— Unisound Imusa`;
+  };
+
   const guardarCliente = async () => {
     if (!fmC.nombre.trim() || !fmC.telefono.trim()) return mostrarAviso("Nombre y teléfono son obligatorios");
     try {
@@ -258,6 +276,7 @@ export default function CRM({ onVolver, permisos }) {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {apartadosPorVencer.length > 0 && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>⏰ {apartadosPorVencer.length} apartados</span>}
           {postventaPendientes.length > 0 && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>📦 {postventaPendientes.length} postventa</span>}
           {alerts.length > 0 && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>{alerts.length} alertas</span>}
           {puede("enviar_campana_masiva") && (
@@ -284,6 +303,28 @@ export default function CRM({ onVolver, permisos }) {
 
         {/* TAB HOY */}
         {tab === "hoy" && <div>
+          {apartadosPorVencer.length > 0 && puede("registrar_contacto_cliente") && (
+            <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: "#b45309", fontWeight: 600, marginBottom: 8 }}>⏰ Apartados por vencer · {apartadosPorVencer.length}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {apartadosPorVencer.map((item) => {
+                  const mensaje = mensajeApartado(item);
+                  const link = `https://wa.me/52${(item.telefono || "").replace(/\D/g, "")}?text=${encodeURIComponent(mensaje)}`;
+                  return (
+                    <div key={item.venta_id} style={{ background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <Avatar nombre={item.cliente_nombre} size={28} />
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{item.cliente_nombre}</div>
+                        <div style={{ fontSize: 11, color: T.sub }}>Apartado #{item.venta_id} · saldo ${item.saldo_pendiente.toFixed(2)} · vence en {item.dias_restantes} día(s)</div>
+                      </div>
+                      <a href={link} target="_blank" rel="noopener noreferrer" style={{ padding: "5px 12px", borderRadius: 6, background: T.blue, color: "#fff", fontSize: 11, fontWeight: 600, textDecoration: "none" }}>💬 Enviar</a>
+                      <button onClick={() => registrarApartadoPorVencer(item)} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #86efac", background: "#f0fdf4", color: "#15803d", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✓ Ya contacté</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {postventaPendientes.length > 0 && puede("registrar_contacto_cliente") && (
             <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: "#b45309", fontWeight: 600, marginBottom: 8 }}>📦 Seguimiento postventa pendiente · {postventaPendientes.length}</div>
