@@ -22,6 +22,7 @@ function enRango(fecha, desde, hasta) {
 function reporteVentas(DB, filtros, alcance) {
   const { fecha_inicio, fecha_fin, vendedor_id, cliente_id, tipo_documento } = filtros;
   let ventas = filtrarPorSucursal(DB.pos.ventas, alcance)
+    .filter((v) => v.estatus !== "apartado")
     .filter((v) => enRango(v.fecha, fecha_inicio, fecha_fin));
   if (vendedor_id) ventas = ventas.filter((v) => v.vendedor_id === Number(vendedor_id));
   if (cliente_id) ventas = ventas.filter((v) => v.cliente_id === Number(cliente_id));
@@ -35,6 +36,7 @@ function reporteVentas(DB, filtros, alcance) {
     id: v.id, fecha: v.fecha, sucursal_nombre: nombreSucursal(v.sucursal_id),
     cliente_nombre: nombreCliente(v.cliente_id), vendedor_nombre: nombreVendedor(v.vendedor_id),
     tipo_documento: v.tipo_documento || "Ticket", estatus: v.estatus, total: v.total,
+    fecha_liquidacion: v.fecha_liquidacion || null,
   })).sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   const vigentes = general.filter((f) => f.estatus !== "cancelada");
@@ -67,8 +69,23 @@ function reporteVentas(DB, filtros, alcance) {
     .map((f) => ({ ...f, total: redondear(f.total) }))
     .sort((a, b) => b.total - a.total);
 
+  const abonos = filtrarPorSucursal(DB.pos.apartado_abonos, alcance)
+    .filter((a) => enRango(a.fecha, fecha_inicio, fecha_fin))
+    .map((a) => {
+      const ventaDelAbono = DB.pos.ventas.find((v) => v.id === a.venta_id);
+      return {
+        id: a.id,
+        fecha: a.fecha,
+        venta_id: a.venta_id,
+        cliente_nombre: ventaDelAbono ? nombreCliente(ventaDelAbono.cliente_id) : "—",
+        monto: a.monto,
+        forma_pago: a.forma_pago,
+      };
+    })
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
   return {
-    general, canceladas, porArticulo, porVendedor,
+    general, canceladas, porArticulo, porVendedor, abonos,
     totales: {
       numero_ventas: vigentes.length,
       total_vigente: redondear(vigentes.reduce((a, f) => a + f.total, 0)),
@@ -80,7 +97,7 @@ function reporteVentas(DB, filtros, alcance) {
 function reporteUtilidad(DB, filtros, alcance) {
   const { fecha_inicio, fecha_fin, vendedor_id } = filtros;
   let ventas = filtrarPorSucursal(DB.pos.ventas, alcance)
-    .filter((v) => v.estatus !== "cancelada")
+    .filter((v) => v.estatus === "cerrada")
     .filter((v) => enRango(v.fecha, fecha_inicio, fecha_fin));
   if (vendedor_id) ventas = ventas.filter((v) => v.vendedor_id === Number(vendedor_id));
 
@@ -249,6 +266,7 @@ function reporteEstadoCuentaClientes(DB, filtros, alcance) {
     id: c.id, clave: c.clave || "", nombre: c.nombre,
     limite_credito: Number(c.limite_credito) || 0, saldo: Number(c.saldo) || 0,
     credito_disponible: Math.max(0, (Number(c.limite_credito) || 0) - (Number(c.saldo) || 0)),
+    monedero: Number(c.monedero) || 0,
   })).sort((a, b) => a.nombre.localeCompare(b.nombre));
 
   let detalleCliente = null;
@@ -274,7 +292,8 @@ function reporteEstadoCuentaClientes(DB, filtros, alcance) {
 function reporteMovimientosCaja(DB, filtros, alcance) {
   const { fecha_inicio, fecha_fin } = filtros;
   const ventas = filtrarPorSucursal(DB.pos.ventas, alcance)
-    .filter((v) => v.estatus !== "cancelada")
+    .filter((v) => v.estatus === "cerrada")
+    .filter((v) => v.tipo_documento !== "Apartado")
     .filter((v) => enRango(v.fecha, fecha_inicio, fecha_fin));
 
   const entradasMapa = new Map();
@@ -284,6 +303,16 @@ function reporteMovimientosCaja(DB, filtros, alcance) {
     actual.total += v.total;
     entradasMapa.set(forma, actual);
   });
+
+  const abonosDelRango = filtrarPorSucursal(DB.pos.apartado_abonos, alcance)
+    .filter((a) => enRango(a.fecha, fecha_inicio, fecha_fin));
+  abonosDelRango.forEach((a) => {
+    const forma = (a.forma_pago || "EFECTIVO").toUpperCase();
+    const actual = entradasMapa.get(forma) || { forma_pago: forma, total: 0 };
+    actual.total += a.monto;
+    entradasMapa.set(forma, actual);
+  });
+
   const entradas = [...entradasMapa.values()]
     .map((f) => ({ ...f, total: redondear(f.total) }))
     .sort((a, b) => b.total - a.total);
