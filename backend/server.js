@@ -172,7 +172,9 @@ const DB = {
     movimientos_inventario: [],
     compras: [],
     compra_detalle: [],
-    traspasos: []
+    traspasos: [],
+    garantias: [],
+    garantia_movimientos: [],
   },
   "catalogo-productos": {
     productos: [
