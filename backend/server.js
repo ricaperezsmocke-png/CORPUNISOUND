@@ -34,6 +34,10 @@ const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta } = require
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
 } = require("./apartados");
+const {
+  crearGarantia, marcarEnviada, actualizarUbicacion, registrarResolucion,
+  recibirEnTienda, entregarACliente, listarGarantias,
+} = require("./garantias");
 const { obtenerConfiguracion, actualizarConfiguracion } = require("./configuracion");
 const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
@@ -954,6 +958,61 @@ app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar
       return res.status(404).json({ error: "Apartado no encontrado" });
     }
     res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- Garantías ----------
+app.get("/api/garantias", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  const alcance = resolverAlcance(req);
+  res.json(listarGarantias(DB, alcance));
+});
+
+app.post("/api/garantias", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    const sucursal_origen_id = alcance.verTodas ? (Number(req.body.sucursal_origen_id) || 1) : alcance.sucursalId;
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(crearGarantia(DB, req.body, sucursal_origen_id, usuario));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/garantias/:id/enviar", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(marcarEnviada(DB, req.params.id, req.body, usuario, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/garantias/:id/ubicacion", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(actualizarUbicacion(DB, req.params.id, req.body, usuario, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/garantias/:id/resolucion", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(registrarResolucion(DB, req.params.id, req.body, usuario, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/garantias/:id/recibir", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(recibirEnTienda(DB, req.params.id, usuario, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/garantias/:id/entregar-cliente", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(entregarACliente(DB, req.params.id, usuario, alcance));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
