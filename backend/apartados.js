@@ -49,6 +49,9 @@ function crearApartado(DB, datos, sucursalId, usuario) {
   const anticipoMonto = Number(datos.anticipo_monto);
   if (!anticipoMonto || anticipoMonto <= 0) throw new Error("El anticipo debe ser mayor a $0");
   if (!datos.anticipo_forma_pago) throw new Error("Selecciona la forma de pago del anticipo");
+  if (String(datos.anticipo_forma_pago).toUpperCase() === "CRÉDITO") {
+    throw new Error("Un apartado no puede pagarse a crédito");
+  }
 
   const sucursal_id = Number(sucursalId) || 1;
 
@@ -154,6 +157,9 @@ function registrarAbono(DB, ventaId, datos, usuario) {
   const monto = Number(datos.monto);
   if (!monto || monto <= 0) throw new Error("El monto del abono debe ser mayor a $0");
   if (!datos.forma_pago) throw new Error("Selecciona la forma de pago del abono");
+  if (String(datos.forma_pago).toUpperCase() === "CRÉDITO") {
+    throw new Error("Un abono no puede pagarse a crédito");
+  }
 
   const saldo = saldoPendiente(DB, venta);
   if (monto > saldo) throw new Error(`El abono ($${monto.toFixed(2)}) no puede ser mayor al saldo pendiente ($${saldo.toFixed(2)})`);

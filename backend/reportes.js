@@ -69,20 +69,25 @@ function reporteVentas(DB, filtros, alcance) {
     .map((f) => ({ ...f, total: redondear(f.total) }))
     .sort((a, b) => b.total - a.total);
 
-  const abonos = filtrarPorSucursal(DB.pos.apartado_abonos, alcance)
-    .filter((a) => enRango(a.fecha, fecha_inicio, fecha_fin))
-    .map((a) => {
-      const ventaDelAbono = DB.pos.ventas.find((v) => v.id === a.venta_id);
-      return {
-        id: a.id,
-        fecha: a.fecha,
-        venta_id: a.venta_id,
-        cliente_nombre: ventaDelAbono ? nombreCliente(ventaDelAbono.cliente_id) : "—",
-        monto: a.monto,
-        forma_pago: a.forma_pago,
-      };
-    })
-    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  // Un abono es siempre de un Apartado — si el filtro de Documento pide otro
+  // tipo específico, la pestaña Abonos debe quedar vacía en vez de mostrar
+  // datos que no corresponden al filtro activo.
+  const abonos = (tipo_documento && tipo_documento !== "Apartado")
+    ? []
+    : filtrarPorSucursal(DB.pos.apartado_abonos, alcance)
+        .filter((a) => enRango(a.fecha, fecha_inicio, fecha_fin))
+        .map((a) => {
+          const ventaDelAbono = DB.pos.ventas.find((v) => v.id === a.venta_id);
+          return {
+            id: a.id,
+            fecha: a.fecha,
+            venta_id: a.venta_id,
+            cliente_nombre: ventaDelAbono ? nombreCliente(ventaDelAbono.cliente_id) : "—",
+            monto: a.monto,
+            forma_pago: a.forma_pago,
+          };
+        })
+        .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   return {
     general, canceladas, porArticulo, porVendedor, abonos,

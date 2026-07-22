@@ -499,6 +499,26 @@ test("reporteVentas: incluye un arreglo de abonos con el detalle de cada pago pa
   assert.strictEqual(r.abonos[0].cliente_nombre, "Abarrotes Mary");
 });
 
+test("reporteVentas: la pestaña Abonos queda vacía si el filtro Documento pide un tipo distinto de Apartado", () => {
+  const DB = construirDBPrueba();
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 2, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 20,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 1, { nombre: "Ana" });
+  registrarAbono(DB, venta.id, { monto: 10, forma_pago: "TARJETA" }, { nombre: "Ana" });
+
+  const rTicket = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31", tipo_documento: "Ticket" }, ALCANCE_TODAS);
+  assert.strictEqual(rTicket.abonos.length, 0, "un filtro de Documento distinto de Apartado no debe mostrar abonos");
+
+  const rApartado = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31", tipo_documento: "Apartado" }, ALCANCE_TODAS);
+  assert.strictEqual(rApartado.abonos.length, 2, "el filtro Apartado sí debe mostrar los abonos");
+
+  const rTodos = reporteVentas(DB, { fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, ALCANCE_TODAS);
+  assert.strictEqual(rTodos.abonos.length, 2, "sin filtro (Todos) también deben mostrarse");
+});
+
 test("reporteUtilidad: un apartado pendiente no cuenta como utilidad hasta liquidarse", () => {
   // Nota: construirDBPrueba() ya siembra 3 ventas cerradas normales (ids 1-3),
   // así que el reporte NUNCA parte de $0 — se compara antes/después para

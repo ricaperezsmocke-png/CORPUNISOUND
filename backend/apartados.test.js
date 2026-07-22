@@ -29,6 +29,23 @@ test("crearApartado: rechaza anticipo en $0", () => {
   );
 });
 
+test("crearApartado: rechaza CRÉDITO como forma de pago del anticipo", () => {
+  const DB = construirDBPrueba();
+  assert.throws(
+    () => crearApartado(DB, { cliente_id: 1, lineas: lineasBase(), anticipo_monto: 10, anticipo_forma_pago: "CRÉDITO" }, 1, { nombre: "Ana" }),
+    /crédito/i
+  );
+});
+
+test("registrarAbono: rechaza CRÉDITO como forma de pago del abono", () => {
+  const DB = construirDBPrueba();
+  const venta = crearApartado(DB, { cliente_id: 1, lineas: lineasBase(), anticipo_monto: 10, anticipo_forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" });
+  assert.throws(
+    () => registrarAbono(DB, venta.id, { monto: 5, forma_pago: "CRÉDITO" }, { nombre: "Ana" }),
+    /crédito/i
+  );
+});
+
 test("crearApartado: rechaza un anticipo mayor al total del apartado", () => {
   const DB = construirDBPrueba();
   assert.throws(

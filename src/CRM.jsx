@@ -276,8 +276,8 @@ export default function CRM({ onVolver, permisos }) {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {apartadosPorVencer.length > 0 && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>⏰ {apartadosPorVencer.length} apartados</span>}
-          {postventaPendientes.length > 0 && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>📦 {postventaPendientes.length} postventa</span>}
+          {apartadosPorVencer.length > 0 && puede("registrar_contacto_cliente") && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>⏰ {apartadosPorVencer.length} apartados</span>}
+          {postventaPendientes.length > 0 && puede("registrar_contacto_cliente") && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>📦 {postventaPendientes.length} postventa</span>}
           {alerts.length > 0 && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>{alerts.length} alertas</span>}
           {puede("enviar_campana_masiva") && (
             <button onClick={() => setModal("masiva")} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid rgba(255,255,255,.4)", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Campaña masiva</button>
