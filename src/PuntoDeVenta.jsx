@@ -307,7 +307,10 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   const buscarPorCodigo = () => {
     const texto = codigoInput.trim();
-    if (!texto) return;
+    if (!texto) {
+      setModal("buscar");
+      return;
+    }
     const encontrado = productos.find((p) => p.codigo === texto || p.sku.toLowerCase() === texto.toLowerCase());
     if (encontrado) {
       agregarProducto(encontrado);
