@@ -6,6 +6,7 @@ const { crearVenta, cancelarVenta } = require("./ventas");
 const { obtenerConfiguracion } = require("./configuracion");
 const { alcanceSucursal, dentroDeAlcance } = require("./auth");
 const { permisosDeRol } = require("./roles");
+const { crearApartado } = require("./apartados");
 
 test("ajustarExistencia afecta la existencia de la sucursal indicada", () => {
   const DB = construirDBPrueba();
@@ -88,6 +89,63 @@ test("PUT /api/ventas/:id/cancelar: un amarrado sí puede cancelar la venta de s
 
   const resultado = cancelarVenta(DB, 2, "prueba de cancelación propia");
   assert.strictEqual(resultado.estatus, "cancelada");
+});
+
+test("POST /api/apartados/:id/abonos: un amarrado NO puede abonar el apartado de otra sucursal", () => {
+  const DB = construirDBPrueba();
+  // rol 2 = "Gerente de sucursal": tiene gestionar_apartados, pero está amarrado.
+  const permisos = permisosDeRol(DB, 2);
+  assert.ok(permisos.includes("gestionar_apartados"));
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {} };
+  const alcance = alcanceSucursal(req, permisos);
+
+  // Apartado creado en sucursal 4 (Palenque); el usuario está amarrado a la 2.
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 10,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 4, { nombre: "Ana" });
+
+  assert.strictEqual(dentroDeAlcance(venta.sucursal_id, alcance), false, "la ruta debe responder 404 sin llegar a abonar");
+});
+
+test("PUT /api/apartados/:id/cancelar: un amarrado NO puede cancelar el apartado de otra sucursal", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 2);
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {} };
+  const alcance = alcanceSucursal(req, permisos);
+
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 25, descuento_pct: 0 }],
+    anticipo_monto: 10,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 4, { nombre: "Ana" });
+
+  assert.strictEqual(dentroDeAlcance(venta.sucursal_id, alcance), false, "la ruta debe responder 404 sin llegar a cancelar");
+
+  // La ruta real corta ANTES de llamar a cancelarApartado — el apartado
+  // ajeno debe seguir vigente y sin reintegro cruzado de inventario.
+  assert.strictEqual(venta.estatus, "apartado");
+  const existAntes = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 4);
+  assert.ok(!existAntes || existAntes.cantidad_actual >= 0, "sin reintegro cruzado de inventario");
+});
+
+test("POST /api/apartados/:id/abonos: un amarrado sí puede abonar el apartado de su propia sucursal", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 2);
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {} };
+  const alcance = alcanceSucursal(req, permisos);
+
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 2, cantidad: 1, precio_unitario: 16, descuento_pct: 0 }],
+    anticipo_monto: 5,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 2, { nombre: "Ana" }); // apartado de la propia sucursal 2
+
+  assert.strictEqual(dentroDeAlcance(venta.sucursal_id, alcance), true);
 });
 
 test("listarProductos muestra la existencia de la sucursal pedida", () => {

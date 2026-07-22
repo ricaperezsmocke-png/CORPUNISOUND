@@ -935,12 +935,22 @@ app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados",
 });
 app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
   try {
+    const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Apartado no encontrado" });
+    }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
     res.json(registrarAbono(DB, req.params.id, req.body, usuario));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
   try {
+    const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Apartado no encontrado" });
+    }
     res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
