@@ -149,6 +149,23 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
               </p>
             </div>
 
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Garantías</h3>
+            <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
+              <label className="text-xs text-slate-500 block mb-1">Días de alerta por garantía sin movimiento</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min="0" disabled={!puedeEditar}
+                  value={config.dias_alerta_garantias}
+                  onChange={(e) => guardarConfig({ dias_alerta_garantias: Number(e.target.value) || 0 })}
+                  className="border border-slate-300 rounded px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
+                />
+                <span className="text-sm text-slate-500">días sin movimiento antes de marcarla como atrasada</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Cuando una garantía pasa estos días sin ningún movimiento en su bitácora, aparece marcada en rojo en la pantalla de Garantías para que nadie se pierda en el camino.
+              </p>
+            </div>
+
             <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100 mb-6">
               {[
                 { clave: "permitir_ventas_sin_existencia", etiqueta: "Permitir Ventas de Artículos Sin Existencia" },
