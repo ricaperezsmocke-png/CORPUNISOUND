@@ -112,7 +112,6 @@ function crearGarantia(DB, datos, sucursalId, usuario) {
     estado: "registrada",
     ubicacion_actual: nombreSucursal(DB, sucursal_origen_id),
     tipo_resolucion: null,
-    costo_resolucion: null,
     notas_resolucion: null,
     fecha_creacion: fechaHoy,
     fecha_ultimo_movimiento: fechaHoy,
@@ -178,17 +177,13 @@ function registrarResolucion(DB, id, datos, usuario, alcance) {
   garantia.notas_resolucion = datos.notas || null;
 
   if (TIPOS_CON_PRODUCTO.includes(tipo)) {
-    garantia.costo_resolucion =
-      datos.costo_resolucion != null && datos.costo_resolucion !== "" ? Number(datos.costo_resolucion) : null;
     garantia.estado = "resuelta";
   } else {
-    // rechazada / nota_credito: no hay producto físico ni cargo — cierra directo
-    garantia.costo_resolucion = null;
+    // rechazada / nota_credito: no hay producto físico de vuelta — cierra directo
     garantia.estado = "cerrada";
   }
 
-  const costoTxt = garantia.costo_resolucion != null ? `, costo $${garantia.costo_resolucion.toFixed(2)}` : "";
-  pushMovimiento(DB, garantia, "resolucion", `Resuelta: ${tipo}${costoTxt}`, usuario);
+  pushMovimiento(DB, garantia, "resolucion", `Resuelta: ${tipo}`, usuario);
   return garantia;
 }
 
