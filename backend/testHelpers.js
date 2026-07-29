@@ -57,6 +57,8 @@ function construirDBPrueba() {
       compras: [],
       compra_detalle: [],
       traspasos: [],
+      garantias: [],
+      garantia_movimientos: [],
     },
     "catalogo-productos": {
       productos: [

@@ -4,6 +4,7 @@ import Dashboard from "./Dashboard";
 import PuntoDeVenta from "./PuntoDeVenta.jsx";
 import InventarioProductos from "./InventarioProductos.jsx";
 import Traspasos from "./Traspasos.jsx";
+import Garantias from "./Garantias.jsx";
 import AdminRoles from "./AdminRoles.jsx";
 import CRM from "./CRM.jsx";
 import CorteCaja from "./CorteCaja.jsx";
@@ -12,7 +13,7 @@ import Reportes from "./Reportes.jsx";
 import EncabezadoModulo from "./EncabezadoModulo.jsx";
 import { apiFetch } from "./api";
 
-const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "reportes"];
+const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "reportes"];
 
 function App() {
   const [usuario, setUsuario] = useState(null);
@@ -79,6 +80,9 @@ function App() {
         )}
         {vista === "traspasos" && (
           <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
+        )}
+        {vista === "garantias" && (
+          <Garantias onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "roles" && (
           <AdminRoles onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />

@@ -16,6 +16,7 @@ const CONFIG_DEFAULT = {
   permitir_cambio_en_todas_las_formas_de_pago: false,
   descuentos_pago_habilitado: true,
   dias_seguimiento_postventa: 7,
+  dias_alerta_garantias: 15,
 };
 
 function obtenerConfiguracion(DB) {

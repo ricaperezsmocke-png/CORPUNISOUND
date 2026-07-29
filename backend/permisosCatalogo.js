@@ -71,6 +71,7 @@ const PERMISOS = [
   { clave: "ajustar_existencia", etiqueta: "Ajustar Inventario", modulo: "inventario", implementado: true },
   { clave: "realizar_traspasos", etiqueta: "Realizar Traspasos entre Sucursales", modulo: "inventario", implementado: true },
   { clave: "recibir_compra", etiqueta: "Recibir Compras a Proveedor", modulo: "inventario", implementado: true },
+  { clave: "gestionar_garantias", etiqueta: "Gestionar Garantías", modulo: "inventario", implementado: true },
   { clave: "migrar_datos", etiqueta: "Migrar Datos (Importar/Exportar)", modulo: "inventario", implementado: true },
   { clave: "ver_predicciones", etiqueta: "Ver Predicciones de Demanda", modulo: "inventario", implementado: true },
 
