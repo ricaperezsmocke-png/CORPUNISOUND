@@ -136,7 +136,9 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       const r = await apiFetch(`/garantias/${modalEnviar.id}/enviar?sucursal_id=todas`, { method: "PUT", body: JSON.stringify(formEnviar) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
-      mostrarAviso("Garantía enviada — 1 pieza descontada de existencia");
+      mostrarAviso(data.stock_ajustado
+        ? "Garantía enviada — 1 pieza descontada de existencia"
+        : "Garantía enviada (sin ajuste: el producto no tenía stock en esta sucursal)");
       setModalEnviar(null);
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
@@ -176,7 +178,9 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       const r = await apiFetch(`/garantias/${g.id}/recibir?sucursal_id=todas`, { method: "PUT", body: JSON.stringify({}) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
-      mostrarAviso("Garantía recibida en tienda");
+      mostrarAviso(data.stock_ajustado
+        ? "Garantía recibida — 1 pieza reintegrada a inventario"
+        : "Garantía recibida (sin ajuste: el producto no tenía stock en esta sucursal)");
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };

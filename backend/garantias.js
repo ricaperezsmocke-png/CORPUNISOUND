@@ -61,6 +61,25 @@ function pushMovimiento(DB, garantia, tipo, descripcion, usuario) {
   garantia.fecha_ultimo_movimiento = fecha.slice(0, 10);
 }
 
+/** Ajusta la existencia de la sucursal de ORIGEN. Devuelve true si el ajuste
+ *  aplicó; devuelve false SOLO cuando el producto no tiene registro de
+ *  existencia en esa sucursal (dato legado — no debe frenar el flujo de la
+ *  garantía). Cualquier otro error se propaga: no queremos volver a tragarnos
+ *  en silencio fallas futuras de ajustarExistencia. */
+function ajustarExistenciaOrigen(DB, garantia, cantidad, motivo) {
+  try {
+    ajustarExistencia(DB, garantia.producto_id, {
+      cantidad,
+      motivo,
+      sucursal_id: garantia.sucursal_origen_id,
+    });
+    return true;
+  } catch (e) {
+    if (/no tiene registro de existencia/i.test(e.message)) return false;
+    throw e;
+  }
+}
+
 /** Busca la garantía y aplica el guard de alcance. Lanza "Garantía no
  *  encontrada" tanto si no existe como si está fuera del alcance (no revela
  *  que existe en otra sucursal). */
@@ -120,18 +139,16 @@ function marcarEnviada(DB, id, datos, usuario, alcance) {
     garantia.proveedor_id = Number(datos.proveedor_id);
   }
 
-  try {
-    ajustarExistencia(DB, garantia.producto_id, {
-      cantidad: -1,
-      motivo: `Garantía ${garantia.folio} — enviada`,
-      sucursal_id: garantia.sucursal_origen_id,
-    });
-  } catch (e) { /* sin registro de existencia en esta sucursal, no detiene el envío */ }
+  const stockAjustado = ajustarExistenciaOrigen(DB, garantia, -1, `Garantía ${garantia.folio} — enviada`);
 
   garantia.estado = "enviada";
   garantia.ubicacion_actual = destino_nombre;
+  garantia.stock_ajustado = stockAjustado;
   const destinoTipo = datos.destino_tipo === "cedis" ? "CEDIS" : "Proveedor directo";
-  pushMovimiento(DB, garantia, "envio", `Enviada a ${destino_nombre} (${destinoTipo})`, usuario);
+  const notaStock = stockAjustado
+    ? " — se descontó 1 pieza de existencia"
+    : " — sin ajuste de existencia (el producto no tenía stock en esta sucursal)";
+  pushMovimiento(DB, garantia, "envio", `Enviada a ${destino_nombre} (${destinoTipo})${notaStock}`, usuario);
   return garantia;
 }
 
@@ -181,23 +198,21 @@ function recibirEnTienda(DB, id, usuario, alcance) {
     throw new Error("Solo se puede recibir una garantía 'resuelta'");
   }
 
-  try {
-    ajustarExistencia(DB, garantia.producto_id, {
-      cantidad: 1,
-      motivo: `Garantía ${garantia.folio} — recibida`,
-      sucursal_id: garantia.sucursal_origen_id,
-    });
-  } catch (e) { /* sin registro de existencia en esta sucursal, no detiene la recepción */ }
+  const stockAjustado = ajustarExistenciaOrigen(DB, garantia, 1, `Garantía ${garantia.folio} — recibida`);
 
   const sucursal = nombreSucursal(DB, garantia.sucursal_origen_id);
   garantia.ubicacion_actual = sucursal;
+  garantia.stock_ajustado = stockAjustado;
+  const notaStock = stockAjustado
+    ? " — reintegrada 1 pieza a inventario"
+    : " — sin ajuste de existencia (el producto no tenía stock en esta sucursal)";
 
   if (garantia.cliente_id != null) {
     garantia.estado = "en_tienda_pendiente_entrega";
-    pushMovimiento(DB, garantia, "recepcion", `Recibida en ${sucursal} — pendiente de entregar al cliente`, usuario);
+    pushMovimiento(DB, garantia, "recepcion", `Recibida en ${sucursal}${notaStock} — pendiente de entregar al cliente`, usuario);
   } else {
     garantia.estado = "cerrada";
-    pushMovimiento(DB, garantia, "recepcion", `Recibida en ${sucursal} — reintegrada a inventario`, usuario);
+    pushMovimiento(DB, garantia, "recepcion", `Recibida en ${sucursal}${notaStock}`, usuario);
   }
   return garantia;
 }

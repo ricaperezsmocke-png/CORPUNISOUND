@@ -205,6 +205,42 @@ test("listarGarantias: respeta el alcance de sucursal", () => {
   assert.strictEqual(lista[0].sucursal_origen_id, 1);
 });
 
+test("marcarEnviada: en el caso normal marca stock_ajustado=true y lo anota en la bitácora", () => {
+  const DB = construirDBPrueba();
+  const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
+  const enviada = marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
+
+  assert.strictEqual(enviada.stock_ajustado, true);
+  const movs = DB.inventario.garantia_movimientos.filter((m) => m.garantia_id === g.id);
+  assert.match(movs[movs.length - 1].descripcion, /descontó 1 pieza/i);
+});
+
+test("marcarEnviada: si el producto no tiene existencia en la sucursal, no lanza, avanza igual y marca stock_ajustado=false", () => {
+  const DB = construirDBPrueba();
+  const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
+  // Simula dato legado: sin registro de existencia del producto en la sucursal de origen.
+  DB.inventario.existencias = DB.inventario.existencias.filter(
+    (e) => !(e.producto_id === 1 && e.sucursal_id === 1)
+  );
+
+  const enviada = marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
+
+  assert.strictEqual(enviada.estado, "enviada", "el flujo de la garantía no se detiene");
+  assert.strictEqual(enviada.stock_ajustado, false);
+  const movs = DB.inventario.garantia_movimientos.filter((m) => m.garantia_id === g.id);
+  assert.match(movs[movs.length - 1].descripcion, /sin ajuste de existencia/i);
+});
+
+test("recibirEnTienda: en el caso normal marca stock_ajustado=true", () => {
+  const DB = construirDBPrueba();
+  const g = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
+  marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
+  registrarResolucion(DB, g.id, { tipo_resolucion: "reemplazo" }, USUARIO, ALCANCE_TODAS);
+
+  const r = recibirEnTienda(DB, g.id, USUARIO, ALCANCE_TODAS);
+  assert.strictEqual(r.stock_ajustado, true);
+});
+
 test("listarGarantias: calcula dias_sin_movimiento y atrasada contra el umbral configurable", () => {
   const DB = construirDBPrueba();
   obtenerConfiguracion(DB);
