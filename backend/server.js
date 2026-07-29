@@ -1257,6 +1257,12 @@ app.get("/api/reportes/movimientos-caja", requiereLogin, requierePermiso("ver_re
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// TEMPORAL — ruta de prueba para verificar que Sentry captura errores.
+// Lanza un error a propósito; borrar en cuanto se confirme el primer evento.
+app.get("/api/debug-sentry", function () {
+  throw new Error("Error de prueba de Sentry — bórrame");
+});
+
 // Sentry: captura en el monitoreo los errores que revientan dentro de una ruta
 // de Express. DEBE ir DESPUÉS de definir todas las rutas. Si no hay SENTRY_DSN
 // configurado, no hace nada.
