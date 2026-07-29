@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
-const { crearGarantia } = require("./garantias");
+const { crearGarantia, marcarEnviada, registrarResolucion } = require("./garantias");
 const { reporteGastosGarantias } = require("./reportes");
 
 const ALCANCE_TODAS = { verTodas: true, sucursalId: null };
@@ -151,4 +151,147 @@ test("reporteGastosGarantias: sin gastos regresa estructura vacía en ceros", ()
   assert.strictEqual(r.totales.numero_garantias, 0);
   assert.strictEqual(r.totales.total, 0);
   assert.strictEqual(r.totales.numero_sin_comprobante, 0);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fase 3: resolución/estado, desglose y filtro por proveedor, filtro de
+// gastos sin comprobante.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Escenario con proveedores y resoluciones REALES (pasando por marcarEnviada +
+ * registrarResolucion, no fijando los campos a mano) para que los estados que
+ * se prueban sean estados que la máquina de estados puede producir de verdad.
+ *
+ *   G-0001  Ocosingo   prov 1  RECHAZADA (cerrada)  -> gasto 300  = pérdida
+ *   G-0002  Ocosingo   prov 2  NOTA DE CRÉDITO      -> gasto 100  = NO es pérdida
+ *   G-0003  Yajalón    prov 1  aún ENVIADA          -> gasto 50   = en riesgo
+ *   G-0004  Yajalón    sin proveedor  registrada    -> gasto 25 con comprobante
+ */
+function escenarioFase3() {
+  const DB = construirDBPrueba();
+  DB["catalogo-productos"].proveedores.push(
+    { id: 1, nombre: "Distribuidora Musical", rfc: "DMU010101AAA" },
+    { id: 2, nombre: "Yamaha México", rfc: "YAM020202BBB" },
+  );
+
+  const g1 = crearGarantia(DB, { producto_id: 1, proveedor_id: 1 }, 1, USUARIO);
+  marcarEnviada(DB, g1.id, { destino_tipo: "proveedor", destino_nombre: "Distribuidora Musical" }, USUARIO, ALCANCE_TODAS);
+  registrarResolucion(DB, g1.id, { tipo_resolucion: "rechazada", notas: "Mal uso" }, USUARIO, ALCANCE_TODAS);
+
+  const g2 = crearGarantia(DB, { producto_id: 1, proveedor_id: 2 }, 1, USUARIO);
+  marcarEnviada(DB, g2.id, { destino_tipo: "proveedor", destino_nombre: "Yamaha México" }, USUARIO, ALCANCE_TODAS);
+  registrarResolucion(DB, g2.id, { tipo_resolucion: "nota_credito", notas: "Reembolso" }, USUARIO, ALCANCE_TODAS);
+
+  const g3 = crearGarantia(DB, { producto_id: 2, proveedor_id: 1 }, 2, USUARIO);
+  marcarEnviada(DB, g3.id, { destino_tipo: "cedis", destino_nombre: "CEDIS" }, USUARIO, ALCANCE_TODAS);
+
+  const g4 = crearGarantia(DB, { producto_id: 2 }, 2, USUARIO);
+
+  sembrarGasto(DB, g1.id, { tipo: "traslado", monto: 300, fecha: "2026-07-10T12:00:00.000Z" });
+  sembrarGasto(DB, g2.id, { tipo: "reparacion", monto: 100, fecha: "2026-07-11T12:00:00.000Z" });
+  sembrarGasto(DB, g3.id, { tipo: "traslado", monto: 50, fecha: "2026-07-12T12:00:00.000Z" });
+  sembrarGasto(DB, g4.id, { tipo: "otro", monto: 25, fecha: "2026-07-13T12:00:00.000Z", archivo: true });
+  return { DB, g1, g2, g3, g4 };
+}
+
+test("Fase 3: cada renglón trae estado, resolución y proveedor con sus etiquetas", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+
+  const rechazada = r.general.find((f) => f.folio === "G-0001");
+  assert.strictEqual(rechazada.estado, "cerrada");
+  assert.strictEqual(rechazada.estado_etiqueta, "Cerrada");
+  assert.strictEqual(rechazada.tipo_resolucion, "rechazada");
+  assert.strictEqual(rechazada.resolucion_etiqueta, "Rechazada (no procede)");
+  assert.strictEqual(rechazada.proveedor_nombre, "Distribuidora Musical");
+
+  const abierta = r.general.find((f) => f.folio === "G-0003");
+  assert.strictEqual(abierta.estado, "enviada");
+  assert.strictEqual(abierta.estado_etiqueta, "Enviada");
+  assert.strictEqual(abierta.tipo_resolucion, null, "una garantía sin resolver no inventa resolución");
+  assert.strictEqual(abierta.resolucion_etiqueta, "—");
+
+  const sinProveedor = r.general.find((f) => f.folio === "G-0004");
+  assert.strictEqual(sinProveedor.proveedor_nombre, "Sin proveedor");
+});
+
+test("Fase 3: total_rechazado suma SOLO los gastos de garantías rechazadas", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+
+  assert.strictEqual(r.totales.total, 300 + 100 + 50 + 25);
+  assert.strictEqual(r.totales.total_rechazado, 300, "solo el gasto de G-0001 (rechazada) es pérdida");
+});
+
+test("Fase 3: una nota de crédito NO cuenta como pérdida", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+  const notaCredito = r.general.find((f) => f.folio === "G-0002");
+
+  assert.strictEqual(notaCredito.tipo_resolucion, "nota_credito");
+  assert.ok(!String(r.totales.total_rechazado).includes("100"), "los $100 de la nota de crédito no entran a total_rechazado");
+  assert.strictEqual(r.totales.total_rechazado, 300);
+});
+
+test("Fase 3: total_sin_resolver suma los gastos de garantías que siguen abiertas", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+  // G-0003 (enviada, $50) y G-0004 (registrada, $25) no están cerradas.
+  assert.strictEqual(r.totales.total_sin_resolver, 75);
+});
+
+test("Fase 3: filtra por proveedor_id", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, { proveedor_id: 1 }, ALCANCE_TODAS);
+
+  assert.deepStrictEqual(r.general.map((f) => f.folio).sort(), ["G-0001", "G-0003"]);
+  assert.strictEqual(r.totales.total, 350);
+});
+
+test("Fase 3: agrupa por proveedor, con renglón propio para los que no tienen", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+
+  assert.deepStrictEqual(
+    r.porProveedor.map((f) => [f.proveedor, f.numero_gastos, f.total]),
+    [["Distribuidora Musical", 2, 350], ["Yamaha México", 1, 100], ["Sin proveedor", 1, 25]],
+    "ordenado por total descendente"
+  );
+});
+
+test("Fase 3: sin_comprobante deja solo los gastos sin comprobante", () => {
+  const { DB } = escenarioFase3();
+  const r = reporteGastosGarantias(DB, { sin_comprobante: "1" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.general.length, 3, "el único con comprobante (G-0004) queda fuera");
+  assert.ok(r.general.every((f) => f.drive_link === null));
+  assert.strictEqual(r.totales.total, 450);
+  assert.strictEqual(r.totales.numero_sin_comprobante, 3);
+});
+
+test("Fase 3: sin_comprobante en 'false'/'0'/'' NO filtra nada (trampa del query string)", () => {
+  const { DB } = escenarioFase3();
+  // Un query param llega SIEMPRE como string: con un `if (sin_comprobante)`
+  // pelón, "false" y "0" son verdaderos y filtrarían sin que nadie lo pidiera.
+  for (const valor of ["false", "0", ""]) {
+    const r = reporteGastosGarantias(DB, { sin_comprobante: valor }, ALCANCE_TODAS);
+    assert.strictEqual(r.general.length, 4, `sin_comprobante="${valor}" no debe filtrar`);
+  }
+  for (const valor of ["1", "true"]) {
+    const r = reporteGastosGarantias(DB, { sin_comprobante: valor }, ALCANCE_TODAS);
+    assert.strictEqual(r.general.length, 3, `sin_comprobante="${valor}" sí debe filtrar`);
+  }
+});
+
+test("Fase 3: los filtros nuevos respetan el alcance de sucursal", () => {
+  const { DB } = escenarioFase3();
+  // Gerente amarrado a Yajalón (2). El proveedor 1 tiene gastos en AMBAS
+  // sucursales; solo debe ver el de la suya.
+  const r = reporteGastosGarantias(DB, { proveedor_id: 1 }, { verTodas: false, sucursalId: 2 });
+
+  assert.deepStrictEqual(r.general.map((f) => f.folio), ["G-0003"]);
+  assert.strictEqual(r.totales.total, 50);
+  assert.deepStrictEqual(r.porProveedor.map((f) => f.proveedor), ["Distribuidora Musical"]);
+  assert.strictEqual(r.totales.total_rechazado, 0, "la garantía rechazada es de Ocosingo, no debe filtrarse aquí");
 });

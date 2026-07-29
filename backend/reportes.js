@@ -9,6 +9,16 @@
 
 const { filtrarPorSucursal, dentroDeAlcance } = require("./auth");
 const { ETIQUETA_TIPO } = require("./garantiasGastos");
+const { ETIQUETA_ESTADO, ETIQUETA_RESOLUCION } = require("./garantias");
+
+/**
+ * Lee una bandera que llegó como query param. Un query param SIEMPRE es
+ * string, así que un `if (bandera)` pelón trataría "false" y "0" como
+ * verdaderos y filtraría sin que nadie lo pidiera.
+ */
+function banderaActiva(valor) {
+  return valor === true || valor === "1" || valor === "true";
+}
 
 function redondear(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -353,7 +363,7 @@ function reporteMovimientosCaja(DB, filtros, alcance) {
  * cuya garantía no está en el alcance no existe para este reporte.
  */
 function reporteGastosGarantias(DB, filtros, alcance) {
-  const { fecha_inicio, fecha_fin, tipo } = filtros || {};
+  const { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante } = filtros || {};
 
   const garantiasVisibles = (DB.inventario.garantias || [])
     .filter((g) => dentroDeAlcance(g.sucursal_origen_id, alcance));
@@ -363,11 +373,20 @@ function reporteGastosGarantias(DB, filtros, alcance) {
     .filter((x) => porId.has(x.garantia_id))
     .filter((x) => enRango(String(x.fecha).slice(0, 10), fecha_inicio, fecha_fin));
   if (tipo) gastos = gastos.filter((x) => x.tipo === tipo);
+  if (proveedor_id) {
+    gastos = gastos.filter((x) => porId.get(x.garantia_id).proveedor_id === Number(proveedor_id));
+  }
+  if (banderaActiva(sin_comprobante)) gastos = gastos.filter((x) => !x.drive_link);
 
   const nombreProducto = (id) =>
     (DB["catalogo-productos"].productos.find((p) => p.id === id) || {}).nombre || `Producto ${id}`;
   const nombreSucursal = (id) =>
     (DB.pos.sucursales.find((s) => s.id === Number(id)) || {}).nombre || "—";
+  const nombreProveedor = (id) => {
+    if (id == null) return "Sin proveedor";
+    return (DB["catalogo-productos"].proveedores.find((p) => p.id === Number(id)) || {}).nombre
+      || `Proveedor ${id}`;
+  };
 
   const general = gastos
     .map((x) => {
@@ -379,6 +398,15 @@ function reporteGastosGarantias(DB, filtros, alcance) {
         folio: garantia.folio,
         sucursal_nombre: nombreSucursal(garantia.sucursal_origen_id),
         producto_nombre: nombreProducto(garantia.producto_id),
+        proveedor_nombre: nombreProveedor(garantia.proveedor_id),
+        // Estado y resolución de la GARANTÍA, no del gasto: son lo que dice si
+        // este dinero se recuperó o lo absorbió la tienda.
+        estado: garantia.estado,
+        estado_etiqueta: ETIQUETA_ESTADO[garantia.estado] || garantia.estado,
+        tipo_resolucion: garantia.tipo_resolucion || null,
+        resolucion_etiqueta: garantia.tipo_resolucion
+          ? (ETIQUETA_RESOLUCION[garantia.tipo_resolucion] || garantia.tipo_resolucion)
+          : "—",
         tipo: x.tipo,
         tipo_etiqueta: ETIQUETA_TIPO[x.tipo] || x.tipo,
         monto: redondear(x.monto),
@@ -408,17 +436,38 @@ function reporteGastosGarantias(DB, filtros, alcance) {
     porSucursalMapa.set(f.sucursal_nombre, actual);
   });
 
+  const porProveedorMapa = new Map();
+  general.forEach((f) => {
+    const actual = porProveedorMapa.get(f.proveedor_nombre)
+      || { proveedor: f.proveedor_nombre, numero_gastos: 0, total: 0 };
+    actual.numero_gastos += 1;
+    actual.total += f.monto;
+    porProveedorMapa.set(f.proveedor_nombre, actual);
+  });
+
   const porTotalDesc = (a, b) => b.total - a.total;
+
+  // Lo que la tienda ABSORBIÓ: gastos de garantías que el proveedor rechazó.
+  // Una nota de crédito NO cuenta — ahí sí hubo compensación.
+  const rechazado = general.filter((f) => f.tipo_resolucion === "rechazada");
+  // Dinero EN RIESGO: gastos de garantías que todavía no cierran, así que
+  // aún no se sabe si el proveedor va a responder.
+  const sinResolver = general.filter((f) => f.estado !== "cerrada");
 
   return {
     general,
     porTipo: [...porTipoMapa.values()].map((f) => ({ ...f, total: redondear(f.total) })).sort(porTotalDesc),
     porSucursal: [...porSucursalMapa.values()].map((f) => ({ ...f, total: redondear(f.total) })).sort(porTotalDesc),
+    porProveedor: [...porProveedorMapa.values()].map((f) => ({ ...f, total: redondear(f.total) })).sort(porTotalDesc),
     totales: {
       numero_gastos: general.length,
       numero_garantias: new Set(general.map((f) => f.garantia_id)).size,
       total: redondear(general.reduce((a, f) => a + f.monto, 0)),
       numero_sin_comprobante: general.filter((f) => !f.drive_link).length,
+      total_rechazado: redondear(rechazado.reduce((a, f) => a + f.monto, 0)),
+      numero_rechazado: rechazado.length,
+      total_sin_resolver: redondear(sinResolver.reduce((a, f) => a + f.monto, 0)),
+      numero_sin_resolver: sinResolver.length,
     },
   };
 }
