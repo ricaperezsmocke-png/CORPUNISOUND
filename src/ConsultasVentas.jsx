@@ -6,6 +6,7 @@ import {
   Package, X
 } from "lucide-react";
 import { apiFetch } from "./api";
+import { descargarCSV } from "./reportes/exportarCSV.js";
 
 const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión"];
 const ESTADOS = ["Todos", "cerrada", "cancelada"];
@@ -117,12 +118,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     if (ventas.length === 0) return mostrarAviso("No hay ventas para exportar");
     const encabezados = ["Folio", "Fecha", "Documento", "Cliente", "Vendedor", "Estado", "Total"];
     const filas = ventas.map((v) => [v.id, v.fecha, v.tipo_documento || "Ticket", v.cliente_nombre, v.vendedor_nombre, v.estatus, v.total]);
-    const csv = [encabezados, ...filas].map((f) => f.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `ventas_${fechaInicial}_a_${fechaFinal}.csv`; a.click();
-    URL.revokeObjectURL(url);
+    descargarCSV(`ventas_${fechaInicial}_a_${fechaFinal}.csv`, encabezados, filas);
     mostrarAviso("Exportado a CSV");
   };
 

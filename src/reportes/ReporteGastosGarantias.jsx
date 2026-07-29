@@ -60,7 +60,7 @@ export default function ReporteGastosGarantias({ onVolver }) {
     if (!datos) return;
     if (tab === "general") {
       descargarCSV(`gastos_garantias_${fechaInicial}_a_${fechaFinal}.csv`,
-        ["Fecha", "Folio", "Sucursal", "Producto", "Tipo", "Descripcion", "Comprobante", "Monto"],
+        ["Fecha", "Folio", "Sucursal", "Producto", "Tipo", "Descripción", "Comprobante", "Monto"],
         datos.general.map((f) => [f.fecha, f.folio, f.sucursal_nombre, f.producto_nombre, f.tipo_etiqueta, f.descripcion, f.nombre_archivo || "Sin comprobante", f.monto]));
     } else if (tab === "porTipo") {
       descargarCSV(`gastos_garantias_por_tipo_${fechaInicial}_a_${fechaFinal}.csv`,
