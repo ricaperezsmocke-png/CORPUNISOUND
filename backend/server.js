@@ -13,9 +13,11 @@
  *   npm start
  */
 
+require("./instrument"); // Sentry: DEBE ser el primer require (auto-instrumenta HTTP/Express).
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const Sentry = require("@sentry/node");
 const Anthropic = require("@anthropic-ai/sdk");
 const { predecirDemanda } = require("./predicciones");
 const { parsearReporteVentasSicar, previsualizarHistorialVentas, aplicarHistorialVentas } = require("./historialVentas");
@@ -1254,6 +1256,18 @@ app.get("/api/reportes/movimientos-caja", requiereLogin, requierePermiso("ver_re
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Sentry: captura en el monitoreo los errores que revientan dentro de una ruta
+// de Express. DEBE ir DESPUÉS de definir todas las rutas. Si no hay SENTRY_DSN
+// configurado, no hace nada.
+Sentry.setupExpressErrorHandler(app);
+
+// Antes de que Render apague el proceso (SIGTERM), da 2s para que Sentry
+// alcance a enviar los eventos pendientes.
+process.on("SIGTERM", async () => {
+  await Sentry.close(2000);
+  process.exit(0);
+});
 
 const PUERTO = process.env.PORT || 4000;
 
