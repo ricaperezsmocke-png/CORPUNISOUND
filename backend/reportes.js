@@ -7,7 +7,8 @@
  * del alcance de un usuario amarrado a una sucursal.
  */
 
-const { filtrarPorSucursal } = require("./auth");
+const { filtrarPorSucursal, dentroDeAlcance } = require("./auth");
+const { ETIQUETA_TIPO } = require("./garantiasGastos");
 
 function redondear(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -342,4 +343,84 @@ function reporteMovimientosCaja(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja };
+/**
+ * Gastos de garantías (traslado / reparación / otro) en un periodo.
+ *
+ * OJO con el alcance: garantia_gastos NO tiene sucursal_id, así que
+ * filtrarPorSucursal no aplica aquí. La sucursal de un gasto es la
+ * sucursal_origen_id de SU garantía — el dato que nunca se pierde. Por eso se
+ * filtran primero las garantías visibles y de ahí salen los gastos: un gasto
+ * cuya garantía no está en el alcance no existe para este reporte.
+ */
+function reporteGastosGarantias(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin, tipo } = filtros || {};
+
+  const garantiasVisibles = (DB.inventario.garantias || [])
+    .filter((g) => dentroDeAlcance(g.sucursal_origen_id, alcance));
+  const porId = new Map(garantiasVisibles.map((g) => [g.id, g]));
+
+  let gastos = (DB.inventario.garantia_gastos || [])
+    .filter((x) => porId.has(x.garantia_id))
+    .filter((x) => enRango(String(x.fecha).slice(0, 10), fecha_inicio, fecha_fin));
+  if (tipo) gastos = gastos.filter((x) => x.tipo === tipo);
+
+  const nombreProducto = (id) =>
+    (DB["catalogo-productos"].productos.find((p) => p.id === id) || {}).nombre || `Producto ${id}`;
+  const nombreSucursal = (id) =>
+    (DB.pos.sucursales.find((s) => s.id === Number(id)) || {}).nombre || "—";
+
+  const general = gastos
+    .map((x) => {
+      const garantia = porId.get(x.garantia_id);
+      return {
+        id: x.id,
+        fecha: String(x.fecha).slice(0, 10),
+        garantia_id: garantia.id,
+        folio: garantia.folio,
+        sucursal_nombre: nombreSucursal(garantia.sucursal_origen_id),
+        producto_nombre: nombreProducto(garantia.producto_id),
+        tipo: x.tipo,
+        tipo_etiqueta: ETIQUETA_TIPO[x.tipo] || x.tipo,
+        monto: redondear(x.monto),
+        descripcion: x.descripcion || "",
+        nombre_archivo: x.nombre_archivo || null,
+        drive_link: x.drive_link || null,
+        usuario: x.usuario || "—",
+      };
+    })
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  const porTipoMapa = new Map();
+  general.forEach((f) => {
+    const actual = porTipoMapa.get(f.tipo)
+      || { tipo: f.tipo, tipo_etiqueta: f.tipo_etiqueta, numero_gastos: 0, total: 0 };
+    actual.numero_gastos += 1;
+    actual.total += f.monto;
+    porTipoMapa.set(f.tipo, actual);
+  });
+
+  const porSucursalMapa = new Map();
+  general.forEach((f) => {
+    const actual = porSucursalMapa.get(f.sucursal_nombre)
+      || { sucursal: f.sucursal_nombre, numero_gastos: 0, total: 0 };
+    actual.numero_gastos += 1;
+    actual.total += f.monto;
+    porSucursalMapa.set(f.sucursal_nombre, actual);
+  });
+
+  const porTotalDesc = (a, b) => b.total - a.total;
+
+  return {
+    general,
+    porTipo: [...porTipoMapa.values()].map((f) => ({ ...f, total: redondear(f.total) })).sort(porTotalDesc),
+    porSucursal: [...porSucursalMapa.values()].map((f) => ({ ...f, total: redondear(f.total) })).sort(porTotalDesc),
+    totales: {
+      numero_gastos: general.length,
+      numero_garantias: new Set(general.map((f) => f.garantia_id)).size,
+      total: redondear(general.reduce((a, f) => a + f.monto, 0)),
+      numero_sin_comprobante: general.filter((f) => !f.drive_link).length,
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias };
