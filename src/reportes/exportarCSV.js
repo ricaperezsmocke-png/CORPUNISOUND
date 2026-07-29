@@ -14,8 +14,28 @@
  * cualquier texto libre: razones sociales ("Distribuidora Musical, S.A. de
  * C.V."), nombres de cliente y de producto, motivos de cancelación.
  */
+/** Excel y Google Sheets tratan como FÓRMULA cualquier campo que empiece con
+ *  = + - @ (o tabulador / retorno de carro). Como los reportes exportan texto
+ *  que captura el usuario (descripción de un gasto, nombre de cliente, motivo
+ *  de cancelación), alguien podría dejar ahí un `=HYPERLINK(...)` que se
+ *  dispara al abrir el archivo, y basta un `=1+1` para que la celda muestre
+ *  algo distinto de lo capturado. El prefijo `'` obliga a Excel a leerlo como
+ *  texto.
+ *
+ *  OJO: los números se dejan intactos a propósito. Un monto negativo (-150)
+ *  empieza con "-" y es un dato válido; prefijarlo lo volvería texto y
+ *  rompería SUMA() en la columna, que es justo el bug que se acaba de
+ *  arreglar. */
+const ARRANQUE_DE_FORMULA = /^[=+\-@\t\r]/;
+
+function neutralizarFormula(texto) {
+  if (!ARRANQUE_DE_FORMULA.test(texto)) return texto;
+  if (texto.trim() !== "" && Number.isFinite(Number(texto))) return texto;
+  return `'${texto}`;
+}
+
 function prepararCampo(valor) {
-  const texto = valor == null ? "" : String(valor);
+  const texto = neutralizarFormula(valor == null ? "" : String(valor));
   return /[",\n\r]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
 }
 
