@@ -181,6 +181,7 @@ const DB = {
     traspasos: [],
     garantias: [],
     garantia_movimientos: [],
+    garantia_gastos: [],
   },
   "catalogo-productos": {
     productos: [

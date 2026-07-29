@@ -252,6 +252,9 @@ function listarGarantias(DB, alcance) {
         proveedor_nombre: proveedor ? proveedor.nombre : null,
         dias_sin_movimiento,
         atrasada: g.estado !== "cerrada" && dias_sin_movimiento > umbral,
+        total_gastos: (DB.inventario.garantia_gastos || [])
+          .filter((x) => x.garantia_id === g.id)
+          .reduce((s, x) => s + Number(x.monto || 0), 0),
         movimientos: DB.inventario.garantia_movimientos
           .filter((m) => m.garantia_id === g.id)
           .sort((a, b) => a.fecha.localeCompare(b.fecha)),
@@ -263,4 +266,5 @@ function listarGarantias(DB, alcance) {
 module.exports = {
   crearGarantia, marcarEnviada, actualizarUbicacion, registrarResolucion,
   recibirEnTienda, entregarACliente, listarGarantias,
+  buscarConGuardia, pushMovimiento,
 };
