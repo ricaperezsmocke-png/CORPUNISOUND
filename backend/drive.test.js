@@ -4,6 +4,7 @@ const {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   subirArchivoADrive, eliminarArchivoDeDrive,
+  asegurarCarpetaGarantia,
 } = require("./drive");
 
 test("intercambiarCodigo guarda los tokens en DB.drive.cuenta", async (t) => {
@@ -175,4 +176,32 @@ test("eliminarArchivoDeDrive SÍ lanza error si Drive responde otro código de e
   const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
 
   await assert.rejects(() => eliminarArchivoDeDrive(DB, "archivo-1"), /Error al borrar archivo en Google Drive/);
+});
+
+test("asegurarCarpetaGarantia crea la subcarpeta con el folio y la cachea en la garantía", async (t) => {
+  let llamada = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    llamada++;
+    // 1: busca raíz (no existe) -> 2: crea raíz -> 3: busca subcarpeta (no existe) -> 4: crea subcarpeta
+    if (llamada === 1 || llamada === 3) return { ok: true, json: async () => ({ files: [] }) };
+    return { ok: true, json: async () => ({ id: `folder-${llamada}` }) };
+  });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const garantia = { id: 1, folio: "G-0001" };
+
+  const id = await asegurarCarpetaGarantia(DB, garantia);
+
+  assert.ok(id, "debe regresar un id de carpeta");
+  assert.strictEqual(garantia.drive_folder_id, id, "cachea el id en la garantía");
+});
+
+test("asegurarCarpetaGarantia reusa drive_folder_id si ya está en la garantía", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const garantia = { id: 1, folio: "G-0001", drive_folder_id: "folder-cacheado" };
+
+  const id = await asegurarCarpetaGarantia(DB, garantia);
+
+  assert.strictEqual(id, "folder-cacheado");
+  assert.strictEqual(fetchMock.mock.calls.length, 0);
 });

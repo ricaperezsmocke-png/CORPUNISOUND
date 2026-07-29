@@ -19,6 +19,7 @@ const DRIVE_API        = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
 
 const CARPETA_RAIZ_NOMBRE = "Expedientes de Personal";
+const CARPETA_GARANTIAS_NOMBRE = "Comprobantes de Garantías";
 
 async function intercambiarCodigo(DB, codigo, redirectUri) {
   const params = new URLSearchParams({
@@ -133,6 +134,23 @@ async function asegurarCarpetaEmpleado(DB, usuarioObj) {
   return id;
 }
 
+async function asegurarCarpetaGarantiasRaiz(DB) {
+  if (DB.drive.carpeta_garantias_id) return DB.drive.carpeta_garantias_id;
+  let id = await buscarCarpeta(DB, CARPETA_GARANTIAS_NOMBRE, null);
+  if (!id) id = await crearCarpeta(DB, CARPETA_GARANTIAS_NOMBRE, null);
+  DB.drive.carpeta_garantias_id = id;
+  return id;
+}
+
+async function asegurarCarpetaGarantia(DB, garantia) {
+  if (garantia.drive_folder_id) return garantia.drive_folder_id;
+  const raizId = await asegurarCarpetaGarantiasRaiz(DB);
+  let id = await buscarCarpeta(DB, garantia.folio, raizId);
+  if (!id) id = await crearCarpeta(DB, garantia.folio, raizId);
+  garantia.drive_folder_id = id;
+  return id;
+}
+
 async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpetaId }) {
   const token = await tokenActivo(DB);
   const boundary = `unisound_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -171,6 +189,7 @@ async function eliminarArchivoDeDrive(DB, fileId) {
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
+  asegurarCarpetaGarantia,
   subirArchivoADrive, eliminarArchivoDeDrive,
-  CARPETA_RAIZ_NOMBRE,
+  CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE,
 };

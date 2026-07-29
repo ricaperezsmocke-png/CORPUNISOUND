@@ -87,29 +87,27 @@ test("actualizarUbicacion: solo en 'enviada'; cambia ubicación y agrega movimie
   assert.strictEqual(movs[movs.length - 1].tipo, "actualizacion_ubicacion");
 });
 
-test("registrarResolucion (reparado): pasa a 'resuelta' y guarda el costo", () => {
+test("registrarResolucion (reparado): pasa a 'resuelta'", () => {
   const DB = construirDBPrueba();
   const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
   marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
 
-  const r = registrarResolucion(DB, g.id, { tipo_resolucion: "reparado", costo_resolucion: 150, notas: "Cambió pastilla" }, USUARIO, ALCANCE_TODAS);
+  const r = registrarResolucion(DB, g.id, { tipo_resolucion: "reparado", notas: "Cambió pastilla" }, USUARIO, ALCANCE_TODAS);
 
   assert.strictEqual(r.estado, "resuelta");
   assert.strictEqual(r.tipo_resolucion, "reparado");
-  assert.strictEqual(r.costo_resolucion, 150);
   const movs = DB.inventario.garantia_movimientos.filter((m) => m.garantia_id === g.id);
   assert.strictEqual(movs[movs.length - 1].tipo, "resolucion");
 });
 
-test("registrarResolucion (rechazada): cierra directo sin pasar por 'resuelta' y con costo null", () => {
+test("registrarResolucion (rechazada): cierra directo sin pasar por 'resuelta'", () => {
   const DB = construirDBPrueba();
   const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
   marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
 
-  const r = registrarResolucion(DB, g.id, { tipo_resolucion: "rechazada", costo_resolucion: 999, notas: "Mal uso" }, USUARIO, ALCANCE_TODAS);
+  const r = registrarResolucion(DB, g.id, { tipo_resolucion: "rechazada", notas: "Mal uso" }, USUARIO, ALCANCE_TODAS);
 
   assert.strictEqual(r.estado, "cerrada");
-  assert.strictEqual(r.costo_resolucion, null, "rechazada nunca lleva costo");
 });
 
 test("registrarResolucion (nota_credito): cierra directo", () => {
