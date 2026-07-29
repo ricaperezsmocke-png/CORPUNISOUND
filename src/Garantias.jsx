@@ -234,6 +234,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   };
 
   const eliminarGastoUI = async (gastoId) => {
+    if (!confirm(`¿Eliminar este gasto de ${modalGastos.folio}? Si tiene comprobante, también se borrará de Google Drive. Esto no se puede deshacer.`)) return;
     try {
       const r = await apiFetch(`/garantias/${modalGastos.id}/gastos/${gastoId}?sucursal_id=todas`, { method: "DELETE" });
       const data = await r.json();
