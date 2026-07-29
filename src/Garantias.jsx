@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { ShieldAlert, Search, X, ChevronLeft, ChevronRight, Send, MapPin, ClipboardCheck, PackageCheck, UserCheck, History } from "lucide-react";
+import { ShieldAlert, Search, X, ChevronLeft, ChevronRight, Send, MapPin, ClipboardCheck, PackageCheck, UserCheck, History, DollarSign, Upload, Trash2, FileText } from "lucide-react";
 import { apiFetch } from "./api";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
@@ -20,6 +20,25 @@ const TIPOS_RESOLUCION = [
   { valor: "rechazada", etiqueta: "Rechazada (no procede)", conProducto: false },
   { valor: "nota_credito", etiqueta: "Nota de crédito / reembolso", conProducto: false },
 ];
+
+const TIPOS_GASTO = [
+  { valor: "traslado", etiqueta: "Traslado" },
+  { valor: "reparacion", etiqueta: "Reparación" },
+  { valor: "otro", etiqueta: "Otro" },
+];
+const ETIQUETA_TIPO_GASTO = { traslado: "Traslado", reparacion: "Reparación", otro: "Otro" };
+const MIME_GASTO_OK = ["application/pdf", "image/jpeg", "image/png"];
+const TAM_MAX_GASTO = 10 * 1024 * 1024;
+
+function leerArchivoBase64(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = () => resolve(String(lector.result).split(",")[1]);
+    lector.onerror = reject;
+    lector.readAsDataURL(archivo);
+  });
+}
+const FORM_GASTO = { tipo: "traslado", monto: "", descripcion: "" };
 
 function Campo({ label, children }) {
   return (
@@ -49,7 +68,7 @@ function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
 const FORM_NUEVA = { producto_id: "", cliente_id: "", venta_id: "", notas_defecto: "", sucursal_origen_id: "" };
 const FORM_ENVIAR = { destino_tipo: "proveedor", destino_nombre: "", proveedor_id: "" };
 const FORM_UBICACION = { ubicacion_actual: "", notas: "" };
-const FORM_RESOLUCION = { tipo_resolucion: "reparado", costo_resolucion: "", notas: "" };
+const FORM_RESOLUCION = { tipo_resolucion: "reparado", notas: "" };
 
 export default function Garantias({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
@@ -75,6 +94,10 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const [modalResolucion, setModalResolucion] = useState(null);
   const [formResolucion, setFormResolucion] = useState(FORM_RESOLUCION);
   const [modalHistorial, setModalHistorial] = useState(null);
+  const [modalGastos, setModalGastos] = useState(null); // garantía o null
+  const [gastos, setGastos] = useState([]);
+  const [formGasto, setFormGasto] = useState(FORM_GASTO);
+  const [archivoGasto, setArchivoGasto] = useState(null); // File | null
 
   // Buscador de producto (mismo patrón visual que Traspasos/POS)
   const [modalBuscarProd, setModalBuscarProd] = useState(false);
@@ -162,12 +185,62 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const registrarResolucion = async () => {
     try {
       const payload = { ...formResolucion };
-      if (!tipoResSeleccionado?.conProducto) payload.costo_resolucion = "";
       const r = await apiFetch(`/garantias/${modalResolucion.id}/resolucion?sucursal_id=todas`, { method: "PUT", body: JSON.stringify(payload) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Resolución registrada");
       setModalResolucion(null);
+      await cargarGarantias();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  // ---------- Gastos de garantía ----------
+  const abrirGastos = async (g) => {
+    setModalGastos(g);
+    setFormGasto(FORM_GASTO);
+    setArchivoGasto(null);
+    try {
+      const r = await apiFetch(`/garantias/${g.id}/gastos?sucursal_id=todas`);
+      setGastos(await r.json());
+    } catch { setGastos([]); mostrarAviso("❌ No se pudieron cargar los gastos"); }
+  };
+
+  const totalGastosModal = gastos.reduce((s, x) => s + Number(x.monto || 0), 0);
+
+  const agregarGastoUI = async () => {
+    const monto = Number(formGasto.monto);
+    if (!Number.isFinite(monto) || monto <= 0) return mostrarAviso("El monto debe ser mayor que cero");
+    let archivoPayload = {};
+    if (archivoGasto) {
+      if (!MIME_GASTO_OK.includes(archivoGasto.type)) return mostrarAviso("❌ Solo PDF, JPG o PNG");
+      if (archivoGasto.size > TAM_MAX_GASTO) return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
+      const contenido_base64 = await leerArchivoBase64(archivoGasto);
+      archivoPayload = { nombre_archivo: archivoGasto.name, tipo_mime: archivoGasto.type, contenido_base64 };
+    }
+    try {
+      const r = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`, {
+        method: "POST",
+        body: JSON.stringify({ tipo: formGasto.tipo, monto, descripcion: formGasto.descripcion, ...archivoPayload }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Gasto agregado");
+      setFormGasto(FORM_GASTO);
+      setArchivoGasto(null);
+      const rl = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`);
+      setGastos(await rl.json());
+      await cargarGarantias();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const eliminarGastoUI = async (gastoId) => {
+    try {
+      const r = await apiFetch(`/garantias/${modalGastos.id}/gastos/${gastoId}?sucursal_id=todas`, { method: "DELETE" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Gasto eliminado");
+      const rl = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`);
+      setGastos(await rl.json());
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
@@ -285,6 +358,9 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                       {g.estado === "en_tienda_pendiente_entrega" && puede("gestionar_garantias") && (
                         <button onClick={() => entregar(g)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1"><UserCheck size={12} /> Entregar a cliente</button>
                       )}
+                      {puede("gestionar_garantias") && (
+                        <button onClick={() => abrirGastos(g)} className="text-emerald-700 hover:text-emerald-900 text-xs px-2 py-1 rounded flex items-center gap-1"><DollarSign size={12} /> Gastos{g.total_gastos > 0 ? ` ($${Number(g.total_gastos).toFixed(2)})` : ""}</button>
+                      )}
                       <button onClick={() => setModalHistorial(g)} className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1 rounded flex items-center gap-1"><History size={12} /> Historial</button>
                     </div>
                   </td>
@@ -389,11 +465,6 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                 {TIPOS_RESOLUCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
               </select>
             </Campo>
-            {tipoResSeleccionado?.conProducto && (
-              <Campo label="Costo de la resolución (opcional — en blanco = gratis)">
-                <input type="number" min="0" step="0.01" className={inputCls} value={formResolucion.costo_resolucion} onChange={(e) => setFormResolucion({ ...formResolucion, costo_resolucion: e.target.value })} placeholder="0.00" />
-              </Campo>
-            )}
             <Campo label="Notas">
               <textarea className={inputCls} rows={2} value={formResolucion.notas} onChange={(e) => setFormResolucion({ ...formResolucion, notas: e.target.value })} placeholder={tipoResSeleccionado?.conProducto ? "detalle de la reparación/reemplazo" : "monto del crédito, motivo del rechazo, etc."} />
             </Campo>
@@ -416,6 +487,56 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                 <div className="text-sm">{m.descripcion}</div>
               </div>
             ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal Gastos */}
+      {modalGastos && (
+        <Modal titulo={`Gastos — ${modalGastos.folio}`} onCerrar={() => setModalGastos(null)} ancho="max-w-2xl">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between bg-slate-50 rounded px-3 py-2">
+              <span className="text-sm text-slate-500">Total de gastos</span>
+              <span className="text-lg font-semibold text-slate-800">${totalGastosModal.toFixed(2)}</span>
+            </div>
+
+            <div className="border border-slate-200 rounded divide-y divide-slate-100 max-h-56 overflow-y-auto">
+              {gastos.length === 0 && <p className="text-slate-400 text-sm text-center py-6">Sin gastos registrados</p>}
+              {gastos.map((x) => (
+                <div key={x.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <div>
+                    <span className="font-medium">{ETIQUETA_TIPO_GASTO[x.tipo] || x.tipo}</span>
+                    <span className="text-slate-500"> — ${Number(x.monto).toFixed(2)}</span>
+                    {x.descripcion ? <span className="text-slate-400"> · {x.descripcion}</span> : null}
+                    {x.drive_link ? <a href={x.drive_link} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline ml-2 inline-flex items-center gap-1"><FileText size={11} /> Ver</a> : null}
+                  </div>
+                  <button onClick={() => eliminarGastoUI(x.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14} /></button>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Campo label="Tipo">
+                  <select className={inputCls} value={formGasto.tipo} onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}>
+                    {TIPOS_GASTO.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
+                  </select>
+                </Campo>
+                <Campo label="Monto">
+                  <input type="number" min="0" step="0.01" className={inputCls} value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} placeholder="0.00" />
+                </Campo>
+              </div>
+              <Campo label="Descripción (opcional)">
+                <input className={inputCls} value={formGasto.descripcion} onChange={(e) => setFormGasto({ ...formGasto, descripcion: e.target.value })} placeholder="ej: flete de ida a Sensey" />
+              </Campo>
+              <Campo label="Comprobante (opcional — PDF/JPG/PNG, máx 10MB)">
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer border border-slate-300 rounded px-2.5 py-1.5 hover:bg-slate-50">
+                  <Upload size={14} /> {archivoGasto ? archivoGasto.name : "Elegir archivo..."}
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setArchivoGasto(e.target.files?.[0] || null)} />
+                </label>
+              </Campo>
+              <button onClick={agregarGastoUI} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold mt-1">Agregar gasto</button>
+            </div>
           </div>
         </Modal>
       )}
