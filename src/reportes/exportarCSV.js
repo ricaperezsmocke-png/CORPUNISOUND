@@ -29,7 +29,10 @@
 const ARRANQUE_DE_FORMULA = /^[=+\-@\t\r]/;
 
 function neutralizarFormula(texto) {
-  if (!ARRANQUE_DE_FORMULA.test(texto)) return texto;
+  // Se evalúa sin los espacios de la izquierda: " =1+1" no lo alcanzaría el
+  // regex, y aunque Excel trata esa celda como texto, algunas rutas de
+  // importación de Google Sheets recortan el espacio y vuelven a exponerla.
+  if (!ARRANQUE_DE_FORMULA.test(texto.trimStart())) return texto;
   if (texto.trim() !== "" && Number.isFinite(Number(texto))) return texto;
   return `'${texto}`;
 }

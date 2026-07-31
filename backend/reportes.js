@@ -450,9 +450,16 @@ function reporteGastosGarantias(DB, filtros, alcance) {
   // Lo que la tienda ABSORBIÓ: gastos de garantías que el proveedor rechazó.
   // Una nota de crédito NO cuenta — ahí sí hubo compensación.
   const rechazado = general.filter((f) => f.tipo_resolucion === "rechazada");
-  // Dinero EN RIESGO: gastos de garantías que todavía no cierran, así que
-  // aún no se sabe si el proveedor va a responder.
-  const sinResolver = general.filter((f) => f.estado !== "cerrada");
+  // Dinero EN RIESGO: gastos de garantías SIN resolución registrada todavía
+  // (estados 'registrada' y 'enviada'), donde de verdad no se sabe si el
+  // proveedor va a responder.
+  //
+  // OJO: no es "toda garantía que no esté cerrada". Una garantía en 'resuelta'
+  // o en 'en_tienda_pendiente_entrega' ya tiene respuesta favorable del
+  // proveedor (reparó o reemplazó) y solo le falta el trámite de mostrador —
+  // contarla como riesgo infla la cifra casi siempre, porque las garantías con
+  // producto físico se arrastran meses.
+  const sinResolver = general.filter((f) => f.tipo_resolucion == null);
 
   return {
     general,

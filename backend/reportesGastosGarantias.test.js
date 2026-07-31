@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
-const { crearGarantia, marcarEnviada, registrarResolucion } = require("./garantias");
+const { crearGarantia, marcarEnviada, registrarResolucion, recibirEnTienda } = require("./garantias");
 const { reporteGastosGarantias } = require("./reportes");
 
 const ALCANCE_TODAS = { verTodas: true, sucursalId: null };
@@ -230,7 +230,7 @@ test("Fase 3: una nota de crédito NO cuenta como pérdida", () => {
   const notaCredito = r.general.find((f) => f.folio === "G-0002");
 
   assert.strictEqual(notaCredito.tipo_resolucion, "nota_credito");
-  assert.ok(!String(r.totales.total_rechazado).includes("100"), "los $100 de la nota de crédito no entran a total_rechazado");
+  // 300 y no 400: si los $100 de la nota de crédito se colaran, esto falla.
   assert.strictEqual(r.totales.total_rechazado, 300);
 });
 
@@ -243,7 +243,10 @@ test("Fase 3: total_sin_resolver suma los gastos de garantías que siguen abiert
 
 test("Fase 3: filtra por proveedor_id", () => {
   const { DB } = escenarioFase3();
-  const r = reporteGastosGarantias(DB, { proveedor_id: 1 }, ALCANCE_TODAS);
+  // Se pasa como STRING a propósito: es como llega de verdad desde req.query.
+  // Si alguien "limpia" el Number() del backend, esta prueba lo atrapa; con un
+  // número la suite se quedaría verde y el filtro devolvería vacío siempre.
+  const r = reporteGastosGarantias(DB, { proveedor_id: "1" }, ALCANCE_TODAS);
 
   assert.deepStrictEqual(r.general.map((f) => f.folio).sort(), ["G-0001", "G-0003"]);
   assert.strictEqual(r.totales.total, 350);
@@ -294,4 +297,64 @@ test("Fase 3: los filtros nuevos respetan el alcance de sucursal", () => {
   assert.strictEqual(r.totales.total, 50);
   assert.deepStrictEqual(r.porProveedor.map((f) => f.proveedor), ["Distribuidora Musical"]);
   assert.strictEqual(r.totales.total_rechazado, 0, "la garantía rechazada es de Ocosingo, no debe filtrarse aquí");
+});
+
+/**
+ * Escenario con los DOS estados donde el proveedor ya respondió bien pero la
+ * garantía todavía no cierra — el hueco que dejó pasar un bug real:
+ * `total_sin_resolver` estaba definido como "no cerrada" y contaba esta plata
+ * como dinero en riesgo cuando ya estaba resuelta a favor de la tienda.
+ *
+ *   G-0001  resuelta (reparado)                 -> gasto 500  = YA respondió
+ *   G-0002  en_tienda_pendiente_entrega (reemp) -> gasto 700  = YA respondió
+ *   G-0003  registrada                          -> gasto 25   = de verdad en riesgo
+ */
+function escenarioYaRespondidas() {
+  const DB = construirDBPrueba();
+
+  const g1 = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
+  marcarEnviada(DB, g1.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor" }, USUARIO, ALCANCE_TODAS);
+  registrarResolucion(DB, g1.id, { tipo_resolucion: "reparado" }, USUARIO, ALCANCE_TODAS);
+
+  // Con cliente_id, al recibirse pasa a 'en_tienda_pendiente_entrega'.
+  const g2 = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
+  marcarEnviada(DB, g2.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor" }, USUARIO, ALCANCE_TODAS);
+  registrarResolucion(DB, g2.id, { tipo_resolucion: "reemplazo" }, USUARIO, ALCANCE_TODAS);
+  recibirEnTienda(DB, g2.id, USUARIO, ALCANCE_TODAS);
+
+  const g3 = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
+
+  sembrarGasto(DB, g1.id, { tipo: "reparacion", monto: 500, fecha: "2026-07-10T12:00:00.000Z" });
+  sembrarGasto(DB, g2.id, { tipo: "traslado", monto: 700, fecha: "2026-07-11T12:00:00.000Z" });
+  sembrarGasto(DB, g3.id, { tipo: "otro", monto: 25, fecha: "2026-07-12T12:00:00.000Z" });
+  return { DB, g1, g2, g3 };
+}
+
+test("total_sin_resolver NO cuenta las garantías que el proveedor ya resolvió", () => {
+  const { DB } = escenarioYaRespondidas();
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+
+  // Comprobación de que el escenario es el que creo que es.
+  assert.strictEqual(r.general.find((f) => f.folio === "G-0001").estado, "resuelta");
+  assert.strictEqual(r.general.find((f) => f.folio === "G-0002").estado, "en_tienda_pendiente_entrega");
+  assert.strictEqual(r.general.find((f) => f.folio === "G-0003").estado, "registrada");
+
+  assert.strictEqual(r.totales.total, 1225);
+  assert.strictEqual(
+    r.totales.total_sin_resolver, 25,
+    "solo la garantía sin resolución cuenta como dinero en riesgo; los $500 reparados y los $700 reemplazados NO"
+  );
+  assert.strictEqual(r.totales.numero_sin_resolver, 1);
+  assert.strictEqual(r.totales.total_rechazado, 0, "ninguna fue rechazada");
+});
+
+test("total_sin_resolver sí cuenta una garantía ya enviada pero sin resolución", () => {
+  const DB = construirDBPrueba();
+  const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
+  marcarEnviada(DB, g.id, { destino_tipo: "cedis", destino_nombre: "CEDIS" }, USUARIO, ALCANCE_TODAS);
+  sembrarGasto(DB, g.id, { tipo: "traslado", monto: 90, fecha: "2026-07-10T12:00:00.000Z" });
+
+  const r = reporteGastosGarantias(DB, {}, ALCANCE_TODAS);
+  assert.strictEqual(r.general[0].estado, "enviada");
+  assert.strictEqual(r.totales.total_sin_resolver, 90, "enviada sin resolución = todavía no se sabe = riesgo");
 });

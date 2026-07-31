@@ -244,7 +244,7 @@ export default function ReporteGastosGarantias({ onVolver }) {
               </span>
             )}
             {datos.totales.numero_sin_resolver > 0 && (
-              <span className="text-amber-300" title="Gastos de garantías que aún no cierran — todavía no se sabe si el proveedor responde">
+              <span className="text-amber-300" title="Gastos de garantías que todavía no tienen resolución del proveedor (registradas o enviadas) — aún no se sabe si responde. Las ya reparadas o reemplazadas NO cuentan aquí.">
                 Sin resolver: <b>${datos.totales.total_sin_resolver.toFixed(2)}</b>
               </span>
             )}
