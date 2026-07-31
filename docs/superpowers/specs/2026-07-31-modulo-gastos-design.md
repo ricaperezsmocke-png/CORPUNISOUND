@@ -16,13 +16,17 @@ Vive junto a Corte de Caja, porque la forma de pago dominante en la operación r
 - **La mercancía queda fuera a propósito.** Ya se registra en Recepción de Compras (sube existencia y recalcula costo). Además, en la operación real de Victor la compra es **conjunta**: las sucursales depositan a una cuenta común, la administradora compra para CEDIS, y a veces una tienda deposita de más para ayudar a otra (deposita $60,000 y le tocan $50,000 de mercancía). Ese dinero no sale de la empresa, se mueve dentro. Registrarlo como gasto inflaría los totales de una sucursal y chocaría con Recepción de Compras.
 - **Infraestructura ya disponible que se reutiliza:** catálogo de proveedores con RFC, catálogo de sucursales, roles con permisos granulares, subida de archivos a Google Drive (`backend/drive.js`), patrón de bitácora (`garantia_movimientos`), y el patrón de reportes (`backend/reportes.js` + `src/reportes/`).
 
-## Requisito previo bloqueante
+## Requisito previo para OPERAR (no para construir)
 
 **Google Drive debe estar reconectado y estable antes de que el módulo entre en operación.** El comprobante es obligatorio (decisión de Victor, ver abajo), así que Drive deja de ser un extra y se vuelve dependencia dura: si Drive no responde, no se puede registrar ningún gasto, la cajera saca el dinero de todos modos y el problema regresa.
 
 El token de producción expiró el 2026-07-28. Además de reconectar la cuenta en Roles y Personal, hay que **publicar la app OAuth de Google Cloud Console a estado "Production"**; en modo "Testing" los refresh tokens caducan cada 7 días y esto volvería a pasar.
 
-**Consecuencia asumida:** si Drive falla en el momento de capturar, el gasto no se registra. Es el precio del comprobante obligatorio y Victor lo aceptó explícitamente.
+**Orden acordado con Victor:** primero se construye este módulo, luego se reconecta Drive, y hasta entonces se usa. El módulo no está en producción todavía, así que Drive caído no frena el desarrollo.
+
+**Consecuencia para la verificación:** el módulo se construye y se prueba con un `drive` simulado inyectado (mismo patrón que `garantiasGastos.js`), pero **la prueba real de punta a punta en el navegador — subir la foto y ver el link — queda pendiente hasta que Drive esté reconectado**. No se puede declarar "probado en producción" antes de eso.
+
+**Consecuencia en operación:** si Drive falla al momento de capturar, el gasto no se registra. Es el precio del comprobante obligatorio y Victor lo aceptó explícitamente.
 
 ## Decisiones tomadas con Victor
 
@@ -236,4 +240,10 @@ Frontend: sin arnés automático (convención del repo). Verificación manual en
 
 1. **Dependencia dura de Google Drive** (ver "Requisito previo"). Es la consecuencia aceptada del comprobante obligatorio.
 2. **Fechas en UTC.** Todo el repo guarda fechas con `new Date().toISOString()` y Chiapas es UTC−6, así que un gasto capturado después de las 6:00 pm queda con la fecha del día siguiente. Este módulo hereda el problema; arreglarlo es un cambio transversal del proyecto, no de esta fase.
-3. **Captura desde el mostrador.** El comprobante obligatorio implica que la cajera tenga la foto del ticket en la computadora donde captura. Si en la práctica resulta un freno, la salida natural es permitir registrar y adjuntar en un segundo momento — pero eso contradice la decisión tomada, así que se revisará solo con evidencia de uso real, no por anticipado.
+3. **Captura desde el mostrador — con solución ya acordada.** El comprobante obligatorio implica que la cajera tenga la foto del ticket en la computadora donde captura. Hoy lo resuelven abriendo WhatsApp en la máquina y mandándose la foto.
+
+   La solución acordada es **subir la foto escaneando un QR con el celular**, y se construirá como el **módulo inmediatamente siguiente a este**, con su propio diseño y su propia revisión de seguridad — es una superficie nueva (una página de subida que el celular alcanza **sin sesión iniciada**) que mal hecha sería un endpoint público de subida de archivos. Requiere código de un solo uso, de vida corta, atado a esa captura, con tope de tamaño y tipo.
+
+   **Lo que este módulo debe dejar preparado:** el modal de captura se diseña de forma que el comprobante pueda llegar de **dos fuentes distintas** (archivo elegido en la máquina, o archivo llegado desde el celular), para no rehacer el formulario después. En esta fase solo se implementa la primera; la segunda se enchufa sin rediseñar.
+
+   El tiempo encaja: ninguno de los dos entra en operación hasta que Drive esté reconectado.
