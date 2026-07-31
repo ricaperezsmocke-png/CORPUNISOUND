@@ -1285,8 +1285,8 @@ app.get("/api/reportes/movimientos-caja", requiereLogin, requierePermiso("ver_re
 
 app.get("/api/reportes/gastos-garantias", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-  const { fecha_inicio, fecha_fin, tipo } = req.query;
-  res.json(reporteGastosGarantias(DB, { fecha_inicio, fecha_fin, tipo }, alcance));
+  const { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante } = req.query;
+  res.json(reporteGastosGarantias(DB, { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante }, alcance));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

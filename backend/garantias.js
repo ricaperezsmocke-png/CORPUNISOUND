@@ -26,6 +26,28 @@ const { dentroDeAlcance } = require("./auth");
 const TIPOS_RESOLUCION = ["reparado", "reemplazo", "cambio_componente", "rechazada", "nota_credito"];
 const TIPOS_CON_PRODUCTO = ["reparado", "reemplazo", "cambio_componente"];
 
+/** Etiquetas legibles de la máquina de estados y de las resoluciones, para que
+ *  el backend pueda mandar texto ya presentable (así lo hace el reporte de
+ *  Gastos de Garantías con `estado_etiqueta`/`resolucion_etiqueta`).
+ *  Nota: `src/Garantias.jsx` mantiene su propia copia porque además necesita
+ *  el flag `conProducto` de cada resolución para armar sus formularios — si se
+ *  agrega o renombra un estado, hay que tocar los dos lados. */
+const ETIQUETA_ESTADO = {
+  registrada: "Registrada",
+  enviada: "Enviada",
+  resuelta: "Resuelta",
+  en_tienda_pendiente_entrega: "En tienda (pend. entrega)",
+  cerrada: "Cerrada",
+};
+
+const ETIQUETA_RESOLUCION = {
+  reparado: "Reparado",
+  reemplazo: "Reemplazo",
+  cambio_componente: "Cambio de componente",
+  rechazada: "Rechazada (no procede)",
+  nota_credito: "Nota de crédito / reembolso",
+};
+
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
@@ -262,4 +284,5 @@ module.exports = {
   crearGarantia, marcarEnviada, actualizarUbicacion, registrarResolucion,
   recibirEnTienda, entregarACliente, listarGarantias,
   buscarConGuardia, pushMovimiento,
+  ETIQUETA_ESTADO, ETIQUETA_RESOLUCION,
 };
