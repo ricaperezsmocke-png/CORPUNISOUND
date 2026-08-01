@@ -48,6 +48,16 @@ test("fechaLocal: da el mismo día sin importar si el ISO trae el desfase local 
   assert.strictEqual(fechaLocal("2026-08-01T02:56:35.000Z"), "2026-07-31");
 });
 
+test("fechaLocal: una fecha inválida cae en HOY en vez de reventar", () => {
+  // fechaLocal() alimenta fecha, fecha_alta, ultimo_contacto, etc. de ventas, cortes
+  // y gastos. La única llamada que recibe un dato de fuera del sistema es la de
+  // mercadolibre.js (orden.date_created). Si la API de ML llegara a mandar algo
+  // malformado, es preferible una fecha de respaldo a que reviente toda la
+  // importación de la orden — igual que ya pasa con undefined/null/"".
+  assert.match(fechaLocal("basura"), /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(fechaLocal("2026-13-45"), /^\d{4}-\d{2}-\d{2}$/);
+});
+
 test("ahora() sigue devolviendo un instante ISO en UTC", () => {
   // Las marcas de tiempo NO se localizan: la lógica de turnos del corte las
   // compara entre sí y mezclar marcos la rompería.

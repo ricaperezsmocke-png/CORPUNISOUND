@@ -28,10 +28,16 @@ const formateador = new Intl.DateTimeFormat("en-CA", {
 });
 
 /** Fecha del día en la tienda, en formato YYYY-MM-DD.
- *  Acepta un Date, un string ISO, o nada (= ahora). */
+ *  Acepta un Date, un string ISO, o nada (= ahora).
+ *  Si `instante` es una fecha inválida (dato malformado), cae en HOY en vez de
+ *  reventar: este helper alimenta fecha, fecha_alta, ultimo_contacto, etc. de
+ *  ventas, cortes y gastos, y la única llamada que recibe un dato de fuera del
+ *  sistema (orden.date_created de MercadoLibre) no debe poder tumbar toda una
+ *  importación por un ISO malformado — en un punto de venta, una fecha de
+ *  respaldo es preferible a que se caiga la operación. */
 function fechaLocal(instante) {
   const d = instante ? new Date(instante) : new Date();
-  return formateador.format(d);
+  return formateador.format(isNaN(d.getTime()) ? new Date() : d);
 }
 
 /** Marca de tiempo completa, en UTC. Se mantiene tal cual a propósito. */
