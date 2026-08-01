@@ -240,6 +240,15 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               <div className="text-sm text-slate-600 mb-1">{enCurso.ventas_incluidas} venta(s) desde {enCurso.desde ? new Date(enCurso.desde).toLocaleString("es-MX") : "el inicio"}</div>
               <div className="text-2xl font-bold text-slate-800">{$fmt(enCurso.total_calculado)}</div>
               <div className="text-xs text-slate-400 mt-1">calculado en caja (sin transferencias ni crédito)</div>
+              {enCurso?.gastos_efectivo > 0 && (
+                <div className="flex items-center justify-between text-sm px-3 py-2 bg-amber-50 border border-amber-200 rounded mt-2">
+                  <span className="text-amber-800">
+                    Gastos del turno ({enCurso.gastos_incluidos})
+                    <span className="block text-xs text-amber-700">Ya descontados del efectivo esperado</span>
+                  </span>
+                  <span className="font-medium text-amber-800">− {$fmt(enCurso.gastos_efectivo)}</span>
+                </div>
+              )}
               {!puedeVerMontos && (
                 <div className="text-[11px] text-slate-400 mt-2">Los montos esperados solo son visibles para supervisión.</div>
               )}
