@@ -133,6 +133,7 @@ test("el corte guardado conserva los gastos del turno y NO cambia si después se
   });
 
   assert.strictEqual(corte.gastos_efectivo, 500, "queda registrado por qué el calculado fue 1500");
+  assert.strictEqual(corte.gastos_incluidos, 1, "también se guarda el CONTEO, no solo el monto — si no, no se puede mostrar en el historial");
   assert.strictEqual(corte.total_calculado, 1500);
   assert.strictEqual(corte.total_diferencia, 0, "la caja cuadra: el gasto ya no se ve como faltante");
 
@@ -141,6 +142,7 @@ test("el corte guardado conserva los gastos del turno y NO cambia si después se
   const guardado = DB.pos.cortes_caja.find((c) => c.id === corte.id);
   assert.strictEqual(guardado.total_calculado, 1500, "el corte cerrado queda congelado");
   assert.strictEqual(guardado.gastos_efectivo, 500);
+  assert.strictEqual(guardado.gastos_incluidos, 1, "el conteo también queda congelado");
 });
 
 test("sin gastos, el corte se comporta exactamente igual que antes", async () => {

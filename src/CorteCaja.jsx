@@ -81,6 +81,17 @@ function TicketCorte({ corte, onCerrar }) {
           <div className="mt-2 flex justify-between py-0.5"><span>Transferencias:</span><span className="font-semibold">{$fmt(corte.transferencias)}</span></div>
           <div className="flex justify-between py-0.5"><span>A crédito:</span><span className="font-semibold">{$fmt(corte.credito)}</span></div>
 
+          {/* Explica por qué el Calculado bajó: sin esto, un corte abierto
+              semanas después en el historial muestra una Diferencia que no
+              se puede interpretar. Solo se muestra si el corte tiene
+              gastos — los cortes viejos no traen el campo y no cambian. */}
+          {corte.gastos_efectivo > 0 && (
+            <div className="mt-2 flex justify-between py-0.5 bg-amber-50 border border-amber-200 rounded px-2">
+              <span className="text-amber-800">Gastos del turno ({corte.gastos_incluidos}):</span>
+              <span className="font-semibold text-amber-800">− {$fmt(corte.gastos_efectivo)}</span>
+            </div>
+          )}
+
           {corte.retiro && FORMAS.some((f) => corte.retiro[f]) && (
             <>
               <div className="mt-3 border-t border-dashed border-slate-300 pt-2 font-semibold">Retiro por corte</div>
@@ -366,7 +377,10 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               </div>
             </div>
 
-            <div className="border-t border-slate-200 p-3 flex justify-center">
+            <div className="border-t border-slate-200 p-3 flex flex-col items-center gap-2">
+              <p className="text-[11px] text-slate-400 text-center max-w-md">
+                Si sacaste dinero de la caja y todavía no lo capturas en Gastos, hazlo antes de guardar el corte.
+              </p>
               <button onClick={guardarCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors">
                 💾 Guardar
               </button>
@@ -406,6 +420,11 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                         <td className="py-2 text-right">{$fmt(c.total_contado)}</td>
                         <td className={`py-2 text-right font-semibold ${c.total_diferencia < 0 ? "text-red-600" : "text-blue-700"}`}>
                           {c.total_diferencia < 0 ? `-$ ${Math.abs(c.total_diferencia).toFixed(2)}` : $fmt(c.total_diferencia)}
+                          {/* Solo aparece si el corte tiene gastos — los cortes
+                              viejos sin este campo se ven exactamente igual que siempre. */}
+                          {c.gastos_efectivo > 0 && (
+                            <div className="text-[10px] font-normal text-amber-700">incl. −{$fmt(c.gastos_efectivo)} gastos</div>
+                          )}
                         </td>
                       </tr>
                     ))}

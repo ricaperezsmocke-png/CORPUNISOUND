@@ -213,6 +213,9 @@ function reporteCortesCaja(DB, filtros, alcance) {
     id: c.id, fecha: c.fecha, sucursal_nombre: nombreSucursal(c.sucursal_id), usuario_nombre: c.usuario_nombre,
     total_calculado: c.total_calculado, total_contado: c.total_contado, total_diferencia: c.total_diferencia,
     total_retiro: c.total_retiro,
+    // Cortes previos a la feature de Gastos no tienen este campo: se ve como
+    // 0, nunca como undefined, para no romper el .toFixed() del frontend.
+    gastos_efectivo: c.gastos_efectivo || 0,
   })).sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   return {
@@ -223,6 +226,7 @@ function reporteCortesCaja(DB, filtros, alcance) {
       total_contado: redondear(filas.reduce((a, f) => a + f.total_contado, 0)),
       total_diferencia: redondear(filas.reduce((a, f) => a + f.total_diferencia, 0)),
       total_retiro: redondear(filas.reduce((a, f) => a + f.total_retiro, 0)),
+      total_gastos: redondear(filas.reduce((a, f) => a + f.gastos_efectivo, 0)),
     },
   };
 }

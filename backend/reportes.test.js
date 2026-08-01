@@ -238,6 +238,30 @@ test("reporteCortesCaja: incluye cortes con total_retiro=0 en las sumas (no filt
   assert.strictEqual(r.totales.total_calculado, 1000, "total_calculado debe ser 1000");
 });
 
+test("reporteCortesCaja: incluye los gastos del turno cuando el corte los tiene", () => {
+  const DB = construirDBPrueba();
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 1500, total_contado: 1500, total_diferencia: 0, total_retiro: 0,
+    gastos_efectivo: 500, gastos_incluidos: 1,
+  });
+
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas[0].gastos_efectivo, 500, "explica por qué el calculado bajó");
+  assert.strictEqual(r.totales.total_gastos, 500);
+});
+
+test("reporteCortesCaja: un corte viejo sin gastos_efectivo no rompe el reporte (se ve como 0)", () => {
+  const DB = construirDBPrueba();
+  seedCorte(DB); // sin gastos_efectivo ni gastos_incluidos — corte previo a esta feature
+
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-01", fecha_fin: "2026-06-30" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas[0].gastos_efectivo, 0, "no debe salir undefined ni romper el .toFixed() en el frontend");
+  assert.strictEqual(r.totales.total_gastos, 0);
+});
+
 const { reporteExistencias } = require("./reportes");
 
 test("reporteExistencias: calcula valor de inventario a costo y a precio de venta", () => {
