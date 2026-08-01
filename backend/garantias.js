@@ -22,6 +22,7 @@
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { dentroDeAlcance } = require("./auth");
+const { fechaLocal } = require("./fechas");
 
 const TIPOS_RESOLUCION = ["reparado", "reemplazo", "cambio_componente", "rechazada", "nota_credito"];
 const TIPOS_CON_PRODUCTO = ["reparado", "reemplazo", "cambio_componente"];
@@ -53,7 +54,7 @@ function siguienteId(lista) {
 }
 
 function hoy() {
-  return new Date().toISOString().slice(0, 10);
+  return fechaLocal();
 }
 
 function ahora() {
@@ -80,7 +81,7 @@ function pushMovimiento(DB, garantia, tipo, descripcion, usuario) {
     tipo,
     descripcion: descripcion || "",
   });
-  garantia.fecha_ultimo_movimiento = fecha.slice(0, 10);
+  garantia.fecha_ultimo_movimiento = fechaLocal(fecha);
 }
 
 /** Ajusta la existencia de la sucursal de ORIGEN. Devuelve true si el ajuste

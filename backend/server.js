@@ -57,6 +57,7 @@ const { listarCategorias: listarCategoriasGasto, crearCategoria: crearCategoriaG
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
+const { fechaLocal } = require("./fechas");
 const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
 const { importarClavesSat } = require("./scripts/importarClavesSat");
 const { parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo } = require("./migracion");
@@ -312,8 +313,8 @@ const TOOL_PREDICCION = {
 
 function construirSystemPrompt(alcance, DB) {
   const hoy = new Date();
-  const fechaISO = hoy.toISOString().slice(0, 10);
-  const diaSemana = hoy.toLocaleDateString("es-MX", { weekday: "long" });
+  const fechaISO = fechaLocal(hoy);
+  const diaSemana = hoy.toLocaleDateString("es-MX", { weekday: "long", timeZone: "America/Mexico_City" });
 
   const sucursales = DB.pos.sucursales.map((s) => `${s.id}=${s.nombre}`).join(", ");
   const alcanceTexto = alcance.verTodas

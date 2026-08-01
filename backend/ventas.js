@@ -13,6 +13,7 @@
 
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
+const { fechaLocal } = require("./fechas");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -45,7 +46,7 @@ function crearVenta(DB, datos) {
   const nuevoId = siguienteId(DB.pos.ventas);
   const venta = {
     id: nuevoId,
-    fecha: new Date().toISOString().slice(0, 10),
+    fecha: fechaLocal(),
     fecha_hora: new Date().toISOString(), // con hora — el corte de caja agrupa ventas por turno
     sucursal_id: Number(datos.sucursal_id) || 1,
     vendedor_id: datos.vendedor_id ? Number(datos.vendedor_id) : null,

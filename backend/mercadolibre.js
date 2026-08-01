@@ -9,6 +9,8 @@
  *                      (ej: https://punto-de-venta-backend.onrender.com/api/ml/callback)
  */
 
+const { fechaLocal } = require("./fechas");
+
 const ML_API  = "https://api.mercadolibre.com";
 const ML_AUTH = "https://auth.mercadolibre.com.mx/authorization";
 
@@ -279,16 +281,16 @@ async function importarOrdenComoVenta(DB, ordenId) {
         email: orden.buyer.email || "", telefono: "", celular: "",
         sujeto_credito: false, precio_lista: 1, dias_credito: 0, limite_credito: 0,
         monedero: 0, saldo: 0, saldo_vencido: 0, fecha_vencimiento: null,
-        fecha_alta: new Date().toISOString().slice(0, 10),
+        fecha_alta: fechaLocal(),
         vendedor_asignado_id: null, sucursal_id: 5,
         estado: "compro",
-        ultimo_contacto: orden.date_created?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        ultimo_contacto: orden.date_created?.slice(0, 10) || fechaLocal(),
         ubicacion: "MercadoLibre",
       };
       DB.crm.clientes.push(cliente);
     } else {
       cliente.estado = "compro";
-      cliente.ultimo_contacto = orden.date_created?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+      cliente.ultimo_contacto = orden.date_created?.slice(0, 10) || fechaLocal();
     }
     clienteId = cliente.id;
   }
@@ -298,7 +300,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
     ? Math.max(...DB.pos.ventas.map((v) => v.id)) + 1 : 1;
   const venta = {
     id:          sigId,
-    fecha:       orden.date_created?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+    fecha:       orden.date_created?.slice(0, 10) || fechaLocal(),
     sucursal_id: 5,
     vendedor_id: null,
     cliente_id:  clienteId,

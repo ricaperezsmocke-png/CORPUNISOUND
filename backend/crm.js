@@ -8,8 +8,10 @@
  * desincronizan — son la misma fuente de datos, vista desde dos módulos.
  */
 
+const { fechaLocal } = require("./fechas");
+
 function hoy() {
-  return new Date().toISOString().slice(0, 10);
+  return fechaLocal();
 }
 
 function diasDesde(fechaISO) {

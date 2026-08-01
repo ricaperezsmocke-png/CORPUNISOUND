@@ -14,6 +14,7 @@
 
 const { dentroDeAlcance } = require("./auth");
 const { buscarHojaActiva, listarCategorias } = require("./gastosCategorias");
+const { fechaLocal } = require("./fechas");
 
 const FORMAS_PAGO_GASTO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const MIME_VALIDOS = ["application/pdf", "image/jpeg", "image/png"];
@@ -127,7 +128,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
   const gasto = {
     id: nuevoId,
     folio,
-    fecha: ahora.slice(0, 10),
+    fecha: fechaLocal(ahora),
     fecha_hora: ahora,
     sucursal_id,
     categoria_id: categoria.id,

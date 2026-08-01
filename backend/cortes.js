@@ -13,6 +13,7 @@
  */
 
 const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gastos");
+const { fechaLocal } = require("./fechas");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -131,7 +132,7 @@ function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {},
     sucursal_id: Number(sucursal_id) || 1,
     usuario_id: usuario_id ?? null,
     usuario_nombre: usuario_nombre || "—",
-    fecha: new Date().toISOString().slice(0, 10),
+    fecha: fechaLocal(),
     fecha_hora: new Date().toISOString(),
     desde: enCurso.desde,
     ventas_incluidas: enCurso.ventas_incluidas,

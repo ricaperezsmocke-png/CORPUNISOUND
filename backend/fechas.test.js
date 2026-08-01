@@ -1,0 +1,46 @@
+const { test } = require("node:test");
+const assert = require("node:assert");
+const { fechaLocal, ahora, ZONA_TIENDA } = require("./fechas");
+
+test("la zona de la tienda es la de México, no un desfase escrito a mano", () => {
+  assert.strictEqual(ZONA_TIENDA, "America/Mexico_City");
+});
+
+test("fechaLocal: un instante de la NOCHE pertenece al día que la tienda vivió", () => {
+  // Chiapas es UTC-6. Las 8 de la noche del 31 de julio son las 02:00 UTC del
+  // 1 de agosto. Antes de este arreglo, el sistema guardaba "2026-08-01" y el
+  // gasto se contaba en el mes equivocado.
+  assert.strictEqual(fechaLocal("2026-08-01T02:00:00.000Z"), "2026-07-31");
+  assert.strictEqual(fechaLocal("2026-08-01T05:59:00.000Z"), "2026-07-31");
+});
+
+test("fechaLocal: la frontera real del día son las 06:00 UTC", () => {
+  assert.strictEqual(fechaLocal("2026-08-01T05:59:59.000Z"), "2026-07-31");
+  assert.strictEqual(fechaLocal("2026-08-01T06:00:00.000Z"), "2026-08-01");
+});
+
+test("fechaLocal: un instante de la mañana no se mueve", () => {
+  assert.strictEqual(fechaLocal("2026-07-31T15:00:00.000Z"), "2026-07-31");
+});
+
+test("fechaLocal: acepta Date, string ISO, y sin argumento devuelve hoy", () => {
+  assert.strictEqual(fechaLocal(new Date("2026-08-01T02:00:00.000Z")), "2026-07-31");
+  assert.match(fechaLocal(), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("fechaLocal: siempre devuelve el formato YYYY-MM-DD, con ceros a la izquierda", () => {
+  assert.strictEqual(fechaLocal("2026-03-05T18:00:00.000Z"), "2026-03-05");
+  assert.strictEqual(fechaLocal("2026-01-01T06:00:00.000Z"), "2026-01-01");
+});
+
+test("las fechas locales se pueden ordenar y comparar como texto", () => {
+  // De esto dependen todos los filtros de rango de los reportes (enRango).
+  assert.ok(fechaLocal("2026-07-31T18:00:00.000Z") < fechaLocal("2026-08-02T18:00:00.000Z"));
+});
+
+test("ahora() sigue devolviendo un instante ISO en UTC", () => {
+  // Las marcas de tiempo NO se localizan: la lógica de turnos del corte las
+  // compara entre sí y mezclar marcos la rompería.
+  const t = ahora();
+  assert.match(t, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+});

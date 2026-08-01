@@ -7,6 +7,8 @@
  * productos.js.
  */
 
+const { fechaLocal } = require("./fechas");
+
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
@@ -50,7 +52,7 @@ function crearCliente(DB, datos) {
     saldo: 0,
     saldo_vencido: 0,
     fecha_vencimiento: null,
-    fecha_alta: new Date().toISOString().slice(0, 10),
+    fecha_alta: fechaLocal(),
     vendedor_asignado_id: datos.vendedor_asignado_id ? Number(datos.vendedor_asignado_id) : null,
     sucursal_id: datos.sucursal_id ? Number(datos.sucursal_id) : 1,
     estado: datos.estado || "contactado",

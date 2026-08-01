@@ -14,6 +14,7 @@
 
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
+const { fechaLocal } = require("./fechas");
 
 const DIAS_LIMITE_APARTADO = 60;
 const DIAS_AVISO_POR_VENCER = 7;
@@ -23,7 +24,7 @@ function siguienteId(lista) {
 }
 
 function hoy() {
-  return new Date().toISOString().slice(0, 10);
+  return fechaLocal();
 }
 
 function sumaAbonos(DB, ventaId) {
@@ -102,7 +103,7 @@ function crearApartado(DB, datos, sucursalId, usuario) {
     total,
     estatus: "apartado",
     motivo_cancelacion: null,
-    fecha_limite: fechaLimiteObj.toISOString().slice(0, 10),
+    fecha_limite: fechaLocal(fechaLimiteObj),
     fecha_liquidacion: null,
   };
   DB.pos.ventas.push(venta);
