@@ -20,6 +20,7 @@ const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
 
 const CARPETA_RAIZ_NOMBRE = "Expedientes de Personal";
 const CARPETA_GARANTIAS_NOMBRE = "Comprobantes de Garantías";
+const CARPETA_GASTOS_NOMBRE = "Comprobantes de Gastos";
 
 async function intercambiarCodigo(DB, codigo, redirectUri) {
   const params = new URLSearchParams({
@@ -151,6 +152,27 @@ async function asegurarCarpetaGarantia(DB, garantia) {
   return id;
 }
 
+async function asegurarCarpetaGastosRaiz(DB) {
+  if (DB.drive.carpeta_gastos_id) return DB.drive.carpeta_gastos_id;
+  let id = await buscarCarpeta(DB, CARPETA_GASTOS_NOMBRE, null);
+  if (!id) id = await crearCarpeta(DB, CARPETA_GASTOS_NOMBRE, null);
+  DB.drive.carpeta_gastos_id = id;
+  return id;
+}
+
+/** Subcarpeta por sucursal dentro de "Comprobantes de Gastos". Se agrupa por
+ *  tienda (y no por mes o por gasto) porque es como Victor va a buscar un
+ *  comprobante cuando lo necesite. */
+async function asegurarCarpetaGastosSucursal(DB, sucursal) {
+  if (sucursal.drive_folder_gastos_id) return sucursal.drive_folder_gastos_id;
+  const raizId = await asegurarCarpetaGastosRaiz(DB);
+  const nombre = sucursal.nombre || `Sucursal ${sucursal.id}`;
+  let id = await buscarCarpeta(DB, nombre, raizId);
+  if (!id) id = await crearCarpeta(DB, nombre, raizId);
+  sucursal.drive_folder_gastos_id = id;
+  return id;
+}
+
 async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpetaId }) {
   const token = await tokenActivo(DB);
   const boundary = `unisound_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -190,6 +212,7 @@ module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   asegurarCarpetaGarantia,
+  asegurarCarpetaGastosRaiz, asegurarCarpetaGastosSucursal,
   subirArchivoADrive, eliminarArchivoDeDrive,
-  CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE,
+  CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE, CARPETA_GASTOS_NOMBRE,
 };
