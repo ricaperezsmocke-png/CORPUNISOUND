@@ -11,6 +11,7 @@ const { filtrarPorSucursal, dentroDeAlcance } = require("./auth");
 const { ETIQUETA_TIPO } = require("./garantiasGastos");
 const { ETIQUETA_ESTADO, ETIQUETA_RESOLUCION } = require("./garantias");
 const { listarGastos } = require("./gastos");
+const { fechaLocal } = require("./fechas");
 
 /**
  * Lee una bandera que llegó como query param. Un query param SIEMPRE es
@@ -162,7 +163,7 @@ function reporteUtilidad(DB, filtros, alcance) {
 function reporteCompras(DB, filtros, alcance) {
   const { fecha_inicio, fecha_fin, proveedor_id } = filtros;
   let compras = filtrarPorSucursal(DB.inventario.compras, alcance)
-    .filter((c) => enRango(c.fecha.slice(0, 10), fecha_inicio, fecha_fin));
+    .filter((c) => enRango(fechaLocal(c.fecha), fecha_inicio, fecha_fin));
   if (proveedor_id) compras = compras.filter((c) => c.proveedor_id === Number(proveedor_id));
 
   const idsCompras = new Set(compras.map((c) => c.id));
@@ -174,7 +175,7 @@ function reporteCompras(DB, filtros, alcance) {
     .reduce((a, d) => a + d.costo * d.cantidad, 0);
 
   const general = compras.map((c) => ({
-    id: c.id, fecha: c.fecha.slice(0, 10), proveedor_nombre: nombreProveedor(c.proveedor_id),
+    id: c.id, fecha: fechaLocal(c.fecha), proveedor_nombre: nombreProveedor(c.proveedor_id),
     factura: c.factura || "", total: redondear(totalDeCompra(c.id)),
   })).sort((a, b) => a.fecha.localeCompare(b.fecha));
 
@@ -376,7 +377,7 @@ function reporteGastosGarantias(DB, filtros, alcance) {
 
   let gastos = (DB.inventario.garantia_gastos || [])
     .filter((x) => porId.has(x.garantia_id))
-    .filter((x) => enRango(String(x.fecha).slice(0, 10), fecha_inicio, fecha_fin));
+    .filter((x) => enRango(fechaLocal(x.fecha), fecha_inicio, fecha_fin));
   if (tipo) gastos = gastos.filter((x) => x.tipo === tipo);
   if (proveedor_id) {
     gastos = gastos.filter((x) => porId.get(x.garantia_id).proveedor_id === Number(proveedor_id));
@@ -398,7 +399,7 @@ function reporteGastosGarantias(DB, filtros, alcance) {
       const garantia = porId.get(x.garantia_id);
       return {
         id: x.id,
-        fecha: String(x.fecha).slice(0, 10),
+        fecha: fechaLocal(x.fecha),
         garantia_id: garantia.id,
         folio: garantia.folio,
         sucursal_nombre: nombreSucursal(garantia.sucursal_origen_id),

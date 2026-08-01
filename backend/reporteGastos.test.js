@@ -101,3 +101,17 @@ test("reporteGastos: sin gastos regresa estructura vacía en ceros", () => {
   assert.strictEqual(r.totales.total, 0);
   assert.strictEqual(r.totales.total_cancelado, 0);
 });
+
+const { fechaLocal } = require("./fechas");
+
+test("los reportes que derivan la fecha de una marca de tiempo usan el día de la tienda", async () => {
+  const DB = await escenario();
+  // Un gasto capturado a las 8 de la noche del 31 de julio (02:00 UTC del 1
+  // de agosto): debe reportarse el 31, no el 1.
+  DB.gastos.gastos[0].fecha_hora = "2026-08-01T02:00:00.000Z";
+  DB.gastos.gastos[0].fecha = fechaLocal("2026-08-01T02:00:00.000Z");
+
+  const r = reporteGastos(DB, { fecha_inicio: "2026-07-31", fecha_fin: "2026-07-31" }, ALCANCE_TODAS);
+  assert.strictEqual(r.general.length, 1, "el gasto de la noche del 31 cae en el 31");
+  assert.strictEqual(r.general[0].fecha, "2026-07-31");
+});

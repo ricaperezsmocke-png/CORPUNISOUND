@@ -606,3 +606,19 @@ test("reporteEstadoCuentaClientes: incluye el saldo de monedero de cada cliente"
   const fila = r.filas.find((f) => f.id === 1);
   assert.strictEqual(fila.monedero, 75);
 });
+
+const { fechaLocal } = require("./fechas");
+
+test("reporteCompras: una recepción de la noche cae en el día que la tienda vivió", () => {
+  const DB = construirDBPrueba();
+  DB.inventario.compras.push({
+    id: 1, sucursal_id: 1, proveedor_id: null, factura: "F-1",
+    fecha: "2026-08-01T02:00:00.000Z", // 8 pm del 31 de julio en Chiapas
+  });
+  DB.inventario.compra_detalle.push({ id: 1, compra_id: 1, producto_id: 1, cantidad: 1, costo: 100 });
+
+  const r = reporteCompras(DB, { fecha_inicio: "2026-07-31", fecha_fin: "2026-07-31" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.general.length, 1, "debe caer en el 31, no en el 1 de agosto");
+  assert.strictEqual(r.general[0].fecha, "2026-07-31");
+});
