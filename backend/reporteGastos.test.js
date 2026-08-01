@@ -104,7 +104,7 @@ test("reporteGastos: sin gastos regresa estructura vacía en ceros", () => {
 
 const { fechaLocal } = require("./fechas");
 
-test("los reportes que derivan la fecha de una marca de tiempo usan el día de la tienda", async () => {
+test("reporteGastos hereda el día correcto de crearGasto", async () => {
   const DB = await escenario();
   // Un gasto capturado a las 8 de la noche del 31 de julio (02:00 UTC del 1
   // de agosto): debe reportarse el 31, no el 1.

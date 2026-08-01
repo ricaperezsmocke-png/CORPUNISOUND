@@ -358,3 +358,11 @@ test("total_sin_resolver sí cuenta una garantía ya enviada pero sin resolució
   assert.strictEqual(r.general[0].estado, "enviada");
   assert.strictEqual(r.totales.total_sin_resolver, 90, "enviada sin resolución = todavía no se sabe = riesgo");
 });
+
+test("reporteGastosGarantias: un gasto de la noche cae en el día que la tienda vivió", () => {
+  const { DB, g1 } = escenario();
+  sembrarGasto(DB, g1.id, { tipo: "traslado", monto: 60, fecha: "2026-08-01T02:00:00.000Z" }); // 8pm del 31 en Chiapas
+  const r = reporteGastosGarantias(DB, { fecha_inicio: "2026-07-31", fecha_fin: "2026-07-31" }, ALCANCE_TODAS);
+  assert.strictEqual(r.general.length, 1, "el gasto de las 8pm del 31 cae en el 31, no en el 1 de agosto");
+  assert.strictEqual(r.general[0].fecha, "2026-07-31");
+});
