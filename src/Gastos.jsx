@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, X, HelpCircle, History, Ban, FileText, Upload, ChevronLeft } from "lucide-react";
+import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
 import { apiFetch } from "./api";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
@@ -179,13 +179,6 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2 shrink-0">
-        <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline">
-          <ChevronLeft size={16} /> Dashboard
-        </button>
-        <h2 className="font-semibold text-slate-700 ml-2">Gastos</h2>
-      </div>
-
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
 
       <div className="bg-white border-b border-slate-200 flex shrink-0">
