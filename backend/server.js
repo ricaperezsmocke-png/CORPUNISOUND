@@ -50,6 +50,10 @@ const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucu
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { sembrarCategoriasGastos } = require("./gastosCategorias");
+const { crearGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosDeGasto } = require("./gastos");
+const { listarCategorias: listarCategoriasGasto, crearCategoria: crearCategoriaGasto,
+        renombrarCategoria: renombrarCategoriaGasto, desactivarCategoria: desactivarCategoriaGasto,
+      } = require("./gastosCategorias");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
@@ -1085,6 +1089,58 @@ app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", re
       usuario_nombre: req.usuarioToken?.nombre || req.body.usuario_nombre || "—",
     }));
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+
+// ─────────────────────────── Gastos ───────────────────────────
+
+app.get("/api/gastos", requiereLogin, requierePermiso("ver_gastos", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, categoria_id, forma_pago, estatus } = req.query;
+  res.json(listarGastosGasto(DB, { fecha_inicio, fecha_fin, categoria_id, forma_pago, estatus }, alcance));
+});
+
+app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resolverPermisosDeRol), async (req, res) => {
+  try {
+    // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
+    // cualquiera podría cargarle un gasto a otra tienda.
+    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
+    res.json(gasto);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put("/api/gastos/:id/cancelar", requiereLogin, requierePermiso("cancelar_gastos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(cancelarGasto(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get("/api/gastos/categorias", requiereLogin, requierePermiso("ver_gastos", resolverPermisosDeRol), (req, res) => {
+  res.json(listarCategoriasGasto(DB, { soloActivas: req.query.solo_activas === "1" }));
+});
+
+app.post("/api/gastos/categorias", requiereLogin, requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
+  try { res.json(crearCategoriaGasto(DB, req.body)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/gastos/categorias/:id", requiereLogin, requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
+  try {
+    if (req.body.activa === false) return res.json(desactivarCategoriaGasto(DB, req.params.id));
+    res.json(renombrarCategoriaGasto(DB, req.params.id, req.body.nombre));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/gastos/:id/movimientos", requiereLogin, requierePermiso("ver_gastos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(movimientosDeGasto(DB, req.params.id, alcance));
+  } catch (e) { res.status(404).json({ error: e.message }); }
 });
 
 
