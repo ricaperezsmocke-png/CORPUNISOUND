@@ -23,6 +23,25 @@ function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
 
+/**
+ * Reserva el siguiente id/folio de forma SÍNCRONA — sin ningún `await` entre
+ * leer y escribir `DB.gastos.ultimo_id`. Node ejecuta este cuerpo de un
+ * tirón (no hay await dentro), así que dos `crearGasto` que entren casi al
+ * mismo tiempo NUNCA pueden intercalarse aquí y sacar el mismo número, sin
+ * importar cuánto tarde después la subida a Drive.
+ *
+ * Se toma el máximo entre el contador guardado y el mayor id que ya exista
+ * en `DB.gastos.gastos`, para convivir con bases persistidas ANTES de que
+ * `ultimo_id` existiera (ese campo llega en 0/undefined y sin este máximo se
+ * repetirían ids ya usados).
+ */
+function reservarSiguienteId(DB) {
+  const maxExistente = DB.gastos.gastos.reduce((m, g) => Math.max(m, g.id), 0);
+  const base = Math.max(DB.gastos.ultimo_id || 0, maxExistente);
+  DB.gastos.ultimo_id = base + 1;
+  return DB.gastos.ultimo_id;
+}
+
 function redondear(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -76,19 +95,33 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
   const buffer = Buffer.from(archivo.contenido_base64, "base64");
   if (buffer.length > TAMANO_MAXIMO_BYTES) throw new Error("El archivo no puede pesar más de 10 MB");
 
-  const sucursal_id = Number(sucursalId) || 1;
+  // Debe venir del token de sesión. Si el usuario tiene sucursal_id vacía o
+  // inválida (p. ej. quedó en "" tras un PUT /api/usuarios/:id mal formado),
+  // NO se asume la sucursal 1: eso cargaría el gasto a la tienda equivocada
+  // en silencio y lo dejaría invisible para quien lo creó.
+  const sucursal_id = Number(sucursalId);
+  if (!Number.isFinite(sucursal_id) || sucursal_id <= 0) {
+    throw new Error("No se pudo determinar tu sucursal — vuelve a iniciar sesión antes de registrar el gasto");
+  }
   const sucursal = DB.pos.sucursales.find((s) => s.id === sucursal_id) || { id: sucursal_id };
+
+  // Reserva el id/folio de forma SÍNCRONA, antes de cualquier `await`: es lo
+  // único que evita que dos capturas casi simultáneas (de sucursales
+  // distintas o no) saquen el mismo número mientras ambas esperan a Drive.
+  const nuevoId = reservarSiguienteId(DB);
+  const folio = `GA-${String(nuevoId).padStart(4, "0")}`;
 
   // Se sube ANTES de crear el registro: si Drive falla, no queda nada a medias.
   const carpetaId = await drive.asegurarCarpetaGastosSucursal(DB, sucursal);
-  const nuevoId = siguienteId(DB.gastos.gastos);
-  const folio = `GA-${String(nuevoId).padStart(4, "0")}`;
   const subido = await drive.subirArchivoADrive(DB, {
     nombre: `${folio} - ${concepto} - ${archivo.nombre_archivo}`,
     mimeType: archivo.tipo_mime,
     contenidoBuffer: buffer,
     carpetaId,
   });
+  if (!subido || !subido.id || !subido.webViewLink) {
+    throw new Error("Drive no confirmó la subida del comprobante — inténtalo de nuevo");
+  }
 
   const ahora = new Date().toISOString();
   const gasto = {

@@ -227,6 +227,7 @@ const DB = {
     gastos: [],
     categorias: [],
     gasto_movimientos: [],
+    ultimo_id: 0,
   },
 };
 

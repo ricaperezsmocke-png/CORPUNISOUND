@@ -252,3 +252,57 @@ test("gastosEfectivoDelTurno: suma varios gastos y redondea a 2 decimales", asyn
 
   assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 350.35);
 });
+
+test("crearGasto: rechaza sucursal_id vacía o inválida en vez de asumir la sucursal 1", async () => {
+  const DB = construirDBPrueba();
+  const drive = driveFalso();
+
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), "", USUARIO, drive), /sucursal/i);
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), 0, USUARIO, drive), /sucursal/i);
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), null, USUARIO, drive), /sucursal/i);
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), undefined, USUARIO, drive), /sucursal/i);
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), "abc", USUARIO, drive), /sucursal/i);
+
+  assert.strictEqual(DB.gastos.gastos.length, 0, "no debe crearse nada cargado por error a la sucursal 1");
+});
+
+test("crearGasto: si Drive responde sin id o sin webViewLink, no queda un gasto con comprobante inalcanzable", async () => {
+  const DB = construirDBPrueba();
+  const driveIncompleto = {
+    asegurarCarpetaGastosSucursal: async () => "carpeta-1",
+    subirArchivoADrive: async () => ({ id: "file-1" }), // sin webViewLink
+  };
+
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), 1, USUARIO, driveIncompleto), /Drive/i);
+  assert.strictEqual(DB.gastos.gastos.length, 0, "no debe quedar un gasto con drive_link inalcanzable");
+
+  const driveSinId = {
+    asegurarCarpetaGastosSucursal: async () => "carpeta-1",
+    subirArchivoADrive: async () => ({ webViewLink: "https://drive.google.com/x" }), // sin id
+  };
+  await assert.rejects(() => crearGasto(DB, datosBase(DB), 1, USUARIO, driveSinId), /Drive/i);
+  assert.strictEqual(DB.gastos.gastos.length, 0);
+});
+
+test("crearGasto: dos capturas simultáneas de sucursales distintas, con Drive lento, NUNCA comparten id ni folio", async () => {
+  const DB = construirDBPrueba();
+  // Drive simulado lento: dos capturas que entran casi al mismo tiempo deben
+  // cruzarse en la ventana de la subida. Si el id/folio se calculan DESPUÉS
+  // de ese await, ambas leen la lista todavía vacía y sacan el mismo número.
+  const driveLento = {
+    asegurarCarpetaGastosSucursal: async () => "carpeta-1",
+    subirArchivoADrive: async (DB, args) => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { id: `file-${args.nombre}`, webViewLink: `https://drive.google.com/x/${args.nombre}` };
+    },
+  };
+
+  const [gOcosingo, gTuxtla] = await Promise.all([
+    crearGasto(DB, datosBase(DB, { concepto: "Gasto Ocosingo" }), 1, USUARIO, driveLento),
+    crearGasto(DB, datosBase(DB, { concepto: "Gasto Tuxtla" }), 2, USUARIO, driveLento),
+  ]);
+
+  assert.notStrictEqual(gOcosingo.id, gTuxtla.id, "no deben compartir id");
+  assert.notStrictEqual(gOcosingo.folio, gTuxtla.folio, "no deben compartir folio");
+  assert.strictEqual(DB.gastos.gastos.length, 2, "deben quedar los dos gastos, cada uno con su propio registro");
+});

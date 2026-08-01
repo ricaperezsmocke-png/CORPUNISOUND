@@ -79,7 +79,7 @@ function construirDBPrueba() {
     },
     admin: { roles: [], usuarios: [], documentos_personal: [] },
     drive: { cuenta: null },
-    gastos: { gastos: [], categorias: [], gasto_movimientos: [] },
+    gastos: { gastos: [], categorias: [], gasto_movimientos: [], ultimo_id: 0 },
   };
   sembrarRolesIniciales(DB);
   sembrarCategoriasGastos(DB);
