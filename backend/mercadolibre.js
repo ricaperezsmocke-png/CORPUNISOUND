@@ -284,13 +284,25 @@ async function importarOrdenComoVenta(DB, ordenId) {
         fecha_alta: fechaLocal(),
         vendedor_asignado_id: null, sucursal_id: 5,
         estado: "compro",
-        ultimo_contacto: orden.date_created?.slice(0, 10) || fechaLocal(),
+        // No usamos orden.date_created?.slice(0, 10): eso asume que ML siempre manda
+        // el ISO con el desfase local incrustado (...-06:00). Ese contrato no está
+        // fijado en ningún lado del repo, y si algún día ML normaliza a "Z" (UTC),
+        // el slice metería compras de la noche en el día siguiente — el mismo bug
+        // que fechaLocal() ya resuelve para el resto del sistema. fechaLocal()
+        // acierta en los dos casos:
+        //   fechaLocal("2026-07-31T20:56:35.000-06:00") === "2026-07-31" (con desfase)
+        //   fechaLocal("2026-08-01T02:56:35.000Z")      === "2026-07-31" (normalizado a Z)
+        // Si orden.date_created viene vacío/ausente, fechaLocal(undefined) cae en HOY,
+        // igual que el `|| fechaLocal()` que tenía este respaldo antes.
+        ultimo_contacto: fechaLocal(orden.date_created),
         ubicacion: "MercadoLibre",
       };
       DB.crm.clientes.push(cliente);
     } else {
       cliente.estado = "compro";
-      cliente.ultimo_contacto = orden.date_created?.slice(0, 10) || fechaLocal();
+      // Mismo razonamiento que en ultimo_contacto de arriba: fechaLocal() no depende
+      // de que ML mande el desfase incrustado, y cae en HOY si date_created falta.
+      cliente.ultimo_contacto = fechaLocal(orden.date_created);
     }
     clienteId = cliente.id;
   }
@@ -300,7 +312,10 @@ async function importarOrdenComoVenta(DB, ordenId) {
     ? Math.max(...DB.pos.ventas.map((v) => v.id)) + 1 : 1;
   const venta = {
     id:          sigId,
-    fecha:       orden.date_created?.slice(0, 10) || fechaLocal(),
+    // Mismo razonamiento que en ultimo_contacto (ver comentario arriba): fechaLocal()
+    // da el día correcto sin importar si ML manda el desfase local incrustado o
+    // normaliza a "Z", y cae en HOY si orden.date_created falta.
+    fecha:       fechaLocal(orden.date_created),
     sucursal_id: 5,
     vendedor_id: null,
     cliente_id:  clienteId,

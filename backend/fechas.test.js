@@ -38,6 +38,16 @@ test("las fechas locales se pueden ordenar y comparar como texto", () => {
   assert.ok(fechaLocal("2026-07-31T18:00:00.000Z") < fechaLocal("2026-08-02T18:00:00.000Z"));
 });
 
+test("fechaLocal: da el mismo día sin importar si el ISO trae el desfase local incrustado o está normalizado a Z", () => {
+  // Esto documenta por qué mercadolibre.js usa fechaLocal(orden.date_created) en vez
+  // de orden.date_created?.slice(0, 10): la API de ML podría mandar cualquiera de
+  // los dos formatos y ambos son el MISMO instante (20:56 del 31 de julio en
+  // Chiapas). Un slice(0, 10) solo acierta en el primer caso; fechaLocal() acierta
+  // en los dos.
+  assert.strictEqual(fechaLocal("2026-07-31T20:56:35.000-06:00"), "2026-07-31");
+  assert.strictEqual(fechaLocal("2026-08-01T02:56:35.000Z"), "2026-07-31");
+});
+
 test("ahora() sigue devolviendo un instante ISO en UTC", () => {
   // Las marcas de tiempo NO se localizan: la lógica de turnos del corte las
   // compara entre sí y mezclar marcos la rompería.
