@@ -12,7 +12,7 @@
  * siguiente cálculo parte de ese momento.
  */
 
-const { gastosEfectivoDelTurno } = require("./gastos");
+const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gastos");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -94,11 +94,9 @@ function calcularCorteEnCurso(DB, sucursal_id) {
   // restan aquí, al contar el dinero aparecen como faltante y se ven igual
   // que un robo. Solo restan los activos, en EFECTIVO, de esta sucursal y de
   // este turno (ver gastosEfectivoDelTurno).
+  const gastosDelTurno = gastosEfectivoDelTurnoLista(DB, sucursal_id, desde);
   const gastosEfectivo = gastosEfectivoDelTurno(DB, sucursal_id, desde);
-  const gastosIncluidos = DB.gastos.gastos.filter(
-    (g) => g.estatus === "activo" && g.forma_pago === "EFECTIVO" &&
-      g.sucursal_id === Number(sucursal_id) && (!desde || g.fecha_hora > desde)
-  ).length;
+  const gastosIncluidos = gastosDelTurno.length;
   calculado.EFECTIVO = redondear(calculado.EFECTIVO - gastosEfectivo);
 
   return {

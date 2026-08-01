@@ -175,28 +175,39 @@ function movimientosDeGasto(DB, id, alcance) {
 }
 
 /**
- * Suma de los gastos que SALIERON DE LA CAJA en el turno en curso. Es lo que
- * el Corte de Caja resta del efectivo esperado.
+ * Lista de los gastos que SALIERON DE LA CAJA en el turno en curso — única
+ * fuente de verdad, usada tanto para el monto (gastosEfectivoDelTurno) como
+ * para el conteo (gastos_incluidos en cortes.js), para que nunca puedan
+ * desincronizarse.
  *
  * Las cuatro condiciones son deliberadas y cada una tiene prueba propia en
- * gastos.test.js (bloque "gastosEfectivoDelTurno: ..."):
+ * gastos.test.js (bloque "gastosEfectivoDelTurno: ...") y en
+ * gastosCorteCaja.test.js:
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
  *   - fecha_hora > desde : lo anterior al último corte pertenece a un turno YA cerrado
  */
+function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde) {
+  return DB.gastos.gastos
+    .filter((g) => g.estatus === "activo")
+    .filter((g) => g.forma_pago === "EFECTIVO")
+    .filter((g) => g.sucursal_id === Number(sucursal_id))
+    .filter((g) => !desde || g.fecha_hora > desde);
+}
+
+/** Suma de los gastos que SALIERON DE LA CAJA en el turno en curso. Es lo que
+ *  el Corte de Caja resta del efectivo esperado. Deriva de
+ *  gastosEfectivoDelTurnoLista — ver ahí las cuatro condiciones. */
 function gastosEfectivoDelTurno(DB, sucursal_id, desde) {
   return redondear(
-    DB.gastos.gastos
-      .filter((g) => g.estatus === "activo")
-      .filter((g) => g.forma_pago === "EFECTIVO")
-      .filter((g) => g.sucursal_id === Number(sucursal_id))
-      .filter((g) => !desde || g.fecha_hora > desde)
+    gastosEfectivoDelTurnoLista(DB, sucursal_id, desde)
       .reduce((suma, g) => suma + Number(g.monto || 0), 0)
   );
 }
 
 module.exports = {
-  crearGasto, cancelarGasto, listarGastos, movimientosDeGasto, gastosEfectivoDelTurno,
+  crearGasto, cancelarGasto, listarGastos, movimientosDeGasto,
+  gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista,
   buscarConGuardia, FORMAS_PAGO_GASTO, MIME_VALIDOS, TAMANO_MAXIMO_BYTES,
 };

@@ -66,6 +66,7 @@ test("un gasto por TRANSFERENCIA o TARJETA no toca la caja de la tienda", async 
 
   const r = calcularCorteEnCurso(DB, 4);
   assert.strictEqual(r.gastos_efectivo, 0);
+  assert.strictEqual(r.gastos_incluidos, 0);
   assert.strictEqual(r.calculado.EFECTIVO, 2000);
 });
 
@@ -79,16 +80,32 @@ test("un gasto CANCELADO deja de descontar", async () => {
 
   assert.strictEqual(calcularCorteEnCurso(DB, 4).calculado.EFECTIVO, 2000, "vuelve a los 2000");
   assert.strictEqual(calcularCorteEnCurso(DB, 4).gastos_efectivo, 0);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4).gastos_incluidos, 0);
 });
 
 test("el gasto de OTRA sucursal no descuadra esta caja", async () => {
   const DB = construirDBPrueba();
   ventaEfectivo(DB, { sucursal: 4, total: 2000 });
-  await gasto(DB, { sucursal: 5, monto: 900 });
+  await gasto(DB, { sucursal: 3, monto: 900 });
 
   const r = calcularCorteEnCurso(DB, 4);
   assert.strictEqual(r.gastos_efectivo, 0);
+  assert.strictEqual(r.gastos_incluidos, 0, "el gasto de la sucursal 3 no debe contarse aquí");
   assert.strictEqual(r.calculado.EFECTIVO, 2000);
+});
+
+test("un turno con gasto en efectivo, gasto por transferencia y gasto cancelado: el conteo coincide con el monto", async () => {
+  const DB = construirDBPrueba();
+  ventaEfectivo(DB, { total: 2000 });
+  await gasto(DB, { monto: 500, forma_pago: "EFECTIVO" });
+  await gasto(DB, { monto: 800, forma_pago: "TRANSFERENCIA" });
+  const cancelado = await gasto(DB, { monto: 999, forma_pago: "EFECTIVO" });
+  cancelarGasto(DB, cancelado.id, "Duplicado", USUARIO, ALCANCE_TODAS);
+
+  const r = calcularCorteEnCurso(DB, 4);
+  assert.strictEqual(r.gastos_efectivo, 500, "solo el gasto activo en EFECTIVO descuenta");
+  assert.strictEqual(r.gastos_incluidos, 1, "el conteo debe coincidir con el monto: 1 gasto, no 3");
+  assert.strictEqual(r.calculado.EFECTIVO, 1500);
 });
 
 test("un gasto ANTERIOR al último corte pertenece a un turno ya cerrado y no vuelve a restar", async () => {
@@ -101,6 +118,7 @@ test("un gasto ANTERIOR al último corte pertenece a un turno ya cerrado y no vu
 
   const r = calcularCorteEnCurso(DB, 4);
   assert.strictEqual(r.gastos_efectivo, 0, "el gasto del turno anterior ya no cuenta");
+  assert.strictEqual(r.gastos_incluidos, 0, "tampoco debe contarse el gasto del turno anterior");
   assert.strictEqual(r.calculado.EFECTIVO, 0, "turno nuevo, sin ventas ni gastos");
 });
 
