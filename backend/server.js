@@ -49,6 +49,7 @@ const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
+const { sembrarCategoriasGastos } = require("./gastosCategorias");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
@@ -218,6 +219,11 @@ const DB = {
   drive: {
     cuenta: null,
   },
+  gastos: {
+    gastos: [],
+    categorias: [],
+    gasto_movimientos: [],
+  },
 };
 
 sembrarRolesIniciales(DB);
@@ -236,6 +242,8 @@ if (estadoGuardado) {
   }
   console.log("✅ Datos restaurados desde almacenamiento persistente");
 }
+
+sembrarCategoriasGastos(DB);
 
 // Garantiza que CEDIS (sucursal 6) exista y que 5/6 tengan sin_ubicacion=true,
 // tanto si el DB viene del seed fresco como si viene de datos persistidos
