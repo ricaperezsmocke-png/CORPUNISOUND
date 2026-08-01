@@ -12,6 +12,8 @@
  * siguiente cálculo parte de ese momento.
  */
 
+const { gastosEfectivoDelTurno } = require("./gastos");
+
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
@@ -88,6 +90,17 @@ function calcularCorteEnCurso(DB, sucursal_id) {
   const redondear = (n) => Math.round(n * 100) / 100;
   FORMAS_CORTE.forEach((f) => (calculado[f] = redondear(calculado[f])));
 
+  // Los gastos pagados con efectivo de la caja SALIERON de la caja: si no se
+  // restan aquí, al contar el dinero aparecen como faltante y se ven igual
+  // que un robo. Solo restan los activos, en EFECTIVO, de esta sucursal y de
+  // este turno (ver gastosEfectivoDelTurno).
+  const gastosEfectivo = gastosEfectivoDelTurno(DB, sucursal_id, desde);
+  const gastosIncluidos = DB.gastos.gastos.filter(
+    (g) => g.estatus === "activo" && g.forma_pago === "EFECTIVO" &&
+      g.sucursal_id === Number(sucursal_id) && (!desde || g.fecha_hora > desde)
+  ).length;
+  calculado.EFECTIVO = redondear(calculado.EFECTIVO - gastosEfectivo);
+
   return {
     desde,
     ventas_incluidas: ventas.length,
@@ -96,6 +109,8 @@ function calcularCorteEnCurso(DB, sucursal_id) {
     total_calculado: redondear(FORMAS_CORTE.reduce((a, f) => a + calculado[f], 0)),
     transferencias: redondear(transferencias),
     credito: redondear(credito),
+    gastos_efectivo: gastosEfectivo,
+    gastos_incluidos: gastosIncluidos,
   };
 }
 
@@ -127,6 +142,7 @@ function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {},
     diferencia,
     retiro: retiroLimpio,
     total_calculado: enCurso.total_calculado,
+    gastos_efectivo: enCurso.gastos_efectivo,
     total_contado: redondear(FORMAS_CORTE.reduce((a, f) => a + contadoLimpio[f], 0)),
     total_retiro: redondear(FORMAS_CORTE.reduce((a, f) => a + retiroLimpio[f], 0)),
     transferencias: enCurso.transferencias,
