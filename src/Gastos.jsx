@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
 import { apiFetch } from "./api";
+import { hoyLocal, haceDiasLocal } from "./fechas";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const MIME_OK = ["application/pdf", "image/jpeg", "image/png"];
 const TAM_MAX = 10 * 1024 * 1024;
-
-const hoyFmt = () => new Date().toISOString().slice(0, 10);
-const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
 
 function leerArchivoComoBase64(archivo) {
   return new Promise((resolve, reject) => {
@@ -67,8 +65,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
-  const [fechaInicial, setFechaInicial] = useState(hace30());
-  const [fechaFinal, setFechaFinal] = useState(hoyFmt());
+  const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(30));
+  const [fechaFinal, setFechaFinal] = useState(hoyLocal());
   const [filtroEstatus, setFiltroEstatus] = useState("activo");
   const [modal, setModal] = useState(null);      // null | "nuevo" | "cancelar" | "historial"
   const [seleccionado, setSeleccionado] = useState(null);

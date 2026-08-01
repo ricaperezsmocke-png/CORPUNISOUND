@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "./api";
 import { descargarCSV } from "./reportes/exportarCSV.js";
+import { hoyLocal, haceDiasLocal } from "./fechas";
 
 const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión"];
 const ESTADOS = ["Todos", "cerrada", "cancelada"];
@@ -21,9 +22,6 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) 
   );
 }
 
-const hoyFmt = () => new Date().toISOString().slice(0, 10);
-const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
-
 export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permisos }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
 
@@ -34,8 +32,8 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
 
-  const [fechaInicial, setFechaInicial] = useState(hace30());
-  const [fechaFinal, setFechaFinal] = useState(hoyFmt());
+  const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(30));
+  const [fechaFinal, setFechaFinal] = useState(hoyLocal());
   const [documento, setDocumento] = useState("Todos");
   const [estado, setEstado] = useState("Todos");
   const [sucursalFiltro, setSucursalFiltro] = useState("");

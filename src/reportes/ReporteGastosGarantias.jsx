@@ -4,12 +4,11 @@ import { apiFetch } from "../api";
 import FiltroReporte from "./FiltroReporte.jsx";
 import BarraAccionesReporte from "./BarraAccionesReporte.jsx";
 import { descargarCSV } from "./exportarCSV.js";
+import { hoyLocal, haceDiasLocal } from "../fechas";
 
-const hoyFmt = () => new Date().toISOString().slice(0, 10);
 // 90 días y no 30 como los reportes de ventas: una garantía con proveedor se
 // arrastra meses (el módulo alerta a los 15 días SIN movimiento), así que con
 // una ventana de 30 días el reporte se veía casi vacío.
-const hace90 = () => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); };
 
 const TABS = [
   { id: "general", etiqueta: "General" },
@@ -52,8 +51,8 @@ function TablaAgrupada({ encabezado, filas, campoNombre }) {
 }
 
 export default function ReporteGastosGarantias({ onVolver }) {
-  const [fechaInicial, setFechaInicial] = useState(hace90());
-  const [fechaFinal, setFechaFinal] = useState(hoyFmt());
+  const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(90));
+  const [fechaFinal, setFechaFinal] = useState(hoyLocal());
   const [sucursalId, setSucursalId] = useState("");
   const [tipo, setTipo] = useState("");
   const [proveedorId, setProveedorId] = useState("");

@@ -4,13 +4,11 @@ import { apiFetch } from "../api";
 import FiltroReporte from "./FiltroReporte.jsx";
 import BarraAccionesReporte from "./BarraAccionesReporte.jsx";
 import { descargarCSV } from "./exportarCSV.js";
-
-const hoyFmt = () => new Date().toISOString().slice(0, 10);
-const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
+import { hoyLocal, haceDiasLocal } from "../fechas";
 
 export default function ReporteCortesCaja({ onVolver }) {
-  const [fechaInicial, setFechaInicial] = useState(hace30());
-  const [fechaFinal, setFechaFinal] = useState(hoyFmt());
+  const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(30));
+  const [fechaFinal, setFechaFinal] = useState(hoyLocal());
   const [sucursalId, setSucursalId] = useState("");
   const [sucursales, setSucursales] = useState([]);
   const [datos, setDatos] = useState(null);

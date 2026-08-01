@@ -4,9 +4,7 @@ import { apiFetch } from "../api";
 import FiltroReporte from "./FiltroReporte.jsx";
 import BarraAccionesReporte from "./BarraAccionesReporte.jsx";
 import { descargarCSV } from "./exportarCSV.js";
-
-const hoyFmt = () => new Date().toISOString().slice(0, 10);
-const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
+import { hoyLocal, haceDiasLocal } from "../fechas";
 
 const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión", "Apartado"];
 
@@ -19,8 +17,8 @@ const TABS = [
 ];
 
 export default function ReporteVentas({ onVolver }) {
-  const [fechaInicial, setFechaInicial] = useState(hace30());
-  const [fechaFinal, setFechaFinal] = useState(hoyFmt());
+  const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(30));
+  const [fechaFinal, setFechaFinal] = useState(hoyLocal());
   const [sucursalId, setSucursalId] = useState("");
   const [vendedorId, setVendedorId] = useState("");
   const [documentoFiltro, setDocumentoFiltro] = useState("Todos");
