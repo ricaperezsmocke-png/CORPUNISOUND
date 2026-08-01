@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Receipt, TrendingUp, Truck, Landmark, Boxes, Users, ArrowLeftRight, ShieldAlert } from "lucide-react";
+import { Receipt, TrendingUp, Truck, Landmark, Boxes, Users, ArrowLeftRight, ShieldAlert, Wallet } from "lucide-react";
 import ReporteVentas from "./reportes/ReporteVentas.jsx";
 import ReporteUtilidad from "./reportes/ReporteUtilidad.jsx";
 import ReporteCompras from "./reportes/ReporteCompras.jsx";
@@ -8,6 +8,7 @@ import ReporteExistencias from "./reportes/ReporteExistencias.jsx";
 import ReporteEstadoCuentaClientes from "./reportes/ReporteEstadoCuentaClientes.jsx";
 import ReporteMovimientosCaja from "./reportes/ReporteMovimientosCaja.jsx";
 import ReporteGastosGarantias from "./reportes/ReporteGastosGarantias.jsx";
+import ReporteGastos from "./reportes/ReporteGastos.jsx";
 
 const REPORTES = [
   { id: "ventas", nombre: "Ventas", icono: Receipt, Componente: ReporteVentas },
@@ -18,6 +19,7 @@ const REPORTES = [
   { id: "clientes", nombre: "Estado de Cuenta de Clientes", icono: Users, Componente: ReporteEstadoCuentaClientes },
   { id: "movimientos", nombre: "Movimientos de Caja", icono: ArrowLeftRight, Componente: ReporteMovimientosCaja },
   { id: "gastos-garantias", nombre: "Gastos de Garantías", icono: ShieldAlert, Componente: ReporteGastosGarantias },
+  { id: "gastos", nombre: "Gastos", icono: Wallet, Componente: ReporteGastos },
 ];
 
 export default function Reportes() {

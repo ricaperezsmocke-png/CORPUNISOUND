@@ -4,7 +4,7 @@ const {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   subirArchivoADrive, eliminarArchivoDeDrive,
-  asegurarCarpetaGarantia,
+  asegurarCarpetaGarantia, asegurarCarpetaGastosSucursal,
 } = require("./drive");
 
 test("intercambiarCodigo guarda los tokens en DB.drive.cuenta", async (t) => {
@@ -204,4 +204,32 @@ test("asegurarCarpetaGarantia reusa drive_folder_id si ya está en la garantía"
 
   assert.strictEqual(id, "folder-cacheado");
   assert.strictEqual(fetchMock.mock.calls.length, 0);
+});
+
+test("asegurarCarpetaGastosSucursal crea la subcarpeta de la sucursal y la cachea", async (t) => {
+  let llamada = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    llamada++;
+    // 1: busca raíz (no existe) -> 2: crea raíz -> 3: busca subcarpeta -> 4: la crea
+    if (llamada === 1 || llamada === 3) return { ok: true, json: async () => ({ files: [] }) };
+    return { ok: true, json: async () => ({ id: `folder-${llamada}` }) };
+  });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const sucursal = { id: 1, nombre: "Ocosingo" };
+
+  const id = await asegurarCarpetaGastosSucursal(DB, sucursal);
+
+  assert.ok(id, "debe regresar un id de carpeta");
+  assert.strictEqual(sucursal.drive_folder_gastos_id, id, "cachea el id en la sucursal");
+  assert.ok(DB.drive.carpeta_gastos_id, "cachea también la carpeta raíz");
+});
+
+test("asegurarCarpetaGastosSucursal reusa el id cacheado sin llamar a Drive", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const sucursal = { id: 1, nombre: "Ocosingo", drive_folder_gastos_id: "folder-cacheado" };
+
+  const id = await asegurarCarpetaGastosSucursal(DB, sucursal);
+
+  assert.strictEqual(id, "folder-cacheado");
 });

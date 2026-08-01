@@ -49,6 +49,11 @@ const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
+const { sembrarCategoriasGastos } = require("./gastosCategorias");
+const { crearGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosDeGasto } = require("./gastos");
+const { listarCategorias: listarCategoriasGasto, crearCategoria: crearCategoriaGasto,
+        renombrarCategoria: renombrarCategoriaGasto, desactivarCategoria: desactivarCategoriaGasto,
+      } = require("./gastosCategorias");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
@@ -67,7 +72,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
-const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias } = require("./reportes");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -218,6 +223,12 @@ const DB = {
   drive: {
     cuenta: null,
   },
+  gastos: {
+    gastos: [],
+    categorias: [],
+    gasto_movimientos: [],
+    ultimo_id: 0,
+  },
 };
 
 sembrarRolesIniciales(DB);
@@ -236,6 +247,8 @@ if (estadoGuardado) {
   }
   console.log("✅ Datos restaurados desde almacenamiento persistente");
 }
+
+sembrarCategoriasGastos(DB);
 
 // Garantiza que CEDIS (sucursal 6) exista y que 5/6 tengan sin_ubicacion=true,
 // tanto si el DB viene del seed fresco como si viene de datos persistidos
@@ -1080,6 +1093,68 @@ app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", re
 });
 
 
+// ─────────────────────────── Gastos ───────────────────────────
+
+app.get("/api/gastos", requiereLogin, requierePermiso("ver_gastos", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, categoria_id, forma_pago, estatus } = req.query;
+  res.json(listarGastosGasto(DB, { fecha_inicio, fecha_fin, categoria_id, forma_pago, estatus }, alcance));
+});
+
+app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resolverPermisosDeRol), async (req, res) => {
+  try {
+    // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
+    // cualquiera podría cargarle un gasto a otra tienda.
+    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
+    res.json(gasto);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put("/api/gastos/:id/cancelar", requiereLogin, requierePermiso("cancelar_gastos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(cancelarGasto(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Catálogo de solo lectura (solo nombres de categorías; sin montos ni datos
+// de ninguna sucursal), así que además de quien captura gastos (ver_gastos)
+// se deja entrar a quien solo consulta el Reporte de Gastos (ver_reportes) —
+// su filtro de Categoría necesita este mismo catálogo. Es la ÚNICA ruta de
+// gastos con este permiso doble: no repetir el patrón en las demás (listar,
+// crear, cancelar, administrar categorías) siguen exigiendo solo su permiso.
+app.get("/api/gastos/categorias", requiereLogin, (req, res, next) => {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  if (permisos.includes("ver_gastos") || permisos.includes("ver_reportes")) return next();
+  res.status(403).json({ error: "No tienes el permiso requerido: ver_gastos" });
+}, (req, res) => {
+  res.json(listarCategoriasGasto(DB, { soloActivas: req.query.solo_activas === "1" }));
+});
+
+app.post("/api/gastos/categorias", requiereLogin, requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
+  try { res.json(crearCategoriaGasto(DB, req.body)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/gastos/categorias/:id", requiereLogin, requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
+  try {
+    if (req.body.activa === false) return res.json(desactivarCategoriaGasto(DB, req.params.id));
+    res.json(renombrarCategoriaGasto(DB, req.params.id, req.body.nombre));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/gastos/:id/movimientos", requiereLogin, requierePermiso("ver_gastos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(movimientosDeGasto(DB, req.params.id, alcance));
+  } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+
 // ---------- Condiciones por forma de pago (configurable por sucursal) ----------
 app.get("/api/condiciones-pago", requiereLogin, (req, res) => {
   const sucursal_id = req.query.sucursal_id ? Number(req.query.sucursal_id) : 1;
@@ -1287,6 +1362,12 @@ app.get("/api/reportes/gastos-garantias", requiereLogin, requierePermiso("ver_re
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante } = req.query;
   res.json(reporteGastosGarantias(DB, { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante }, alcance));
+});
+
+app.get("/api/reportes/gastos", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, categoria_id, forma_pago, proveedor_id, estatus } = req.query;
+  res.json(reporteGastos(DB, { fecha_inicio, fecha_fin, categoria_id, forma_pago, proveedor_id, estatus }, alcance));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

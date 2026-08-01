@@ -97,6 +97,12 @@ const PERMISOS = [
 
   // ---- Reportes ----
   { clave: "ver_reportes", etiqueta: "Ver Reportes de Sistema", modulo: "reportes", implementado: true },
+
+  // ---- Gastos ----
+  { clave: "ver_gastos", etiqueta: "Ver Gastos", modulo: "gastos", implementado: true },
+  { clave: "registrar_gastos", etiqueta: "Registrar Gasto", modulo: "gastos", implementado: true },
+  { clave: "cancelar_gastos", etiqueta: "Cancelar Gastos", modulo: "gastos", implementado: true },
+  { clave: "administrar_categorias_gastos", etiqueta: "Administrar Categorías de Gastos", modulo: "gastos", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
@@ -107,6 +113,7 @@ const MODULOS_SISTEMA = [
   { id: "admin",     nombre: "Roles y Personal" },
   { id: "ml",        nombre: "MercadoLibre" },
   { id: "reportes",  nombre: "Reportes" },
+  { id: "gastos",    nombre: "Gastos" },
 ];
 
 function listarPermisos() {

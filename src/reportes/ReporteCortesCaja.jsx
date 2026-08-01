@@ -44,8 +44,8 @@ export default function ReporteCortesCaja({ onVolver }) {
   const exportarExcel = () => {
     if (!datos) return;
     descargarCSV(`cortes_de_caja_${fechaInicial}_a_${fechaFinal}.csv`,
-      ["Fecha", "Folio", "Sucursal", "Usuario", "Calculado", "Contado", "Diferencia", "Retiro"],
-      datos.filas.map((f) => [f.fecha, f.id, f.sucursal_nombre, f.usuario_nombre, f.total_calculado, f.total_contado, f.total_diferencia, f.total_retiro]));
+      ["Fecha", "Folio", "Sucursal", "Usuario", "Calculado", "Contado", "Diferencia", "Retiro", "Gastos"],
+      datos.filas.map((f) => [f.fecha, f.id, f.sucursal_nombre, f.usuario_nombre, f.total_calculado, f.total_contado, f.total_diferencia, f.total_retiro, f.gastos_efectivo]));
   };
 
   return (
@@ -84,10 +84,11 @@ export default function ReporteCortesCaja({ onVolver }) {
                 <th className="py-2 px-3 text-right font-medium">Contado</th>
                 <th className="py-2 px-3 text-right font-medium">Diferencia</th>
                 <th className="py-2 px-3 text-right font-medium">Retiro</th>
+                <th className="py-2 px-3 text-right font-medium">Gastos</th>
               </tr>
             </thead>
             <tbody>
-              {datos.filas.length === 0 && <tr><td colSpan={8} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
+              {datos.filas.length === 0 && <tr><td colSpan={9} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
               {datos.filas.map((f) => (
                 <tr key={f.id} className="border-b border-slate-100">
                   <td className="py-2 px-3">{f.fecha}</td>
@@ -98,6 +99,7 @@ export default function ReporteCortesCaja({ onVolver }) {
                   <td className="py-2 px-3 text-right">${f.total_contado.toFixed(2)}</td>
                   <td className={`py-2 px-3 text-right ${f.total_diferencia < 0 ? "text-red-600" : "text-emerald-700"}`}>${f.total_diferencia.toFixed(2)}</td>
                   <td className="py-2 px-3 text-right font-medium">${f.total_retiro.toFixed(2)}</td>
+                  <td className="py-2 px-3 text-right text-amber-700">{f.gastos_efectivo ? `$${f.gastos_efectivo.toFixed(2)}` : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -108,7 +110,7 @@ export default function ReporteCortesCaja({ onVolver }) {
       {datos && (
         <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
           <span>{datos.totales.numero_cortes} corte(s)</span>
-          <span>Calculado: ${datos.totales.total_calculado.toFixed(2)} — Contado: ${datos.totales.total_contado.toFixed(2)} — Retiro: <b>${datos.totales.total_retiro.toFixed(2)}</b></span>
+          <span>Calculado: ${datos.totales.total_calculado.toFixed(2)} — Contado: ${datos.totales.total_contado.toFixed(2)} — Retiro: <b>${datos.totales.total_retiro.toFixed(2)}</b> — Gastos: <b>${datos.totales.total_gastos.toFixed(2)}</b></span>
         </div>
       )}
     </div>

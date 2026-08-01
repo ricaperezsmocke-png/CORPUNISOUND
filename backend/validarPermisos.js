@@ -30,6 +30,7 @@ const MODULOS_QUE_REQUIEREN_PERMISOS = [
   "admin",
   "ml",
   "reportes",
+  "gastos",
 ];
 
 function validarSistemaDePermisos() {
