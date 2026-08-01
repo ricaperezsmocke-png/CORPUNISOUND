@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
 const { listarCategorias, desactivarCategoria } = require("./gastosCategorias");
-const { crearGasto, cancelarGasto, listarGastos, movimientosDeGasto } = require("./gastos");
+const { crearGasto, cancelarGasto, listarGastos, movimientosDeGasto, gastosEfectivoDelTurno } = require("./gastos");
 
 const ALCANCE_TODAS = { verTodas: true, sucursalId: null };
 const USUARIO = { nombre: "Victor" };
@@ -190,4 +190,65 @@ test("movimientosDeGasto: respeta el alcance", async () => {
 
   assert.strictEqual(movimientosDeGasto(DB, g.id, ALCANCE_TODAS).length, 1);
   assert.throws(() => movimientosDeGasto(DB, g.id, { verTodas: false, sucursalId: 2 }), /Gasto no encontrado/);
+});
+
+test("gastosEfectivoDelTurno: un gasto activo en EFECTIVO de la sucursal sí suma", async () => {
+  const DB = construirDBPrueba();
+  await crearGasto(DB, datosBase(DB, { monto: 300 }), 1, USUARIO, driveFalso());
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 300);
+});
+
+test("gastosEfectivoDelTurno: TRANSFERENCIA y TARJETA no suman", async () => {
+  const DB = construirDBPrueba();
+  await crearGasto(DB, datosBase(DB, { monto: 300, forma_pago: "TRANSFERENCIA" }), 1, USUARIO, driveFalso());
+  await crearGasto(DB, datosBase(DB, { monto: 200, forma_pago: "TARJETA", concepto: "Refacción con tarjeta" }), 1, USUARIO, driveFalso());
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 0);
+});
+
+test("gastosEfectivoDelTurno: un gasto cancelado no suma", async () => {
+  const DB = construirDBPrueba();
+  const g = await crearGasto(DB, datosBase(DB, { monto: 300 }), 1, USUARIO, driveFalso());
+  cancelarGasto(DB, g.id, "Se capturó dos veces", USUARIO, ALCANCE_TODAS);
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 0);
+});
+
+test("gastosEfectivoDelTurno: un gasto de otra sucursal no suma", async () => {
+  const DB = construirDBPrueba();
+  await crearGasto(DB, datosBase(DB, { monto: 300 }), 2, USUARIO, driveFalso());
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 0);
+});
+
+test("gastosEfectivoDelTurno: respeta 'desde' — un turno ya cerrado no suma, el turno en curso sí", async () => {
+  const DB = construirDBPrueba();
+  const g = await crearGasto(DB, datosBase(DB, { monto: 300 }), 1, USUARIO, driveFalso());
+  DB.gastos.gastos.find((x) => x.id === g.id).fecha_hora = "2026-06-01T10:00:00.000Z";
+
+  assert.strictEqual(
+    gastosEfectivoDelTurno(DB, 1, "2026-06-02T00:00:00.000Z"),
+    0,
+    "el gasto quedó antes del último corte: pertenece a un turno ya cerrado"
+  );
+  assert.strictEqual(
+    gastosEfectivoDelTurno(DB, 1, "2026-05-01T00:00:00.000Z"),
+    300,
+    "el gasto quedó después del último corte: pertenece al turno en curso"
+  );
+});
+
+test("gastosEfectivoDelTurno: sin 'desde' (primer turno de la tienda) suma todo lo activo en efectivo", async () => {
+  const DB = construirDBPrueba();
+  await crearGasto(DB, datosBase(DB, { monto: 150 }), 1, USUARIO, driveFalso());
+  await crearGasto(DB, datosBase(DB, { monto: 250, concepto: "Otro gasto" }), 1, USUARIO, driveFalso());
+
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 400);
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, undefined), 400);
+});
+
+test("gastosEfectivoDelTurno: suma varios gastos y redondea a 2 decimales", async () => {
+  const DB = construirDBPrueba();
+  await crearGasto(DB, datosBase(DB, { monto: 100.1 }), 1, USUARIO, driveFalso());
+  await crearGasto(DB, datosBase(DB, { monto: 200.2, concepto: "Otro gasto" }), 1, USUARIO, driveFalso());
+  await crearGasto(DB, datosBase(DB, { monto: 50.05, concepto: "Tercer gasto" }), 1, USUARIO, driveFalso());
+
+  assert.strictEqual(gastosEfectivoDelTurno(DB, 1, null), 350.35);
 });

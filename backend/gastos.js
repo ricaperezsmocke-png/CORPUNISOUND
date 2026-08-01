@@ -178,7 +178,8 @@ function movimientosDeGasto(DB, id, alcance) {
  * Suma de los gastos que SALIERON DE LA CAJA en el turno en curso. Es lo que
  * el Corte de Caja resta del efectivo esperado.
  *
- * Las cuatro condiciones son deliberadas y cada una tiene prueba propia:
+ * Las cuatro condiciones son deliberadas y cada una tiene prueba propia en
+ * gastos.test.js (bloque "gastosEfectivoDelTurno: ..."):
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
