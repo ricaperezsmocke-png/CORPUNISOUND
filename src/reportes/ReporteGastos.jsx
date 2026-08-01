@@ -64,7 +64,13 @@ export default function ReporteGastos({ onVolver }) {
 
   useEffect(() => {
     apiFetch("/sucursales").then((r) => r.ok && r.json()).then((d) => d && setSucursales(d));
-    apiFetch("/gastos/categorias?solo_activas=1").then((r) => r.ok && r.json()).then((d) => d && setCategorias(d));
+    // Si esto falla (p.ej. por permisos), no se traga el error: el filtro de
+    // Categoría se queda en "Todas" pero el mismo aviso rojo que usa la
+    // consulta principal le explica al usuario por qué.
+    apiFetch("/gastos/categorias?solo_activas=1").then((r) => {
+      if (!r.ok) { setError("No se pudo cargar el catálogo de categorías."); return null; }
+      return r.json();
+    }).then((d) => d && setCategorias(d));
   }, []);
 
   const consultar = useCallback(async () => {

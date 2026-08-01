@@ -1120,7 +1120,17 @@ app.put("/api/gastos/:id/cancelar", requiereLogin, requierePermiso("cancelar_gas
   }
 });
 
-app.get("/api/gastos/categorias", requiereLogin, requierePermiso("ver_gastos", resolverPermisosDeRol), (req, res) => {
+// Catálogo de solo lectura (solo nombres de categorías; sin montos ni datos
+// de ninguna sucursal), así que además de quien captura gastos (ver_gastos)
+// se deja entrar a quien solo consulta el Reporte de Gastos (ver_reportes) —
+// su filtro de Categoría necesita este mismo catálogo. Es la ÚNICA ruta de
+// gastos con este permiso doble: no repetir el patrón en las demás (listar,
+// crear, cancelar, administrar categorías) siguen exigiendo solo su permiso.
+app.get("/api/gastos/categorias", requiereLogin, (req, res, next) => {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  if (permisos.includes("ver_gastos") || permisos.includes("ver_reportes")) return next();
+  res.status(403).json({ error: "No tienes el permiso requerido: ver_gastos" });
+}, (req, res) => {
   res.json(listarCategoriasGasto(DB, { soloActivas: req.query.solo_activas === "1" }));
 });
 
