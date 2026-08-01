@@ -72,7 +72,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
-const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias } = require("./reportes");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
 
 let cargar = () => null, guardar = () => {};
 try {
@@ -1351,6 +1351,12 @@ app.get("/api/reportes/gastos-garantias", requiereLogin, requierePermiso("ver_re
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante } = req.query;
   res.json(reporteGastosGarantias(DB, { fecha_inicio, fecha_fin, tipo, proveedor_id, sin_comprobante }, alcance));
+});
+
+app.get("/api/reportes/gastos", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin, categoria_id, forma_pago, proveedor_id, estatus } = req.query;
+  res.json(reporteGastos(DB, { fecha_inicio, fecha_fin, categoria_id, forma_pago, proveedor_id, estatus }, alcance));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

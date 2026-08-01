@@ -10,6 +10,7 @@
 const { filtrarPorSucursal, dentroDeAlcance } = require("./auth");
 const { ETIQUETA_TIPO } = require("./garantiasGastos");
 const { ETIQUETA_ESTADO, ETIQUETA_RESOLUCION } = require("./garantias");
+const { listarGastos } = require("./gastos");
 
 /**
  * Lee una bandera que llegó como query param. Un query param SIEMPRE es
@@ -479,4 +480,53 @@ function reporteGastosGarantias(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias };
+/**
+ * Gastos del periodo. Reutiliza listarGastos (que ya aplica el guard de
+ * alcance y enriquece con nombres) y solo agrega las agregaciones.
+ *
+ * Los cancelados NUNCA se suman al total vigente — mismo criterio que ya usa
+ * reporteVentas con las ventas canceladas. Por defecto ni siquiera aparecen
+ * en la lista; con estatus "todos" se muestran, pero el total no cambia.
+ */
+function reporteGastos(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin, categoria_id, forma_pago, proveedor_id, estatus } = filtros || {};
+
+  let todos = listarGastos(DB, { fecha_inicio, fecha_fin, categoria_id, forma_pago }, alcance);
+  if (proveedor_id) todos = todos.filter((g) => g.proveedor_id === Number(proveedor_id));
+
+  const vigentes = todos.filter((g) => g.estatus === "activo");
+  const cancelados = todos.filter((g) => g.estatus === "cancelado");
+  const general = estatus === "todos" ? todos : vigentes;
+
+  const agrupar = (filas, clave, construir) => {
+    const mapa = new Map();
+    filas.forEach((f) => {
+      const k = clave(f);
+      const actual = mapa.get(k) || construir(f);
+      actual.numero_gastos += 1;
+      actual.total += f.monto;
+      mapa.set(k, actual);
+    });
+    return [...mapa.values()]
+      .map((f) => ({ ...f, total: redondear(f.total) }))
+      .sort((a, b) => b.total - a.total);
+  };
+
+  return {
+    general,
+    porCategoria: agrupar(vigentes, (f) => f.categoria_nombre,
+      (f) => ({ categoria: f.categoria_nombre, grupo: f.grupo_nombre, numero_gastos: 0, total: 0 })),
+    porSucursal: agrupar(vigentes, (f) => f.sucursal_nombre,
+      (f) => ({ sucursal: f.sucursal_nombre, numero_gastos: 0, total: 0 })),
+    porFormaPago: agrupar(vigentes, (f) => f.forma_pago,
+      (f) => ({ forma_pago: f.forma_pago, numero_gastos: 0, total: 0 })),
+    totales: {
+      numero_gastos: vigentes.length,
+      total: redondear(vigentes.reduce((a, f) => a + f.monto, 0)),
+      numero_cancelados: cancelados.length,
+      total_cancelado: redondear(cancelados.reduce((a, f) => a + f.monto, 0)),
+    },
+  };
+}
+
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos };
