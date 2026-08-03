@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
 import { apiFetch } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
@@ -84,6 +84,11 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [pesoOriginal, setPesoOriginal] = useState(null);
   const [motivo, setMotivo] = useState("");
   const [historial, setHistorial] = useState([]);
+  // Identifica la selección de comprobante "vigente": cada elección de archivo
+  // incrementa el contador, y abrir un modal nuevo también lo invalida. Así,
+  // si una compresión termina tarde (foto anterior, o modal ya cerrado y
+  // vuelto a abrir), su resultado se descarta en vez de pisar el estado actual.
+  const seleccionArchivo = useRef(0);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
 
@@ -119,9 +124,11 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   );
 
   const abrirNuevo = () => {
+    seleccionArchivo.current++; // invalida cualquier compresión en curso de una selección anterior
     setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "" });
     setArchivo(null);
     setPesoOriginal(null);
+    setComprimiendo(false);
     setModal("nuevo");
   };
 
@@ -130,16 +137,23 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     if (!original) return;
     if (!MIME_OK.includes(original.type)) return mostrarAviso("❌ Solo se acepta PDF, JPG o PNG");
 
+    const idSeleccion = ++seleccionArchivo.current;
     setComprimiendo(true);
     try {
       const listo = await comprimirImagen(original);
+      // Si mientras comprimía se eligió otra foto o se reabrió el modal,
+      // esta selección quedó obsoleta: se descarta en silencio.
+      if (idSeleccion !== seleccionArchivo.current) return;
       if (listo.size > TAM_MAX) return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
       setArchivo(listo);
       setPesoOriginal(listo.size < original.size ? original.size : null);
     } catch (err) {
-      mostrarAviso("❌ No se pudo preparar la imagen: " + err.message);
+      if (idSeleccion === seleccionArchivo.current) mostrarAviso("❌ No se pudo preparar la imagen: " + err.message);
     } finally {
-      setComprimiendo(false);
+      // Solo la selección vigente puede apagar "comprimiendo": si ya quedó
+      // obsoleta, hacerlo habilitaría el botón de guardar antes de tiempo
+      // (o pisaría el "comprimiendo" de la selección que sí sigue en curso).
+      if (idSeleccion === seleccionArchivo.current) setComprimiendo(false);
     }
   };
 
