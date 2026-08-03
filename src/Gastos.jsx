@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
 import { apiFetch } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
+import { comprimirImagen } from "./comprimirImagen";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
@@ -79,6 +80,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "",
   });
   const [archivo, setArchivo] = useState(null);
+  const [comprimiendo, setComprimiendo] = useState(false);
+  const [pesoOriginal, setPesoOriginal] = useState(null);
   const [motivo, setMotivo] = useState("");
   const [historial, setHistorial] = useState([]);
 
@@ -118,15 +121,26 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const abrirNuevo = () => {
     setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "" });
     setArchivo(null);
+    setPesoOriginal(null);
     setModal("nuevo");
   };
 
-  const elegirArchivo = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (!MIME_OK.includes(f.type)) return mostrarAviso("❌ Solo se acepta PDF, JPG o PNG");
-    if (f.size > TAM_MAX) return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
-    setArchivo(f);
+  const elegirArchivo = async (e) => {
+    const original = e.target.files?.[0];
+    if (!original) return;
+    if (!MIME_OK.includes(original.type)) return mostrarAviso("❌ Solo se acepta PDF, JPG o PNG");
+
+    setComprimiendo(true);
+    try {
+      const listo = await comprimirImagen(original);
+      if (listo.size > TAM_MAX) return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
+      setArchivo(listo);
+      setPesoOriginal(listo.size < original.size ? original.size : null);
+    } catch (err) {
+      mostrarAviso("❌ No se pudo preparar la imagen: " + err.message);
+    } finally {
+      setComprimiendo(false);
+    }
   };
 
   const guardar = async (e) => {
@@ -353,8 +367,12 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Comprobante * (PDF, JPG o PNG, máx. 10 MB)</label>
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={elegirArchivo} className="text-sm" />
-                {archivo && (
-                  <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1"><Upload size={12} /> {archivo.name}</p>
+                {comprimiendo && <p className="text-xs text-slate-500 mt-1">Preparando la imagen...</p>}
+                {archivo && !comprimiendo && (
+                  <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1">
+                    <Upload size={12} /> {archivo.name} ({(archivo.size / 1024).toFixed(0)} KB
+                    {pesoOriginal ? ` — comprimida desde ${(pesoOriginal / 1024 / 1024).toFixed(1)} MB` : ""})
+                  </p>
                 )}
               </div>
             </form>
@@ -362,7 +380,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
             <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
               {!archivo && <span className="text-xs text-slate-500 mr-auto">Adjunta el comprobante para poder guardar</span>}
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
-              <button type="submit" form="form-gasto" disabled={!archivo || guardando}
+              <button type="submit" form="form-gasto" disabled={!archivo || guardando || comprimiendo}
                 className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 {guardando ? "Guardando..." : "Guardar gasto"}
               </button>
