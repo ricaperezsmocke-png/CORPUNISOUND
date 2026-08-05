@@ -58,6 +58,7 @@ const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
 const { fechaLocal } = require("./fechas");
+const { crearRegistroIntentos, estaBloqueado, registrarFallo, registrarExito } = require("./intentosLogin");
 const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
 const { importarClavesSat } = require("./scripts/importarClavesSat");
 const { parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo } = require("./migracion");
@@ -637,10 +638,32 @@ app.post("/api/auth/setup-inicial", async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Contador de intentos fallidos de login, en memoria (ver intentosLogin.js).
+const intentosLogin = crearRegistroIntentos();
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { usuario, password, sucursal_id_seleccionada, lat, lng } = req.body;
-    const encontrado = await iniciarSesion(DB, usuario, password);
+
+    // Freno a la fuerza bruta: si la cuenta acumuló demasiados fallos, se
+    // rechaza ANTES de tocar la contraseña, hasta que pase el bloqueo.
+    const bloqueo = estaBloqueado(intentosLogin, usuario);
+    if (bloqueo.bloqueado) {
+      const minutos = Math.ceil(bloqueo.restanteMs / 60000);
+      return res.status(429).json({ error: `Demasiados intentos fallidos. Espera ${minutos} min e intenta de nuevo.` });
+    }
+
+    let encontrado;
+    try {
+      encontrado = await iniciarSesion(DB, usuario, password);
+    } catch (e) {
+      // Usuario o contraseña incorrectos: cuenta el fallo y devuelve 401.
+      registrarFallo(intentosLogin, usuario);
+      return res.status(401).json({ error: e.message });
+    }
+    // Contraseña correcta: se limpia el contador (un fallo de GPS más abajo NO
+    // cuenta como intento de contraseña, así que no debe sumar al bloqueo).
+    registrarExito(intentosLogin, usuario);
     const resultado = validarUbicacionLogin(encontrado, sucursal_id_seleccionada, lat, lng, DB);
     if (!resultado.ok) {
       const sucursalDijo = DB.pos.sucursales.find((s) => s.id === Number(sucursal_id_seleccionada));
@@ -1397,6 +1420,6 @@ app.listen(PUERTO, () => {
     console.log("⚠️  No hay ANTHROPIC_API_KEY configurada — copia .env.example a .env y pega tu key");
   }
   if (!process.env.JWT_SECRET) {
-    console.log("🚨 JWT_SECRET no configurado — usando clave temporal. Los tokens se invalidan al reiniciar el servidor. Configura JWT_SECRET en las variables de entorno de Render.");
+    console.log("🚨 JWT_SECRET no configurado — usando una clave ALEATORIA por arranque. Es seguro (nadie puede falsificar tokens), pero las sesiones se invalidan cada vez que el servidor reinicia. Configura JWT_SECRET en las variables de entorno de Render para que las sesiones persistan.");
   }
 });

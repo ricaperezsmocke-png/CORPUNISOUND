@@ -3,19 +3,28 @@
  *
  * IMPORTANTE (léelo antes de usar esto en producción real):
  * - Las contraseñas se guardan hasheadas con bcrypt, nunca en texto plano.
- * - JWT_SECRET debe venir de .env — si no existe, se genera uno temporal
- *   en cada arranque (lo cual invalida sesiones anteriores); para uso real
- *   define JWT_SECRET fijo en tu .env.
+ * - JWT_SECRET debe venir de .env/entorno — si no existe, se genera uno
+ *   ALEATORIO en cada arranque (lo cual invalida sesiones anteriores, pero
+ *   nunca usa una clave fija publicada en el repo); para uso real define
+ *   JWT_SECRET fijo en el entorno (Render) para que las sesiones persistan.
  * - Esto es una base funcional, no una auditoría de seguridad completa.
  *   Antes de exponer el backend a internet (Fase 4 del plan de sucursales),
  *   pide una revisión de seguridad específica.
  */
 
+const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { permisosDeRol } = require("./roles");
 
-const JWT_SECRET = process.env.JWT_SECRET || "clave-temporal-desarrollo-cambiar-en-produccion";
+// Si JWT_SECRET no está en el entorno, se genera una clave ALEATORIA por
+// arranque en vez de caer a un valor fijo. Un valor fijo escrito aquí quedaría
+// publicado en GitHub, y cualquiera podría firmar un token de administrador
+// con él y entrar sin contraseña. Con una clave aleatoria eso es imposible; el
+// único costo es que, sin JWT_SECRET fijo, las sesiones se invalidan al
+// reiniciar el servidor (por eso conviene configurarlo en Render — ver el
+// aviso de arranque en server.js).
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(48).toString("hex");
 const EXPIRA_EN = "12h";
 
 async function hashearPassword(passwordPlano) {
