@@ -18,10 +18,21 @@
  * contraseñas contra un usuario conocido. Contrapartida asumida: alguien
  * podría, a propósito, dejar temporalmente bloqueado a un usuario legítimo
  * fallando su login; por eso el bloqueo es corto (15 min) y se limpia solo.
+ *
+ * OJO memoria: la ruta de login es pública, así que un atacante puede mandar
+ * un usuario distinto en cada intento. Para que el Map no crezca sin techo
+ * (y termine tumbando el proceso), cada entrada guarda `ultimoIntento` y se
+ * purga: se sueltan los contadores viejos sin bloqueo activo, y hay un tope
+ * duro de tamaño que, ante un ataque sostenido, evita las entradas más
+ * antiguas. Un bloqueo todavía vigente nunca se descarta por el tope.
  */
 
 const MAX_INTENTOS = 5;
 const BLOQUEO_MS = 15 * 60 * 1000; // 15 minutos
+// Un contador sin bloqueo activo se olvida tras este tiempo de inactividad.
+const VENTANA_OLVIDO_MS = BLOQUEO_MS;
+// Tope duro de entradas vivas en el Map (protección contra el bombardeo).
+const LIMITE_ENTRADAS = 10000;
 
 /** Normaliza el usuario para que no se pueda esquivar el bloqueo cambiando
  *  mayúsculas o metiendo espacios. Devuelve "" para datos ausentes. */
@@ -51,14 +62,40 @@ function estaBloqueado(store, usuario, ahora = Date.now()) {
   return { bloqueado: false };
 }
 
+/**
+ * Suelta lo que ya no hace falta guardar, para que el Map no crezca sin techo:
+ *  1) contadores viejos SIN bloqueo activo (la basura que deja un bombardeo de
+ *     usuarios inexistentes), y bloqueos ya vencidos;
+ *  2) si aun así se pasa del tope (ataque sostenido dentro de la ventana),
+ *     evita las entradas más antiguas hasta volver bajo el límite.
+ * Un bloqueo TODAVÍA vigente nunca se descarta en el paso 1.
+ */
+function purgar(store, ahora = Date.now()) {
+  for (const [clave, r] of store) {
+    const bloqueadoAhora = r.bloqueadoHasta > ahora;
+    if (!bloqueadoAhora && (r.ultimoIntento || 0) < ahora - VENTANA_OLVIDO_MS) {
+      store.delete(clave);
+    }
+  }
+  if (store.size > LIMITE_ENTRADAS) {
+    const porEdad = [...store.entries()].sort(
+      (a, b) => (a[1].ultimoIntento || 0) - (b[1].ultimoIntento || 0)
+    );
+    const sobran = store.size - LIMITE_ENTRADAS;
+    for (let i = 0; i < sobran; i++) store.delete(porEdad[i][0]);
+  }
+}
+
 /** Registra un intento fallido. Al llegar a MAX_INTENTOS activa el bloqueo. */
 function registrarFallo(store, usuario, ahora = Date.now()) {
   const clave = normalizar(usuario);
   if (!clave) return;
-  const r = store.get(clave) || { fallos: 0, bloqueadoHasta: 0 };
+  const r = store.get(clave) || { fallos: 0, bloqueadoHasta: 0, ultimoIntento: 0 };
   r.fallos += 1;
+  r.ultimoIntento = ahora;
   if (r.fallos >= MAX_INTENTOS) r.bloqueadoHasta = ahora + BLOQUEO_MS;
   store.set(clave, r);
+  if (store.size > LIMITE_ENTRADAS) purgar(store, ahora);
 }
 
 /** Limpia el contador de una cuenta tras un inicio de sesión exitoso. */
@@ -72,6 +109,9 @@ module.exports = {
   estaBloqueado,
   registrarFallo,
   registrarExito,
+  purgar,
   MAX_INTENTOS,
   BLOQUEO_MS,
+  LIMITE_ENTRADAS,
+  VENTANA_OLVIDO_MS,
 };
