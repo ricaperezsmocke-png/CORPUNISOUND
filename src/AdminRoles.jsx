@@ -509,9 +509,15 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
             <div className="bg-white border-b border-slate-100 flex items-center gap-2 px-4 py-2 shrink-0">
               <span className="text-xs text-slate-500">Google Drive (expedientes de personal):</span>
               {estadoDrive?.conectado ? (
-                <span className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
-                  <CheckCircle size={12} /> Conectado
-                </span>
+                <>
+                  <span className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+                    <CheckCircle size={12} /> Conectado
+                  </span>
+                  {/* Siempre hay salida: si el token muere en silencio, o para cambiar de cuenta, se puede reconectar sin quedarse atascado. */}
+                  <button onClick={conectarDrive} className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-700 underline">
+                    <Link size={11} /> Reconectar
+                  </button>
+                </>
               ) : !estadoDrive?.configurado ? (
                 <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
                   <AlertTriangle size={12} /> GOOGLE_CLIENT_ID no configurado en el backend

@@ -73,6 +73,33 @@ async function tokenActivo(DB) {
   return DB.drive.cuenta.access_token;
 }
 
+/**
+ * Estado REAL de la conexión con Google Drive: prueba que el token SIRVA
+ * (lo refresca si hace falta), no solo que exista. Nunca lanza — un refresh
+ * muerto se reporta como desconectado.
+ *
+ * Arregla el bug donde /api/drive/estado se declaraba "Conectado" con que
+ * existiera un access_token guardado, aunque estuviera vencido y el refresh
+ * token muerto: el usuario veía un badge verde y NINGUNA forma de reconectar.
+ *
+ * Devuelve { conectado, conectado_en, refrescado }. `refrescado` avisa a quien
+ * llama que el access_token cambió y conviene persistir la DB.
+ */
+async function verificarConexion(DB) {
+  const c = DB.drive?.cuenta;
+  const conectado_en = c?.conectado_en || null;
+  // Sin refresh_token no hay forma de sostener la sesión: se trata como
+  // desconectado aunque haya un access_token suelto que caducará sin recambio.
+  if (!c?.access_token || !c?.refresh_token) return { conectado: false, conectado_en, refrescado: false };
+  const tokenAntes = c.access_token;
+  try {
+    await tokenActivo(DB); // refresca si está por vencer; lanza si el refresh murió
+    return { conectado: true, conectado_en, refrescado: c.access_token !== tokenAntes };
+  } catch {
+    return { conectado: false, conectado_en, refrescado: false };
+  }
+}
+
 function urlAutorizacion(redirectUri) {
   if (!process.env.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID no configurado en variables de entorno");
   const params = new URLSearchParams({
@@ -209,7 +236,7 @@ async function eliminarArchivoDeDrive(DB, fileId) {
 }
 
 module.exports = {
-  intercambiarCodigo, urlAutorizacion, tokenActivo,
+  intercambiarCodigo, urlAutorizacion, tokenActivo, verificarConexion,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   asegurarCarpetaGarantia,
   asegurarCarpetaGastosRaiz, asegurarCarpetaGastosSucursal,

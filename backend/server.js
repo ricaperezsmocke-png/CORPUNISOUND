@@ -743,13 +743,16 @@ app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_role
 
 // ---------- Expedientes de Personal (Google Drive) ----------
 
-app.get("/api/drive/estado", requiereLogin, (req, res) => {
-  const c = DB.drive.cuenta;
-  res.json({
-    conectado:    !!c?.access_token,
-    configurado:  !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-    conectado_en: c?.conectado_en || null,
-  });
+app.get("/api/drive/estado", requiereLogin, async (req, res) => {
+  const configurado = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  try {
+    // Prueba que el token SIRVA (lo refresca si hace falta), no solo que exista.
+    const estado = await drive.verificarConexion(DB);
+    if (estado.refrescado) guardar(DB); // persiste el access_token recién refrescado
+    res.json({ conectado: estado.conectado, configurado, conectado_en: estado.conectado_en });
+  } catch (e) {
+    res.json({ conectado: false, configurado, conectado_en: DB.drive.cuenta?.conectado_en || null });
+  }
 });
 
 app.get("/api/drive/auth-url", requiereLogin, requierePermiso("conectar_cuenta_drive", resolverPermisosDeRol), (req, res) => {

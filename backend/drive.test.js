@@ -5,6 +5,7 @@ const {
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   subirArchivoADrive, eliminarArchivoDeDrive,
   asegurarCarpetaGarantia, asegurarCarpetaGastosSucursal,
+  verificarConexion,
 } = require("./drive");
 
 test("intercambiarCodigo guarda los tokens en DB.drive.cuenta", async (t) => {
@@ -232,4 +233,53 @@ test("asegurarCarpetaGastosSucursal reusa el id cacheado sin llamar a Drive", as
   const id = await asegurarCarpetaGastosSucursal(DB, sucursal);
 
   assert.strictEqual(id, "folder-cacheado");
+});
+
+// --- verificarConexion: dice si el token SIRVE, no solo si existe ---
+// El bug que arregla: /api/drive/estado se declaraba "Conectado" con que
+// existiera un access_token, aunque estuviera vencido y el refresh muerto.
+
+test("verificarConexion: sin cuenta conectada devuelve conectado=false", async () => {
+  const r = await verificarConexion({ drive: { cuenta: null } });
+  assert.strictEqual(r.conectado, false);
+  assert.strictEqual(r.conectado_en, null);
+});
+
+test("verificarConexion: token vigente = conectado, sin llamar a Google", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+  const DB = { drive: { cuenta: { access_token: "AT_VIGENTE", refresh_token: "RT1", expires_at: Date.now() + 3_600_000, conectado_en: "2026-08-01T00:00:00.000Z" } } };
+
+  const r = await verificarConexion(DB);
+
+  assert.strictEqual(r.conectado, true);
+  assert.strictEqual(r.refrescado, false);
+  assert.strictEqual(r.conectado_en, "2026-08-01T00:00:00.000Z");
+  assert.strictEqual(fetchMock.mock.calls.length, 0);
+});
+
+test("verificarConexion: token vencido pero refresh OK = conectado y refrescado", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => ({ ok: true, json: async () => ({ access_token: "AT_NUEVO", expires_in: 3600 }) }));
+  const DB = { drive: { cuenta: { access_token: "AT_VIEJO", refresh_token: "RT1", expires_at: Date.now() - 1000 } } };
+
+  const r = await verificarConexion(DB);
+
+  assert.strictEqual(r.conectado, true);
+  assert.strictEqual(r.refrescado, true, "el access_token cambió al refrescarse");
+  assert.strictEqual(DB.drive.cuenta.access_token, "AT_NUEVO");
+});
+
+test("verificarConexion: token vencido y refresh MUERTO = NO conectado (el bug real)", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => ({ ok: false, text: async () => "invalid_grant" }));
+  const DB = { drive: { cuenta: { access_token: "AT_VIEJO", refresh_token: "RT_MUERTO", expires_at: Date.now() - 1000, conectado_en: "2026-07-20T00:00:00.000Z" } } };
+
+  const r = await verificarConexion(DB);
+
+  assert.strictEqual(r.conectado, false, "un refresh muerto debe reportarse como desconectado, no como conectado");
+  assert.strictEqual(r.conectado_en, "2026-07-20T00:00:00.000Z");
+});
+
+test("verificarConexion: cuenta sin refresh_token = NO conectado (no se puede sostener)", async () => {
+  const DB = { drive: { cuenta: { access_token: "AT_SUELTO", expires_at: Date.now() + 3_600_000 } } };
+  const r = await verificarConexion(DB);
+  assert.strictEqual(r.conectado, false);
 });
