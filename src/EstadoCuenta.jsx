@@ -140,7 +140,15 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const cancelar = async (e) => {
     e.preventDefault();
     try {
-      const r = await apiFetch(`/depositos/${seleccionado.id}/cancelar`, {
+      // sucursal_id explícito (el del propio depósito), por el mismo motivo que
+      // en cargarResumen: si se omite, apiFetch le inyecta la sucursal_activa
+      // del encabezado global, y entonces el guard de alcance del backend no
+      // encuentra un depósito de OTRA sucursal — aunque esta pantalla lo esté
+      // mostrando, porque su lista usa el filtro propio, no el global.
+      // No amplía el alcance de nadie: para quien no tiene
+      // ver_todas_las_sucursales, el backend ignora este parámetro y usa la
+      // sucursal del token (ver alcanceSucursal en backend/auth.js).
+      const r = await apiFetch(`/depositos/${seleccionado.id}/cancelar?sucursal_id=${seleccionado.sucursal_id}`, {
         method: "PUT", body: JSON.stringify({ motivo }),
       });
       const data = await r.json();
