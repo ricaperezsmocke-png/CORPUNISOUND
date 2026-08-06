@@ -54,10 +54,38 @@ test("si Drive falla, el depósito igual queda registrado (comprobante opcional)
   assert.strictEqual(DB.cuenta_comun.depositos.length, 1);
 });
 
+test("crearDeposito rechaza un archivo con MIME inválido y NO crea nada", async () => {
+  const DB = nuevoDB();
+  await assert.rejects(() => crearDeposito(DB, {
+    monto: 100, forma_pago: "EFECTIVO",
+    archivo: { contenido_base64: Buffer.from("x").toString("base64"), tipo_mime: "text/plain", nombre_archivo: "x.txt" },
+  }, 1, { nombre: "Ana" }, driveFalso), /permitido/);
+  assert.strictEqual(DB.cuenta_comun.depositos.length, 0, "no debe crear el depósito");
+});
+
+test("crearDeposito rechaza un archivo mayor a 10 MB y NO crea nada", async () => {
+  const DB = nuevoDB();
+  await assert.rejects(() => crearDeposito(DB, {
+    monto: 100, forma_pago: "EFECTIVO",
+    archivo: { contenido_base64: Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64"), tipo_mime: "image/jpeg", nombre_archivo: "grande.jpg" },
+  }, 1, { nombre: "Ana" }, driveFalso), /10 MB/);
+  assert.strictEqual(DB.cuenta_comun.depositos.length, 0, "no debe crear el depósito");
+});
+
 test("folios únicos bajo capturas concurrentes (id síncrono)", async () => {
   const DB = nuevoDB();
+  // Con archivo + subida async que en verdad cede el control (setTimeout), las
+  // 12 capturas se intercalan de verdad en el `await` de Drive: si la reserva
+  // de folio no fuera síncrona, aquí colisionarían.
+  const driveLento = {
+    asegurarCarpetaDepositosSucursal: async () => "c1",
+    subirArchivoADrive: async () => { await new Promise((r) => setTimeout(r, 0)); return { id: "f", webViewLink: "https://drive/f" }; },
+  };
   const ds = await Promise.all(Array.from({ length: 12 }, () =>
-    crearDeposito(DB, { monto: 100, forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" }, driveFalso)));
+    crearDeposito(DB, {
+      monto: 100, forma_pago: "EFECTIVO",
+      archivo: { contenido_base64: Buffer.from("x").toString("base64"), tipo_mime: "image/jpeg", nombre_archivo: "f.jpg" },
+    }, 1, { nombre: "Ana" }, driveLento)));
   const folios = new Set(ds.map((d) => d.folio));
   assert.strictEqual(folios.size, 12, "12 folios distintos");
 });
