@@ -60,7 +60,10 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     const params = new URLSearchParams();
     if (fechaInicial) params.set("fecha_inicio", fechaInicial);
     if (fechaFinal) params.set("fecha_fin", fechaFinal);
-    if (sucursalId) params.set("sucursal_id", sucursalId);
+    // Siempre explícito (nunca se omite): si se omitiera, apiFetch le
+    // inyectaría por su cuenta la sucursal_activa del encabezado global (ver
+    // src/api.js), pisando en silencio el selector de esta pantalla.
+    params.set("sucursal_id", sucursalId || "todas");
     const r = await apiFetch(`/estado-cuenta?${params.toString()}`);
     if (r.ok) setResumen(await r.json());
   }, [fechaInicial, fechaFinal, sucursalId]);
@@ -70,9 +73,12 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     if (fechaInicial) params.set("fecha_inicio", fechaInicial);
     if (fechaFinal) params.set("fecha_fin", fechaFinal);
     if (filtroEstatus) params.set("estatus", filtroEstatus);
+    // Mismo motivo que en cargarResumen: sucursal_id explícito para que
+    // apiFetch no la sustituya por la del selector global del encabezado.
+    params.set("sucursal_id", sucursalId || "todas");
     const r = await apiFetch(`/depositos?${params.toString()}`);
     if (r.ok) setDepositos(await r.json());
-  }, [fechaInicial, fechaFinal, filtroEstatus]);
+  }, [fechaInicial, fechaFinal, filtroEstatus, sucursalId]);
 
   useEffect(() => { cargarResumen(); }, [cargarResumen]);
   useEffect(() => { cargarDepositos(); }, [cargarDepositos]);
