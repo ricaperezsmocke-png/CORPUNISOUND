@@ -1,5 +1,5 @@
 import React from "react";
-import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft, FileBarChart, ShieldAlert, Wallet } from "lucide-react";
+import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft, FileBarChart, ShieldAlert, Wallet, Scale } from "lucide-react";
 import AsistenteIA from "./AsistenteIA";
 import SelectorSucursal from "./SelectorSucursal.jsx";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ const MODULOS = [
   { id: "pos",        nombre: "Punto de Venta",        icono: ShoppingCart, disponible: true, modulo: "pos" },
   { id: "corte",      nombre: "Corte de Caja",          icono: Landmark,     disponible: true, modulo: "corte",     permiso: "realizar_corte_caja" },
   { id: "gastos",     nombre: "Gastos",                 icono: Wallet,       disponible: true, modulo: "gastos",    permiso: "ver_gastos" },
+  { id: "estado_cuenta", nombre: "Estado de Cuenta",    icono: Scale,        disponible: true, modulo: "cuenta_comun", permiso: "ver_estado_cuenta" },
   { id: "inventario", nombre: "Inventario y Productos",  icono: Boxes,        disponible: true, modulo: "inventario" },
   { id: "traspasos",  nombre: "Traspasos entre Sucursales", icono: ArrowRightLeft, disponible: true, modulo: "inventario", permiso: "realizar_traspasos" },
   { id: "garantias",  nombre: "Garantías",              icono: ShieldAlert,  disponible: true, modulo: "inventario", permiso: "gestionar_garantias" },

@@ -10,6 +10,7 @@ const TITULOS = {
   traspasos:  "Traspasos entre Sucursales",
   garantias:  "Garantías",
   gastos:     "Gastos",
+  estado_cuenta: "Estado de Cuenta",
   roles:      "Roles y Personal",
   crm:        "CRM",
   corte:      "Corte de Caja",
