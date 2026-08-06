@@ -103,6 +103,11 @@ const PERMISOS = [
   { clave: "registrar_gastos", etiqueta: "Registrar Gasto", modulo: "gastos", implementado: true },
   { clave: "cancelar_gastos", etiqueta: "Cancelar Gastos", modulo: "gastos", implementado: true },
   { clave: "administrar_categorias_gastos", etiqueta: "Administrar Categorías de Gastos", modulo: "gastos", implementado: true },
+
+  // ---- Estado de Cuenta (cuenta común entre sucursales) ----
+  { clave: "ver_estado_cuenta", etiqueta: "Ver Estado de Cuenta", modulo: "cuenta_comun", implementado: true },
+  { clave: "registrar_depositos", etiqueta: "Registrar Depósito", modulo: "cuenta_comun", implementado: true },
+  { clave: "cancelar_depositos", etiqueta: "Cancelar Depósito", modulo: "cuenta_comun", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
@@ -114,6 +119,7 @@ const MODULOS_SISTEMA = [
   { id: "ml",        nombre: "MercadoLibre" },
   { id: "reportes",  nombre: "Reportes" },
   { id: "gastos",    nombre: "Gastos" },
+  { id: "cuenta_comun", nombre: "Estado de Cuenta" },
 ];
 
 function listarPermisos() {
