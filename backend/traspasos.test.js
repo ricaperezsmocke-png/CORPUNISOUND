@@ -85,3 +85,10 @@ test("listarTraspasos: usuario global ve todos y puede filtrar por estatus", () 
   const pendientes = listarTraspasos(DB, { verTodas: true, sucursalId: null }, "en_transito");
   assert.strictEqual(pendientes.length, 1);
 });
+
+test("crearTraspaso guarda una foto del costo del producto", () => {
+  const DB = construirDBPrueba();
+  // Producto 1 tiene costo: 20 en la fixture
+  const t = crearTraspaso(DB, { producto_id: 1, cantidad: 3, sucursal_destino_id: 2 }, 1, USUARIO_OCOSINGO);
+  assert.strictEqual(t.costo, 20, "el traspaso guarda el costo del producto al enviarse");
+});

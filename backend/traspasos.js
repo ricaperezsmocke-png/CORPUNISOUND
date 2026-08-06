@@ -25,10 +25,10 @@ function crearTraspaso(DB, datos, sucursalOrigenId, usuario) {
   if (!sucursal_destino_id) throw new Error("Selecciona la sucursal destino");
   if (sucursal_destino_id === sucursal_origen_id) throw new Error("La sucursal destino debe ser distinta a la de origen");
 
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === producto_id);
   const existOrigen = DB.inventario.existencias.find((e) => e.producto_id === producto_id && e.sucursal_id === sucursal_origen_id);
   const disponible = existOrigen ? existOrigen.cantidad_actual : 0;
   if (disponible < cantidad) {
-    const producto = DB["catalogo-productos"].productos.find((p) => p.id === producto_id);
     throw new Error(`No hay existencia suficiente de "${producto?.nombre || "producto"}" en tu sucursal (disponible: ${disponible}, solicitado: ${cantidad})`);
   }
 
@@ -36,6 +36,9 @@ function crearTraspaso(DB, datos, sucursalOrigenId, usuario) {
     id: siguienteId(DB.inventario.traspasos),
     producto_id,
     cantidad,
+    // Foto del costo al enviar: el estado de cuenta valúa la mercancía
+    // recibida a costo, y el costo del producto puede cambiar después.
+    costo: producto ? Number(producto.costo) || 0 : 0,
     sucursal_origen_id,
     sucursal_destino_id,
     estatus: "en_transito",
