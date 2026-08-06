@@ -51,11 +51,15 @@ test("el alcance oculta las tiendas de otras sucursales", () => {
   assert.ok(!soloS1.resumen.some((x) => x.sucursal_id === 2), "una cajera de la 1 no ve la 2");
 });
 
-test("el filtro usa la fecha LOCAL de la tienda (un traspaso de las 8pm cae en el día correcto)", () => {
-  // fecha_recepcion 2026-08-03T20:00Z = 2pm local; usar rango de un día
-  const r = estadoCuenta(DBbase(), { fecha_inicio: "2026-08-03", fecha_fin: "2026-08-03" }, TODAS);
+test("el filtro usa la fecha LOCAL de la tienda (cruza la medianoche UTC)", () => {
+  // fecha_recepcion 2026-08-04T02:00Z = 2026-08-03 20:00 hora local (UTC-6).
+  // Con .slice(0,10) crudo caería en "2026-08-04" y quedaría FUERA del rango;
+  // solo con fechaLocal() cae en "2026-08-03", dentro del rango pedido.
+  const DB = DBbase();
+  DB.inventario.traspasos[0].fecha_recepcion = "2026-08-04T02:00:00.000Z";
+  const r = estadoCuenta(DB, { fecha_inicio: "2026-08-03", fecha_fin: "2026-08-03" }, TODAS);
   const s1 = r.resumen.find((x) => x.sucursal_id === 1);
-  assert.strictEqual(s1.recibido, 5000, "el traspaso del 3 cae dentro del rango del 3");
+  assert.strictEqual(s1.recibido, 5000, "el traspaso cae dentro del rango del 3 solo si se usó fechaLocal, no un .slice(0,10) crudo");
 });
 
 test("pedir una sola sucursal devuelve el detalle de movimientos", () => {
