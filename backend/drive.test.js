@@ -5,6 +5,7 @@ const {
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   subirArchivoADrive, eliminarArchivoDeDrive,
   asegurarCarpetaGarantia, asegurarCarpetaGastosSucursal,
+  asegurarCarpetaDepositosSucursal,
   verificarConexion,
 } = require("./drive");
 
@@ -233,6 +234,21 @@ test("asegurarCarpetaGastosSucursal reusa el id cacheado sin llamar a Drive", as
   const id = await asegurarCarpetaGastosSucursal(DB, sucursal);
 
   assert.strictEqual(id, "folder-cacheado");
+});
+
+test("asegurarCarpetaDepositosSucursal crea la subcarpeta de la sucursal y la cachea", async (t) => {
+  let llamada = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    llamada++;
+    if (llamada === 1 || llamada === 3) return { ok: true, json: async () => ({ files: [] }) };
+    return { ok: true, json: async () => ({ id: `folder-${llamada}` }) };
+  });
+  const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
+  const sucursal = { id: 1, nombre: "Ocosingo" };
+  const id = await asegurarCarpetaDepositosSucursal(DB, sucursal);
+  assert.ok(id);
+  assert.strictEqual(sucursal.drive_folder_depositos_id, id);
+  assert.ok(DB.drive.carpeta_depositos_id, "cachea también la carpeta raíz");
 });
 
 // --- verificarConexion: dice si el token SIRVE, no solo si existe ---

@@ -231,6 +231,11 @@ const DB = {
     gasto_movimientos: [],
     ultimo_id: 0,
   },
+  cuenta_comun: {
+    depositos: [],
+    deposito_movimientos: [],
+    ultimo_id: 0,
+  },
 };
 
 sembrarRolesIniciales(DB);
