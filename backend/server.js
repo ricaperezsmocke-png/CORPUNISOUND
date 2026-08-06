@@ -54,6 +54,8 @@ const { crearGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosD
 const { listarCategorias: listarCategoriasGasto, crearCategoria: crearCategoriaGasto,
         renombrarCategoria: renombrarCategoriaGasto, desactivarCategoria: desactivarCategoriaGasto,
       } = require("./gastosCategorias");
+const { crearDeposito, listarDepositos, cancelarDeposito } = require("./depositos");
+const { estadoCuenta } = require("./estadoCuenta");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
@@ -1184,6 +1186,33 @@ app.get("/api/gastos/:id/movimientos", requiereLogin, requierePermiso("ver_gasto
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(movimientosDeGasto(DB, req.params.id, alcance));
   } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+
+// ---------- Estado de Cuenta (cuenta común entre sucursales) ----------
+app.get("/api/estado-cuenta", requiereLogin, requierePermiso("ver_estado_cuenta", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(estadoCuenta(DB, req.query, alcance));
+});
+
+app.get("/api/depositos", requiereLogin, requierePermiso("ver_estado_cuenta", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  res.json(listarDepositos(DB, req.query, alcance));
+});
+
+app.post("/api/depositos", requiereLogin, requierePermiso("registrar_depositos", resolverPermisosDeRol), async (req, res) => {
+  try {
+    // La sucursal sale del TOKEN, nunca del body.
+    const d = await crearDeposito(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
+    res.json(d);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/depositos/:id/cancelar", requiereLogin, requierePermiso("cancelar_depositos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(cancelarDeposito(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 
