@@ -185,7 +185,13 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const cancelar = async (e) => {
     e.preventDefault();
     try {
-      const r = await apiFetch(`/gastos/${seleccionado.id}/cancelar`, {
+      // sucursal_id explícito (el del propio gasto): si se omite, apiFetch
+      // inyecta la sucursal_activa del encabezado global (ver src/api.js) y el
+      // guard de alcance del backend responde "Gasto no encontrado" en cuanto
+      // la lista de esta pantalla deje de coincidir con ese selector global.
+      // No amplía el alcance de nadie: sin ver_todas_las_sucursales el backend
+      // ignora el parámetro y usa la sucursal del token.
+      const r = await apiFetch(`/gastos/${seleccionado.id}/cancelar?sucursal_id=${seleccionado.sucursal_id}`, {
         method: "PUT", body: JSON.stringify({ motivo }),
       });
       const data = await r.json();

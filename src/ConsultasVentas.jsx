@@ -85,7 +85,15 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     if (!seleccionada) return mostrarAviso("Selecciona una venta primero");
     if (!puede("mostrar_detalle_venta")) return mostrarAviso("No tienes permiso para ver el detalle de la venta");
     try {
-      const r = await apiFetch(`/ventas/${seleccionada.id}`);
+      // sucursal_id explícito (el de la propia venta): esta pantalla tiene su
+      // PROPIO filtro de sucursal, así que la lista puede estar mostrando
+      // ventas de otra tienda que la del selector global del encabezado. Si se
+      // omite, apiFetch inyecta esa sucursal global (ver src/api.js) y el guard
+      // dentroDeAlcance responde "Venta no encontrada" sobre un renglón que sí
+      // está en pantalla. No amplía el alcance de nadie: sin
+      // ver_todas_las_sucursales el backend ignora el parámetro y usa la
+      // sucursal del token (alcanceSucursal en backend/auth.js).
+      const r = await apiFetch(`/ventas/${seleccionada.id}?sucursal_id=${seleccionada.sucursal_id}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       setDetalle(data);
@@ -102,7 +110,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
   const confirmarCancelacion = async () => {
     try {
-      const r = await apiFetch(`/ventas/${seleccionada.id}/cancelar`, { method: "PUT", body: JSON.stringify({ motivo: motivoCancelacion }) });
+      // sucursal_id explícito (el de la propia venta), mismo motivo que en
+      // verDetalle(): sin él, el guard de esta ruta responde "Venta no
+      // encontrada" para un folio que la tabla sí está mostrando.
+      const r = await apiFetch(`/ventas/${seleccionada.id}/cancelar?sucursal_id=${seleccionada.sucursal_id}`, { method: "PUT", body: JSON.stringify({ motivo: motivoCancelacion }) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso(`Venta folio ${seleccionada.id} cancelada — inventario reintegrado`);

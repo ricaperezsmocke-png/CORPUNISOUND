@@ -84,7 +84,13 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
     const monto = Number(abonoMonto);
     if (!monto || monto <= 0) return mostrarAviso("Captura un monto mayor a $0");
     try {
-      const r = await apiFetch(`/apartados/${apartado.id}/abonos`, {
+      // sucursal_id explícito (el del propio apartado): si se omite, apiFetch
+      // inyecta la sucursal_activa del encabezado global (ver src/api.js) y el
+      // guard de alcance responde "Apartado no encontrado" en cuanto la lista
+      // deje de coincidir con ese selector. No amplía el alcance de nadie: sin
+      // ver_todas_las_sucursales el backend ignora el parámetro y usa la
+      // sucursal del token.
+      const r = await apiFetch(`/apartados/${apartado.id}/abonos?sucursal_id=${apartado.sucursal_id}`, {
         method: "POST",
         body: JSON.stringify({ monto, forma_pago: abonoForma }),
       });
@@ -101,7 +107,9 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   const cancelar = async (apartado) => {
     if (!confirm(`¿Cancelar el apartado #${apartado.id}? El producto regresa a existencia y lo ya pagado se abona al monedero del cliente.`)) return;
     try {
-      const r = await apiFetch(`/apartados/${apartado.id}/cancelar`, {
+      // Mismo motivo que en confirmarAbono: sucursal_id del propio apartado
+      // para que el guard no lo dé por inexistente.
+      const r = await apiFetch(`/apartados/${apartado.id}/cancelar?sucursal_id=${apartado.sucursal_id}`, {
         method: "PUT",
         body: JSON.stringify({ motivo: "Cancelado desde el POS" }),
       });
