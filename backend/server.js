@@ -54,7 +54,7 @@ const { crearGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosD
 const { listarCategorias: listarCategoriasGasto, crearCategoria: crearCategoriaGasto,
         renombrarCategoria: renombrarCategoriaGasto, desactivarCategoria: desactivarCategoriaGasto,
       } = require("./gastosCategorias");
-const { crearDeposito, listarDepositos, cancelarDeposito } = require("./depositos");
+const { crearDeposito, listarDepositos, cancelarDeposito, adjuntarComprobante } = require("./depositos");
 const { estadoCuenta } = require("./estadoCuenta");
 const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos");
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
@@ -1205,6 +1205,16 @@ app.post("/api/depositos", requiereLogin, requierePermiso("registrar_depositos",
     // La sucursal sale del TOKEN, nunca del body.
     const d = await crearDeposito(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
     res.json(d);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Adjuntar la ficha a un depósito ya capturado que no la trae. Es la MISMA
+// acción de capturar (por eso "registrar_depositos", no un permiso nuevo):
+// antes había que cancelar y recapturar solo para agregar el comprobante.
+app.post("/api/depositos/:id/comprobante", requiereLogin, requierePermiso("registrar_depositos", resolverPermisosDeRol), async (req, res) => {
+  try {
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(await adjuntarComprobante(DB, req.params.id, req.body.archivo, req.usuarioToken, alcance, drive));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
