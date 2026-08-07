@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
-const { actualizarUsuario, esAccionSobreSiMismo } = require("./usuarios");
+const { actualizarUsuario, esAccionSobreSiMismo, crearUsuario, iniciarSesion, normalizarUsuario } = require("./usuarios");
+const { hashearPassword } = require("./auth");
+const { crearRegistroIntentos, registrarFallo, estaBloqueado, MAX_INTENTOS } = require("./intentosLogin");
 const { crearCorte } = require("./cortes");
 
 function sembrarUsuarioDePrueba(DB, overrides = {}) {
@@ -132,4 +134,144 @@ test("guard de autodesactivación: activo=0 (no estrictamente false) también de
   const bodySinActivo = { nombre: "Nuevo nombre" };
   const debeBloquearSinActivo = bodySinActivo.activo !== undefined && !bodySinActivo.activo && esAccionSobreSiMismo(propioId, propioId);
   assert.strictEqual(debeBloquearSinActivo, false, "un edit que no toca activo no debe bloquearse por este guard");
+});
+
+// ---------- El nombre de usuario no distingue mayúsculas ni espacios ----------
+// Victor escribió "Victor" en vez de "victor", falló 5 veces y el freno de
+// fuerza bruta lo dejó 15 minutos fuera. El celular de las cajeras
+// autocapitaliza la primera letra, así que es un tropiezo garantizado.
+
+/** Siembra una cuenta con contraseña real (hasheada) para probar el login. */
+async function sembrarCuentaConPassword(DB, usuario, password, overrides = {}) {
+  DB.admin.usuarios.push({
+    id: 60, nombre: "Cajera Prueba", usuario,
+    password_hash: await hashearPassword(password),
+    rol_id: 1, sucursal_id: 1, activo: true,
+    ...overrides,
+  });
+}
+
+test("normalizarUsuario: quita espacios de los extremos y baja a minúsculas", () => {
+  assert.strictEqual(normalizarUsuario("  Victor "), "victor");
+  assert.strictEqual(normalizarUsuario("MARIA"), "maria");
+  assert.strictEqual(normalizarUsuario("victor"), "victor");
+  // Datos ausentes o basura no deben reventar la comparación.
+  assert.strictEqual(normalizarUsuario(undefined), "");
+  assert.strictEqual(normalizarUsuario(null), "");
+  assert.strictEqual(normalizarUsuario(123), "");
+});
+
+test("iniciarSesion: una cuenta YA guardada como 'Maria' entra escribiendo maria, MARIA o con espacios", async () => {
+  // Los usuarios en producción conservan las mayúsculas con que se capturaron;
+  // esto debe funcionar sin migrar la base.
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "Maria", "clave.Secreta1");
+
+  for (const tecleado of ["maria", "MARIA", "Maria", "  maria  ", " MaRiA"]) {
+    const encontrado = await iniciarSesion(DB, tecleado, "clave.Secreta1");
+    assert.strictEqual(encontrado.id, 60, `debe entrar tecleando "${tecleado}"`);
+    assert.strictEqual(encontrado.usuario, "Maria", "el nombre guardado no se toca, solo se compara normalizado");
+  }
+});
+
+test("iniciarSesion: la CONTRASEÑA sigue distinguiendo mayúsculas", async () => {
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "Maria", "clave.Secreta1");
+
+  await assert.rejects(
+    () => iniciarSesion(DB, "maria", "CLAVE.SECRETA1"),
+    /Usuario o contraseña incorrectos/,
+    "aflojar el usuario no debe aflojar la contraseña"
+  );
+  await assert.rejects(
+    () => iniciarSesion(DB, "maria", " clave.Secreta1 "),
+    /Usuario o contraseña incorrectos/,
+    "los espacios de la contraseña tampoco se recortan"
+  );
+});
+
+test("iniciarSesion: una cuenta desactivada sigue sin poder entrar aunque el nombre coincida normalizado", async () => {
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "Maria", "clave.Secreta1", { activo: false });
+
+  await assert.rejects(() => iniciarSesion(DB, "maria", "clave.Secreta1"), /Usuario o contraseña incorrectos/);
+});
+
+test("iniciarSesion: un usuario vacío o ausente no hace match con nadie", async () => {
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "Maria", "clave.Secreta1");
+  // La cuenta con nombre en blanco es la que hace trabajar de verdad a esta
+  // prueba: hoy no se puede crear desde la aplicación, pero si existiera en
+  // datos viejos, sin la guarda de nombre vacío un login con el campo usuario
+  // en blanco la encontraría (ambos lados normalizan a ""). Sin sembrarla, la
+  // prueba pasaba aunque se quitara la guarda.
+  await sembrarCuentaConPassword(DB, "   ", "clave.Secreta1");
+
+  for (const vacio of ["", "   ", undefined, null]) {
+    await assert.rejects(() => iniciarSesion(DB, vacio, "clave.Secreta1"), /Usuario o contraseña incorrectos/);
+  }
+});
+
+test("crearUsuario: rechaza un nombre de usuario que solo difiere en mayúsculas o espacios", async () => {
+  // Si se colara, las dos cuentas quedarían indistinguibles al entrar: el
+  // login normalizado siempre se quedaría con la primera de la lista.
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "maria", "clave.Secreta1");
+  const rol = DB.admin.roles[0];
+
+  for (const choque of ["Maria", "MARIA", " maria", "maria  "]) {
+    await assert.rejects(
+      () => crearUsuario(DB, { nombre: "Otra Persona", usuario: choque, password: "otraClave1", rol_id: rol.id }),
+      /Ese nombre de usuario ya existe/,
+      `"${choque}" choca con la cuenta "maria" y debe rechazarse`
+    );
+  }
+  assert.strictEqual(DB.admin.usuarios.length, 1, "ninguno de los intentos debe haberse guardado");
+});
+
+test("crearUsuario: sí acepta un nombre realmente distinto y lo guarda tal como se capturó", async () => {
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "maria", "clave.Secreta1");
+  const rol = DB.admin.roles[0];
+
+  const nuevo = await crearUsuario(DB, { nombre: "Ana López", usuario: " Ana.Lopez ", password: "otraClave1", rol_id: rol.id });
+
+  assert.strictEqual(nuevo.usuario, "Ana.Lopez", "se recortan los espacios pero se respetan las mayúsculas capturadas");
+  assert.strictEqual(DB.admin.usuarios.length, 2);
+});
+
+test("actualizarUsuario: ignora un 'usuario' mandado en el body (no se puede renombrar la cuenta por esa vía)", async () => {
+  // Por eso la validación de choque vive solo en crearUsuario: editar no puede
+  // producir dos cuentas indistinguibles. Si algún día se permite renombrar,
+  // hay que llevarse la misma comparación normalizada a actualizarUsuario.
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "maria", "clave.Secreta1");
+  const rol = DB.admin.roles[0];
+  await crearUsuario(DB, { nombre: "Ana López", usuario: "ana", password: "otraClave1", rol_id: rol.id });
+  const ana = DB.admin.usuarios.find((u) => u.usuario === "ana");
+
+  await actualizarUsuario(DB, ana.id, { nombre: "Ana Renombrada", usuario: "MARIA" });
+
+  assert.strictEqual(DB.admin.usuarios.find((u) => u.id === ana.id).usuario, "ana", "el nombre de usuario no debe cambiar");
+});
+
+test("el freno de fuerza bruta cuenta bajo la MISMA clave que usa el login para buscar la cuenta", async () => {
+  // Si intentosLogin.js y usuarios.js normalizaran distinto, alguien podría
+  // esquivar el bloqueo alternando mayúsculas, o quedar bloqueado bajo una
+  // clave que no corresponde a la cuenta que intentó abrir.
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "Victor", "clave.Secreta1");
+  const store = crearRegistroIntentos();
+  const variantes = ["victor", "Victor", "VICTOR", " victor ", "vIcToR"];
+
+  // Cada variante encuentra la MISMA cuenta al iniciar sesión...
+  for (const v of variantes) {
+    assert.strictEqual((await iniciarSesion(DB, v, "clave.Secreta1")).id, 60);
+  }
+  // ...y los fallos con esas variantes se acumulan en un solo contador.
+  for (let i = 0; i < MAX_INTENTOS; i++) registrarFallo(store, variantes[i % variantes.length]);
+
+  for (const v of variantes) {
+    assert.strictEqual(estaBloqueado(store, v).bloqueado, true, `el bloqueo debe aplicar también a "${v}"`);
+  }
 });
