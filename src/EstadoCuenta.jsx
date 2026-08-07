@@ -35,7 +35,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const [resumen, setResumen] = useState({ resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0 } });
   const [depositos, setDepositos] = useState([]);
 
-  const [modal, setModal] = useState(null); // null | "nuevo" | "cancelar"
+  const [modal, setModal] = useState(null); // null | "nuevo" | "comprobante" | "cancelar"
   const [seleccionado, setSeleccionado] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
@@ -208,13 +208,17 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     // bloque del mismo archivo, separado por un renglón en blanco, igual que en
     // pantalla va como segunda tabla: sin folios ni conceptos, el resumen de 4
     // columnas no le sirve de nada a la contadora para amarrar los saldos.
+    // El bloque va recorrido una columna a propósito: sin eso, "Cargo" cae
+    // justo debajo de "Saldo" y un SUMA() de esa columna en Excel mezclaría
+    // saldos con cargos, sin avisar. Recorrido, cada cifra tiene su columna y
+    // el sub-bloque además se lee indentado.
     if (resumen.movimientos) {
       filas.push([]);
       filas.push(["Detalle de movimientos"]);
-      filas.push(["Fecha", "Folio", "Concepto", "Cargo", "Abono"]);
+      filas.push(["", "Fecha", "Folio", "Concepto", "Cargo", "Abono"]);
       for (const m of resumen.movimientos) {
         filas.push([
-          m.fecha, m.folio,
+          "", m.fecha, m.folio,
           m.concepto + (m.aproximado ? " (costo aproximado)" : ""),
           m.cargo ? m.cargo.toFixed(2) : "",
           m.abono ? m.abono.toFixed(2) : "",

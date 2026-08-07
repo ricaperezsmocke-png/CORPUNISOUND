@@ -88,6 +88,13 @@ async function crearDeposito(DB, datos, sucursalId, usuario, drive) {
 
   // Comprobante OPCIONAL: si Drive falla, el depósito ya quedó registrado.
   if (buffer) {
+    // El depósito YA está en la lista (push de arriba) y todavía sin enlace, así
+    // que durante esta subida sale en GET /depositos con drive_link null y la
+    // pantalla le pinta el clip de "adjuntar". Sin esta marca, otra persona
+    // puede adjuntarle una ficha distinta mientras esta sube, y el registro
+    // termina apuntando a una mientras la bitácora nombra la otra. Se marca
+    // ANTES del primer await, por la misma razón que el folio es síncrono.
+    adjuntosEnCurso.add(deposito);
     try {
       const carpetaId = await drive.asegurarCarpetaDepositosSucursal(DB, sucursal);
       const subido = await drive.subirArchivoADrive(DB, {
@@ -101,6 +108,8 @@ async function crearDeposito(DB, datos, sucursalId, usuario, drive) {
       }
     } catch (_) {
       // Drive caído: se conserva el depósito sin comprobante. No se bloquea.
+    } finally {
+      adjuntosEnCurso.delete(deposito);
     }
   }
   return deposito;
@@ -157,6 +166,17 @@ async function adjuntarComprobante(DB, id, archivo, usuario, alcance, drive) {
     });
     if (!subido || !subido.id || !subido.webViewLink) {
       throw new Error("Drive no confirmó la subida del comprobante — inténtalo de nuevo");
+    }
+    // Se revalida DESPUÉS de los await: los chequeos de arriba miraron el
+    // estado de hace varios segundos, y en ese rato el depósito pudo recibir
+    // comprobante por otra vía o quedar cancelado. Asignar a ciegas dejaría al
+    // registro apuntando a una ficha y a la bitácora nombrando otra. El archivo
+    // ya subido queda huérfano en Drive: es el lado seguro del error.
+    if (d.drive_file_id) {
+      throw new Error("Ese depósito ya tiene comprobante — no se puede reemplazar");
+    }
+    if (d.estatus === "cancelado") {
+      throw new Error("Ese depósito está cancelado — no se le puede adjuntar comprobante");
     }
     d.nombre_archivo = archivo.nombre_archivo;
     d.drive_file_id = subido.id;

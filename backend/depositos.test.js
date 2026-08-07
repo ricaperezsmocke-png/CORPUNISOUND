@@ -246,6 +246,61 @@ test("dos adjuntos simultáneos al mismo depósito: solo uno gana, sin reemplazo
   assert.strictEqual(DB.cuenta_comun.deposito_movimientos.filter((m) => m.tipo === "comprobante").length, 1);
 });
 
+test("adjuntar mientras la captura sube su propia ficha NO reemplaza la evidencia", async () => {
+  // Caso real: la cajera captura con una ficha pesada y el enlace de la tienda
+  // es lento. Durante esos segundos el depósito ya sale en la lista con
+  // drive_link null, así que la pantalla le pinta el clip y la administradora
+  // le adjunta otra. Sin la marca en crearDeposito, las dos subidas corren
+  // ciegas: el registro apunta a una ficha y la bitácora nombra la otra.
+  const DB = nuevoDB();
+  let subidas = 0;
+  const driveLento = {
+    asegurarCarpetaDepositosSucursal: async () => "c1",
+    subirArchivoADrive: async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      subidas++;
+      return { id: `file-${subidas}`, webViewLink: `https://drive/file-${subidas}` };
+    },
+  };
+  const captura = crearDeposito(
+    DB, { monto: 500, forma_pago: "EFECTIVO", archivo: { ...FICHA, nombre_archivo: "de-captura.jpg" } },
+    1, { nombre: "Ana" }, driveLento
+  );
+  // El depósito ya está en la lista (push síncrono) antes de que Drive termine.
+  const visible = DB.cuenta_comun.depositos[0];
+  assert.strictEqual(visible.drive_link, null, "durante la subida se ve sin ficha: la UI ofrece el clip");
+
+  const porElClip = adjuntarComprobante(
+    DB, visible.id, { ...FICHA, nombre_archivo: "del-clip.jpg" }, { nombre: "Beto" }, ALCANCE_TODAS, driveLento
+  );
+  await assert.rejects(() => porElClip, /ya se está subiendo|ya tiene comprobante/i);
+  const d = await captura;
+
+  assert.strictEqual(d.nombre_archivo, "de-captura.jpg", "gana la ficha de la captura");
+  assert.strictEqual(subidas, 1, "no se sube un segundo archivo a Drive");
+  const nombrados = DB.cuenta_comun.deposito_movimientos.filter((m) => m.tipo === "comprobante");
+  assert.strictEqual(nombrados.length, 0, "la bitácora no nombra una ficha que no quedó pegada");
+});
+
+test("cancelar durante la subida: el comprobante NO se pega a un depósito cancelado", async () => {
+  const DB = nuevoDB();
+  const d = await depositoSinFicha(DB);
+  const driveLento = {
+    asegurarCarpetaDepositosSucursal: async () => "c1",
+    subirArchivoADrive: async () => {
+      // La cancelación entra con la subida en vuelo.
+      cancelarDeposito(DB, d.id, "capturado por error", { nombre: "Ana" }, ALCANCE_TODAS);
+      return { id: "file-9", webViewLink: "https://drive/file-9" };
+    },
+  };
+  await assert.rejects(
+    () => adjuntarComprobante(DB, d.id, FICHA, { nombre: "Beto" }, ALCANCE_TODAS, driveLento),
+    /cancelado/
+  );
+  assert.strictEqual(d.drive_file_id, null, "un depósito cancelado no queda con comprobante");
+  assert.strictEqual(DB.cuenta_comun.deposito_movimientos.filter((m) => m.tipo === "comprobante").length, 0);
+});
+
 test("listarDepositos respeta el alcance de sucursal", async () => {
   const DB = nuevoDB();
   await crearDeposito(DB, { monto: 100, forma_pago: "EFECTIVO" }, 1, { nombre: "Ana" }, driveFalso);
