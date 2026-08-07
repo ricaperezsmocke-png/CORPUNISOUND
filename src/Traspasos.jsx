@@ -96,6 +96,10 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
     if (!form.producto_id) return mostrarAviso("Selecciona un producto");
     if (!form.cantidad || Number(form.cantidad) <= 0) return mostrarAviso("Escribe una cantidad válida");
     if (!form.sucursal_destino_id) return mostrarAviso("Selecciona la sucursal destino");
+    // El origen solo lo elige quien ve todas las sucursales; para los demás lo
+    // pone el token. Sin esto el backend rechaza, pero hasta después de llenar
+    // todo el formulario.
+    if (usuario?.ver_todas && !form.sucursal_origen_id) return mostrarAviso("Selecciona la sucursal de origen — es de donde sale la mercancía");
     try {
       // sucursal_id=todas explícito: evita que apiFetch pise la sucursal_origen_id elegida
       // en el formulario con la sucursal_activa ambiental del selector global.

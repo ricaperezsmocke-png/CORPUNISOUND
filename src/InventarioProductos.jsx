@@ -4,14 +4,14 @@ import {
   Search, ChevronLeft, ChevronRight, Camera, MapPin, X, Tag
 } from "lucide-react";
 
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
 import MigracionDatos from "./MigracionDatos.jsx";
 // Carga diferida: recharts (usado solo aqui) es una dependencia pesada -
 // que no se descargue para todo el mundo, solo para quien abre esta pestaña.
 const PrediccionesDemanda = React.lazy(() => import("./PrediccionesDemanda.jsx"));
 
-function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
+function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate", desactivado = false, motivoDesactivado = "" }) {
   const tonos = {
     slate: "text-[#1a7fe8]",
     verde: "text-emerald-600",
@@ -19,8 +19,11 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) 
   };
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors"
+      disabled={desactivado}
+      title={desactivado ? motivoDesactivado : undefined}
+      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
     >
       <Icono size={18} className={tonos[tono]} />
       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
@@ -59,6 +62,12 @@ const TABS = [
 
 export default function InventarioProductos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+  // Con el encabezado en "Todas", la columna Exist. de la lista muestra la
+  // SUMA de todas las tiendas — un número que no corresponde a ninguna. Ajustar
+  // sobre ese número, o guardar mínimos y máximos, caería en una sola sucursal
+  // (antes, siempre en la 1). Por eso aquí se bloquea todo lo que escribe.
+  const sinSucursal = sinSucursalElegida();
+  const MOTIVO_SIN_SUCURSAL = "Elige una sucursal en el encabezado: la lista muestra la suma de todas las tiendas";
   const [tab, setTab] = useState("productos");
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
@@ -110,6 +119,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
   // ---------- Formulario ----------
   const abrirCrear = async () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para dar de alta un producto");
     let clave = "";
     try {
       const r = await apiFetch(`/productos/generar-clave`);
@@ -134,6 +144,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   };
 
   const abrirEditar = () => {
+    // Editar guarda también la mínima y la máxima, que son de UNA tienda.
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para editar un producto");
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     setForm({
       clave: seleccionado.sku, clave_alterna: seleccionado.clave_alterna || "",
@@ -219,6 +231,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   };
 
   const clonarSeleccionado = async () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para clonar un producto");
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     try {
       const r = await apiFetch(`/productos/${seleccionado.id}/clonar`, { method: "POST" });
@@ -231,6 +244,9 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   };
 
   const abrirAjustar = () => {
+    // El número que se ve en la lista con "Todas" es la suma de las tiendas:
+    // ajustar sobre él descuadraría la existencia de una sola sucursal.
+    if (sinSucursal) return mostrarAviso(MOTIVO_SIN_SUCURSAL);
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     setAjusteCantidad(""); setAjusteMotivo("");
     setModal("ajustar");

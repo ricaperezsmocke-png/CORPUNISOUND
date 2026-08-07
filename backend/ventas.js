@@ -28,9 +28,16 @@ function crearVenta(DB, datos) {
   // configuración lo permita explícitamente ("Permitir Ventas de
   // Artículos Sin Existencia"). Se valida TODO antes de crear nada,
   // para no dejar una venta a medias si una línea falla.
+  // Sin sucursal no se adivina: antes caía a la 1, así que la venta se
+  // registraba en Ocosingo y le descontaba el inventario a Ocosingo, viniera
+  // de la tienda que viniera.
+  const sucursalId = Number(datos.sucursal_id);
+  if (!Number.isInteger(sucursalId) || sucursalId <= 0) {
+    throw new Error("Falta la sucursal donde se cierra la venta");
+  }
+
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
-    const sucursalId = Number(datos.sucursal_id) || 1;
     for (const l of datos.lineas) {
       if (!l.producto_id) continue; // productos rápidos no tienen existencia que validar
       const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(l.producto_id) && e.sucursal_id === sucursalId);
@@ -48,7 +55,7 @@ function crearVenta(DB, datos) {
     id: nuevoId,
     fecha: fechaLocal(),
     fecha_hora: new Date().toISOString(), // con hora — el corte de caja agrupa ventas por turno
-    sucursal_id: Number(datos.sucursal_id) || 1,
+    sucursal_id: sucursalId,
     vendedor_id: datos.vendedor_id ? Number(datos.vendedor_id) : null,
     cliente_id: datos.cliente_id !== undefined && datos.cliente_id !== null ? Number(datos.cliente_id) : 0,
     tipo_documento: datos.tipo_documento || "Ticket",

@@ -116,7 +116,12 @@ function buscarConGuardia(DB, id, alcance) {
 }
 
 function crearGarantia(DB, datos, sucursalId, usuario) {
-  const sucursal_origen_id = Number(sucursalId) || Number(datos.sucursal_origen_id) || 1;
+  // Sin sucursal de origen no se adivina: la garantía descuenta y reintegra
+  // existencia de UNA tienda (antes caía a la 1).
+  const sucursal_origen_id = Number(sucursalId);
+  if (!Number.isInteger(sucursal_origen_id) || sucursal_origen_id <= 0) {
+    throw new Error("Falta la sucursal de origen de la garantía");
+  }
   const producto_id = Number(datos.producto_id);
   if (!producto_id) throw new Error("Selecciona un producto para la garantía");
   const producto = DB["catalogo-productos"].productos.find((p) => p.id === producto_id);

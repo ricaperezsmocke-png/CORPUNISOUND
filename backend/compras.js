@@ -32,6 +32,11 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
   }
 
   const sucursal_id = Number(sucursalId);
+  // Sin sucursal no se adivina: la mercancía recibida sube existencia en UNA
+  // tienda, y con NaN se creaban filas de existencia inservibles.
+  if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
+    throw new Error("Falta la sucursal que recibe la mercancía");
+  }
   const nuevoId = siguienteId(DB.inventario.compras);
   const compra = {
     id: nuevoId,

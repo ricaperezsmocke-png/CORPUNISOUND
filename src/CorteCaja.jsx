@@ -4,7 +4,7 @@ import {
   Scissors, CircleDollarSign, X, Package, Cloud, Info, UserCircle2,
   ShoppingCart, History
 } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 
 const FORMAS = ["EFECTIVO", "CHEQUE", "VALES", "TARJETA"];
 const ETIQUETAS = { EFECTIVO: "Efectivo", CHEQUE: "* Cheque", VALES: "Vales", TARJETA: "* Tarjeta" };
@@ -136,17 +136,26 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const [aviso, setAviso] = useState(null);
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
+  // Esta pantalla leía SIEMPRE con ?sucursal_id=1 fijo y guardaba con lo que
+  // dijera el encabezado: se contaba el efectivo de una tienda contra el
+  // calculado de Ocosingo (faltante inventado) y el turno se cerraba en la
+  // tienda del encabezado, a nombre de quien no lo cortó. Ahora se lee y se
+  // escribe la MISMA sucursal —la del encabezado, que apiFetch ya agrega sola—
+  // y con "Todas" no se muestra ni se guarda nada.
+  const sinSucursal = sinSucursalElegida();
+
   const cargar = useCallback(async () => {
+    if (sinSucursal) { setEnCurso(null); setCortes([]); return; }
     try {
-      const r = await apiFetch("/cortes/en-curso?sucursal_id=1");
+      const r = await apiFetch("/cortes/en-curso");
       if (r.ok) setEnCurso(await r.json());
       if (puede("ver_historial_cortes")) {
-        const rh = await apiFetch("/cortes?sucursal_id=1");
+        const rh = await apiFetch("/cortes");
         if (rh.ok) setCortes(await rh.json());
       }
     } catch { mostrarAviso("❌ No se pudo conectar con el backend"); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sinSucursal]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -161,6 +170,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   }, [modal, enCurso]);
 
   const abrirCorte = () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para hacer el corte");
     setContado({ EFECTIVO: "", CHEQUE: "", VALES: "", TARJETA: "" });
     setRetiro({ EFECTIVO: "", CHEQUE: "", VALES: "", TARJETA: "" });
     cargar();
@@ -180,11 +190,13 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const totalRetiro = FORMAS.reduce((a, f) => a + (Number(retiro[f]) || 0), 0);
 
   const guardarCorte = async () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para guardar el corte");
     try {
+      // Sin sucursal_id en el cuerpo: manda la del encabezado, que es la misma
+      // con la que se leyó el turno en curso de arriba. Antes iba un 1 fijo.
       const r = await apiFetch("/cortes", {
         method: "POST",
         body: JSON.stringify({
-          sucursal_id: 1,
           contado: Object.fromEntries(FORMAS.map((f) => [f, Number(contado[f]) || 0])),
           retiro: Object.fromEntries(FORMAS.map((f) => [f, Number(retiro[f]) || 0])),
         }),
@@ -204,10 +216,28 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
+      {/* Con "Todas" no se muestra ningún corte: un corte de la tienda
+          equivocada le inventa un faltante a la cajera. */}
+      {sinSucursal && (
+        <div className="bg-amber-50 border-b border-amber-300 text-amber-900 text-sm px-4 py-2 shrink-0 flex items-center gap-2">
+          <Info size={15} className="shrink-0" />
+          <span>
+            <b>Estás viendo todas las sucursales.</b> Elige una sucursal arriba, en el selector del
+            encabezado, para ver y hacer el corte: el corte cierra el turno de una sola caja.
+          </span>
+        </div>
+      )}
+
       {/* Barra de herramientas */}
       <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("realizar_corte_caja") && (
-          <button onClick={abrirCorte} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50">
+          <button
+            type="button"
+            onClick={abrirCorte}
+            disabled={sinSucursal}
+            title={sinSucursal ? "Elige una sucursal en el encabezado para hacer el corte" : "Corte de caja (F3)"}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
             <Scissors size={18} className="text-emerald-600" />
             <span className="text-[10px] font-medium text-slate-500">Corte</span>
           </button>
@@ -219,7 +249,13 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
           </button>
         )}
         {puede("ver_historial_cortes") && (
-          <button onClick={() => setModal("historial")} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200">
+          <button
+            type="button"
+            onClick={() => setModal("historial")}
+            disabled={sinSucursal}
+            title={sinSucursal ? "Elige una sucursal en el encabezado para ver su historial de cortes" : "Historial de cortes"}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-300 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
             <History size={20} className="text-slate-600" />
             <span className="text-[11px] font-medium text-slate-700">Historial</span>
           </button>
@@ -381,7 +417,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               <p className="text-[11px] text-slate-400 text-center max-w-md">
                 Si sacaste dinero de la caja y todavía no lo capturas en Gastos, hazlo antes de guardar el corte.
               </p>
-              <button onClick={guardarCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors">
+              <button type="button" onClick={guardarCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors">
                 💾 Guardar
               </button>
             </div>

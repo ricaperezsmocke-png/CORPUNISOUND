@@ -141,6 +141,9 @@ export default function Garantias({ onVolver, permisos, usuario }) {
 
   const crearGarantia = async () => {
     if (!formNueva.producto_id) return mostrarAviso("Selecciona un producto");
+    // Igual que en Traspasos: el select de sucursal solo lo ve quien ve todas.
+    // El backend ya lo rechaza, pero avisar aquí evita llenar todo para nada.
+    if (usuario?.ver_todas && !formNueva.sucursal_origen_id) return mostrarAviso("Selecciona la sucursal de origen — es la tienda de donde sale el producto");
     try {
       const r = await apiFetch("/garantias?sucursal_id=todas", { method: "POST", body: JSON.stringify(formNueva) });
       const data = await r.json();

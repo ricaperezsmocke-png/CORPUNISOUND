@@ -96,6 +96,60 @@ function alcanceSucursal(req, permisos) {
   return { verTodas: false, sucursalId: sucursalToken };
 }
 
+/**
+ * Resuelve a QUÉ SUCURSAL SE ESCRIBE en una ruta que crea registros.
+ *
+ * El selector de sucursal del encabezado nació para filtrar lo que se VE, y
+ * el sistema terminó usándolo también para decidir dónde se GUARDA. Cuando
+ * el encabezado dice "Todas" (el valor con el que entra el administrador),
+ * alcance.verTodas es true y antes se caía a `Number(body.sucursal_id) || 1`:
+ * la venta, el gasto, el ajuste de inventario o el corte se registraban en
+ * silencio en la sucursal 1 — la tienda equivocada, sin ningún aviso.
+ *
+ * Regla actual: la sucursal del encabezado manda también al escribir, y con
+ * "Todas" NO se escribe. Esta función devuelve null en ese caso y la ruta
+ * responde 400 con un mensaje que le dice al usuario qué elegir. La pantalla
+ * correspondiente frena antes (ver src/api.js → sinSucursalElegida), así que
+ * este 400 es la última red, no el camino normal.
+ *
+ * @param alcance         lo que devuelve alcanceSucursal()
+ * @param sucursalIdBody  la sucursal que mandó el formulario, si tiene una propia
+ * @returns el id de sucursal donde escribir, o null si no se puede saber
+ */
+function sucursalDeEscritura(alcance, sucursalIdBody) {
+  // Usuario amarrado: siempre la suya, sin importar lo que mande el cliente.
+  if (!alcance || !alcance.verTodas) {
+    const propia = alcance ? Number(alcance.sucursalId) : NaN;
+    return Number.isInteger(propia) && propia > 0 ? propia : null;
+  }
+  // Encabezado en "Todas": solo vale la que traiga el formulario.
+  const delFormulario = Number(sucursalIdBody);
+  return Number.isInteger(delFormulario) && delFormulario > 0 ? delFormulario : null;
+}
+
+/**
+ * Resuelve la sucursal para las pantallas que tienen su PROPIO selector y en
+ * las que ese selector debe ganar SIEMPRE (Migración de Datos, importación de
+ * historial de ventas).
+ *
+ * OJO: aquí no se puede usar alcanceSucursal(). apiFetch (src/api.js) agrega
+ * ?sucursal_id=<selección del encabezado> a TODA request que no lo traiga, así
+ * que un administrador con una tienda concreta elegida arriba haría que
+ * alcance.verTodas diera false y la sucursal del encabezado pisara la que el
+ * usuario eligió explícitamente en ESE formulario. En Migración eso significa
+ * importar el Excel de una tienda a otra sin ninguna señal. Por eso el permiso
+ * se resuelve a mano y gana el valor del formulario.
+ *
+ * @returns el id de sucursal, o null si el formulario no eligió ninguna
+ */
+function sucursalDelFormulario(permisos, usuarioToken, valorDelFormulario) {
+  const puedeVerTodas = Array.isArray(permisos) && permisos.includes("ver_todas_las_sucursales");
+  const elegida = puedeVerTodas
+    ? Number(valorDelFormulario)
+    : Number(usuarioToken && usuarioToken.sucursal_id);
+  return Number.isInteger(elegida) && elegida > 0 ? elegida : null;
+}
+
 /** Filtra un arreglo (que tenga campo sucursal_id) según el alcance resuelto. */
 function filtrarPorSucursal(lista, alcance) {
   if (alcance.verTodas) return [...lista];
@@ -177,5 +231,6 @@ function mensajePorMotivoUbicacion(motivo) {
 module.exports = {
   hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso,
   alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
+  sucursalDeEscritura, sucursalDelFormulario,
   distanciaMetros, validarUbicacionLogin, mensajePorMotivoUbicacion,
 };

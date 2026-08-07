@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, sucursalActiva } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 
@@ -61,6 +61,20 @@ function AyudaCategorias({ arbol, onElegir, onCerrar }) {
 
 export default function Gastos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+
+  // El backend registra el gasto SIEMPRE en la sucursal del token, nunca en la
+  // que dice el encabezado (defensa a propósito: nadie puede cargarle un gasto
+  // a otra tienda). Para el administrador eso choca con el selector global: si
+  // está viendo Yajalón y captura, el gasto nace en su propia tienda, se le
+  // resta a ESA caja en el corte, y encima desaparece de la lista que está
+  // mirando — parece que no se guardó e invita a capturarlo otra vez. Así que
+  // aquí solo se puede capturar cuando lo que se ve es la tienda propia.
+  const suPropiaSucursal = String(usuario?.sucursal_id ?? "");
+  const viendo = sucursalActiva();
+  const fueraDeSuSucursal = viendo !== suPropiaSucursal;
+  const MOTIVO_FUERA = viendo === "todas"
+    ? "Elige tu sucursal en el encabezado para registrar un gasto — el gasto sale de la caja de una tienda."
+    : "Estás viendo otra sucursal. Los gastos se registran en la tuya, así que cambia el encabezado a tu tienda para capturar.";
 
   const [tab, setTab] = useState("gastos");
   const [categorias, setCategorias] = useState([]);
@@ -124,6 +138,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   );
 
   const abrirNuevo = () => {
+    if (fueraDeSuSucursal) return mostrarAviso("❌ " + MOTIVO_FUERA);
     seleccionArchivo.current++; // invalida cualquier compresión en curso de una selección anterior
     setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "" });
     setArchivo(null);
@@ -212,6 +227,11 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
+      {/* Explica el botón apagado: sin esto, "Registrar gasto" en gris parece
+          una falla del sistema y no una condición que el usuario puede cambiar. */}
+      {fueraDeSuSucursal && puede("registrar_gastos") && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
+      )}
 
       <div className="bg-white border-b border-slate-200 flex shrink-0">
         <button onClick={() => setTab("gastos")}
@@ -246,7 +266,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               </select>
             </div>
             {puede("registrar_gastos") && (
-              <button onClick={abrirNuevo} className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700">
+              <button onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar gasto"}
+                className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 <Plus size={16} /> Registrar gasto
               </button>
             )}

@@ -46,7 +46,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPe
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
+const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { sembrarCategoriasGastos } = require("./gastosCategorias");
@@ -429,16 +429,12 @@ app.post("/api/predicciones/historial/aplicar", requiereLogin, requierePermiso("
     if (!Array.isArray(agregados) || agregados.length === 0) {
       return res.status(400).json({ error: "No hay datos previsualizados para aplicar" });
     }
-    // OJO: no usar alcanceSucursal()/req.query aquí. apiFetch agrega
-    // automáticamente ?sucursal_id=<seleccion del encabezado> a TODA
-    // request, así que un admin con "ver_todas_las_sucursales" pero con
-    // una sucursal específica elegida arriba en el encabezado global haría
-    // que alcance.verTodas diera false y pisara la sucursal que el usuario
-    // eligió explícitamente en ESTE formulario (req.body.sucursal_id).
-    // Aquí se resuelve directo con el permiso real del usuario.
+    // La sucursal la manda ESTE formulario y tiene que ganar siempre — ver el
+    // porqué completo en sucursalDelFormulario (backend/auth.js): usar
+    // alcanceSucursal() aquí dejaría que el selector del encabezado pisara la
+    // sucursal de origen que el usuario eligió en la pantalla.
     const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
-    const puedeVerTodas = Array.isArray(permisos) && permisos.includes("ver_todas_las_sucursales");
-    const sucursal_id = puedeVerTodas ? Number(req.body.sucursal_id) : req.usuarioToken.sucursal_id;
+    const sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
     if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     const resultado = aplicarHistorialVentas(DB, agregados, sucursal_id);
     res.json(resultado);
@@ -456,7 +452,10 @@ app.get("/api/productos", requiereLogin, (req, res) => {
 app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de dar de alta un producto — su existencia inicial tiene que quedar en una tienda." });
+    }
     res.json(crearProducto(DB, req.body, sucursal_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -464,7 +463,16 @@ app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", reso
 app.put("/api/productos/:id", requiereLogin, requierePermiso("editar_producto", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    // Los datos del catálogo (nombre, precios, clave SAT...) son iguales en
+    // todas las tiendas y se pueden editar sin elegir sucursal. La mínima y la
+    // máxima NO: son de una tienda concreta, así que solo esas exigen sucursal.
+    // Sin este matiz, la Recepción de Compras —que edita clave SAT y precios
+    // sin tocar mínimos— se quedaría bloqueada sin necesidad.
+    const tocaExistencias = req.body.existencia_minima !== undefined || req.body.existencia_maxima !== undefined;
+    if (tocaExistencias && !sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de cambiar la existencia mínima y máxima — son distintas en cada tienda." });
+    }
     res.json(actualizarProducto(DB, req.params.id, req.body, sucursal_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -477,7 +485,10 @@ app.delete("/api/productos/:id", requiereLogin, requierePermiso("eliminar_produc
 app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_producto", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de clonar un producto — la copia se da de alta en una tienda." });
+    }
     res.json(clonarProducto(DB, req.params.id, sucursal_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -485,8 +496,11 @@ app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_pro
 app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    // Amarrado: su sucursal del token, sin importar el body. Global: la que venga en el body (o 1).
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    // Amarrado: su sucursal del token, sin importar el body. Global: la del encabezado.
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de ajustar la existencia — con \"Todas\" la lista muestra la suma de todas las tiendas y el ajuste no sabría a cuál aplicarse." });
+    }
     res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -502,7 +516,12 @@ app.get("/api/traspasos", requiereLogin, requierePermiso("realizar_traspasos", r
 app.post("/api/traspasos", requiereLogin, requierePermiso("realizar_traspasos", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_origen_id = alcance.verTodas ? (Number(req.body.sucursal_origen_id) || 1) : alcance.sucursalId;
+    // Esta pantalla manda la sucursal de origen en el cuerpo y llama con
+    // ?sucursal_id=todas justo para que gane la del formulario.
+    const sucursal_origen_id = sucursalDeEscritura(alcance, req.body.sucursal_origen_id);
+    if (!sucursal_origen_id) {
+      return res.status(400).json({ error: "Elige la sucursal de donde sale la mercancía antes de enviar el traspaso." });
+    }
     res.json(crearTraspaso(DB, req.body, sucursal_origen_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -525,7 +544,10 @@ app.get("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolve
 app.post("/api/compras", requiereLogin, requierePermiso("recibir_compra", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige la sucursal que recibe la mercancía antes de guardar la recepción." });
+    }
     res.json(crearRecepcion(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -564,10 +586,16 @@ app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_
     // hará aplicar, o podrían mostrarle a Victor "actualización" y terminar
     // aplicando una "alta" (o viceversa) — ver hallazgo de revisión de rama
     // completa sobre matching de clientes por clave+sucursal.
-    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    //
+    // Gana SIEMPRE la "Sucursal de origen del archivo" que se elige en esta
+    // pantalla, nunca el selector del encabezado — ver el porqué completo en
+    // sucursalDelFormulario (backend/auth.js). Antes esta ruta usaba
+    // alcanceSucursal(), así que con una tienda elegida arriba el Excel de una
+    // sucursal se importaba a otra sin ninguna señal.
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
     let sucursal_id = null;
     if (tipo === "articulos" || tipo === "clientes") {
-      sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || null) : alcance.sucursalId;
+      sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     }
     const { filas, columnas_reconocidas, columnas_no_reconocidas } = parsearExcel(archivo_base64, tipo);
@@ -579,10 +607,12 @@ app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_
 app.post("/api/migracion/aplicar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
   try {
     const { tipo, filas, defaults, nombre_archivo } = req.body;
-    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    // Igual que en previsualizar: manda la sucursal elegida en ESTA pantalla,
+    // no la del encabezado (ver sucursalDelFormulario en backend/auth.js).
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
     let sucursal_id = null;
     if (tipo === "articulos" || tipo === "clientes") {
-      sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || null) : alcance.sucursalId;
+      sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     }
     const resumen = aplicarImportacion(DB, tipo, filas, sucursal_id, defaults, nombre_archivo);
@@ -593,10 +623,14 @@ app.post("/api/migracion/aplicar", requiereLogin, requierePermiso("migrar_datos"
 app.get("/api/migracion/exportar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
   try {
     const { tipo } = req.query;
-    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    // La misma pantalla de Migración elige aquí la sucursal a exportar, así
+    // que vale lo mismo que en previsualizar/aplicar: gana el selector de la
+    // pantalla. Si no, el respaldo se descargaría con los datos de la tienda
+    // del encabezado y el nombre del archivo diría otra cosa.
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
     let sucursal_id = null;
     if (tipo === "articulos" || tipo === "clientes") {
-      sucursal_id = alcance.verTodas ? (Number(req.query.sucursal_id) || null) : alcance.sucursalId;
+      sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.query.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal a exportar" });
     }
     const base64 = exportarRespaldo(DB, tipo, sucursal_id);
@@ -822,7 +856,17 @@ app.get("/api/clientes/:id", requiereLogin, (req, res) => {
 app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    // El alta de cliente llega desde dos pantallas distintas:
+    //  - CRM, que tiene su propio <select> de Sucursal (opcional) y llama con
+    //    ?sucursal_id=todas cuando viene lleno, para que gane el formulario.
+    //  - Punto de Venta, que no pregunta nada y depende del encabezado.
+    // Por eso vale cualquiera de las dos: la del formulario o la del
+    // encabezado. Solo se rechaza cuando no hay NINGUNA, que es justo el caso
+    // que antes se iba en silencio a la sucursal 1.
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige la sucursal del cliente (en el formulario) o una sucursal en el encabezado antes de darlo de alta." });
+    }
     res.json(crearCliente(DB, { ...req.body, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -955,8 +999,11 @@ app.get("/api/ventas/:id", requiereLogin, requierePermiso("mostrar_detalle_venta
 app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    // Amarrado: su sucursal del token, sin importar el body. Global: la que venga en el body (o 1).
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    // Amarrado: su sucursal del token, sin importar el body. Global: la del encabezado.
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado para poder vender — la venta descuenta el inventario de una tienda." });
+    }
     res.json(crearVenta(DB, { ...req.body, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -985,7 +1032,10 @@ app.get("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados", 
 app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de crear un apartado — el producto se reserva en una tienda." });
+    }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
     res.json(crearApartado(DB, req.body, sucursal_id, usuario));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1021,7 +1071,12 @@ app.get("/api/garantias", requiereLogin, requierePermiso("gestionar_garantias", 
 app.post("/api/garantias", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = resolverAlcance(req);
-    const sucursal_origen_id = alcance.verTodas ? (Number(req.body.sucursal_origen_id) || 1) : alcance.sucursalId;
+    // Esta pantalla manda la sucursal de origen en el cuerpo y llama con
+    // ?sucursal_id=todas justo para que gane la del formulario.
+    const sucursal_origen_id = sucursalDeEscritura(alcance, req.body.sucursal_origen_id);
+    if (!sucursal_origen_id) {
+      return res.status(400).json({ error: "Elige la sucursal de origen de la garantía — es la tienda de donde sale el producto." });
+    }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
     res.json(crearGarantia(DB, req.body, sucursal_origen_id, usuario));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1104,8 +1159,16 @@ app.put("/api/configuracion", requiereLogin, requierePermiso("editar_configuraci
 app.get("/api/cortes/en-curso", requiereLogin, (req, res) => {
   const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
   const alcance = alcanceSucursal(req, permisos);
-  // El corte en curso es siempre de UNA sucursal concreta. Global sin elegir → default a la 1.
-  const sucursal_id = alcance.verTodas ? (Number(req.query.sucursal_id) || 1) : alcance.sucursalId;
+  // El corte en curso es siempre de UNA sucursal concreta. Con "Todas" no se
+  // devuelve un corte cualquiera: mostrar el de la sucursal 1 mientras el
+  // cajero cuenta el efectivo de otra tienda inventa un faltante y le cierra
+  // el turno a quien no lo cortó.
+  // Sin segundo argumento: esta ruta no tiene formulario propio, la sucursal
+  // sale del encabezado (que alcanceSucursal ya leyó del query) o del token.
+  const sucursal_id = sucursalDeEscritura(alcance);
+  if (!sucursal_id) {
+    return res.status(400).json({ error: "Elige una sucursal en el encabezado para ver el corte — el corte es de una sola caja." });
+  }
   const resultado = calcularCorteEnCurso(DB, sucursal_id);
   res.json(filtrarCorteEnCursoPorPermiso(resultado, permisos));
 });
@@ -1116,7 +1179,10 @@ app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", re
 app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
-    const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+    const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de guardar el corte — el corte cierra el turno de una sola tienda." });
+    }
     res.json(crearCorte(DB, {
       ...req.body,
       sucursal_id,

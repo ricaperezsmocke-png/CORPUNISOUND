@@ -17,11 +17,23 @@ test("crearProducto siembra existencia en todas las sucursales de DB.pos.sucursa
   assert.strictEqual(enOtra.cantidad_minima, 0);
 });
 
-test("crearProducto sin sucursalId usa la sucursal 1 por defecto (compatibilidad)", () => {
+// Esta prueba antes decía lo contrario ("sin sucursalId usa la sucursal 1 por
+// defecto") y protegía justamente el bug: un producto capturado desde
+// cualquier tienda con el encabezado en "Todas" sembraba su existencia inicial
+// en Ocosingo, en silencio. Ahora el default está prohibido: quien llame tiene
+// que pedirle la sucursal al usuario (la ruta responde 400 con ese mensaje).
+test("crearProducto sin sucursalId ya NO cae a la sucursal 1: exige que se elija una", () => {
   const DB = construirDBPrueba();
-  const nuevoId = crearProducto(DB, { descripcion: "Púas", existencia_inicial: 100 }).id;
-  const enSuc1 = DB.inventario.existencias.find((e) => e.producto_id === nuevoId && e.sucursal_id === 1);
-  assert.strictEqual(enSuc1.cantidad_actual, 100);
+  const antes = DB["catalogo-productos"].productos.length;
+  assert.throws(
+    () => crearProducto(DB, { descripcion: "Púas", existencia_inicial: 100 }),
+    /sucursal/i
+  );
+  assert.strictEqual(DB["catalogo-productos"].productos.length, antes, "no debe quedar un producto a medias");
+  assert.ok(
+    !DB.inventario.existencias.some((e) => e.cantidad_actual === 100 && e.sucursal_id === 1),
+    "nada se sembró en la sucursal 1"
+  );
 });
 
 test("actualizarProducto ajusta existencia_minima/maxima de la sucursal indicada", () => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, X, Ban, FileText, Upload, Download, Paperclip } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, sucursalActiva } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 import { descargarCSV } from "./reportes/exportarCSV.js";
@@ -51,6 +51,19 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
 
+  // Mismo caso que en Gastos: el backend registra el depósito SIEMPRE en la
+  // sucursal del token (defensa a propósito), así que un administrador que está
+  // viendo otra tienda capturaría a nombre de la suya y el saldo del bote común
+  // de las dos quedaría mal, sin ninguna señal. Solo se captura viendo la
+  // propia. Nota: esto mira el selector GLOBAL del encabezado, no el filtro de
+  // esta pantalla, porque es el global el que decide dónde escribe el backend.
+  const suPropiaSucursal = String(usuario?.sucursal_id ?? "");
+  const viendoGlobal = sucursalActiva();
+  const fueraDeSuSucursal = viendoGlobal !== suPropiaSucursal;
+  const MOTIVO_FUERA = viendoGlobal === "todas"
+    ? "Elige tu sucursal en el encabezado para registrar un depósito — el depósito sale de la caja de una tienda."
+    : "Estás viendo otra sucursal. Los depósitos se registran en la tuya, así que cambia el encabezado a tu tienda para capturar.";
+
   useEffect(() => {
     if (!veTodas) return;
     apiFetch("/sucursales").then((r) => r.ok && r.json()).then((d) => d && setSucursales(d));
@@ -84,6 +97,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   useEffect(() => { cargarDepositos(); }, [cargarDepositos]);
 
   const abrirNuevo = () => {
+    if (fueraDeSuSucursal) return mostrarAviso("❌ " + MOTIVO_FUERA);
     seleccionArchivo.current++;
     setForm({ monto: "", forma_pago: "EFECTIVO", referencia: "", nota: "" });
     setArchivo(null);
@@ -253,6 +267,10 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
+      {/* Explica el botón apagado: en gris y sin motivo parece una falla. */}
+      {fueraDeSuSucursal && puede("registrar_depositos") && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
+      )}
 
       <div className="bg-white border-b border-slate-200 flex shrink-0">
         <button onClick={() => setTab("resumen")}
@@ -301,7 +319,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
         </button>
 
         {puede("registrar_depositos") && (
-          <button onClick={abrirNuevo} className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700">
+          <button onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar depósito"}
+            className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
             <Plus size={16} /> Registrar depósito
           </button>
         )}

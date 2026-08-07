@@ -54,7 +54,12 @@ function crearApartado(DB, datos, sucursalId, usuario) {
     throw new Error("Un apartado no puede pagarse a crédito");
   }
 
-  const sucursal_id = Number(sucursalId) || 1;
+  // Sin sucursal no se adivina: el apartado reserva producto de UNA tienda
+  // (antes caía a la 1 y reservaba de Ocosingo estando en otra sucursal).
+  const sucursal_id = Number(sucursalId);
+  if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
+    throw new Error("Falta la sucursal donde se aparta el producto");
+  }
 
   // Misma validación de existencia suficiente que crearVenta (ventas.js) —
   // respeta la configuración "Permitir Ventas de Artículos Sin Existencia":

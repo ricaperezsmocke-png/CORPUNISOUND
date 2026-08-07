@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { X, DollarSign, Ban } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
 export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, condicionesPago, permisos, onApartadoCreado }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+  // Con el encabezado en "Todas" no se puede apartar: el apartado reserva
+  // producto de UNA tienda y el sistema no sabría de cuál descontarlo.
+  // La lista de abajo sí se puede consultar (es solo lectura).
+  const sinSucursal = sinSucursalElegida();
   const [tab, setTab] = useState("nuevo");
   const [apartados, setApartados] = useState([]);
   const [cargando, setCargando] = useState(false);
@@ -37,6 +41,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   useEffect(() => { if (tab === "lista") cargarApartados(); }, [tab, cargarApartados]);
 
   const crearApartado = async () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para poder apartar");
     if (carrito.length === 0) return mostrarAviso("El ticket está vacío");
     if (cliente.id === 0) return mostrarAviso("Selecciona un cliente real (botón Cliente) antes de apartar");
     const monto = Number(anticipoMonto);
@@ -144,6 +149,12 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
                 <p><b>Productos en el carrito:</b> {carrito.length}</p>
                 <p><b>Total:</b> ${total.toFixed(2)}</p>
               </div>
+              {sinSucursal && (
+                <p className="text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded px-3 py-2">
+                  Estás viendo <b>todas las sucursales</b>. Elige una sucursal arriba, en el selector del
+                  encabezado, para poder apartar: el producto se reserva de la existencia de una tienda.
+                </p>
+              )}
               {cliente.id === 0 && (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
                   Selecciona un cliente real (botón "Cliente" en el POS) antes de apartar — no puede ser Público en General.
@@ -166,8 +177,9 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
               </div>
               <p className="text-xs text-slate-500">El límite para liquidar es de 60 días. Si no se completa, el producto regresa a existencia y lo ya pagado se abona al monedero del cliente.</p>
               <button
+                type="button"
                 onClick={crearApartado}
-                disabled={guardando || cliente.id === 0 || carrito.length === 0}
+                disabled={guardando || sinSucursal || cliente.id === 0 || carrito.length === 0}
                 className="bg-[#1a7fe8] hover:bg-[#1262b8] disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 rounded font-semibold"
               >
                 {guardando ? "Guardando..." : "Crear Apartado"}
