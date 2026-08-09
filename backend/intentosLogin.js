@@ -35,7 +35,11 @@ const VENTANA_OLVIDO_MS = BLOQUEO_MS;
 const LIMITE_ENTRADAS = 10000;
 
 /** Normaliza el usuario para que no se pueda esquivar el bloqueo cambiando
- *  mayúsculas o metiendo espacios. Devuelve "" para datos ausentes. */
+ *  mayúsculas o metiendo espacios. Devuelve "" para datos ausentes.
+ *  Debe seguir el MISMO criterio que normalizarUsuario() en usuarios.js (ahí
+ *  el login busca la cuenta): si se separan, el cerrojo contaría los fallos
+ *  bajo una clave distinta de la cuenta que se intentó abrir. Hay una prueba
+ *  en usuarios.test.js que amarra las dos. */
 function normalizar(usuario) {
   return typeof usuario === "string" ? usuario.trim().toLowerCase() : "";
 }

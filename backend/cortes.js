@@ -115,7 +115,14 @@ function calcularCorteEnCurso(DB, sucursal_id) {
 
 /** Guarda el corte: congela el calculado del momento, registra contado/retiro/diferencias */
 function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {}, retiro = {} }) {
-  const enCurso = calcularCorteEnCurso(DB, sucursal_id);
+  // Sin sucursal no se adivina: antes caía a la 1, y el corte cerraba el turno
+  // de Ocosingo con el efectivo contado en otra tienda — faltante inventado en
+  // una y turno cerrado en la otra sin que nadie lo pidiera.
+  const sucursalDelCorte = Number(sucursal_id);
+  if (!Number.isInteger(sucursalDelCorte) || sucursalDelCorte <= 0) {
+    throw new Error("Falta la sucursal de la que es este corte de caja");
+  }
+  const enCurso = calcularCorteEnCurso(DB, sucursalDelCorte);
 
   const redondear = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const contadoLimpio = {};
@@ -129,7 +136,7 @@ function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {},
 
   const corte = {
     id: siguienteId(DB.pos.cortes_caja),
-    sucursal_id: Number(sucursal_id) || 1,
+    sucursal_id: sucursalDelCorte,
     usuario_id: usuario_id ?? null,
     usuario_nombre: usuario_nombre || "—",
     fecha: fechaLocal(),

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Plus, X, Ban, FileText, Upload, Download } from "lucide-react";
-import { apiFetch } from "./api";
+import { Plus, X, Ban, FileText, Upload, Download, Paperclip } from "lucide-react";
+import { apiFetch, sucursalActiva } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 import { descargarCSV } from "./reportes/exportarCSV.js";
@@ -9,6 +9,16 @@ const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm f
 const FORMAS_PAGO_DEPOSITO = ["EFECTIVO", "TRANSFERENCIA"];
 const MIME_OK = ["application/pdf", "image/jpeg", "image/png"];
 const TAM_MAX = 10 * 1024 * 1024;
+
+/**
+ * Sufijo "?sucursal_id=" con la sucursal del PROPIO registro. Si el registro
+ * no trae el campo devuelve "" y queda el comportamiento por omisión de
+ * apiFetch (la sucursal del encabezado): nunca se manda "undefined" en la URL,
+ * que alcanceSucursal leería como NaN y degradaría a "todas", ensanchando el
+ * alcance en silencio para quien tiene ver_todas_las_sucursales.
+ * Mismo patrón que qSucursalCliente en src/CRM.jsx.
+ */
+const qSucursal = (registro) => (registro && registro.sucursal_id != null ? `?sucursal_id=${registro.sucursal_id}` : "");
 
 function leerArchivoComoBase64(archivo) {
   return new Promise((resolve, reject) => {
@@ -35,7 +45,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const [resumen, setResumen] = useState({ resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0 } });
   const [depositos, setDepositos] = useState([]);
 
-  const [modal, setModal] = useState(null); // null | "nuevo" | "cancelar"
+  const [modal, setModal] = useState(null); // null | "nuevo" | "comprobante" | "cancelar"
   const [seleccionado, setSeleccionado] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
@@ -50,6 +60,19 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const seleccionArchivo = useRef(0);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
+
+  // Mismo caso que en Gastos: el backend registra el depósito SIEMPRE en la
+  // sucursal del token (defensa a propósito), así que un administrador que está
+  // viendo otra tienda capturaría a nombre de la suya y el saldo del bote común
+  // de las dos quedaría mal, sin ninguna señal. Solo se captura viendo la
+  // propia. Nota: esto mira el selector GLOBAL del encabezado, no el filtro de
+  // esta pantalla, porque es el global el que decide dónde escribe el backend.
+  const suPropiaSucursal = String(usuario?.sucursal_id ?? "");
+  const viendoGlobal = sucursalActiva();
+  const fueraDeSuSucursal = viendoGlobal !== suPropiaSucursal;
+  const MOTIVO_FUERA = viendoGlobal === "todas"
+    ? "Elige tu sucursal en el encabezado para registrar un depósito — el depósito sale de la caja de una tienda."
+    : "Estás viendo otra sucursal. Los depósitos se registran en la tuya, así que cambia el encabezado a tu tienda para capturar.";
 
   useEffect(() => {
     if (!veTodas) return;
@@ -84,12 +107,22 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   useEffect(() => { cargarDepositos(); }, [cargarDepositos]);
 
   const abrirNuevo = () => {
+    if (fueraDeSuSucursal) return mostrarAviso("❌ " + MOTIVO_FUERA);
     seleccionArchivo.current++;
     setForm({ monto: "", forma_pago: "EFECTIVO", referencia: "", nota: "" });
     setArchivo(null);
     setPesoOriginal(null);
     setComprimiendo(false);
     setModal("nuevo");
+  };
+
+  const abrirComprobante = (d) => {
+    seleccionArchivo.current++;
+    setSeleccionado(d);
+    setArchivo(null);
+    setPesoOriginal(null);
+    setComprimiendo(false);
+    setModal("comprobante");
   };
 
   const elegirArchivo = async (e) => {
@@ -137,6 +170,37 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     }
   };
 
+  const adjuntar = async (e) => {
+    e.preventDefault();
+    if (!archivo) return mostrarAviso("❌ Elige la ficha del depósito");
+    setGuardando(true);
+    try {
+      const contenido_base64 = await leerArchivoComoBase64(archivo);
+      // sucursal_id explícito (el del propio depósito), por el mismo motivo que
+      // en cancelar(): si se omite, apiFetch le inyecta la sucursal_activa del
+      // encabezado global (ver src/api.js) y el guard de alcance del backend
+      // responde "Depósito no encontrado" sobre un depósito que esta pantalla
+      // sí está mostrando, porque su lista usa el selector propio, no el
+      // global. No amplía el alcance de nadie: a quien no tiene
+      // ver_todas_las_sucursales el backend le ignora el parámetro y usa la
+      // sucursal del token.
+      const r = await apiFetch(`/depositos/${seleccionado.id}/comprobante${qSucursal(seleccionado)}`, {
+        method: "POST",
+        body: JSON.stringify({ archivo: { nombre_archivo: archivo.name, tipo_mime: archivo.type, contenido_base64 } }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso(`✅ Comprobante adjuntado a ${seleccionado.folio}`);
+      setModal(null);
+      // Solo la lista: el monto no cambió, así que el resumen sigue igual.
+      cargarDepositos();
+    } catch (err) {
+      mostrarAviso("❌ " + err.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const cancelar = async (e) => {
     e.preventDefault();
     try {
@@ -148,7 +212,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
       // No amplía el alcance de nadie: para quien no tiene
       // ver_todas_las_sucursales, el backend ignora este parámetro y usa la
       // sucursal del token (ver alcanceSucursal en backend/auth.js).
-      const r = await apiFetch(`/depositos/${seleccionado.id}/cancelar?sucursal_id=${seleccionado.sucursal_id}`, {
+      const r = await apiFetch(`/depositos/${seleccionado.id}/cancelar${qSucursal(seleccionado)}`, {
         method: "PUT", body: JSON.stringify({ motivo }),
       });
       const data = await r.json();
@@ -160,23 +224,70 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     } catch (err) { mostrarAviso("❌ " + err.message); }
   };
 
-  const exportarCSV = () => {
+  const exportarResumen = () => {
     const encabezados = ["Sucursal", "Depositado", "Recibido", "Saldo"];
     const filas = resumen.resumen.map((r) => [r.sucursal_nombre, r.depositado.toFixed(2), r.recibido.toFixed(2), r.saldo.toFixed(2)]);
     filas.push(["TOTAL", resumen.totales.depositado.toFixed(2), resumen.totales.recibido.toFixed(2), resumen.totales.saldo.toFixed(2)]);
+    // El detalle solo existe cuando hay UNA sucursal elegida. Va como segundo
+    // bloque del mismo archivo, separado por un renglón en blanco, igual que en
+    // pantalla va como segunda tabla: sin folios ni conceptos, el resumen de 4
+    // columnas no le sirve de nada a la contadora para amarrar los saldos.
+    // El bloque va recorrido una columna a propósito: sin eso, "Cargo" cae
+    // justo debajo de "Saldo" y un SUMA() de esa columna en Excel mezclaría
+    // saldos con cargos, sin avisar. Recorrido, cada cifra tiene su columna y
+    // el sub-bloque además se lee indentado.
+    if (resumen.movimientos) {
+      filas.push([]);
+      filas.push(["Detalle de movimientos"]);
+      filas.push(["", "Fecha", "Folio", "Concepto", "Cargo", "Abono"]);
+      for (const m of resumen.movimientos) {
+        filas.push([
+          "", m.fecha, m.folio,
+          m.concepto + (m.aproximado ? " (costo aproximado)" : ""),
+          m.cargo ? m.cargo.toFixed(2) : "",
+          m.abono ? m.abono.toFixed(2) : "",
+        ]);
+      }
+    }
     descargarCSV(`estado-cuenta_${fechaInicial}_a_${fechaFinal}.csv`, encabezados, filas);
   };
+
+  const exportarDepositos = () => {
+    const encabezados = ["Folio", "Fecha", "Sucursal", "Forma de pago", "Referencia", "Nota", "Monto", "Estatus", "Comprobante", "Motivo de cancelación", "Registró"];
+    const filas = depositos.map((d) => [
+      d.folio, d.fecha, d.sucursal_nombre, d.forma_pago,
+      d.referencia || "", d.nota || "", d.monto.toFixed(2), d.estatus,
+      d.drive_link || "", d.motivo_cancelacion || "", d.usuario_nombre || "",
+    ]);
+    // Los cancelados salen en el archivo (son respaldo de lo que pasó) pero no
+    // suman, igual que en el resumen: solo los activos cuentan al bote común.
+    const totalActivos = depositos.filter((d) => d.estatus === "activo").reduce((s, d) => s + d.monto, 0);
+    filas.push([]);
+    filas.push(["TOTAL ACTIVOS", "", "", "", "", "", totalActivos.toFixed(2)]);
+    descargarCSV(`depositos_${fechaInicial}_a_${fechaFinal}.csv`, encabezados, filas);
+  };
+
+  // Un solo botón que exporta LO QUE LA PESTAÑA ACTIVA ESTÁ MOSTRANDO. Se
+  // prefirió esto a dos botones fijos porque el resto de la barra ya es por
+  // pestaña (el filtro de estatus solo aparece en Depósitos), y así el archivo
+  // es siempre "lo que tengo en la pantalla", sin que la cajera tenga que
+  // adivinar cuál de dos botones le toca.
+  const exportarCSV = () => (tab === "resumen" ? exportarResumen() : exportarDepositos());
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
+      {/* Explica el botón apagado: en gris y sin motivo parece una falla. */}
+      {fueraDeSuSucursal && puede("registrar_depositos") && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
+      )}
 
       <div className="bg-white border-b border-slate-200 flex shrink-0">
-        <button onClick={() => setTab("resumen")}
+        <button type="button" onClick={() => setTab("resumen")}
           className={`px-4 py-2 border-b-2 ${tab === "resumen" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Resumen
         </button>
-        <button onClick={() => setTab("depositos")}
+        <button type="button" onClick={() => setTab("depositos")}
           className={`px-4 py-2 border-b-2 ${tab === "depositos" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Depósitos
         </button>
@@ -213,14 +324,13 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           </div>
         )}
 
-        {tab === "resumen" && (
-          <button onClick={exportarCSV} className="flex items-center gap-1.5 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
-            <Download size={15} /> Exportar CSV
-          </button>
-        )}
+        <button type="button" onClick={exportarCSV} className="flex items-center gap-1.5 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+          <Download size={15} /> {tab === "resumen" ? "Exportar resumen" : "Exportar depósitos"}
+        </button>
 
         {puede("registrar_depositos") && (
-          <button onClick={abrirNuevo} className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700">
+          <button type="button" onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar depósito"}
+            className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
             <Plus size={16} /> Registrar depósito
           </button>
         )}
@@ -332,7 +442,17 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
                   <td className="py-2 px-3">{d.fecha}</td>
                   <td className="py-2 px-3">{d.sucursal_nombre}</td>
                   <td className="py-2 px-3">{d.forma_pago}</td>
-                  <td className="py-2 px-3">{d.referencia || "—"}</td>
+                  {/* La nota va como segundo renglón de la misma celda (mismo
+                      recurso que el SKU bajo el nombre del producto en
+                      Inventario): se ve sin agregar una columna, y el
+                      max-w + truncate impide que una nota larga estire la
+                      tabla. El texto completo queda en el title. */}
+                  <td className="py-2 px-3">
+                    {d.referencia || "—"}
+                    {d.nota && (
+                      <div className="text-[11px] text-slate-400 truncate max-w-[220px]" title={d.nota}>{d.nota}</div>
+                    )}
+                  </td>
                   <td className="py-2 px-3 text-center">
                     {d.drive_link ? (
                       <a href={d.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1a7fe8] hover:underline" title={d.nombre_archivo}>
@@ -346,8 +466,15 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
                     ${d.monto.toFixed(2)}
                   </td>
                   <td className="py-2 px-3 text-center whitespace-nowrap">
+                    {/* Solo si está activo y NO tiene ficha: el comprobante no
+                        se reemplaza (sería borrar evidencia) y a un cancelado
+                        ya no se le adjunta nada. */}
+                    {d.estatus === "activo" && !d.drive_link && puede("registrar_depositos") && (
+                      <button type="button" onClick={() => abrirComprobante(d)}
+                        className="text-slate-500 hover:text-[#1a7fe8] px-1" title="Adjuntar comprobante"><Paperclip size={15} /></button>
+                    )}
                     {d.estatus === "activo" && puede("cancelar_depositos") && (
-                      <button onClick={() => { setSeleccionado(d); setMotivo(""); setModal("cancelar"); }}
+                      <button type="button" onClick={() => { setSeleccionado(d); setMotivo(""); setModal("cancelar"); }}
                         className="text-slate-500 hover:text-red-600 px-1" title="Cancelar"><Ban size={15} /></button>
                     )}
                   </td>
@@ -363,7 +490,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Registrar depósito</h3>
-              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <form id="form-deposito" onSubmit={guardar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
@@ -400,7 +527,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
                     {pesoOriginal ? ` — comprimida desde ${(pesoOriginal / 1024 / 1024).toFixed(1)} MB` : ""})
                   </p>
                 )}
-                <p className="text-xs text-slate-400 mt-1">Si no adjuntas ficha, el depósito se registra igual y puedes agregarla después cancelando y recapturando.</p>
+                <p className="text-xs text-slate-400 mt-1">Si no adjuntas ficha, el depósito se registra igual y puedes agregarla después desde la lista, con el botón del clip. No hace falta cancelar nada.</p>
               </div>
             </form>
 
@@ -409,6 +536,45 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               <button type="submit" form="form-deposito" disabled={guardando || comprimiendo}
                 className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 {guardando ? "Guardando..." : "Guardar depósito"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === "comprobante" && seleccionado && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="font-semibold text-slate-700">Adjuntar comprobante a {seleccionado.folio}</h3>
+              <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            <form id="form-comprobante" onSubmit={adjuntar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+              <p className="text-xs text-slate-500">
+                Depósito del {seleccionado.fecha} por <b>${seleccionado.monto.toFixed(2)}</b> ({seleccionado.forma_pago}).
+              </p>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Ficha del depósito (PDF, JPG o PNG, máx. 10 MB)</label>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={elegirArchivo} className="text-sm" />
+                {comprimiendo && <p className="text-xs text-slate-500 mt-1">Preparando la imagen...</p>}
+                {archivo && !comprimiendo && (
+                  <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1">
+                    <Upload size={12} /> {archivo.name} ({(archivo.size / 1024).toFixed(0)} KB
+                    {pesoOriginal ? ` — comprimida desde ${(pesoOriginal / 1024 / 1024).toFixed(1)} MB` : ""})
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                Una vez adjuntada, la ficha ya no se puede reemplazar: es la evidencia del depósito. Revísala antes de guardar.
+              </p>
+            </form>
+
+            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
+              <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Volver</button>
+              <button type="submit" form="form-comprobante" disabled={guardando || comprimiendo || !archivo}
+                className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                {guardando ? "Subiendo..." : "Adjuntar comprobante"}
               </button>
             </div>
           </div>

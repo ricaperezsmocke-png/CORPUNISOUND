@@ -4,9 +4,12 @@ const { construirDBPrueba } = require("./testHelpers");
 const { ajustarExistencia } = require("./productos");
 const { crearVenta, cancelarVenta } = require("./ventas");
 const { obtenerConfiguracion } = require("./configuracion");
-const { alcanceSucursal, dentroDeAlcance } = require("./auth");
+const { alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario } = require("./auth");
 const { permisosDeRol } = require("./roles");
 const { crearApartado } = require("./apartados");
+const { crearProducto } = require("./productos");
+const { crearCorte } = require("./cortes");
+const { crearGarantia } = require("./garantias");
 
 test("ajustarExistencia afecta la existencia de la sucursal indicada", () => {
   const DB = construirDBPrueba();
@@ -25,6 +28,18 @@ test("crearVenta descuenta inventario de su propia sucursal", () => {
   assert.strictEqual(exist.cantidad_actual, 70, "se descontó de la sucursal 2");
 });
 
+/**
+ * Reproduce lo que hace CUALQUIER ruta de creación: resolver el alcance y de
+ * ahí la sucursal donde se escribe. Si devuelve null, la ruta responde 400.
+ * @param campo nombre del campo del cuerpo que trae la sucursal del formulario
+ *              (las rutas de traspaso y garantía usan "sucursal_origen_id").
+ */
+const sucursalQueEscribeLaRuta = (DB, req, campo = "sucursal_id") => {
+  const permisos = permisosDeRol(DB, req.usuarioToken.rol_id);
+  const alcance = alcanceSucursal(req, permisos);
+  return sucursalDeEscritura(alcance, (req.body || {})[campo]);
+};
+
 test("POST /api/productos/:id/ajustar: un usuario amarrado a su sucursal no puede forzar otra vía body.sucursal_id", () => {
   const DB = construirDBPrueba();
   // rol 2 = "Gerente de sucursal": no tiene el permiso ver_todas_las_sucursales.
@@ -34,8 +49,7 @@ test("POST /api/productos/:id/ajustar: un usuario amarrado a su sucursal no pued
   // Simula el request: token amarra al usuario a la sucursal 2, pero el body
   // (controlado por el cliente) pide ajustar la sucursal 4.
   const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: {}, body: { cantidad: -5, motivo: "prueba", sucursal_id: 4 } };
-  const alcance = alcanceSucursal(req, permisos);
-  const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+  const sucursal_id = sucursalQueEscribeLaRuta(DB, req);
 
   // La misma lógica que aplica la ruta: el sucursal_id efectivo debe ser el
   // del token (2), nunca el que mandó el cliente en el body (4).
@@ -53,10 +67,137 @@ test("POST /api/productos/:id/ajustar: un usuario con ver_todas_las_sucursales s
   assert.ok(permisos.includes("ver_todas_las_sucursales"));
 
   const req = { usuarioToken: { rol_id: 1, sucursal_id: 1 }, query: {}, body: { cantidad: -5, motivo: "prueba", sucursal_id: 2 } };
-  const alcance = alcanceSucursal(req, permisos);
-  const sucursal_id = alcance.verTodas ? (Number(req.body.sucursal_id) || 1) : alcance.sucursalId;
+  assert.strictEqual(sucursalQueEscribeLaRuta(DB, req), 2);
+});
 
-  assert.strictEqual(sucursal_id, 2);
+// ============================================================
+// El encabezado en "Todas" ya NO cae a la sucursal 1
+//
+// Con "Todas" (el valor con el que entra el administrador) alcance.verTodas es
+// true y el cuerpo normalmente no trae sucursal: antes, TODAS estas rutas
+// hacían `Number(req.body.sucursal_id) || 1` y guardaban en Ocosingo sin decir
+// nada. Ahora devuelven null y la ruta responde 400 pidiendo elegir tienda.
+// ============================================================
+
+const ADMIN_EN_TODAS = { usuarioToken: { rol_id: 1, sucursal_id: 1 }, query: {}, body: {} };
+
+test("administrador con el encabezado en 'Todas' y sin sucursal en el cuerpo: la ruta no resuelve sucursal (400)", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 1);
+  const alcance = alcanceSucursal(ADMIN_EN_TODAS, permisos);
+  assert.strictEqual(alcance.verTodas, true, "así entra el administrador: viendo todas");
+  assert.strictEqual(sucursalDeEscritura(alcance, undefined), null, "nada de caer a la sucursal 1");
+});
+
+test("administrador en 'Todas': las rutas de creación se quedan sin sucursal (venta, apartado, producto, corte, compra, cliente)", () => {
+  const DB = construirDBPrueba();
+  // El cuerpo real de cada pantalla cuando el encabezado dice "Todas": ninguna
+  // manda sucursal, así que ninguna puede escribir.
+  const cuerpos = [
+    ["/api/ventas", { cliente_id: 0, lineas: [] }],
+    ["/api/apartados", { cliente_id: 1, anticipo_monto: 50 }],
+    ["/api/productos", { descripcion: "Bocina" }],
+    ["/api/cortes", { contado: { EFECTIVO: 100 } }],
+    ["/api/compras", { proveedor_id: 1, renglones: [] }],
+    ["/api/clientes", { nombre: "Juan Pérez" }],
+  ];
+  for (const [ruta, body] of cuerpos) {
+    const req = { ...ADMIN_EN_TODAS, body };
+    assert.strictEqual(sucursalQueEscribeLaRuta(DB, req), null, `${ruta} debe responder 400, no escribir en la sucursal 1`);
+  }
+});
+
+test("administrador con sucursal explícita en el cuerpo escribe en ESA sucursal (no en la 1)", () => {
+  const DB = construirDBPrueba();
+  // Pantallas con selector propio (CRM, Garantías, Traspasos, Recepción de
+  // Compras, Migración): llaman con ?sucursal_id=todas para que gane el
+  // formulario, y el formulario manda la tienda elegida.
+  const cliente = { ...ADMIN_EN_TODAS, body: { nombre: "Juan Pérez", sucursal_id: 4 } };
+  assert.strictEqual(sucursalQueEscribeLaRuta(DB, cliente), 4);
+
+  const traspaso = { ...ADMIN_EN_TODAS, body: { producto_id: 1, cantidad: 2, sucursal_origen_id: 3, sucursal_destino_id: 5 } };
+  assert.strictEqual(sucursalQueEscribeLaRuta(DB, traspaso, "sucursal_origen_id"), 3);
+
+  const garantia = { ...ADMIN_EN_TODAS, body: { producto_id: 1, sucursal_origen_id: 2 } };
+  assert.strictEqual(sucursalQueEscribeLaRuta(DB, garantia, "sucursal_origen_id"), 2);
+});
+
+test("administrador con una tienda elegida en el encabezado escribe en ESA tienda", () => {
+  const DB = construirDBPrueba();
+  // apiFetch agrega ?sucursal_id=<encabezado> a toda llamada que no lo traiga.
+  const req = { usuarioToken: { rol_id: 1, sucursal_id: 1 }, query: { sucursal_id: "5" }, body: { descripcion: "Bocina" } };
+  assert.strictEqual(sucursalQueEscribeLaRuta(DB, req), 5);
+});
+
+test("un usuario amarrado nunca se queda sin poder escribir aunque el cuerpo venga vacío", () => {
+  const DB = construirDBPrueba();
+  // Cajera de la sucursal 2: su sucursal sale del token, así que la regla de
+  // "elige una tienda" jamás la bloquea (es solo del rol Administrador).
+  const req = { usuarioToken: { rol_id: 2, sucursal_id: 2 }, query: { sucursal_id: "todas" }, body: {} };
+  assert.strictEqual(sucursalQueEscribeLaRuta(DB, req), 2);
+});
+
+test("sucursalDeEscritura descarta valores basura del cuerpo en vez de convertirlos en la sucursal 1", () => {
+  const TODAS = { verTodas: true, sucursalId: null };
+  assert.strictEqual(sucursalDeEscritura(TODAS, ""), null);
+  assert.strictEqual(sucursalDeEscritura(TODAS, "todas"), null);
+  assert.strictEqual(sucursalDeEscritura(TODAS, 0), null);
+  assert.strictEqual(sucursalDeEscritura(TODAS, -3), null);
+  assert.strictEqual(sucursalDeEscritura(TODAS, 2.5), null);
+  assert.strictEqual(sucursalDeEscritura(TODAS, "3"), 3, "el <select> del formulario manda texto");
+});
+
+// ============================================================
+// Los módulos tampoco adivinan (última red, por si alguien llama sin ruta)
+// ============================================================
+
+test("crearVenta, crearApartado, crearProducto, crearCorte y crearGarantia se niegan a escribir sin sucursal", () => {
+  const DB = construirDBPrueba();
+  obtenerConfiguracion(DB);
+  DB.pos.configuracion.permitir_ventas_sin_existencia = true;
+  const linea = [{ producto_id: 2, cantidad: 1, precio_unitario: 16, descuento_pct: 0 }];
+
+  assert.throws(() => crearVenta(DB, { cliente_id: 0, lineas: linea, total: 16 }), /sucursal/i);
+  assert.throws(
+    () => crearApartado(DB, { cliente_id: 1, lineas: linea, anticipo_monto: 5, anticipo_forma_pago: "EFECTIVO" }, undefined, { nombre: "Ana" }),
+    /sucursal/i
+  );
+  assert.throws(() => crearProducto(DB, { descripcion: "Bocina" }, undefined), /sucursal/i);
+  assert.throws(() => crearCorte(DB, { contado: { EFECTIVO: 100 }, retiro: {} }), /sucursal/i);
+  assert.throws(() => crearGarantia(DB, { producto_id: 1 }, undefined, { nombre: "Ana" }), /sucursal/i);
+
+  assert.strictEqual(DB.pos.cortes_caja.filter((c) => c.sucursal_id === 1).length, 0, "ningún corte fantasma en Ocosingo");
+});
+
+// ============================================================
+// Migración de Datos: gana SIEMPRE la sucursal del formulario
+//
+// La pantalla obliga a elegir la "sucursal de origen del archivo". Antes esta
+// ruta usaba alcanceSucursal(), y como apiFetch agrega ?sucursal_id=<encabezado>
+// a toda llamada, con una tienda elegida arriba el Excel de una sucursal se
+// importaba a OTRA sin ninguna señal.
+// ============================================================
+
+test("/api/migracion/*: la sucursal del formulario gana sobre la del encabezado", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 1);
+  const token = { rol_id: 1, sucursal_id: 1 };
+  // Encabezado en la sucursal 2, archivo de la sucursal 5: importa a la 5.
+  assert.strictEqual(sucursalDelFormulario(permisos, token, "5"), 5);
+});
+
+test("/api/migracion/*: sin elegir sucursal de origen se rechaza (400), no se importa a la 1", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 1);
+  assert.strictEqual(sucursalDelFormulario(permisos, { rol_id: 1, sucursal_id: 1 }, undefined), null);
+  assert.strictEqual(sucursalDelFormulario(permisos, { rol_id: 1, sucursal_id: 1 }, ""), null);
+});
+
+test("/api/migracion/*: a un usuario amarrado se le sigue forzando su sucursal, aunque mande otra", () => {
+  const DB = construirDBPrueba();
+  const permisos = permisosDeRol(DB, 2); // Gerente de sucursal
+  assert.ok(!permisos.includes("ver_todas_las_sucursales"));
+  assert.strictEqual(sucursalDelFormulario(permisos, { rol_id: 2, sucursal_id: 2 }, "5"), 2);
 });
 
 test("PUT /api/ventas/:id/cancelar: un amarrado NO puede cancelar la venta de otra sucursal", () => {

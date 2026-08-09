@@ -33,6 +33,12 @@ function pushMovimiento(DB, deposito, tipo, descripcion, usuario) {
   });
 }
 
+/** Depósitos con una subida de comprobante EN CURSO. Se guarda aparte (WeakSet
+ *  sobre el propio objeto) y no como campo del registro, para que no acabe
+ *  escrito en SQLite ni viajando al frontend: es estado de un instante, no dato
+ *  del depósito. */
+const adjuntosEnCurso = new WeakSet();
+
 function buscarConGuardia(DB, id, alcance) {
   const d = DB.cuenta_comun.depositos.find((x) => x.id === Number(id));
   if (!d) throw new Error("Depósito no encontrado");
@@ -82,6 +88,13 @@ async function crearDeposito(DB, datos, sucursalId, usuario, drive) {
 
   // Comprobante OPCIONAL: si Drive falla, el depósito ya quedó registrado.
   if (buffer) {
+    // El depósito YA está en la lista (push de arriba) y todavía sin enlace, así
+    // que durante esta subida sale en GET /depositos con drive_link null y la
+    // pantalla le pinta el clip de "adjuntar". Sin esta marca, otra persona
+    // puede adjuntarle una ficha distinta mientras esta sube, y el registro
+    // termina apuntando a una mientras la bitácora nombra la otra. Se marca
+    // ANTES del primer await, por la misma razón que el folio es síncrono.
+    adjuntosEnCurso.add(deposito);
     try {
       const carpetaId = await drive.asegurarCarpetaDepositosSucursal(DB, sucursal);
       const subido = await drive.subirArchivoADrive(DB, {
@@ -95,9 +108,85 @@ async function crearDeposito(DB, datos, sucursalId, usuario, drive) {
       }
     } catch (_) {
       // Drive caído: se conserva el depósito sin comprobante. No se bloquea.
+    } finally {
+      adjuntosEnCurso.delete(deposito);
     }
   }
   return deposito;
+}
+
+/**
+ * Adjunta la ficha a un depósito ACTIVO que todavía NO tiene comprobante.
+ *
+ * Existe porque el comprobante es opcional al capturar: antes, la cajera que
+ * registraba sin ficha tenía que CANCELAR y recapturar para agregarla, y el
+ * historial acababa lleno de cancelaciones que no cancelaban nada.
+ *
+ * A diferencia de crearDeposito, aquí una falla de Drive SÍ revienta la
+ * operación: subir el archivo es lo único que se pidió, y decir "listo" sin
+ * haberlo subido dejaría a la cajera creyendo que ya hay respaldo.
+ */
+async function adjuntarComprobante(DB, id, archivo, usuario, alcance, drive) {
+  // Guard de alcance DENTRO del módulo, igual que cancelarDeposito: la capa de
+  // rutas nunca decide qué depósito es visible para quién.
+  const d = buscarConGuardia(DB, id, alcance);
+  if (d.estatus === "cancelado") {
+    throw new Error("Ese depósito está cancelado — no se le puede adjuntar comprobante");
+  }
+  // Reemplazar sería borrar evidencia: la ficha anterior quedaría huérfana en
+  // Drive y el registro apuntaría a otra cosa. Si la ficha está equivocada, el
+  // camino correcto sigue siendo cancelar el depósito y recapturarlo.
+  if (d.drive_file_id) {
+    throw new Error("Ese depósito ya tiene comprobante — no se puede reemplazar");
+  }
+
+  // Validación SÍNCRONA del archivo ANTES de mutar o subir nada (mismas reglas
+  // que al capturar): un archivo inválido rechaza todo limpio.
+  if (!archivo || !archivo.contenido_base64) {
+    throw new Error("Adjunta la ficha del depósito — PDF, JPG o PNG");
+  }
+  if (!MIME_VALIDOS.includes(archivo.tipo_mime)) {
+    throw new Error("Tipo de archivo no permitido — solo PDF, JPG o PNG");
+  }
+  const buffer = Buffer.from(archivo.contenido_base64, "base64");
+  if (buffer.length > TAMANO_MAXIMO_BYTES) throw new Error("El archivo no puede pesar más de 10 MB");
+
+  // Marca SÍNCRONA de "subida en curso", antes del primer await: dos clics
+  // seguidos (o dos usuarios) pasarían los dos el chequeo de "ya tiene
+  // comprobante" mientras el primero espera a Drive, y el segundo pisaría el
+  // enlace del primero al volver — justo el reemplazo que se prohíbe arriba.
+  if (adjuntosEnCurso.has(d)) throw new Error("Ya se está subiendo un comprobante para ese depósito");
+  adjuntosEnCurso.add(d);
+  try {
+    const sucursal = DB.pos.sucursales.find((s) => s.id === d.sucursal_id) || { id: d.sucursal_id };
+    const carpetaId = await drive.asegurarCarpetaDepositosSucursal(DB, sucursal);
+    const subido = await drive.subirArchivoADrive(DB, {
+      nombre: `${d.folio} - ${archivo.nombre_archivo}`,
+      mimeType: archivo.tipo_mime, contenidoBuffer: buffer, carpetaId,
+    });
+    if (!subido || !subido.id || !subido.webViewLink) {
+      throw new Error("Drive no confirmó la subida del comprobante — inténtalo de nuevo");
+    }
+    // Se revalida DESPUÉS de los await: los chequeos de arriba miraron el
+    // estado de hace varios segundos, y en ese rato el depósito pudo recibir
+    // comprobante por otra vía o quedar cancelado. Asignar a ciegas dejaría al
+    // registro apuntando a una ficha y a la bitácora nombrando otra. El archivo
+    // ya subido queda huérfano en Drive: es el lado seguro del error.
+    if (d.drive_file_id) {
+      throw new Error("Ese depósito ya tiene comprobante — no se puede reemplazar");
+    }
+    if (d.estatus === "cancelado") {
+      throw new Error("Ese depósito está cancelado — no se le puede adjuntar comprobante");
+    }
+    d.nombre_archivo = archivo.nombre_archivo;
+    d.drive_file_id = subido.id;
+    d.drive_link = subido.webViewLink;
+  } finally {
+    adjuntosEnCurso.delete(d);
+  }
+
+  pushMovimiento(DB, d, "comprobante", `Comprobante adjuntado: ${d.nombre_archivo}`, usuario);
+  return d;
 }
 
 /** Cancela SIN borrar. Se conserva el comprobante en Drive a propósito: la
@@ -133,6 +222,6 @@ function listarDepositos(DB, filtros, alcance) {
 }
 
 module.exports = {
-  crearDeposito, cancelarDeposito, listarDepositos, buscarConGuardia,
+  crearDeposito, cancelarDeposito, adjuntarComprobante, listarDepositos, buscarConGuardia,
   FORMAS_PAGO_DEPOSITO, MIME_VALIDOS, TAMANO_MAXIMO_BYTES,
 };

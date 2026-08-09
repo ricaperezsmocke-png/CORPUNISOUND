@@ -22,6 +22,8 @@ function crearTraspaso(DB, datos, sucursalOrigenId, usuario) {
 
   if (!producto_id) throw new Error("Selecciona un producto");
   if (!cantidad || cantidad <= 0) throw new Error("La cantidad debe ser mayor a cero");
+  // Sin origen no se adivina: es la tienda a la que se le descuenta la pieza.
+  if (!sucursal_origen_id) throw new Error("Selecciona la sucursal de origen");
   if (!sucursal_destino_id) throw new Error("Selecciona la sucursal destino");
   if (sucursal_destino_id === sucursal_origen_id) throw new Error("La sucursal destino debe ser distinta a la de origen");
 

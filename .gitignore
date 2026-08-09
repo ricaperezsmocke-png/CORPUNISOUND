@@ -8,3 +8,6 @@ build/
 Thumbs.db
 *.sqlite
 *.db
+
+# Salida de "node --test" cuando se redirige a archivo (no es del proyecto)
+backend/test_output.txt

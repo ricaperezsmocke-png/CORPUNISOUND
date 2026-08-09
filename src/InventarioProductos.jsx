@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Edit3, RefreshCw, Trash2, SlidersHorizontal, Copy, Printer,
-  Search, ChevronLeft, ChevronRight, Camera, MapPin, X, Tag
+  Search, ChevronLeft, ChevronRight, Camera, MapPin, X, Tag, Info
 } from "lucide-react";
 
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
 import MigracionDatos from "./MigracionDatos.jsx";
 // Carga diferida: recharts (usado solo aqui) es una dependencia pesada -
 // que no se descargue para todo el mundo, solo para quien abre esta pestaña.
 const PrediccionesDemanda = React.lazy(() => import("./PrediccionesDemanda.jsx"));
 
-function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
+function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate", desactivado = false, motivoDesactivado = "" }) {
   const tonos = {
     slate: "text-[#1a7fe8]",
     verde: "text-emerald-600",
@@ -19,8 +19,11 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) 
   };
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors"
+      disabled={desactivado}
+      title={desactivado ? motivoDesactivado : undefined}
+      className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
     >
       <Icono size={18} className={tonos[tono]} />
       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
@@ -59,6 +62,12 @@ const TABS = [
 
 export default function InventarioProductos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+  // Con el encabezado en "Todas", la columna Exist. de la lista muestra la
+  // SUMA de todas las tiendas — un número que no corresponde a ninguna. Ajustar
+  // sobre ese número, o guardar mínimos y máximos, caería en una sola sucursal
+  // (antes, siempre en la 1). Por eso aquí se bloquea todo lo que escribe.
+  const sinSucursal = sinSucursalElegida();
+  const MOTIVO_SIN_SUCURSAL = "Elige una sucursal en el encabezado: la lista muestra la suma de todas las tiendas";
   const [tab, setTab] = useState("productos");
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
@@ -110,6 +119,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
   // ---------- Formulario ----------
   const abrirCrear = async () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para dar de alta un producto");
     let clave = "";
     try {
       const r = await apiFetch(`/productos/generar-clave`);
@@ -134,6 +144,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   };
 
   const abrirEditar = () => {
+    // Editar guarda también la mínima y la máxima, que son de UNA tienda.
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para editar un producto");
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     setForm({
       clave: seleccionado.sku, clave_alterna: seleccionado.clave_alterna || "",
@@ -219,6 +231,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   };
 
   const clonarSeleccionado = async () => {
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para clonar un producto");
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     try {
       const r = await apiFetch(`/productos/${seleccionado.id}/clonar`, { method: "POST" });
@@ -231,6 +244,9 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   };
 
   const abrirAjustar = () => {
+    // El número que se ve en la lista con "Todas" es la suma de las tiendas:
+    // ajustar sobre él descuadraría la existencia de una sola sucursal.
+    if (sinSucursal) return mostrarAviso(MOTIVO_SIN_SUCURSAL);
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     setAjusteCantidad(""); setAjusteMotivo("");
     setModal("ajustar");
@@ -312,6 +328,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         {TABS.filter((t) => !t.permiso || puede(t.permiso)).map((t) => (
           <button
             key={t.id}
+            type="button"
             onClick={() => setTab(t.id)}
             className={`px-4 py-2.5 text-xs font-medium border-b-2 ${tab === t.id ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
           >
@@ -322,14 +339,28 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
       {tab === "productos" && (
       <div className="flex-1 min-h-0 w-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+      {/* Aviso permanente mientras el encabezado diga "Todas": explica por qué
+          los cuatro botones que escriben están apagados, antes de que se
+          intente usarlos. Mismo banner que POS, Corte de caja y Gastos. */}
+      {sinSucursal && (
+        <div className="bg-amber-50 border-b border-amber-300 text-amber-900 text-sm px-4 py-2 shrink-0 flex items-center gap-2">
+          <Info size={15} className="shrink-0" />
+          <span>
+            <b>Estás viendo todas las sucursales.</b> Elige una sucursal arriba, en el selector del
+            encabezado, para agregar, editar, ajustar o clonar: la columna Exist. muestra la suma de
+            todas las tiendas y no corresponde a ninguna.
+          </span>
+        </div>
+      )}
+
       {/* Barra de herramientas */}
       <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
-        {puede("crear_producto") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={abrirCrear} />}
-        {puede("editar_producto") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={abrirEditar} />}
+        {puede("crear_producto") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={abrirCrear} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
+        {puede("editar_producto") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={abrirEditar} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={() => { cargarTodo(); mostrarAviso("Lista recargada"); }} />
         {puede("eliminar_producto") && <BotonBarra icono={Trash2} etiqueta="Eliminar" atajo="F6" tono="rojo" onClick={eliminarSeleccionado} />}
-        {puede("ajustar_existencia") && <BotonBarra icono={SlidersHorizontal} etiqueta="Ajustar" atajo="F8" onClick={abrirAjustar} />}
-        {puede("clonar_producto") && <BotonBarra icono={Copy} etiqueta="Clonar" atajo="F9" onClick={clonarSeleccionado} />}
+        {puede("ajustar_existencia") && <BotonBarra icono={SlidersHorizontal} etiqueta="Ajustar" atajo="F8" onClick={abrirAjustar} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
+        {puede("clonar_producto") && <BotonBarra icono={Copy} etiqueta="Clonar" atajo="F9" onClick={clonarSeleccionado} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         <BotonBarra icono={Printer} etiqueta="Imp." atajo="Ctrl+P" onClick={() => mostrarAviso("Enviando listado a impresora...")} />
       </div>
 
@@ -455,7 +486,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
               <h3 className="font-semibold text-sm text-slate-700">{modoForm === "crear" ? "Agregar artículo" : "Editar artículo"}</h3>
-              <button onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
+              <button type="button" onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
             <div className="p-5 flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3">
@@ -480,7 +511,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                       <option value="">Sin definir</option>
                       {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                     </select>
-                    <button onClick={crearCategoriaRapida} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nueva categoría"><Plus size={14} /></button>
+                    <button type="button" onClick={crearCategoriaRapida} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nueva categoría"><Plus size={14} /></button>
                   </div>
                 </Campo>
                 <Campo label="Proveedor">
@@ -489,7 +520,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                       <option value="">Sin definir</option>
                       {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                     </select>
-                    <button onClick={crearProveedorRapido} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nuevo proveedor"><Plus size={14} /></button>
+                    <button type="button" onClick={crearProveedorRapido} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nuevo proveedor"><Plus size={14} /></button>
                   </div>
                 </Campo>
                 <Campo label="Departamento">
@@ -498,7 +529,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                       <option value="">Sin definir</option>
                       {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
                     </select>
-                    <button onClick={crearDepartamentoRapido} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nuevo departamento"><Plus size={14} /></button>
+                    <button type="button" onClick={crearDepartamentoRapido} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2" title="Nuevo departamento"><Plus size={14} /></button>
                   </div>
                 </Campo>
               </div>
@@ -590,8 +621,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <button onClick={() => setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
-                <button onClick={guardarProducto} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Guardar</button>
+                <button type="button" onClick={() => setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={guardarProducto} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Guardar</button>
               </div>
             </div>
           </div>
@@ -604,7 +635,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Ajustar existencia (F8)</h3>
-              <button onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
+              <button type="button" onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
             <div className="p-4 flex flex-col gap-3">
               <p className="text-sm text-slate-600">{seleccionado.nombre} — existencia actual: <b>{seleccionado.existencia}</b></p>
@@ -614,7 +645,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               <Campo label="Motivo">
                 <input className={inputCls} value={ajusteMotivo} onChange={(e) => setAjusteMotivo(e.target.value)} placeholder="Recepción de mercancía, merma, conteo físico..." />
               </Campo>
-              <button onClick={confirmarAjuste} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Aplicar ajuste</button>
+              <button type="button" onClick={confirmarAjuste} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Aplicar ajuste</button>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 
 const ESTADOS = [
   { id: "contactado",    label: "Contactado",  color: "#94a3b8" },
@@ -110,6 +110,13 @@ function Sec({ title, action, children }) {
 // ============================================================
 export default function CRM({ onVolver, permisos }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+  // El cliente nace en UNA tienda (es la que decide quién puede verlo después).
+  // A diferencia de Punto de Venta o Corte de Caja, aquí el encabezado en
+  // "Todas" no bloquea la pantalla: el modal de alta tiene su propio <select>
+  // de Sucursal y con él se puede capturar igual. Solo falta sucursal cuando
+  // el encabezado dice "Todas" Y ese select se dejó vacío.
+  const sinSucursal = sinSucursalElegida();
+  const MOTIVO_SIN_SUCURSAL = "Elige la sucursal del cliente aquí abajo, o una sucursal en el encabezado";
 
   const [clientes, setClientes] = useState([]);
   const [sucursales, setSucursales] = useState([]);
@@ -166,6 +173,22 @@ export default function CRM({ onVolver, permisos }) {
   const nombreSucursal = (id) => sucursales.find((s) => s.id === id)?.nombre || "—";
   const nombreVendedor = (id) => vendedores.find((v) => v.id === id)?.nombre || "—";
 
+  /**
+   * Sufijo "?sucursal_id=" con la sucursal del PROPIO cliente, para las rutas
+   * de /crm/clientes/:id que llevan guard dentroDeAlcance sobre cliente.sucursal_id.
+   * Sin él, apiFetch inyecta la sucursal_activa del encabezado global (ver
+   * src/api.js) y el guard responde "Cliente no encontrado" en cuanto la lista
+   * de esta pantalla deje de coincidir con ese selector global. No amplía el
+   * alcance de nadie: sin ver_todas_las_sucursales el backend ignora el
+   * parámetro y usa la sucursal del token (alcanceSucursal en backend/auth.js).
+   * Si el cliente no está en la lista cargada, se devuelve "" y queda el
+   * comportamiento actual — nunca se manda un undefined en la URL.
+   */
+  const qSucursalCliente = (clienteId) => {
+    const c = clientes.find((x) => x.id === Number(clienteId));
+    return c && c.sucursal_id != null ? `?sucursal_id=${c.sucursal_id}` : "";
+  };
+
   const rich = useMemo(() => clientes.map((c) => ({ ...c, sc: c.score, sg: c.segmento, al: c.alertas || [] })), [clientes]);
   const sel = rich.find((c) => c.id === selId) || null;
   const filtered = useMemo(() => rich.filter((c) => {
@@ -184,7 +207,7 @@ export default function CRM({ onVolver, permisos }) {
   const cambiarEstado = async (id, estado) => {
     setClientes((cs) => cs.map((c) => (c.id === id ? { ...c, estado, ultimo_contacto: hoy() } : c)));
     try {
-      const r = await apiFetch(`/crm/clientes/${id}/estado`, { method: "PUT", body: JSON.stringify({ estado }) });
+      const r = await apiFetch(`/crm/clientes/${id}/estado${qSucursalCliente(id)}`, { method: "PUT", body: JSON.stringify({ estado }) });
       if (!r.ok) throw new Error((await r.json()).error);
     } catch (e) { mostrarAviso("❌ " + e.message); cargarTodo(); }
   };
@@ -192,7 +215,7 @@ export default function CRM({ onVolver, permisos }) {
   const registrarContacto = async (id, tipo, resultado) => {
     setClientes((cs) => cs.map((c) => (c.id === id ? { ...c, ultimo_contacto: hoy() } : c)));
     try {
-      const r = await apiFetch(`/crm/clientes/${id}/contactos`, { method: "POST", body: JSON.stringify({ tipo, resultado }) });
+      const r = await apiFetch(`/crm/clientes/${id}/contactos${qSucursalCliente(id)}`, { method: "POST", body: JSON.stringify({ tipo, resultado }) });
       if (!r.ok) throw new Error((await r.json()).error);
       mostrarAviso("Contacto registrado");
     } catch (e) { mostrarAviso("❌ " + e.message); cargarTodo(); }
@@ -200,7 +223,9 @@ export default function CRM({ onVolver, permisos }) {
 
   const registrarPostventa = async (item, resultado) => {
     try {
-      const r = await apiFetch(`/crm/clientes/${item.cliente_id}/contactos`, {
+      // El renglón de postventa no trae sucursal_id propio (lo arma el backend
+      // a partir de la venta), así que la sucursal sale del cliente cargado.
+      const r = await apiFetch(`/crm/clientes/${item.cliente_id}/contactos${qSucursalCliente(item.cliente_id)}`, {
         method: "POST",
         body: JSON.stringify({ tipo: "postventa", resultado, venta_id: item.venta_id }),
       });
@@ -217,7 +242,9 @@ export default function CRM({ onVolver, permisos }) {
 
   const registrarApartadoPorVencer = async (item) => {
     try {
-      const r = await apiFetch(`/crm/clientes/${item.cliente_id}/contactos`, {
+      // Igual que en postventa: el renglón no trae sucursal_id, se toma la del
+      // cliente ya cargado (que es justo lo que revisa el guard de la ruta).
+      const r = await apiFetch(`/crm/clientes/${item.cliente_id}/contactos${qSucursalCliente(item.cliente_id)}`, {
         method: "POST",
         body: JSON.stringify({ tipo: "apartado_por_vencer", venta_id: item.venta_id }),
       });
@@ -233,8 +260,24 @@ export default function CRM({ onVolver, permisos }) {
 
   const guardarCliente = async () => {
     if (!fmC.nombre.trim() || !fmC.telefono.trim()) return mostrarAviso("Nombre y teléfono son obligatorios");
+    // Sin sucursal por ningún lado (encabezado en "Todas" y select vacío) el
+    // backend responde 400. Se frena aquí para no perder lo ya capturado.
+    if (!fmC.sucursal_id && sinSucursal) return mostrarAviso(MOTIVO_SIN_SUCURSAL);
     try {
-      const r = await apiFetch("/clientes", { method: "POST", body: JSON.stringify(fmC) });
+      // Este modal tiene su PROPIO <select> de Sucursal y lo manda en el body.
+      // Si no se manda "todas" en la URL, apiFetch inyecta la del encabezado
+      // global (ver src/api.js) y el backend ignora en silencio el select,
+      // dando de alta al cliente en la tienda equivocada y fuera del alcance de
+      // quien lo capturó. Mismo patrón que Garantías, Traspasos y Recepción de
+      // Compras. No amplía el alcance de nadie: sin ver_todas_las_sucursales el
+      // backend sigue forzando la sucursal del token (ver sucursalDelFormulario
+      // en backend/auth.js).
+      // Si el select se dejó vacío se manda la ruta sin "todas" para que valga
+      // la del encabezado. Ese camino solo se alcanza cuando el encabezado SÍ
+      // trae una sucursal concreta: el caso de "Todas" con el select vacío ya
+      // se frenó arriba.
+      const ruta = fmC.sucursal_id ? "/clientes?sucursal_id=todas" : "/clientes";
+      const r = await apiFetch(ruta, { method: "POST", body: JSON.stringify(fmC) });
       const nuevo = await r.json();
       if (!r.ok) throw new Error(nuevo.error);
       setModal(null);
@@ -476,11 +519,12 @@ export default function CRM({ onVolver, permisos }) {
           <div key={f.k} style={{ marginBottom: 11 }}><label style={{ fontSize: 11, color: T.sub, fontWeight: 600, marginBottom: 4, display: "block" }}>{f.l}</label><input type={f.t} style={inp} value={fmC[f.k]} onChange={(e) => setFmC({ ...fmC, [f.k]: e.target.value })} /></div>
         ))}
         <div style={{ marginBottom: 11 }}>
-          <label style={{ fontSize: 11, color: T.sub, fontWeight: 600, marginBottom: 4, display: "block" }}>Sucursal</label>
+          <label style={{ fontSize: 11, color: T.sub, fontWeight: 600, marginBottom: 4, display: "block" }}>Sucursal {sinSucursal && "*"}</label>
           <select style={inp} value={fmC.sucursal_id} onChange={(e) => setFmC({ ...fmC, sucursal_id: e.target.value })}>
             <option value="">Selecciona...</option>
             {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
+          {sinSucursal && !fmC.sucursal_id && <div style={{ fontSize: 11, color: "#92400e", marginTop: 4 }}>Estás viendo todas las sucursales: elige en cuál nace el cliente.</div>}
         </div>
         <div style={{ marginBottom: 11 }}>
           <label style={{ fontSize: 11, color: T.sub, fontWeight: 600, marginBottom: 4, display: "block" }}>Vendedor asignado</label>

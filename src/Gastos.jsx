@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, sucursalActiva } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 
@@ -8,6 +8,16 @@ const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm f
 const FORMAS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const MIME_OK = ["application/pdf", "image/jpeg", "image/png"];
 const TAM_MAX = 10 * 1024 * 1024;
+
+/**
+ * Sufijo "?sucursal_id=" con la sucursal del PROPIO registro. Si el registro
+ * no trae el campo devuelve "" y queda el comportamiento por omisión de
+ * apiFetch (la sucursal del encabezado): nunca se manda "undefined" en la URL,
+ * que alcanceSucursal leería como NaN y degradaría a "todas", ensanchando el
+ * alcance en silencio para quien tiene ver_todas_las_sucursales.
+ * Mismo patrón que qSucursalCliente en src/CRM.jsx.
+ */
+const qSucursal = (registro) => (registro && registro.sucursal_id != null ? `?sucursal_id=${registro.sucursal_id}` : "");
 
 function leerArchivoComoBase64(archivo) {
   return new Promise((resolve, reject) => {
@@ -31,7 +41,7 @@ function AyudaCategorias({ arbol, onElegir, onCerrar }) {
       >
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
           <h3 className="font-semibold text-slate-700">¿En qué categoría va cada gasto?</h3>
-          <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+          <button type="button" onClick={onCerrar} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 grid sm:grid-cols-2 gap-4">
           {arbol.map((grupo) => (
@@ -61,6 +71,20 @@ function AyudaCategorias({ arbol, onElegir, onCerrar }) {
 
 export default function Gastos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+
+  // El backend registra el gasto SIEMPRE en la sucursal del token, nunca en la
+  // que dice el encabezado (defensa a propósito: nadie puede cargarle un gasto
+  // a otra tienda). Para el administrador eso choca con el selector global: si
+  // está viendo Yajalón y captura, el gasto nace en su propia tienda, se le
+  // resta a ESA caja en el corte, y encima desaparece de la lista que está
+  // mirando — parece que no se guardó e invita a capturarlo otra vez. Así que
+  // aquí solo se puede capturar cuando lo que se ve es la tienda propia.
+  const suPropiaSucursal = String(usuario?.sucursal_id ?? "");
+  const viendo = sucursalActiva();
+  const fueraDeSuSucursal = viendo !== suPropiaSucursal;
+  const MOTIVO_FUERA = viendo === "todas"
+    ? "Elige tu sucursal en el encabezado para registrar un gasto — el gasto sale de la caja de una tienda."
+    : "Estás viendo otra sucursal. Los gastos se registran en la tuya, así que cambia el encabezado a tu tienda para capturar.";
 
   const [tab, setTab] = useState("gastos");
   const [categorias, setCategorias] = useState([]);
@@ -124,6 +148,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   );
 
   const abrirNuevo = () => {
+    if (fueraDeSuSucursal) return mostrarAviso("❌ " + MOTIVO_FUERA);
     seleccionArchivo.current++; // invalida cualquier compresión en curso de una selección anterior
     setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "" });
     setArchivo(null);
@@ -185,7 +210,13 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const cancelar = async (e) => {
     e.preventDefault();
     try {
-      const r = await apiFetch(`/gastos/${seleccionado.id}/cancelar`, {
+      // sucursal_id explícito (el del propio gasto): si se omite, apiFetch
+      // inyecta la sucursal_activa del encabezado global (ver src/api.js) y el
+      // guard de alcance del backend responde "Gasto no encontrado" en cuanto
+      // la lista de esta pantalla deje de coincidir con ese selector global.
+      // No amplía el alcance de nadie: sin ver_todas_las_sucursales el backend
+      // ignora el parámetro y usa la sucursal del token.
+      const r = await apiFetch(`/gastos/${seleccionado.id}/cancelar${qSucursal(seleccionado)}`, {
         method: "PUT", body: JSON.stringify({ motivo }),
       });
       const data = await r.json();
@@ -206,14 +237,19 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
+      {/* Explica el botón apagado: sin esto, "Registrar gasto" en gris parece
+          una falla del sistema y no una condición que el usuario puede cambiar. */}
+      {fueraDeSuSucursal && puede("registrar_gastos") && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
+      )}
 
       <div className="bg-white border-b border-slate-200 flex shrink-0">
-        <button onClick={() => setTab("gastos")}
+        <button type="button" onClick={() => setTab("gastos")}
           className={`px-4 py-2 border-b-2 ${tab === "gastos" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Gastos
         </button>
         {puede("administrar_categorias_gastos") && (
-          <button onClick={() => setTab("categorias")}
+          <button type="button" onClick={() => setTab("categorias")}
             className={`px-4 py-2 border-b-2 ${tab === "categorias" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
             Categorías
           </button>
@@ -240,7 +276,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               </select>
             </div>
             {puede("registrar_gastos") && (
-              <button onClick={abrirNuevo} className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700">
+              <button type="button" onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar gasto"}
+                className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 <Plus size={16} /> Registrar gasto
               </button>
             )}
@@ -287,9 +324,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                       ${g.monto.toFixed(2)}
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
-                      <button onClick={() => abrirHistorial(g)} className="text-slate-500 hover:text-[#1a7fe8] px-1" title="Historial"><History size={15} /></button>
+                      <button type="button" onClick={() => abrirHistorial(g)} className="text-slate-500 hover:text-[#1a7fe8] px-1" title="Historial"><History size={15} /></button>
                       {g.estatus === "activo" && puede("cancelar_gastos") && (
-                        <button onClick={() => { setSeleccionado(g); setMotivo(""); setModal("cancelar"); }}
+                        <button type="button" onClick={() => { setSeleccionado(g); setMotivo(""); setModal("cancelar"); }}
                           className="text-slate-500 hover:text-red-600 px-1" title="Cancelar"><Ban size={15} /></button>
                       )}
                     </td>
@@ -313,7 +350,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Registrar gasto</h3>
-              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <form id="form-gasto" onSubmit={guardar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
@@ -429,7 +466,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Historial de {seleccionado.folio}</h3>
-              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
               {historial.map((m) => (
@@ -493,7 +530,7 @@ function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
     <div className="flex-1 overflow-y-auto p-4">
       <div className="flex gap-2 mb-4 max-w-md">
         <input value={nuevoGrupo} onChange={(e) => setNuevoGrupo(e.target.value)} placeholder="Nuevo grupo" className={inputCls} />
-        <button onClick={() => { if (nuevoGrupo.trim()) { crear(nuevoGrupo.trim(), null); setNuevoGrupo(""); } }}
+        <button type="button" onClick={() => { if (nuevoGrupo.trim()) { crear(nuevoGrupo.trim(), null); setNuevoGrupo(""); } }}
           className="bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm whitespace-nowrap">Agregar grupo</button>
       </div>
 
@@ -503,8 +540,8 @@ function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
             <div className="flex items-center justify-between mb-2">
               <p className="font-medium text-slate-700">{g.nombre}</p>
               <div className="flex gap-2 text-xs">
-                <button onClick={() => renombrar(g.id, g.nombre)} className="text-[#1a7fe8] hover:underline">Renombrar</button>
-                <button onClick={() => desactivar(g.id, g.nombre)} className="text-red-600 hover:underline">Desactivar</button>
+                <button type="button" onClick={() => renombrar(g.id, g.nombre)} className="text-[#1a7fe8] hover:underline">Renombrar</button>
+                <button type="button" onClick={() => desactivar(g.id, g.nombre)} className="text-red-600 hover:underline">Desactivar</button>
               </div>
             </div>
             <ul className="space-y-1 mb-2">
@@ -512,8 +549,8 @@ function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
                 <li key={h.id} className="flex items-center justify-between text-sm">
                   <span>{h.nombre}</span>
                   <div className="flex gap-2 text-xs">
-                    <button onClick={() => renombrar(h.id, h.nombre)} className="text-[#1a7fe8] hover:underline">Renombrar</button>
-                    <button onClick={() => desactivar(h.id, h.nombre)} className="text-red-600 hover:underline">Desactivar</button>
+                    <button type="button" onClick={() => renombrar(h.id, h.nombre)} className="text-[#1a7fe8] hover:underline">Renombrar</button>
+                    <button type="button" onClick={() => desactivar(h.id, h.nombre)} className="text-red-600 hover:underline">Desactivar</button>
                   </div>
                 </li>
               ))}
@@ -525,6 +562,7 @@ function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
                 placeholder="Nueva subcategoría" className={inputCls}
               />
               <button
+                type="button"
                 onClick={() => {
                   const nombre = (nuevaHija[g.id] || "").trim();
                   if (nombre) { crear(nombre, g.id); setNuevaHija({ ...nuevaHija, [g.id]: "" }); }

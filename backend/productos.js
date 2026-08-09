@@ -56,6 +56,13 @@ function crearProducto(DB, datos, sucursalId) {
   if (!datos.descripcion || !datos.descripcion.trim()) {
     throw new Error("La descripción del producto es obligatoria");
   }
+  // Antes, sin sucursal se caía a la 1 "por compatibilidad": la existencia
+  // inicial de un producto capturado desde cualquier tienda terminaba en
+  // Ocosingo. Ahora se exige, y quien llama debe pedirla al usuario.
+  const sucursalOrigen = Number(sucursalId);
+  if (!Number.isInteger(sucursalOrigen) || sucursalOrigen <= 0) {
+    throw new Error("Falta la sucursal donde queda la existencia inicial del producto");
+  }
   const nuevoId = siguienteId(DB["catalogo-productos"].productos);
   const producto = {
     id: nuevoId,
@@ -88,7 +95,6 @@ function crearProducto(DB, datos, sucursalId) {
 
   DB["catalogo-productos"].productos.push(producto);
 
-  const sucursalOrigen = Number(sucursalId) || 1;
   DB.pos.sucursales.forEach((s) => {
     const esOrigen = s.id === sucursalOrigen;
     DB.inventario.existencias.push({
@@ -146,7 +152,12 @@ function actualizarProducto(DB, id, datos, sucursalId) {
   Object.assign(actual, actualizado);
 
   if (datos.existencia_minima !== undefined || datos.existencia_maxima !== undefined) {
-    const sucursalObjetivo = Number(sucursalId) || 1;
+    // Mínima y máxima son de UNA tienda: sin sucursal no hay dónde aplicarlas
+    // (antes se caía a la 1 y se cambiaban los mínimos de otra sucursal).
+    const sucursalObjetivo = Number(sucursalId);
+    if (!Number.isInteger(sucursalObjetivo) || sucursalObjetivo <= 0) {
+      throw new Error("Falta la sucursal para cambiar la existencia mínima y máxima");
+    }
     const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === sucursalObjetivo);
     if (exist) {
       if (datos.existencia_minima !== undefined) exist.cantidad_minima = Number(datos.existencia_minima);
@@ -187,7 +198,12 @@ function clonarProducto(DB, id, sucursalId) {
 }
 
 function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
-  const suc = Number(sucursal_id) || 1;
+  // Sin sucursal no se adivina: antes caía a la 1 y el ajuste (o el descuento
+  // de una venta) se aplicaba a la existencia de la tienda equivocada.
+  const suc = Number(sucursal_id);
+  if (!Number.isInteger(suc) || suc <= 0) {
+    throw new Error("Falta la sucursal a la que se le ajusta la existencia");
+  }
   const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === suc);
   if (!exist) throw new Error("Este producto no tiene registro de existencia en esta sucursal");
   const delta = Number(cantidad) || 0;

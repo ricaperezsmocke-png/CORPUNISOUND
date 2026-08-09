@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Sparkles, SlidersHorizontal, Bookmark
 } from "lucide-react";
 
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
@@ -89,6 +89,11 @@ function Campo({ label, children, className = "" }) {
 // ============================================================
 export default function PuntoDeVenta({ onVolver, permisos }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
+  // Con el encabezado en "Todas" no se puede cobrar: la venta descuenta el
+  // inventario de UNA tienda y el sistema no sabría de cuál. Antes se mandaba
+  // sucursal_id: 1 fijo en el cuerpo y todo se registraba en Ocosingo.
+  const sinSucursal = sinSucursalElegida();
+  const AVISO_SIN_SUCURSAL = "Elige una sucursal en el encabezado para poder vender";
   const [vista, setVista] = useState("venta"); // "venta" | "consultas" | "configuracion"
   const [config, setConfig] = useState(null);
   const [vendedorConfirmado, setVendedorConfirmado] = useState(false);
@@ -370,7 +375,17 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     setModal(null);
   };
 
+  /** Único camino a la pantalla de cobro (botones, F10, F12, ESC y Enter). */
+  const abrirCobro = () => {
+    if (sinSucursal && !esCotizacion) return mostrarAviso(AVISO_SIN_SUCURSAL);
+    if (!carrito.length) return mostrarAviso("El ticket está vacío");
+    setModal("cobro");
+  };
+
   const confirmarCobro = async () => {
+    // Una cotización no toca inventario ni se registra, así que sí se puede
+    // guardar viendo "Todas". Cobrar, no.
+    if (!esCotizacion && sinSucursal) return mostrarAviso(AVISO_SIN_SUCURSAL);
     if (config?.solicitar_vendedor_al_cerrar_venta && !vendedorConfirmado) {
       setModal("vendedor");
       return mostrarAviso("Selecciona el vendedor antes de cerrar la venta");
@@ -388,7 +403,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           body: JSON.stringify({
             cliente_id: cliente.id,
             vendedor_id: vendedor.id,
-            sucursal_id: 1,
+            // Sin sucursal_id: la venta se registra en la sucursal del
+            // encabezado (o en la del usuario si está amarrado). Antes iba un
+            // 1 fijo aquí y toda venta caía en Ocosingo.
             tipo_documento: tipoDoc,
             metodo_pago: condicionSeleccionada?.nombre || "EFECTIVO",
             subtotal,
@@ -422,6 +439,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   // ---------- Clientes ----------
   const guardarNuevoCliente = async () => {
+    // El cliente también queda registrado en una tienda (es la que decide
+    // quién puede verlo después), y este formulario no pregunta cuál.
+    if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para dar de alta un cliente");
     if (!formCliente.nombre.trim()) return mostrarAviso("El nombre del cliente es obligatorio");
     try {
       const r = await apiFetch(`/clientes`, {
@@ -452,11 +472,11 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       else if (e.key === "F7" && filaSeleccionada !== null && puede("aplicar_descuentos_articulos_venta")) { e.preventDefault(); setValorTemporal(String(carrito[filaSeleccionada]?.descuentoPct ?? "0")); setModal("descuento"); }
       else if (e.key === "F8" && puede("abrir_cajon_dinero")) { e.preventDefault(); mostrarAviso("Abriendo cajón de dinero..."); }
       else if (e.key === "F9") { e.preventDefault(); mostrarAviso("Esperando lectura de báscula..."); }
-      else if (e.key === "F10" && puede("cerrar_venta")) { e.preventDefault(); if (carrito.length) setModal("cobro"); else mostrarAviso("El ticket está vacío"); }
-      else if (e.key === "F12" && puede("cerrar_venta")) { e.preventDefault(); if (carrito.length) setModal("cobro"); else mostrarAviso("El ticket está vacío"); }
-      else if (e.key === "Escape") { if (dentroDeModal) setModal(null); else if (carrito.length && puede("cerrar_venta")) setModal("cobro"); }
+      else if (e.key === "F10" && puede("cerrar_venta")) { e.preventDefault(); abrirCobro(); }
+      else if (e.key === "F12" && puede("cerrar_venta")) { e.preventDefault(); abrirCobro(); }
+      else if (e.key === "Escape") { if (dentroDeModal) setModal(null); else if (carrito.length && puede("cerrar_venta")) abrirCobro(); }
       else if (e.key === "Enter" && !dentroDeModal && config?.cerrar_venta_con_enter && document.activeElement === document.body) {
-        if (carrito.length && puede("cerrar_venta")) { e.preventDefault(); setModal("cobro"); }
+        if (carrito.length && puede("cerrar_venta")) { e.preventDefault(); abrirCobro(); }
       }
       else if (e.altKey && !dentroDeModal) {
         const k = e.key.toLowerCase();
@@ -537,6 +557,18 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         </div>
       </div>
 
+      {/* Aviso permanente mientras el encabezado diga "Todas": explica por qué
+          no se puede cobrar y qué hacer, antes de que se capture el ticket. */}
+      {sinSucursal && (
+        <div className="bg-amber-50 border-b border-amber-300 text-amber-900 text-sm px-4 py-2 shrink-0 flex items-center gap-2">
+          <Info size={15} className="shrink-0" />
+          <span>
+            <b>Estás viendo todas las sucursales.</b> Elige una sucursal arriba, en el selector del
+            encabezado, para poder vender: la venta descuenta el inventario de una tienda.
+          </span>
+        </div>
+      )}
+
       {/* ===== BARRA DE HERRAMIENTAS F2-F12 ===== */}
       <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
         {puede("buscar_articulos") && <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => setModal("buscar")} />}
@@ -562,8 +594,8 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         }} />}
         {puede("abrir_cajon_dinero") && <BotonBarra icono={Lock} etiqueta="Cajón" atajo="F8" onClick={() => mostrarAviso("Abriendo cajón de dinero...")} />}
         <BotonBarra icono={Gauge} etiqueta="Báscula" atajo="F9" onClick={() => mostrarAviso("Esperando lectura de báscula...")} />
-        {puede("cerrar_venta") && <BotonBarra icono={DollarSign} etiqueta="Importe" atajo="F10" onClick={() => (carrito.length ? setModal("cobro") : mostrarAviso("El ticket está vacío"))} />}
-        {puede("cerrar_venta") && <BotonBarra icono={CheckSquare} etiqueta="Check" atajo="F12" onClick={() => (carrito.length ? setModal("cobro") : mostrarAviso("El ticket está vacío"))} />}
+        {puede("cerrar_venta") && <BotonBarra icono={DollarSign} etiqueta="Importe" atajo="F10" onClick={() => abrirCobro()} />}
+        {puede("cerrar_venta") && <BotonBarra icono={CheckSquare} etiqueta="Check" atajo="F12" onClick={() => abrirCobro()} />}
       </div>
 
       {errorProductos && (
@@ -576,8 +608,10 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         <div className="w-24 bg-white border-r border-slate-300 flex flex-col shrink-0 overflow-y-auto">
           {puede("cerrar_venta") && (
             <button
-              onClick={() => (carrito.length ? setModal("cobro") : mostrarAviso("El ticket está vacío"))}
-              className="flex flex-col items-center gap-1 py-4 border-b border-slate-200 hover:bg-emerald-50"
+              type="button"
+              onClick={() => abrirCobro()}
+              title={sinSucursal && !esCotizacion ? AVISO_SIN_SUCURSAL : "Cerrar la venta (ESC)"}
+              className={`flex flex-col items-center gap-1 py-4 border-b border-slate-200 ${sinSucursal && !esCotizacion ? "opacity-40 cursor-not-allowed" : "hover:bg-emerald-50"}`}
             >
               <div className="bg-emerald-600 text-white rounded-full w-9 h-9 flex items-center justify-center font-bold text-xs">OK</div>
               <span className="text-[10px] text-slate-600">Cerrar<br />(ESC)</span>
