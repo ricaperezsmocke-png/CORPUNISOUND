@@ -10,6 +10,16 @@ const FORMAS_PAGO_DEPOSITO = ["EFECTIVO", "TRANSFERENCIA"];
 const MIME_OK = ["application/pdf", "image/jpeg", "image/png"];
 const TAM_MAX = 10 * 1024 * 1024;
 
+/**
+ * Sufijo "?sucursal_id=" con la sucursal del PROPIO registro. Si el registro
+ * no trae el campo devuelve "" y queda el comportamiento por omisión de
+ * apiFetch (la sucursal del encabezado): nunca se manda "undefined" en la URL,
+ * que alcanceSucursal leería como NaN y degradaría a "todas", ensanchando el
+ * alcance en silencio para quien tiene ver_todas_las_sucursales.
+ * Mismo patrón que qSucursalCliente en src/CRM.jsx.
+ */
+const qSucursal = (registro) => (registro && registro.sucursal_id != null ? `?sucursal_id=${registro.sucursal_id}` : "");
+
 function leerArchivoComoBase64(archivo) {
   return new Promise((resolve, reject) => {
     const lector = new FileReader();
@@ -174,7 +184,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
       // global. No amplía el alcance de nadie: a quien no tiene
       // ver_todas_las_sucursales el backend le ignora el parámetro y usa la
       // sucursal del token.
-      const r = await apiFetch(`/depositos/${seleccionado.id}/comprobante?sucursal_id=${seleccionado.sucursal_id}`, {
+      const r = await apiFetch(`/depositos/${seleccionado.id}/comprobante${qSucursal(seleccionado)}`, {
         method: "POST",
         body: JSON.stringify({ archivo: { nombre_archivo: archivo.name, tipo_mime: archivo.type, contenido_base64 } }),
       });
@@ -202,7 +212,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
       // No amplía el alcance de nadie: para quien no tiene
       // ver_todas_las_sucursales, el backend ignora este parámetro y usa la
       // sucursal del token (ver alcanceSucursal en backend/auth.js).
-      const r = await apiFetch(`/depositos/${seleccionado.id}/cancelar?sucursal_id=${seleccionado.sucursal_id}`, {
+      const r = await apiFetch(`/depositos/${seleccionado.id}/cancelar${qSucursal(seleccionado)}`, {
         method: "PUT", body: JSON.stringify({ motivo }),
       });
       const data = await r.json();
@@ -273,11 +283,11 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
       )}
 
       <div className="bg-white border-b border-slate-200 flex shrink-0">
-        <button onClick={() => setTab("resumen")}
+        <button type="button" onClick={() => setTab("resumen")}
           className={`px-4 py-2 border-b-2 ${tab === "resumen" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Resumen
         </button>
-        <button onClick={() => setTab("depositos")}
+        <button type="button" onClick={() => setTab("depositos")}
           className={`px-4 py-2 border-b-2 ${tab === "depositos" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Depósitos
         </button>
@@ -314,12 +324,12 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           </div>
         )}
 
-        <button onClick={exportarCSV} className="flex items-center gap-1.5 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+        <button type="button" onClick={exportarCSV} className="flex items-center gap-1.5 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
           <Download size={15} /> {tab === "resumen" ? "Exportar resumen" : "Exportar depósitos"}
         </button>
 
         {puede("registrar_depositos") && (
-          <button onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar depósito"}
+          <button type="button" onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar depósito"}
             className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
             <Plus size={16} /> Registrar depósito
           </button>
@@ -460,11 +470,11 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
                         se reemplaza (sería borrar evidencia) y a un cancelado
                         ya no se le adjunta nada. */}
                     {d.estatus === "activo" && !d.drive_link && puede("registrar_depositos") && (
-                      <button onClick={() => abrirComprobante(d)}
+                      <button type="button" onClick={() => abrirComprobante(d)}
                         className="text-slate-500 hover:text-[#1a7fe8] px-1" title="Adjuntar comprobante"><Paperclip size={15} /></button>
                     )}
                     {d.estatus === "activo" && puede("cancelar_depositos") && (
-                      <button onClick={() => { setSeleccionado(d); setMotivo(""); setModal("cancelar"); }}
+                      <button type="button" onClick={() => { setSeleccionado(d); setMotivo(""); setModal("cancelar"); }}
                         className="text-slate-500 hover:text-red-600 px-1" title="Cancelar"><Ban size={15} /></button>
                     )}
                   </td>
@@ -480,7 +490,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Registrar depósito</h3>
-              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <form id="form-deposito" onSubmit={guardar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
@@ -537,7 +547,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Adjuntar comprobante a {seleccionado.folio}</h3>
-              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <form id="form-comprobante" onSubmit={adjuntar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">

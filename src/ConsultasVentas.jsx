@@ -12,10 +12,20 @@ import { hoyLocal, haceDiasLocal } from "./fechas";
 const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión"];
 const ESTADOS = ["Todos", "cerrada", "cancelada"];
 
+/**
+ * Sufijo "?sucursal_id=" con la sucursal del PROPIO registro. Si el registro
+ * no trae el campo devuelve "" y queda el comportamiento por omisión de
+ * apiFetch (la sucursal del encabezado): nunca se manda "undefined" en la URL,
+ * que alcanceSucursal leería como NaN y degradaría a "todas", ensanchando el
+ * alcance en silencio para quien tiene ver_todas_las_sucursales.
+ * Mismo patrón que qSucursalCliente en src/CRM.jsx.
+ */
+const qSucursal = (registro) => (registro && registro.sucursal_id != null ? `?sucursal_id=${registro.sucursal_id}` : "");
+
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
   return (
-    <button onClick={onClick} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors">
+    <button type="button" onClick={onClick} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors">
       <Icono size={18} className={tonos[tono]} />
       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
     </button>
@@ -93,7 +103,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       // está en pantalla. No amplía el alcance de nadie: sin
       // ver_todas_las_sucursales el backend ignora el parámetro y usa la
       // sucursal del token (alcanceSucursal en backend/auth.js).
-      const r = await apiFetch(`/ventas/${seleccionada.id}?sucursal_id=${seleccionada.sucursal_id}`);
+      const r = await apiFetch(`/ventas/${seleccionada.id}${qSucursal(seleccionada)}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       setDetalle(data);
@@ -113,7 +123,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       // sucursal_id explícito (el de la propia venta), mismo motivo que en
       // verDetalle(): sin él, el guard de esta ruta responde "Venta no
       // encontrada" para un folio que la tabla sí está mostrando.
-      const r = await apiFetch(`/ventas/${seleccionada.id}/cancelar?sucursal_id=${seleccionada.sucursal_id}`, { method: "PUT", body: JSON.stringify({ motivo: motivoCancelacion }) });
+      const r = await apiFetch(`/ventas/${seleccionada.id}/cancelar${qSucursal(seleccionada)}`, { method: "PUT", body: JSON.stringify({ motivo: motivoCancelacion }) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso(`Venta folio ${seleccionada.id} cancelada — inventario reintegrado`);
@@ -186,7 +196,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
               {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
             </select>
           </div>
-          <button onClick={consultar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">Consultar</button>
+          <button type="button" onClick={consultar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">Consultar</button>
         </div>
         <div className="flex items-center gap-2">
           <Search size={16} className="text-slate-400" />
@@ -249,7 +259,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
               <h3 className="font-semibold text-sm">Detalle — Folio {detalle.id}</h3>
-              <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>
             <div className="p-4">
               <div className="grid grid-cols-2 gap-3 text-xs mb-4">
@@ -291,7 +301,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Cancelar venta — Folio {seleccionada.id}</h3>
-              <button onClick={() => setModal(null)} className="hover:bg-red-700 rounded p-1"><X size={18} /></button>
+              <button type="button" onClick={() => setModal(null)} className="hover:bg-red-700 rounded p-1"><X size={18} /></button>
             </div>
             <div className="p-4 flex flex-col gap-3">
               <p className="text-xs text-slate-600">Esto reintegra al inventario los productos de esta venta. Esta acción no se puede deshacer.</p>
@@ -299,7 +309,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <label className="text-xs text-slate-500 block mb-1">Motivo de la cancelación</label>
                 <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" />
               </div>
-              <button onClick={confirmarCancelacion} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">Confirmar cancelación</button>
+              <button type="button" onClick={confirmarCancelacion} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">Confirmar cancelación</button>
             </div>
           </div>
         </div>
