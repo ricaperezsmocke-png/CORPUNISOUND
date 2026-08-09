@@ -46,7 +46,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPe
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
+const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { sembrarCategoriasGastos } = require("./gastosCategorias");
@@ -483,7 +483,13 @@ app.put("/api/productos/:id", requiereLogin, requierePermiso("editar_producto", 
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.delete("/api/productos/:id", requiereLogin, requierePermiso("eliminar_producto", resolverPermisosDeRol), (req, res) => {
+// Borrar un producto NO es una operación de sucursal: eliminarProducto() lo
+// saca del catálogo global y borra sus existencias en TODAS las tiendas
+// (productos.js filtra solo por producto_id). Por eso, además del permiso,
+// exige alcance global: un rol amarrado a una tienda al que alguien le
+// conceda "eliminar_producto" desde la pantalla de roles no puede arrasar el
+// inventario de sucursales que ni siquiera puede ver.
+app.delete("/api/productos/:id", requiereLogin, requierePermiso("eliminar_producto", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
   try { eliminarProducto(DB, req.params.id); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -753,13 +759,15 @@ app.get("/api/roles", (req, res) => res.json(listarRoles(DB)));
 app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/roles/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+// Los roles son configuración del sistema entero, no de una tienda: quien
+// edita un rol cambia lo que pueden hacer usuarios de todas las sucursales.
+app.put("/api/roles/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
   try { res.json(actualizarRol(DB, req.params.id, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.delete("/api/roles/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+app.delete("/api/roles/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
   try { eliminarRol(DB, req.params.id); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.post("/api/roles/:id/clonar", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+app.post("/api/roles/:id/clonar", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
   try { res.json(clonarRol(DB, req.params.id, req.body.nombre)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -770,7 +778,9 @@ app.get("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", res
 app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await crearUsuario(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), async (req, res) => {
+// Administrar personal es configuración del sistema, no de una tienda: aquí se
+// asigna el rol y la sucursal de cada cuenta. Mismo criterio que /roles/:id.
+app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), async (req, res) => {
   try {
     if (req.body.activo !== undefined && !req.body.activo && esAccionSobreSiMismo(req.params.id, req.usuarioToken.id)) {
       throw new Error("No puedes desactivarte a ti mismo mientras tienes la sesión abierta");
@@ -779,7 +789,7 @@ app.put("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles",
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
   try {
     if (esAccionSobreSiMismo(req.params.id, req.usuarioToken.id)) {
       throw new Error("No puedes eliminarte a ti mismo mientras tienes la sesión abierta");
@@ -789,6 +799,32 @@ app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_role
 });
 
 // ---------- Expedientes de Personal (Google Drive) ----------
+
+/**
+ * Guard de las rutas de expediente: el empleado del :id debe caer dentro del
+ * alcance de quien pregunta.
+ *
+ * Esto NO es defensa hipotética. "gestionar_expedientes" lo tiene el Gerente
+ * de sucursal (roles.js solo le quita cuatro permisos y éste no es uno) y ese
+ * rol NO tiene "ver_todas_las_sucursales". Sin este guard, el gerente de una
+ * tienda lista, sube y BORRA los documentos personales —identificaciones,
+ * contratos— de empleados de otras tiendas, que ni siquiera puede ver en el
+ * resto del sistema.
+ *
+ * Responde 404 y no 403, igual que dentroDeAlcance en el resto de rutas por
+ * :id: un 403 confirmaría que esa persona existe en otra sucursal.
+ *
+ * @returns el empleado si está en alcance, o null habiendo YA respondido.
+ */
+function empleadoEnAlcance(req, res) {
+  const alcance = resolverAlcance(req);
+  const empleado = DB.admin.usuarios.find((u) => u.id === Number(req.params.id));
+  if (!empleado || !dentroDeAlcance(empleado.sucursal_id, alcance)) {
+    res.status(404).json({ error: "Usuario no encontrado" });
+    return null;
+  }
+  return empleado;
+}
 
 app.get("/api/drive/estado", requiereLogin, async (req, res) => {
   const configurado = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -827,17 +863,20 @@ app.get("/api/drive/callback", async (req, res) => {
 
 app.post("/api/usuarios/:id/documentos", requiereLogin, requierePermiso("gestionar_expedientes", resolverPermisosDeRol), async (req, res) => {
   try {
+    if (!empleadoEnAlcance(req, res)) return;
     if (!DB.drive.cuenta) throw new Error("Conecta Google Drive primero");
     res.json(await subirDocumento(DB, req.params.id, req.body, req.usuarioToken.id, drive));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.get("/api/usuarios/:id/documentos", requiereLogin, requierePermiso("gestionar_expedientes", resolverPermisosDeRol), (req, res) => {
+  if (!empleadoEnAlcance(req, res)) return;
   res.json(listarDocumentos(DB, req.params.id));
 });
 
 app.delete("/api/usuarios/:id/documentos/:documentoId", requiereLogin, requierePermiso("gestionar_expedientes", resolverPermisosDeRol), async (req, res) => {
   try {
+    if (!empleadoEnAlcance(req, res)) return;
     if (!DB.drive.cuenta) throw new Error("Conecta Google Drive primero");
     res.json(await eliminarDocumento(DB, req.params.id, req.params.documentoId, drive));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -905,7 +944,12 @@ app.get("/api/sucursales", (req, res) => {
   res.json(DB.pos.sucursales.map(({ lat, lng, ...resto }) => resto));
 });
 
-app.put("/api/sucursales/:id/ubicacion", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
+// Mover las coordenadas de una sucursal decide quién puede entrar a ella:
+// validarUbicacionLogin() las usa como centro del radio de tolerancia. Quien
+// las cambia puede abrirle el acceso a cualquiera desde cualquier lado, o
+// dejar fuera a una tienda entera — y siempre sobre una sucursal que puede no
+// ser la suya. Alcance global, no solo el permiso.
+app.put("/api/sucursales/:id/ubicacion", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
   try {
     const sucursal = DB.pos.sucursales.find((s) => s.id === Number(req.params.id));
     if (!sucursal) throw new Error("Sucursal no encontrada");
