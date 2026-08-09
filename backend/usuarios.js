@@ -21,6 +21,35 @@ function normalizarUsuario(usuario) {
   return typeof usuario === "string" ? usuario.trim().toLowerCase() : "";
 }
 
+/**
+ * Cuentas YA guardadas que se pisan entre sí al normalizar (trim + minúsculas).
+ *
+ * crearUsuario impide crear nuevas y actualizarUsuario no deja renombrar, así
+ * que esto no puede aparecer de aquí en adelante — pero una base vieja podría
+ * tener "Maria" y "maria" desde antes. iniciarSesion se queda con la PRIMERA
+ * del arreglo, así que la segunda no puede entrar nunca y solo ve el mensaje
+ * genérico "Usuario o contraseña incorrectos": para el dueño se ve como "a
+ * Fulana le dejó de funcionar la cuenta", sin ninguna pista de por qué.
+ *
+ * Por eso el arranque de server.js lo dice en voz alta (avisa, no bloquea).
+ * Las cuentas con el nombre en blanco se ignoran: esas ya no pueden entrar por
+ * la guarda de nombre vacío de iniciarSesion, choquen o no.
+ *
+ * @returns [{ clave, usuarios: ["Maria", "maria"] }] — vacío si no hay choques
+ */
+function usuariosQueChocanAlNormalizar(DB) {
+  const porClave = new Map();
+  for (const u of (DB && DB.admin && DB.admin.usuarios) || []) {
+    const clave = normalizarUsuario(u.usuario);
+    if (!clave) continue;
+    if (!porClave.has(clave)) porClave.set(clave, []);
+    porClave.get(clave).push(u.usuario);
+  }
+  return [...porClave.entries()]
+    .filter(([, usuarios]) => usuarios.length > 1)
+    .map(([clave, usuarios]) => ({ clave, usuarios }));
+}
+
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
@@ -95,4 +124,7 @@ async function iniciarSesion(DB, usuario, password) {
   return encontrado;
 }
 
-module.exports = { listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, esAccionSobreSiMismo, iniciarSesion, normalizarUsuario };
+module.exports = {
+  listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario,
+  esAccionSobreSiMismo, iniciarSesion, normalizarUsuario, usuariosQueChocanAlNormalizar,
+};

@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
-const { actualizarUsuario, esAccionSobreSiMismo, crearUsuario, iniciarSesion, normalizarUsuario } = require("./usuarios");
+const { actualizarUsuario, esAccionSobreSiMismo, crearUsuario, iniciarSesion, normalizarUsuario, usuariosQueChocanAlNormalizar } = require("./usuarios");
 const { hashearPassword } = require("./auth");
 const { crearRegistroIntentos, registrarFallo, estaBloqueado, MAX_INTENTOS } = require("./intentosLogin");
 const { crearCorte } = require("./cortes");
@@ -253,6 +253,48 @@ test("actualizarUsuario: ignora un 'usuario' mandado en el body (no se puede ren
   await actualizarUsuario(DB, ana.id, { nombre: "Ana Renombrada", usuario: "MARIA" });
 
   assert.strictEqual(DB.admin.usuarios.find((u) => u.id === ana.id).usuario, "ana", "el nombre de usuario no debe cambiar");
+});
+
+// ---------- Red de seguridad: cuentas viejas que chocan al normalizar ----------
+// Hoy no se pueden crear (crearUsuario las rechaza y actualizarUsuario no deja
+// renombrar), pero una base anterior a esa validación podría traerlas: la
+// segunda cuenta no puede entrar NUNCA y solo ve "Usuario o contraseña
+// incorrectos". El arranque de server.js lo avisa con esta función.
+
+test("usuariosQueChocanAlNormalizar: no reporta nada cuando los usuarios son realmente distintos", async () => {
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "maria", "clave.Secreta1");
+  await sembrarCuentaConPassword(DB, "ana.lopez", "clave.Secreta1", { id: 61 });
+
+  assert.deepStrictEqual(usuariosQueChocanAlNormalizar(DB), []);
+});
+
+test("usuariosQueChocanAlNormalizar: detecta 'Maria' y 'maria' ya guardadas y nombra las dos cuentas", async () => {
+  const DB = construirDBPrueba();
+  // Se meten directo al arreglo, como estarían en una base vieja: crearUsuario
+  // ya no permitiría dar de alta la segunda.
+  await sembrarCuentaConPassword(DB, "Maria", "clave.Secreta1");
+  await sembrarCuentaConPassword(DB, " maria ", "otraClave1", { id: 61 });
+  await sembrarCuentaConPassword(DB, "ana", "otraClave1", { id: 62 });
+
+  const choques = usuariosQueChocanAlNormalizar(DB);
+
+  assert.strictEqual(choques.length, 1, "solo el par Maria/maria choca");
+  assert.strictEqual(choques[0].clave, "maria");
+  assert.deepStrictEqual(choques[0].usuarios, ["Maria", " maria "], "el aviso debe poder nombrar las cuentas tal como están guardadas");
+});
+
+test("usuariosQueChocanAlNormalizar: ignora las cuentas con el nombre en blanco (esas ya no pueden entrar)", async () => {
+  const DB = construirDBPrueba();
+  await sembrarCuentaConPassword(DB, "   ", "clave.Secreta1");
+  await sembrarCuentaConPassword(DB, "", "clave.Secreta1", { id: 61 });
+
+  assert.deepStrictEqual(usuariosQueChocanAlNormalizar(DB), []);
+});
+
+test("usuariosQueChocanAlNormalizar: no revienta con un DB sin usuarios", () => {
+  assert.deepStrictEqual(usuariosQueChocanAlNormalizar(construirDBPrueba()), []);
+  assert.deepStrictEqual(usuariosQueChocanAlNormalizar({}), [], "el aviso de arranque nunca debe tumbar el arranque");
 });
 
 test("el freno de fuerza bruta cuenta bajo la MISMA clave que usa el login para buscar la cuenta", async () => {

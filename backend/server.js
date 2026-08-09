@@ -64,7 +64,7 @@ const { crearRegistroIntentos, estaBloqueado, registrarFallo, registrarExito } =
 const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
 const { importarClavesSat } = require("./scripts/importarClavesSat");
 const { parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo } = require("./migracion");
-const { listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, esAccionSobreSiMismo, iniciarSesion } = require("./usuarios");
+const { listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, esAccionSobreSiMismo, iniciarSesion, usuariosQueChocanAlNormalizar } = require("./usuarios");
 const { armarSesion } = require("./sesion");
 const { buscarClavesSat } = require("./clavesSat");
 const { parsearFacturaXML } = require("./cfdi");
@@ -270,12 +270,18 @@ DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
 // Ver backend/roles.js -> reconciliarRoles.
 reconciliarRoles(DB);
 
+// ¿Este proceso ES el servidor, o alguien está REQUIRIENDO server.js?
+// Las pruebas hacen `require("./server")` para pegarle a las rutas de verdad
+// (ver rutasEscrituraSucursal.test.js). En ese caso solo se exporta la app: no
+// se abre el puerto ni se dispara la descarga del catálogo del SAT.
+const ESTE_PROCESO_ES_EL_SERVIDOR = require.main === module;
+
 // Garantiza el catálogo de Claves SAT (búsqueda en pantalla Artículo de Compras).
 // En Render, datos.sqlite no viaja con el deploy (está en .gitignore), así que
 // el catálogo se pierde en cada reinicio del dyno. Se reimporta solo, en
 // segundo plano, sin bloquear el arranque del servidor: mientras tanto la
 // búsqueda de Clave SAT simplemente devuelve vacío (ver clavesSat.js).
-if (necesitaImportarClavesSat(contarClavesSat())) {
+if (ESTE_PROCESO_ES_EL_SERVIDOR && necesitaImportarClavesSat(contarClavesSat())) {
   console.log("📦 Catálogo de Claves SAT ausente o incompleto — importando en segundo plano...");
   importarClavesSat().then(
     (total) => console.log(`✅ Catálogo de Claves SAT importado: ${total} claves`),
@@ -464,14 +470,14 @@ app.put("/api/productos/:id", requiereLogin, requierePermiso("editar_producto", 
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
-    // Los datos del catálogo (nombre, precios, clave SAT...) son iguales en
-    // todas las tiendas y se pueden editar sin elegir sucursal. La mínima y la
-    // máxima NO: son de una tienda concreta, así que solo esas exigen sucursal.
-    // Sin este matiz, la Recepción de Compras —que edita clave SAT y precios
-    // sin tocar mínimos— se quedaría bloqueada sin necesidad.
-    const tocaExistencias = req.body.existencia_minima !== undefined || req.body.existencia_maxima !== undefined;
-    if (tocaExistencias && !sucursal_id) {
-      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de cambiar la existencia mínima y máxima — son distintas en cada tienda." });
+    // El único cliente de esta ruta es el formulario de Inventario ▸ Productos
+    // (src/InventarioProductos.jsx), que SIEMPRE manda existencia mínima y
+    // máxima, y esas dos son de una tienda concreta (antes se caían a la 1 y
+    // cambiaban los mínimos de otra sucursal). La Recepción de Compras no pasa
+    // por aquí: llama a actualizarProducto() dentro del proceso, con la
+    // sucursal ya resuelta (ver backend/compras.js).
+    if (!sucursal_id) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de editar un producto — su existencia mínima y máxima son distintas en cada tienda." });
     }
     res.json(actualizarProducto(DB, req.params.id, req.body, sucursal_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1521,18 +1527,45 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
+/**
+ * Aviso de arranque (no bloquea nada): cuentas ya guardadas que se pisan al
+ * normalizar el nombre de usuario. Hoy no se pueden crear —crearUsuario las
+ * rechaza y actualizarUsuario no deja renombrar—, pero una base vieja podría
+ * traer "Maria" y "maria" desde antes: la segunda no podría iniciar sesión
+ * nunca, y el mensaje que ve es el genérico de contraseña incorrecta.
+ * Ver usuariosQueChocanAlNormalizar en backend/usuarios.js.
+ */
+function avisarUsuariosQueChocan() {
+  for (const { clave, usuarios } of usuariosQueChocanAlNormalizar(DB)) {
+    const lista = usuarios.map((u) => `"${u}"`).join(", ");
+    console.warn(
+      `🚨 Hay ${usuarios.length} cuentas que son el MISMO usuario al iniciar sesión ("${clave}"): ${lista}. ` +
+      "Solo la primera puede entrar; a las demás el login les responde \"Usuario o contraseña incorrectos\" sin más explicación. " +
+      "Bórralas y vuelve a darlas de alta con un nombre de usuario distinto (editar no permite renombrar la cuenta)."
+    );
+  }
+}
+
 const PUERTO = process.env.PORT || 4000;
 
 // Guardia obligatorio: si algún módulo/permiso no está bien registrado para
 // Roles y Personal, esto lanza un error y el backend NO levanta.
 validarSistemaDePermisos();
 
-app.listen(PUERTO, () => {
-  console.log(`Backend corriendo en http://localhost:${PUERTO}`);
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log("⚠️  No hay ANTHROPIC_API_KEY configurada — copia .env.example a .env y pega tu key");
-  }
-  if (!process.env.JWT_SECRET) {
-    console.log("🚨 JWT_SECRET no configurado — usando una clave ALEATORIA por arranque. Es seguro (nadie puede falsificar tokens), pero las sesiones se invalidan cada vez que el servidor reinicia. Configura JWT_SECRET en las variables de entorno de Render para que las sesiones persistan.");
-  }
-});
+if (ESTE_PROCESO_ES_EL_SERVIDOR) {
+  app.listen(PUERTO, () => {
+    console.log(`Backend corriendo en http://localhost:${PUERTO}`);
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.log("⚠️  No hay ANTHROPIC_API_KEY configurada — copia .env.example a .env y pega tu key");
+    }
+    if (!process.env.JWT_SECRET) {
+      console.log("🚨 JWT_SECRET no configurado — usando una clave ALEATORIA por arranque. Es seguro (nadie puede falsificar tokens), pero las sesiones se invalidan cada vez que el servidor reinicia. Configura JWT_SECRET en las variables de entorno de Render para que las sesiones persistan.");
+    }
+    avisarUsuariosQueChocan();
+  });
+}
+
+// Se exporta la app para que las pruebas puedan levantarla en un puerto
+// efímero y pegarle a las rutas REALES (con sus middlewares y sus guardas),
+// en vez de reimplementar a mano lo que hace cada ruta.
+module.exports = app;
