@@ -77,20 +77,71 @@ function requierePermiso(clave, resolverPermisosDeRol) {
 }
 
 /**
+ * Middleware: exige alcance GLOBAL, no solo el permiso de la acción.
+ *
+ * Para rutas cuyo efecto no cabe en una sucursal: borrar un producto arrasa
+ * el catálogo y las existencias de TODAS las tiendas (ver eliminarProducto en
+ * productos.js), y los roles y las coordenadas de una sucursal son
+ * configuración del sistema entero.
+ *
+ * Hasta ahora eso lo contenía únicamente la semilla de roles.js, que excluye
+ * a mano "eliminar_producto" y "administrar_roles" del Gerente de sucursal.
+ * Eso es defensa por CONFIGURACIÓN: se evapora en cuanto alguien concede ese
+ * permiso a un rol amarrado desde la pantalla de roles, sin tocar código y
+ * sin que nada avise. Este middleware la vuelve invariante de CÓDIGO.
+ *
+ * Va DESPUÉS de requierePermiso: primero "¿tienes la llave?", luego
+ * "¿tu llave alcanza para todas las tiendas?".
+ */
+function requiereAlcanceGlobal(resolverPermisosDeRol) {
+  return (req, res, next) => {
+    if (!req.usuarioToken) return res.status(401).json({ error: "No autenticado" });
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    if (!Array.isArray(permisos) || !permisos.includes("ver_todas_las_sucursales")) {
+      return res.status(403).json({
+        error: "Esta acción afecta a todas las sucursales y requiere una cuenta con alcance global.",
+      });
+    }
+    next();
+  };
+}
+
+/**
  * Resuelve qué sucursal(es) puede ver este request.
  * - Con permiso "ver_todas_las_sucursales": respeta ?sucursal_id= si viene
  *   (para filtrar a una tienda) o devuelve verTodas si no.
  * - Sin ese permiso: se ignora el query y se fuerza la sucursal del token.
+ *
+ * FALLA CERRADO a propósito. Antes, cualquier ?sucursal_id= que no parseara
+ * caía al `return verTodas` del final: un `?sucursal_id=undefined` armado por
+ * el frontend (o un arreglo `?sucursal_id=1&sucursal_id=2`, que Express
+ * entrega como Array y Number() convierte en NaN) ENSANCHABA el alcance en
+ * silencio, justo al revés de lo que se quería. Un alcance de más no lo nota
+ * nadie; uno de menos se reporta enseguida. Por eso lo que no parsea ya no
+ * degrada a "todas": cae en un alcance vacío que no muestra ni deja tocar
+ * nada. Se marca además con `invalido` por si alguna ruta quiere distinguir
+ * "no hay nada" de "me mandaste basura" y responder 400 — hoy NINGUNA lo lee,
+ * así que la basura sale como lista vacía o 404, no como un mensaje claro.
+ *
+ * Los tres consumidores quedan cerrados solos, sin cambiarlos:
+ * filtrarPorSucursal devuelve [], dentroDeAlcance devuelve false (404) y
+ * sucursalDeEscritura devuelve null (400).
  */
 function alcanceSucursal(req, permisos) {
   const puedeVerTodas = Array.isArray(permisos) && permisos.includes("ver_todas_las_sucursales");
   const solicitada = req.query ? req.query.sucursal_id : undefined;
 
   if (puedeVerTodas) {
-    if (solicitada !== undefined && solicitada !== "" && solicitada !== "todas" && !Number.isNaN(Number(solicitada))) {
-      return { verTodas: false, sucursalId: Number(solicitada) };
+    // Ausente, vacío o "todas": intención explícita de ver todo.
+    if (solicitada === undefined || solicitada === "" || solicitada === "todas") {
+      return { verTodas: true, sucursalId: null };
     }
-    return { verTodas: true, sucursalId: null };
+    // Vino algo distinto: o es un id válido, o es basura que no se interpreta.
+    const n = typeof solicitada === "string" ? Number(solicitada) : NaN;
+    if (Number.isInteger(n) && n > 0) {
+      return { verTodas: false, sucursalId: n };
+    }
+    return { verTodas: false, sucursalId: null, invalido: true };
   }
   const sucursalToken = req.usuarioToken && req.usuarioToken.sucursal_id != null ? Number(req.usuarioToken.sucursal_id) : null;
   return { verTodas: false, sucursalId: sucursalToken };
@@ -230,6 +281,7 @@ function mensajePorMotivoUbicacion(motivo) {
 
 module.exports = {
   hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso,
+  requiereAlcanceGlobal,
   alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
   sucursalDeEscritura, sucursalDelFormulario,
   distanciaMetros, validarUbicacionLogin, mensajePorMotivoUbicacion,
