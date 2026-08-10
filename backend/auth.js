@@ -119,7 +119,9 @@ function requiereAlcanceGlobal(resolverPermisosDeRol) {
  * silencio, justo al revés de lo que se quería. Un alcance de más no lo nota
  * nadie; uno de menos se reporta enseguida. Por eso lo que no parsea ya no
  * degrada a "todas": cae en un alcance vacío que no muestra ni deja tocar
- * nada, y se marca con `invalido` para que la ruta pueda responder 400.
+ * nada. Se marca además con `invalido` por si alguna ruta quiere distinguir
+ * "no hay nada" de "me mandaste basura" y responder 400 — hoy NINGUNA lo lee,
+ * así que la basura sale como lista vacía o 404, no como un mensaje claro.
  *
  * Los tres consumidores quedan cerrados solos, sin cambiarlos:
  * filtrarPorSucursal devuelve [], dentroDeAlcance devuelve false (404) y

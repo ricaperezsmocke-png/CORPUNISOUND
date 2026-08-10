@@ -817,7 +817,18 @@ app.delete("/api/usuarios/:id", requiereLogin, requierePermiso("administrar_role
  * @returns el empleado si está en alcance, o null habiendo YA respondido.
  */
 function empleadoEnAlcance(req, res) {
-  const alcance = resolverAlcance(req);
+  // OJO: NO usa resolverAlcance(). Ese mira ?sucursal_id=, que apiFetch inyecta
+  // desde el SELECTOR DEL ENCABEZADO (src/api.js) — y ese selector nació para
+  // FILTRAR listas, no para decidir a quién se tiene derecho a alcanzar.
+  // Usándolo, un administrador con el encabezado puesto en Ocosingo veía al
+  // empleado de Yajalón en la lista de personal (GET /api/usuarios no filtra
+  // por sucursal) y al abrir su expediente recibía "Usuario no encontrado".
+  // El alcance de una PERSONA depende solo de quién pregunta: su permiso y la
+  // sucursal de su token.
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  const alcance = Array.isArray(permisos) && permisos.includes("ver_todas_las_sucursales")
+    ? { verTodas: true, sucursalId: null }
+    : { verTodas: false, sucursalId: Number(req.usuarioToken.sucursal_id) };
   const empleado = DB.admin.usuarios.find((u) => u.id === Number(req.params.id));
   if (!empleado || !dentroDeAlcance(empleado.sucursal_id, alcance)) {
     res.status(404).json({ error: "Usuario no encontrado" });

@@ -149,6 +149,11 @@ test("las rutas de efecto global llevan el guard CABLEADO en server.js", () => {
     'app.delete("/api/roles/:id"',
     'app.post("/api/roles/:id/clonar"',
     'app.put("/api/sucursales/:id/ubicacion"',
+    // Estas dos faltaban en la lista: el guard estaba puesto en server.js pero
+    // nada lo vigilaba, así que quitarlo no ponía roja ninguna prueba. Aquí se
+    // asigna el rol y la sucursal de cada cuenta, y aquí se borran cuentas.
+    'app.put("/api/usuarios/:id"',
+    'app.delete("/api/usuarios/:id"',
   ];
   for (const ruta of rutasGlobales) {
     const linea = lineas.find((l) => l.includes(ruta));

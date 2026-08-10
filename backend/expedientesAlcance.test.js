@@ -102,6 +102,29 @@ test("el administrador alcanza el expediente de cualquier sucursal", async () =>
   }
 });
 
+test("el selector del encabezado NO le quita expedientes al administrador", async () => {
+  // Regresión real encontrada en la revisión: el guard usaba resolverAlcance(),
+  // que mira ?sucursal_id= — el valor que apiFetch inyecta desde el selector
+  // del ENCABEZADO. Con el encabezado en Ocosingo, el administrador seguía
+  // viendo al empleado de Yajalón en la lista (GET /api/usuarios no filtra por
+  // sucursal) pero su expediente respondía "Usuario no encontrado".
+  const r = await pegar(`/api/usuarios/${empleadoS2}/documentos?sucursal_id=1`, TOKEN_ADMIN);
+  assert.strictEqual(
+    r.status, 200,
+    `el encabezado es un filtro de listas, no un permiso: no debe esconder expedientes al administrador (respondió ${r.status})`
+  );
+});
+
+test("y tampoco se lo REGALA al gerente que manda sucursal_id=todas", async () => {
+  // La otra mitad: si el encabezado no puede quitar alcance, tampoco puede
+  // darlo. Un gerente que arme la petición a mano con ?sucursal_id=todas sigue
+  // sin alcanzar otra tienda, porque su alcance sale de su token, no del query.
+  for (const query of ["?sucursal_id=todas", "?sucursal_id=2", ""]) {
+    const r = await pegar(`/api/usuarios/${empleadoS2}/documentos${query}`, TOKEN_GERENTE_S1);
+    assert.strictEqual(r.status, 404, `el gerente amplió su alcance con "${query}" (respondió ${r.status})`);
+  }
+});
+
 test("subir y borrar documentos también respetan el alcance", async () => {
   // Leer de más es grave; BORRAR de más lo es más. Se comprueba que el guard
   // corre ANTES que cualquier otra validación de la ruta (incluida la de
