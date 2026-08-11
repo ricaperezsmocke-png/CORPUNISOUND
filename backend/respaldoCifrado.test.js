@@ -1,11 +1,17 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const {
-  llaveDesdeEnv, empaquetar, desempaquetar, generarLlaveNueva, LARGO_IV, LARGO_TAG,
+  llaveDesdeEnv, empaquetar, desempaquetar, generarLlaveNueva, ALGORITMO, LARGO_IV, LARGO_TAG,
 } = require("./respaldoCifrado");
 
 const LLAVE = Buffer.from("a".repeat(64), "hex");
 const OTRA_LLAVE = Buffer.from("b".repeat(64), "hex");
+
+test("usa AES-256-GCM con IV de 12 y tag de 16 (protege contra downgrade silencioso)", () => {
+  assert.strictEqual(ALGORITMO, "aes-256-gcm");
+  assert.strictEqual(LARGO_IV, 12);
+  assert.strictEqual(LARGO_TAG, 16);
+});
 
 test("empaquetar y desempaquetar devuelve exactamente el mismo objeto", () => {
   const original = {
@@ -37,7 +43,7 @@ test("un archivo alterado un solo byte FALLA (esto es lo que compra GCM)", () =>
   assert.throws(() => desempaquetar(alterado, LLAVE), /no se pudo descifrar/);
 });
 
-test("el tag de autenticación es verificado (corrupción SOLO del tag, no IV ni datos)", () => {
+test("corrupción en la región del tag es detectada (IV y datos cifrados intactos)", () => {
   const paquete = empaquetar({ datos: "críticos" }, LLAVE);
   const alterado = Buffer.from(paquete);
   // Corrompe un byte SOLO en la región del tag (bytes LARGO_IV a LARGO_IV+LARGO_TAG)
