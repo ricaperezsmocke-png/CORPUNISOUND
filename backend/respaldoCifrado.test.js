@@ -37,6 +37,15 @@ test("un archivo alterado un solo byte FALLA (esto es lo que compra GCM)", () =>
   assert.throws(() => desempaquetar(alterado, LLAVE), /no se pudo descifrar/);
 });
 
+test("el tag de autenticación es verificado (corrupción SOLO del tag, no IV ni datos)", () => {
+  const paquete = empaquetar({ datos: "críticos" }, LLAVE);
+  const alterado = Buffer.from(paquete);
+  // Corrompe un byte SOLO en la región del tag (bytes LARGO_IV a LARGO_IV+LARGO_TAG)
+  // Deja intactos IV (bytes 0 a LARGO_IV-1) y datos cifrados (bytes LARGO_IV+LARGO_TAG en adelante)
+  alterado[LARGO_IV + LARGO_TAG / 2] ^= 0x01;
+  assert.throws(() => desempaquetar(alterado, LLAVE), /no se pudo descifrar/);
+});
+
 test("un archivo truncado FALLA con mensaje claro, no con un crash raro", () => {
   const paquete = empaquetar({ a: 1 }, LLAVE);
   assert.throws(() => desempaquetar(paquete.subarray(0, 10), LLAVE), /incompleto o dañado/);
