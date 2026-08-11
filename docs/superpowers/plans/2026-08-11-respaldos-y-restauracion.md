@@ -2236,14 +2236,15 @@ Seguir la estructura de `src/EstadoCuenta.jsx` (encabezado, tabla, modal). Requi
    - 🔴 `El sistema NO se está respaldando — falta configurar la llave en el servidor` cuando `respaldo_configurado === false`
 2. **Dos listas**: "Puntos de restauración (30 días)" filtrando `tipo !== "hora"`, y "Detalle por hora (7 días)" filtrando `tipo === "hora"`. Columnas: fecha, hora, tamaño, ventas, productos, clientes, verificado.
 3. **Ningún botón de borrar.** La única forma de que un respaldo desaparezca es la rueda de retención.
-4. **Botón "Restaurar"** por renglón, **solo si** `permisos.includes("restaurar_respaldo") && estado.restauracion_habilitada`. Si `restauracion_habilitada === false`, mostrar en su lugar el texto: *"Restaurar está deshabilitado: falta configurar la clave en el servidor."*
+4. **Botón "Restaurar"** por renglón, **solo si** `permisos.includes("restaurar_respaldo") && permisos.includes("ver_todas_las_sucursales") && estado.restauracion_habilitada`. Si `restauracion_habilitada === false`, mostrar en su lugar el texto: *"Restaurar está deshabilitado: falta configurar la clave en el servidor."*
+   > **El gate del frontend debe coincidir EXACTAMENTE con el de la ruta** (`requierePermiso("restaurar_respaldo")` + `requiereAlcanceGlobal`, Task 7). Un botón visible que rebota con 403, o un botón escondido a quien sí puede usarlo, son las dos mitades del mismo defecto.
 5. **Modal de restauración** con `max-h-[92vh] flex flex-col overflow-hidden`, cuerpo `flex-1 min-h-0 overflow-y-auto`, encabezado y pie `shrink-0`. Contiene, en orden:
    - El resultado de `GET /api/respaldos/:id/comparar`: *"Vas a volver al estado del {fecha} {hora}."* y el `resumen`.
    - Aviso en rojo: **"Al restaurar, todos los usuarios conectados tienen que volver a entrar. Si hay cajeras vendiendo, se les corta la venta."**
    - Campo de **clave de restauración** (`type="password"`, `autoComplete="off"`).
    - Campo donde hay que escribir `RESTAURAR`.
    - Botón rojo **deshabilitado** hasta que el texto sea exactamente `RESTAURAR` y la clave no esté vacía. Con `type="submit"` explícito.
-6. **Botón "Respaldar ahora"** contra `POST /api/respaldos/ahora`, visible solo con `restaurar_respaldo` (la ruta exige alcance global).
+6. **Botón "Respaldar ahora"** contra `POST /api/respaldos/ahora`, visible solo si `permisos.includes("ver_respaldos") && permisos.includes("ver_todas_las_sucursales")` — el mismo par que exige la ruta (`requierePermiso("ver_respaldos")` + `requiereAlcanceGlobal`). No usar `restaurar_respaldo` aquí: es otro permiso y produciría un botón que rebota.
 7. La clave **nunca** se guarda en estado persistente ni en `localStorage`; se limpia al cerrar el modal.
 8. Tras una restauración exitosa, mostrar el aviso devuelto y **mandar al login** (`localStorage.removeItem("token")` + recargar), porque los usuarios y roles acaban de cambiar.
 
