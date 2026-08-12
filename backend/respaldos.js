@@ -267,16 +267,23 @@ async function leerRespaldo(DB, drive, copiaId, llave) {
  * tumbe el ciclo.
  */
 async function verificarRespaldo(DB, drive, copiaId, llave) {
+  // Se busca la copia ANTES de leerRespaldo (no se toma de su retorno):
+  // leerRespaldo puede lanzar en cualquiera de sus validaciones (descifrado,
+  // versión, colecciones faltantes) sin llegar a devolver nada. Si copia solo
+  // se supiera por su retorno, el catch de abajo no tendría a quién limpiarle
+  // verificado_en justo en los casos de archivo roto — que son el motivo de
+  // ser de esta función.
   let copia = null;
   try {
+    copia = buscarCopia(DB, copiaId);
     const leido = await leerRespaldo(DB, drive, copiaId, llave);
-    copia = leido.copia;
     const reales = contarRegistros(leido.foto.datos);
     const diferencias = Object.keys(copia.conteos || {}).filter(
       (k) => Number(copia.conteos[k]) !== Number(reales[k])
     ).map((k) => `${k}: el índice dice ${copia.conteos[k]} y el archivo trae ${reales[k]}`);
 
     if (diferencias.length) {
+      copia.verificado_en = null;
       pushMovimiento(DB, copia.id, "verificacion_fallida", diferencias.join("; "), null);
       return { ok: false, verificado_en: null, diferencias };
     }
@@ -284,7 +291,10 @@ async function verificarRespaldo(DB, drive, copiaId, llave) {
     pushMovimiento(DB, copia.id, "verificacion", "Descargado de Drive y comprobado", null);
     return { ok: true, verificado_en: copia.verificado_en, diferencias: [] };
   } catch (e) {
-    if (copia) pushMovimiento(DB, copia.id, "verificacion_fallida", e.message, null);
+    if (copia) {
+      copia.verificado_en = null;
+      pushMovimiento(DB, copia.id, "verificacion_fallida", e.message, null);
+    }
     return { ok: false, verificado_en: null, diferencias: [e.message] };
   }
 }

@@ -336,6 +336,22 @@ test("una copia fallida sin archivo en Drive se limpia sin llamar a Drive", asyn
   assert.strictEqual(llamadas, 0);
 });
 
+test("si NINGUNA copia tuvo éxito nunca, se protege la más nueva a secas (caso degenerado)", async () => {
+  // Caso degenerado explicado en el comentario de limpiarViejos: si `exitosas`
+  // sale vacío, `candidatas` cae a TODAS las copias sin importar su estado.
+  // Todas fallidas, todas vencidas por edad: debe sobrevivir exactamente una
+  // (la más nueva) y el índice nunca debe quedar vacío.
+  const DB = nuevoDB(); const drive = driveFalso();
+  const a = copiaFalsa(DB, { tipo: "hora", diasAtras: 30, id: 1 });
+  const b = copiaFalsa(DB, { tipo: "hora", diasAtras: 20, id: 2 });
+  const c = copiaFalsa(DB, { tipo: "hora", diasAtras: 10, id: 3 }); // la más nueva
+  for (const copia of [a, b, c]) { copia.estado = "fallido"; copia.drive_file_id = null; }
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(DB.respaldos.copias.length, 1, "el índice no debe quedar vacío");
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [3]);
+  assert.strictEqual(r.conservadas, 1);
+});
+
 test("las constantes de retención son las que pidió Victor", () => {
   assert.strictEqual(DIAS_RETENCION_DIA, 30);
   assert.strictEqual(DIAS_RETENCION_HORA, 7);
@@ -403,4 +419,53 @@ test("leerRespaldo rechaza una foto a la que le falta una colección", async () 
 test("leerRespaldo con un id que no existe da un mensaje claro", async () => {
   const DB = nuevoDB(); const drive = driveConMemoria();
   await assert.rejects(() => leerRespaldo(DB, drive, 999, LLAVE), /no encontrado/i);
+});
+
+test("verificarRespaldo limpia verificado_en si una re-verificación con conteos distintos falla", async () => {
+  // Mismo hallazgo que la prueba de abajo, pero por el camino de
+  // `diferencias.length` (conteos que no cuadran) en vez del catch: una
+  // verificación exitosa marca verificado_en, y una re-verificación
+  // posterior que encuentra el índice desincronizado del archivo debe
+  // limpiar el campo persistido en DB.respaldos.copias, no solo el valor
+  // de retorno.
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+
+  const r1 = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r1.ok, true);
+  assert.ok(copia.verificado_en, "debió marcar verificado_en tras el primer éxito");
+
+  copia.conteos = { ...copia.conteos, ventas: 999 }; // el índice se desincroniza DESPUÉS del primer éxito
+  const r2 = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+
+  assert.strictEqual(r2.ok, false);
+  assert.strictEqual(r2.verificado_en, null);
+  assert.strictEqual(
+    copia.verificado_en, null,
+    "el índice quedó mintiendo: sigue con la fecha del éxito anterior"
+  );
+});
+
+test("verificarRespaldo limpia verificado_en si una re-verificación encuentra el archivo corrupto en Drive", async () => {
+  // Reproduce el hallazgo Important 1: una vez marcado verificado_en, una
+  // segunda verificación que falla debe dejar limpio el campo persistido en
+  // DB.respaldos.copias, no solo el valor de retorno. La pantalla de
+  // Respaldos lee el índice, no lo que regresó la llamada anterior.
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+
+  const r1 = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r1.ok, true);
+  assert.ok(copia.verificado_en, "debió marcar verificado_en tras el primer éxito");
+
+  const bytes = drive.archivos.get(copia.drive_file_id);
+  bytes[bytes.length - 1] ^= 0xff; // se corrompe DESPUÉS del primer éxito
+  const r2 = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+
+  assert.strictEqual(r2.ok, false);
+  assert.strictEqual(r2.verificado_en, null);
+  assert.strictEqual(
+    copia.verificado_en, null,
+    "el índice quedó mintiendo: sigue con la fecha del éxito anterior"
+  );
 });
