@@ -1121,6 +1121,21 @@ test("NUNCA se borra la copia más reciente, aunque las reglas lo digan", async 
   assert.strictEqual(DB.respaldos.copias.length, 1);
 });
 
+test("un intento FALLIDO reciente no le roba la protección al último respaldo bueno", async () => {
+  // El bug que encontró la revisión de la Task 4 (2026-08-12). `crearRespaldo`
+  // registra la copia con estado "fallido" ANTES de subir a Drive. Si la
+  // protección mira solo la fecha, el fallido —que no es ni un byte en Drive— se
+  // lleva el escudo, y el último respaldo REAL lo borra la retención por edad.
+  // El índice quedaría con un renglón y la carpeta de Drive vacía.
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 10, id: 1, estado: "ok" });      // el único real, ya vencido
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 0, id: 2, estado: "fallido" });  // el más nuevo, y no existe en Drive
+  await limpiarViejos(DB, drive, HOY);
+  const vivosDeVerdad = DB.respaldos.copias.filter((c) => c.estado === "ok");
+  assert.strictEqual(vivosDeVerdad.length, 1, "se borró el único respaldo que existía en Drive");
+  assert.strictEqual(vivosDeVerdad[0].id, 1);
+});
+
 test("protege la más reciente aunque ELLA MISMA esté vencida (y borra las demás)", async () => {
   // ESTA es la prueba que le da dientes a la protección de `masReciente`.
   // La de arriba NO sirve para eso: con una sola copia, la guarda
@@ -1197,9 +1212,16 @@ function diasDeVida(tipo) {
  * Rueda de retención: 30 días de puntos del día, 7 días de detalle por hora.
  *
  * Dos reglas que no se negocian:
- *  1) La copia MÁS RECIENTE nunca se borra, aunque su fecha diga que ya venció.
- *     Es la última red contra un reloj mal puesto o una fecha corrupta: mejor un
- *     archivo de más que quedarse sin ninguno.
+ *  1) El respaldo UTILIZABLE más reciente nunca se borra, aunque su fecha diga
+ *     que ya venció. Es la última red contra un reloj mal puesto o una fecha
+ *     corrupta: mejor un archivo de más que quedarse sin ninguno.
+ *     OJO — "utilizable" quiere decir `estado === "ok"`, y esa palabra costó un
+ *     bug real (revisión de la Task 4, 2026-08-12): `crearRespaldo` mete el
+ *     registro con estado "fallido" ANTES de subir a Drive. Si se elige el más
+ *     reciente solo por fecha, un intento fallido — que no representa un solo
+ *     byte en Drive — se lleva la protección, y el último respaldo bueno deja de
+ *     ser el más nuevo, la pierde, y lo borra la retención por edad. El índice
+ *     queda con un renglón vivo y la carpeta de Drive VACÍA.
  *  2) Si Drive falla al borrar, el renglón se CONSERVA en el índice. Quitarlo
  *     dejaría un archivo huérfano en Drive que nadie volvería a mirar; dejarlo
  *     hace que el siguiente ciclo lo reintente.
@@ -1208,9 +1230,13 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   const copias = DB.respaldos.copias;
   if (copias.length <= 1) return { borradas: 0, conservadas: copias.length };
 
-  const masReciente = copias.reduce((a, b) =>
-    Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b
-  );
+  // El más nuevo de los que SÍ están en Drive. Si ninguno tuvo éxito nunca
+  // (arranque, o Drive lleva horas caído), se cae al más nuevo a secas: proteger
+  // algo es mejor que no proteger nada.
+  const masNuevoDe = (lista) =>
+    lista.reduce((a, b) => (Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b));
+  const utilizables = copias.filter((c) => c.estado === "ok" && c.drive_file_id);
+  const masReciente = masNuevoDe(utilizables.length ? utilizables : copias);
 
   const vencidas = copias.filter((c) => {
     if (c === masReciente) return false;
