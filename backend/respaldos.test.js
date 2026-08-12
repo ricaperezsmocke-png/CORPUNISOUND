@@ -4,6 +4,7 @@ const {
   crearRespaldo, armarFoto, contarRegistros, nuevoEstadoRespaldos,
   estadoRespaldos, COLECCIONES_RESPALDADAS, VERSION_FORMATO,
   limpiarViejos, DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
+  verificarRespaldo, leerRespaldo,
 } = require("./respaldos");
 const { desempaquetar } = require("./respaldoCifrado");
 
@@ -19,6 +20,26 @@ function driveFalso() {
       return { id: `file-${subidos.length}`, webViewLink: `https://drive/f${subidos.length}` };
     },
     eliminarArchivoDeDrive: async () => {},
+  };
+}
+
+/** driveFalso que además DEVUELVE lo que se le subió, para poder bajarlo. */
+function driveConMemoria() {
+  const archivos = new Map();
+  let n = 0;
+  return {
+    archivos,
+    asegurarCarpetaRespaldos: async () => "carpeta-respaldos",
+    subirArchivoADrive: async (_DB, args) => {
+      const id = `file-${++n}`;
+      archivos.set(id, args.contenidoBuffer);
+      return { id, webViewLink: `https://drive/${id}` };
+    },
+    descargarArchivoDeDrive: async (_DB, id) => {
+      if (!archivos.has(id)) throw new Error("404 en Drive");
+      return archivos.get(id);
+    },
+    eliminarArchivoDeDrive: async (_DB, id) => { archivos.delete(id); },
   };
 }
 
@@ -241,6 +262,47 @@ test("protege la más reciente aunque ELLA MISMA esté vencida (y borra las dem�
   assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [1]);
 });
 
+test("si la copia más nueva quedó fallida, la protección cuida el respaldo bueno más reciente, no el renglón fallido", async () => {
+  // Reproduce el hallazgo Important 1 de revisión: `crearRespaldo` mete el
+  // registro con estado "fallido" y drive_file_id null ANTES de intentar subir.
+  // Si ese intento falla, el renglón "fallido" es el más nuevo por fecha_hora
+  // pero NO representa ni un byte en Drive. Si `masReciente` lo protege a él,
+  // el respaldo bueno (más viejo) queda desprotegido y la retención por edad
+  // se lo come — la carpeta de Drive termina vacía aunque el índice muestre
+  // un renglón "sobreviviente".
+  const DB = nuevoDB(); const drive = driveFalso();
+  const buena = copiaFalsa(DB, { tipo: "hora", diasAtras: 10, id: 1 }); // único respaldo real, vencido por edad (>7d)
+  const fallida = copiaFalsa(DB, { tipo: "hora", diasAtras: 0, id: 2 }); // más nueva, pero sin archivo en Drive
+  fallida.estado = "fallido"; fallida.drive_file_id = null;
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 0, "no debió borrar el único respaldo real que existe");
+  assert.ok(
+    DB.respaldos.copias.some((c) => c.estado === "ok"),
+    "la carpeta no debe quedarse sin ningún respaldo real"
+  );
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id).sort(), [1, 2]);
+});
+
+test("un punto del día fallido y vencido se limpia igual que uno por hora", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  const f = copiaFalsa(DB, { tipo: "dia", diasAtras: 31, id: 1 });
+  f.estado = "fallido"; f.drive_file_id = null;
+  copiaFalsa(DB, { tipo: "dia", diasAtras: 0, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [2]);
+});
+
+test("un pre_restauracion fallido y vencido se limpia igual", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  const f = copiaFalsa(DB, { tipo: "pre_restauracion", diasAtras: 31, id: 1 });
+  f.estado = "fallido"; f.drive_file_id = null;
+  copiaFalsa(DB, { tipo: "pre_restauracion", diasAtras: 0, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [2]);
+});
+
 test("la retención borra el archivo en Drive, no solo el renglón del índice", async () => {
   const DB = nuevoDB(); const drive = driveFalso();
   const borrados = [];
@@ -277,4 +339,68 @@ test("una copia fallida sin archivo en Drive se limpia sin llamar a Drive", asyn
 test("las constantes de retención son las que pidió Victor", () => {
   assert.strictEqual(DIAS_RETENCION_DIA, 30);
   assert.strictEqual(DIAS_RETENCION_HORA, 7);
+});
+
+test("verificarRespaldo baja de Drive, descifra y confirma los conteos", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  const r = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r.ok, true);
+  assert.ok(copia.verificado_en, "debió marcar verificado_en");
+  assert.deepStrictEqual(r.diferencias, []);
+});
+
+test("verificarRespaldo detecta un archivo alterado en Drive", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  const bytes = drive.archivos.get(copia.drive_file_id);
+  bytes[bytes.length - 1] ^= 0xff; // un byte cambiado
+  const r = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(copia.verificado_en, null, "un respaldo roto NO queda marcado como verificado");
+});
+
+test("verificarRespaldo detecta que el archivo ya no está en Drive", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  drive.archivos.delete(copia.drive_file_id);
+  const r = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r.ok, false);
+});
+
+test("verificarRespaldo detecta si los conteos de la etiqueta no cuadran", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  copia.conteos = { ...copia.conteos, ventas: 999 }; // el índice miente
+  const r = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.diferencias.some((d) => d.includes("ventas")));
+});
+
+test("leerRespaldo rechaza una version_formato desconocida", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  // Se re-sube una foto del futuro con el mismo id de archivo.
+  const { empaquetar } = require("./respaldoCifrado");
+  drive.archivos.set(copia.drive_file_id, empaquetar(
+    { version_formato: 99, generado_en: "2026-08-11T22:00:00.000Z", conteos: {}, datos: { pos: {} } },
+    LLAVE,
+  ));
+  await assert.rejects(() => leerRespaldo(DB, drive, copia.id, LLAVE), /versión/i);
+});
+
+test("leerRespaldo rechaza una foto a la que le falta una colección", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  const { empaquetar } = require("./respaldoCifrado");
+  drive.archivos.set(copia.drive_file_id, empaquetar(
+    { version_formato: 1, generado_en: "2026-08-11T22:00:00.000Z", conteos: {}, datos: { pos: { ventas: [] } } },
+    LLAVE,
+  ));
+  await assert.rejects(() => leerRespaldo(DB, drive, copia.id, LLAVE), /incompleto|falta/i);
+});
+
+test("leerRespaldo con un id que no existe da un mensaje claro", async () => {
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  await assert.rejects(() => leerRespaldo(DB, drive, 999, LLAVE), /no encontrado/i);
 });

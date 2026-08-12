@@ -256,6 +256,15 @@ async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpe
   return await r.json();
 }
 
+/** Baja el contenido de un archivo de Drive como Buffer. `alt=media` pide el
+ *  contenido y no los metadatos. */
+async function descargarArchivoDeDrive(DB, fileId) {
+  const token = await tokenActivo(DB);
+  const r = await fetch(`${DRIVE_API}/${fileId}?alt=media`, { headers: driveHeaders(token) });
+  if (!r.ok) throw new Error("Error al descargar archivo de Google Drive: " + (await r.text()));
+  return Buffer.from(await r.arrayBuffer());
+}
+
 async function eliminarArchivoDeDrive(DB, fileId) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${DRIVE_API}/${fileId}`, {
@@ -274,6 +283,6 @@ module.exports = {
   asegurarCarpetaGastosRaiz, asegurarCarpetaGastosSucursal,
   asegurarCarpetaDepositosRaiz, asegurarCarpetaDepositosSucursal,
   asegurarCarpetaRespaldos, CARPETA_RESPALDOS_NOMBRE,
-  subirArchivoADrive, eliminarArchivoDeDrive,
+  subirArchivoADrive, eliminarArchivoDeDrive, descargarArchivoDeDrive,
   CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE, CARPETA_GASTOS_NOMBRE, CARPETA_DEPOSITOS_NOMBRE,
 };

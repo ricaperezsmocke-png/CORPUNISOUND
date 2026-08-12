@@ -169,9 +169,21 @@ function diasDeVida(tipo) {
  * Rueda de retención: 30 días de puntos del día, 7 días de detalle por hora.
  *
  * Dos reglas que no se negocian:
- *  1) La copia MÁS RECIENTE nunca se borra, aunque su fecha diga que ya venció.
- *     Es la última red contra un reloj mal puesto o una fecha corrupta: mejor un
- *     archivo de más que quedarse sin ninguno.
+ *  1) La copia UTILIZABLE MÁS RECIENTE nunca se borra, aunque su fecha diga que
+ *     ya venció. Es la última red contra un reloj mal puesto o una fecha
+ *     corrupta: mejor un archivo de más que quedarse sin ninguno.
+ *
+ *     "Utilizable" = estado "ok" con drive_file_id, es decir que SÍ hay un byte
+ *     real en Drive detrás. `crearRespaldo` mete el renglón con estado
+ *     "fallido" y drive_file_id null ANTES de intentar subir, y solo lo pasa a
+ *     "ok" cuando Drive confirmó. Si se protegiera por fecha_hora a secas, un
+ *     intento fallido reciente (Drive caído, token vencido) se volvería el
+ *     "protegido" sin representar ningún respaldo real, mientras el último
+ *     respaldo bueno —ahora sin protección— se lo comería la retención por
+ *     edad en cuanto cruzara su umbral: la carpeta de Drive quedaría vacía con
+ *     el índice mostrando un renglón sobreviviente que no sirve para nada.
+ *     Si NUNCA hubo un respaldo exitoso, cae al caso degenerado: se protege
+ *     el renglón más nuevo que haya, sea cual sea su estado.
  *  2) Si Drive falla al borrar, el renglón se CONSERVA en el índice. Quitarlo
  *     dejaría un archivo huérfano en Drive que nadie volvería a mirar; dejarlo
  *     hace que el siguiente ciclo lo reintente.
@@ -180,7 +192,9 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   const copias = DB.respaldos.copias;
   if (copias.length <= 1) return { borradas: 0, conservadas: copias.length };
 
-  const masReciente = copias.reduce((a, b) =>
+  const exitosas = copias.filter((c) => c.estado === "ok" && c.drive_file_id);
+  const candidatas = exitosas.length ? exitosas : copias;
+  const masReciente = candidatas.reduce((a, b) =>
     Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b
   );
 
@@ -208,9 +222,77 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   return { borradas, conservadas: DB.respaldos.copias.length };
 }
 
+const { desempaquetar } = require("./respaldoCifrado");
+
+function buscarCopia(DB, copiaId) {
+  const c = DB.respaldos.copias.find((x) => x.id === Number(copiaId));
+  if (!c) throw new Error("Respaldo no encontrado");
+  return c;
+}
+
+/**
+ * Baja el archivo de Drive, lo descifra y lo VALIDA ENTERO antes de devolverlo.
+ *
+ * Se valida todo antes de que nadie pueda usarlo: es el mismo principio que
+ * salvó a la migración de SICAR de dejar datos a medias. Un archivo que no pasa
+ * se rechaza completo, nunca se aprovecha "la parte buena".
+ */
+async function leerRespaldo(DB, drive, copiaId, llave) {
+  if (!llave) throw new Error("RESPALDO_LLAVE no está configurada — no se puede leer el respaldo");
+  const copia = buscarCopia(DB, copiaId);
+  if (!copia.drive_file_id) throw new Error("Ese respaldo no llegó a subirse a Drive");
+
+  const bytes = await drive.descargarArchivoDeDrive(DB, copia.drive_file_id);
+  const foto = desempaquetar(bytes, llave); // lanza si está alterado o corrupto
+
+  if (foto.version_formato !== VERSION_FORMATO) {
+    throw new Error(
+      `Ese respaldo usa la versión de formato ${foto.version_formato} y este sistema entiende la ${VERSION_FORMATO}. No se puede aplicar.`
+    );
+  }
+  if (!foto.datos || typeof foto.datos !== "object") {
+    throw new Error("El respaldo está incompleto: no trae datos");
+  }
+  const faltantes = COLECCIONES_RESPALDADAS.filter((k) => foto.datos[k] === undefined);
+  if (faltantes.length) {
+    throw new Error(`El respaldo está incompleto: le falta ${faltantes.join(", ")}`);
+  }
+  return { copia, foto };
+}
+
+/**
+ * La verificación que de verdad cuenta: baja de Drive y comprueba que lo
+ * guardado sirve. Cifrar bien no garantiza que Drive guardó los bytes correctos.
+ * NUNCA lanza — un respaldo roto es un dato que reportar, no una excepción que
+ * tumbe el ciclo.
+ */
+async function verificarRespaldo(DB, drive, copiaId, llave) {
+  let copia = null;
+  try {
+    const leido = await leerRespaldo(DB, drive, copiaId, llave);
+    copia = leido.copia;
+    const reales = contarRegistros(leido.foto.datos);
+    const diferencias = Object.keys(copia.conteos || {}).filter(
+      (k) => Number(copia.conteos[k]) !== Number(reales[k])
+    ).map((k) => `${k}: el índice dice ${copia.conteos[k]} y el archivo trae ${reales[k]}`);
+
+    if (diferencias.length) {
+      pushMovimiento(DB, copia.id, "verificacion_fallida", diferencias.join("; "), null);
+      return { ok: false, verificado_en: null, diferencias };
+    }
+    copia.verificado_en = ahora();
+    pushMovimiento(DB, copia.id, "verificacion", "Descargado de Drive y comprobado", null);
+    return { ok: true, verificado_en: copia.verificado_en, diferencias: [] };
+  } catch (e) {
+    if (copia) pushMovimiento(DB, copia.id, "verificacion_fallida", e.message, null);
+    return { ok: false, verificado_en: null, diferencias: [e.message] };
+  }
+}
+
 module.exports = {
   nuevoEstadoRespaldos, contarRegistros, armarFoto, crearRespaldo, estadoRespaldos,
   pushMovimiento, siguienteId, limpiarViejos,
+  leerRespaldo, verificarRespaldo, buscarCopia,
   COLECCIONES_RESPALDADAS, VERSION_FORMATO, MINUTOS_PARA_ALERTA,
   DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
 };
