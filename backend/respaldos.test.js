@@ -3,6 +3,7 @@ const assert = require("node:assert");
 const {
   crearRespaldo, armarFoto, contarRegistros, nuevoEstadoRespaldos,
   estadoRespaldos, COLECCIONES_RESPALDADAS, VERSION_FORMATO,
+  limpiarViejos, DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
 } = require("./respaldos");
 const { desempaquetar } = require("./respaldoCifrado");
 
@@ -161,4 +162,119 @@ test("estadoRespaldos sin ningún respaldo está en ROJO, no en verde", () => {
   const e = estadoRespaldos(nuevoDB());
   assert.strictEqual(e.alerta, true);
   assert.strictEqual(e.ultimo_exitoso, null);
+});
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+const HOY = Date.parse("2026-08-11T22:00:00.000Z");
+
+function copiaFalsa(DB, { tipo, diasAtras, id }) {
+  const ms = HOY - diasAtras * DIA_MS;
+  const c = {
+    id, tipo,
+    fecha: new Date(ms).toISOString().slice(0, 10),
+    fecha_hora: new Date(ms).toISOString(),
+    hora_local: "16:00",
+    nombre_archivo: `respaldo-${id}.respaldo`,
+    drive_file_id: `file-${id}`, drive_link: null,
+    bytes: 100, conteos: {}, verificado_en: null, estado: "ok",
+  };
+  DB.respaldos.copias.push(c);
+  return c;
+}
+
+test("la retención borra las copias por hora de más de 7 días", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 2, id: 1 });
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 8, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [1]);
+});
+
+test("la retención NO borra un punto del día de 8 días (esos viven 30)", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "dia", diasAtras: 8, id: 1 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 0);
+});
+
+test("la retención SÍ borra un punto del día de 31 días", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "dia", diasAtras: 31, id: 1 });
+  copiaFalsa(DB, { tipo: "dia", diasAtras: 29, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [2]);
+});
+
+test("un pre_restauracion vive 30 días, como los del día", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "pre_restauracion", diasAtras: 8, id: 1 });
+  copiaFalsa(DB, { tipo: "pre_restauracion", diasAtras: 31, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [1]);
+});
+
+test("NUNCA se borra la copia más reciente, aunque las reglas lo digan", async () => {
+  // La última red: mejor un archivo de más que quedarse sin ninguno por un
+  // error de fechas o un reloj mal puesto.
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 400, id: 1 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 0);
+  assert.strictEqual(DB.respaldos.copias.length, 1);
+});
+
+test("protege la más reciente aunque ELLA MISMA esté vencida (y borra las demás)", async () => {
+  // ESTA es la prueba que le da dientes a la protección de `masReciente`.
+  // La de arriba NO sirve para eso: con una sola copia, la guarda
+  // `if (copias.length <= 1) return ...` regresa ANTES de que la línea de
+  // `masReciente` se ejecute siquiera, así que quitar esa línea la deja
+  // igual de verde. Hacen falta DOS copias, ambas vencidas, para que la
+  // protección sea lo único que separa "borra una" de "vacía la carpeta".
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 10, id: 1 }); // vencida (>7d), pero es la más nueva
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 20, id: 2 }); // vencida y más vieja
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [1]);
+});
+
+test("la retención borra el archivo en Drive, no solo el renglón del índice", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  const borrados = [];
+  drive.eliminarArchivoDeDrive = async (_DB, fileId) => { borrados.push(fileId); };
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 30, id: 1 });
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 0, id: 2 });
+  await limpiarViejos(DB, drive, HOY);
+  assert.deepStrictEqual(borrados, ["file-1"]);
+});
+
+test("si Drive falla al borrar, el renglón NO se quita del índice", async () => {
+  // Quitarlo dejaría un archivo huérfano invisible que nadie volvería a borrar.
+  const DB = nuevoDB(); const drive = driveFalso();
+  drive.eliminarArchivoDeDrive = async () => { throw new Error("Drive caído"); };
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 30, id: 1 });
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 0, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 0);
+  assert.strictEqual(DB.respaldos.copias.length, 2);
+});
+
+test("una copia fallida sin archivo en Drive se limpia sin llamar a Drive", async () => {
+  const DB = nuevoDB(); const drive = driveFalso();
+  let llamadas = 0;
+  drive.eliminarArchivoDeDrive = async () => { llamadas++; };
+  const c = copiaFalsa(DB, { tipo: "hora", diasAtras: 30, id: 1 });
+  c.estado = "fallido"; c.drive_file_id = null;
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 0, id: 2 });
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.strictEqual(llamadas, 0);
+});
+
+test("las constantes de retención son las que pidió Victor", () => {
+  assert.strictEqual(DIAS_RETENCION_DIA, 30);
+  assert.strictEqual(DIAS_RETENCION_HORA, 7);
 });

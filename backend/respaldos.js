@@ -157,8 +157,60 @@ function estadoRespaldos(DB, ahoraMs = Date.now()) {
   };
 }
 
+const DIAS_RETENCION_DIA = 30;   // los puntos del día y los pre_restauracion
+const DIAS_RETENCION_HORA = 7;   // el detalle fino
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+function diasDeVida(tipo) {
+  return tipo === "hora" ? DIAS_RETENCION_HORA : DIAS_RETENCION_DIA;
+}
+
+/**
+ * Rueda de retención: 30 días de puntos del día, 7 días de detalle por hora.
+ *
+ * Dos reglas que no se negocian:
+ *  1) La copia MÁS RECIENTE nunca se borra, aunque su fecha diga que ya venció.
+ *     Es la última red contra un reloj mal puesto o una fecha corrupta: mejor un
+ *     archivo de más que quedarse sin ninguno.
+ *  2) Si Drive falla al borrar, el renglón se CONSERVA en el índice. Quitarlo
+ *     dejaría un archivo huérfano en Drive que nadie volvería a mirar; dejarlo
+ *     hace que el siguiente ciclo lo reintente.
+ */
+async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
+  const copias = DB.respaldos.copias;
+  if (copias.length <= 1) return { borradas: 0, conservadas: copias.length };
+
+  const masReciente = copias.reduce((a, b) =>
+    Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b
+  );
+
+  const vencidas = copias.filter((c) => {
+    if (c === masReciente) return false;
+    const nacida = Date.parse(c.fecha_hora);
+    if (!Number.isFinite(nacida)) return false; // fecha corrupta: no se toca
+    return ahoraMs - nacida > diasDeVida(c.tipo) * DIA_MS;
+  });
+
+  let borradas = 0;
+  for (const c of vencidas) {
+    if (c.drive_file_id) {
+      try {
+        await drive.eliminarArchivoDeDrive(DB, c.drive_file_id);
+      } catch (_) {
+        continue; // se conserva el renglón; el próximo ciclo reintenta
+      }
+    }
+    const i = DB.respaldos.copias.indexOf(c);
+    if (i !== -1) DB.respaldos.copias.splice(i, 1);
+    pushMovimiento(DB, c.id, "borrado", `Retención: ${c.nombre_archivo}`, null);
+    borradas++;
+  }
+  return { borradas, conservadas: DB.respaldos.copias.length };
+}
+
 module.exports = {
   nuevoEstadoRespaldos, contarRegistros, armarFoto, crearRespaldo, estadoRespaldos,
-  pushMovimiento, siguienteId,
+  pushMovimiento, siguienteId, limpiarViejos,
   COLECCIONES_RESPALDADAS, VERSION_FORMATO, MINUTOS_PARA_ALERTA,
+  DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
 };
