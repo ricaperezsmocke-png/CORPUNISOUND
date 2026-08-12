@@ -1,12 +1,15 @@
-const { test } = require("node:test");
+const { test, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const {
   crearRespaldo, armarFoto, contarRegistros, nuevoEstadoRespaldos,
   estadoRespaldos, COLECCIONES_RESPALDADAS, VERSION_FORMATO,
   limpiarViejos, DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
   verificarRespaldo, leerRespaldo,
+  restaurar, claveRestauracionConfigurada, claveCorrecta,
+  compararConEstadoActual, PALABRA_CONFIRMACION,
 } = require("./respaldos");
 const { desempaquetar } = require("./respaldoCifrado");
+const { estaActivo, desactivar } = require("./mantenimiento");
 
 const LLAVE = Buffer.from("a".repeat(64), "hex");
 
@@ -444,6 +447,262 @@ test("verificarRespaldo limpia verificado_en si una re-verificación con conteos
     copia.verificado_en, null,
     "el índice quedó mintiendo: sigue con la fecha del éxito anterior"
   );
+});
+
+const ENV_OK = { CLAVE_RESTAURACION: "la-clave-secreta-de-victor" };
+/** Una llave válida pero distinta: sirve para simular un respaldo ilegible. */
+const OTRA_LLAVE = Buffer.from("b".repeat(64), "hex");
+
+// El interruptor de mantenimiento es estado de MÓDULO, no del DB: vive entre
+// pruebas. Se apaga antes de cada una para que el orden de ejecución no cambie
+// el resultado — una prueba que depende de la anterior es una prueba que miente.
+beforeEach(() => desactivar());
+
+async function conRespaldoListo() {
+  const DB = nuevoDB();
+  const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  return { DB, drive, copia };
+}
+
+test("un usuario amarrado a una sucursal NO puede restaurar, aunque traiga la clave buena", async () => {
+  // Candado 0, dentro del módulo. La ruta ya exige alcance global; esta prueba
+  // vigila que el módulo NO dependa solo de la ruta (restricción global #5).
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION,
+      usuario: { nombre: "Gerente de Ocosingo", sucursal_id: 1 }, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  // Y no debió dejar ni siquiera el respaldo pre_restauracion.
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
+test("sin CLAVE_RESTAURACION configurada, restaurar está APAGADO (falla cerrado)", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  assert.strictEqual(claveRestauracionConfigurada({}), false);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: "loquesea",
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: {},
+    }),
+    /no está habilitada|no está configurada/i,
+  );
+});
+
+test("con la clave equivocada NO restaura y NO muta nada", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
+  const antes = JSON.stringify(DB.pos.ventas);
+
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: "clave-mala",
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    }),
+    /clave de restauración/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes);
+});
+
+test("sin escribir RESTAURAR no restaura", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: "restaurar porfa", usuario: { nombre: "Victor" }, env: ENV_OK,
+    }),
+    /RESTAURAR/,
+  );
+});
+
+test("restaurar deja la base exactamente igual a la foto", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
+  DB.crm.clientes.push({ id: 2, nombre: "Cliente nuevo" });
+
+  const r = await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  });
+
+  assert.strictEqual(r.aplicado, true);
+  assert.strictEqual(DB.pos.ventas.length, 2);
+  assert.strictEqual(DB.crm.clientes.length, 1);
+  assert.strictEqual(DB.crm.clientes[0].nombre, "Ana");
+});
+
+test("ANTES de tocar nada se crea el respaldo pre_restauracion", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
+
+  const r = await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  });
+
+  assert.strictEqual(r.pre_restauracion.tipo, "pre_restauracion");
+  // Y trae el estado de ANTES: las 3 ventas, no las 2 restauradas.
+  const foto = desempaquetar(drive.archivos.get(r.pre_restauracion.drive_file_id), LLAVE);
+  assert.strictEqual(foto.datos.pos.ventas.length, 3);
+});
+
+test("si el respaldo previo FALLA, la restauración se cancela y no se muta nada", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
+  const antes = JSON.stringify(DB.pos.ventas);
+
+  const subirOriginal = drive.subirArchivoADrive;
+  drive.subirArchivoADrive = async () => { throw new Error("Drive caído"); };
+
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    }),
+    /respaldo de seguridad|no se pudo/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "la base se movió y no debía");
+  drive.subirArchivoADrive = subirOriginal;
+});
+
+test("restaurar NO pisa DB.respaldos con el índice viejo", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  const copiasAntes = DB.respaldos.copias.length;
+
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  });
+
+  // El índice conserva la copia original MÁS el pre_restauracion.
+  assert.strictEqual(DB.respaldos.copias.length, copiasAntes + 1);
+  assert.ok(DB.respaldos.copias.some((c) => c.tipo === "pre_restauracion"));
+});
+
+test("un archivo corrupto se rechaza SIN mutación parcial", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
+  const antes = JSON.stringify(DB.pos.ventas);
+  const bytes = drive.archivos.get(copia.drive_file_id);
+  bytes[bytes.length - 1] ^= 0xff;
+
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    }),
+    /no se pudo descifrar/,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes);
+});
+
+test("la restauración queda en la bitácora con quién y qué", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor Pérez" }, env: ENV_OK,
+  });
+  const mov = DB.respaldos.movimientos.find((m) => m.tipo === "restauracion");
+  assert.ok(mov);
+  assert.strictEqual(mov.usuario, "Victor Pérez");
+});
+
+test("mientras restaura, el sistema está BLOQUEADO — y el bloqueo empieza ANTES del respaldo previo", async () => {
+  // La ventana que este bloqueo cierra: una venta capturada entre el respaldo
+  // previo y el reemplazo se perdería DOS veces (no está en los datos viejos que
+  // se restauran, ni en el respaldo previo que se tomó antes de ella).
+  const { DB, drive, copia } = await conRespaldoListo();
+  let bloqueadoDuranteElPrevio = null;
+  const subirOriginal = drive.subirArchivoADrive;
+  drive.subirArchivoADrive = async (...args) => {
+    bloqueadoDuranteElPrevio = estaActivo(); // esto corre DENTRO del respaldo previo
+    return subirOriginal(...args);
+  };
+
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  });
+
+  assert.strictEqual(bloqueadoDuranteElPrevio, true, "el bloqueo llegó tarde");
+  assert.strictEqual(estaActivo(), false, "no se desbloqueó al terminar");
+});
+
+test("si la restauración TRUENA a media faena, el sistema se desbloquea igual", async () => {
+  // Un negocio trabado en mantenimiento para siempre sería peor que la falla.
+  const { DB, drive, copia } = await conRespaldoListo();
+  drive.subirArchivoADrive = async () => { throw new Error("Drive caído"); };
+
+  await assert.rejects(() => restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  }));
+  assert.strictEqual(estaActivo(), false, "quedó trabado en mantenimiento");
+});
+
+test("una clave equivocada NO bloquea la tienda", async () => {
+  // Cerrar la tienda porque alguien se equivocó al teclear sería un modo de
+  // negación de servicio con tres letras mal escritas.
+  const { DB, drive, copia } = await conRespaldoListo();
+  await assert.rejects(() => restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: "clave-mala",
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  }));
+  assert.strictEqual(estaActivo(), false);
+});
+
+test("un respaldo ilegible NO bloquea la tienda (se valida antes de bloquear)", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  await assert.rejects(() => restaurar(DB, drive, {
+    copiaId: copia.id, llave: OTRA_LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  }));
+  assert.strictEqual(estaActivo(), false);
+});
+
+test("la clave NUNCA aparece en la bitácora", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  });
+  const texto = JSON.stringify(DB.respaldos.movimientos);
+  assert.ok(!texto.includes(ENV_OK.CLAVE_RESTAURACION), "la clave se filtró a la bitácora");
+});
+
+test("claveCorrecta no se deja engañar por una clave más larga con el mismo prefijo", () => {
+  assert.strictEqual(claveCorrecta("la-clave-secreta-de-victor", ENV_OK), true);
+  assert.strictEqual(claveCorrecta("la-clave-secreta-de-victorXX", ENV_OK), false);
+  assert.strictEqual(claveCorrecta("la-clave", ENV_OK), false);
+  assert.strictEqual(claveCorrecta("", ENV_OK), false);
+  assert.strictEqual(claveCorrecta(null, ENV_OK), false);
+});
+
+test("compararConEstadoActual dice cuántos registros se van a perder", async () => {
+  const { DB, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
+  DB.pos.ventas.push({ id: 4, total: 50, tipo_documento: "Ticket" });
+  DB.gastos.gastos.push({ id: 2 });
+
+  const c = compararConEstadoActual(DB, copia);
+  assert.strictEqual(c.perdidas.ventas, 2);
+  assert.strictEqual(c.perdidas.gastos, 1);
+  assert.ok(!("clientes" in c.perdidas), "no debe listar lo que no cambió");
+});
+
+test("compararConEstadoActual no reporta pérdidas negativas", async () => {
+  const { DB, copia } = await conRespaldoListo();
+  DB.pos.ventas.pop(); // hoy hay MENOS que en la foto
+  const c = compararConEstadoActual(DB, copia);
+  assert.ok(!("ventas" in c.perdidas));
 });
 
 test("verificarRespaldo limpia verificado_en si una re-verificación encuentra el archivo corrupto en Drive", async () => {

@@ -16,8 +16,10 @@
  * peso de cada archivo sin ganar nada.
  */
 
+const crypto = require("crypto");
 const { empaquetar } = require("./respaldoCifrado");
 const { fechaLocal, ahora, momentoLocal } = require("./fechas");
+const mantenimiento = require("./mantenimiento");
 
 const VERSION_FORMATO = 1;
 
@@ -299,10 +301,157 @@ async function verificarRespaldo(DB, drive, copiaId, llave) {
   }
 }
 
+const PALABRA_CONFIRMACION = "RESTAURAR";
+
+/** ¿Está puesta la clave en Render? Si no, restaurar NO EXISTE. Falla cerrado:
+ *  mientras Victor no la ponga a propósito, nadie puede restaurar nada. */
+function claveRestauracionConfigurada(env = process.env) {
+  return typeof env.CLAVE_RESTAURACION === "string" && env.CLAVE_RESTAURACION.length > 0;
+}
+
+/** Comparación de TIEMPO CONSTANTE. Con `===` el tiempo de respuesta filtra
+ *  cuántos caracteres iniciales acertaste, y la clave se adivina letra por
+ *  letra. Se comparan hashes de largo fijo para que dos claves de distinto
+ *  tamaño no revienten timingSafeEqual. */
+function claveCorrecta(dada, env = process.env) {
+  if (!claveRestauracionConfigurada(env)) return false;
+  if (typeof dada !== "string" || dada.length === 0) return false;
+  const a = crypto.createHash("sha256").update(dada, "utf8").digest();
+  const b = crypto.createHash("sha256").update(env.CLAVE_RESTAURACION, "utf8").digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+/** Qué se pierde al volver a esta foto. Es una ESTIMACIÓN POR CONTEO, no un
+ *  listado — así se dice en la pantalla, para no prometer precisión que no da. */
+function compararConEstadoActual(DB, copia) {
+  const ahoraConteos = contarRegistros(DB);
+  const perdidas = {};
+  for (const clave of Object.keys(ahoraConteos)) {
+    const diferencia = ahoraConteos[clave] - Number(copia.conteos?.[clave] ?? 0);
+    if (diferencia > 0) perdidas[clave] = diferencia;
+  }
+  const ETIQUETAS = {
+    ventas: "ventas", apartados: "apartados", cortes: "cortes de caja",
+    productos: "productos", garantias: "garantías", clientes: "clientes",
+    gastos: "gastos", depositos: "depósitos", usuarios: "usuarios",
+  };
+  const partes = Object.entries(perdidas).map(([k, n]) => `${n} ${ETIQUETAS[k] || k}`);
+  return {
+    perdidas,
+    resumen: partes.length
+      ? `Se perderán ${partes.join(", ")} capturados después de esa hora.`
+      : "No se pierde ningún registro: la foto está al día.",
+  };
+}
+
+/**
+ * Restaurar. La operación más destructiva del sistema.
+ *
+ * ORDEN DE LOS CANDADOS, y el orden importa:
+ *   1. ¿Está configurada la clave?      -> si no, esto no existe
+ *   2. ¿La clave es correcta?           -> tiempo constante
+ *   3. ¿Escribió RESTAURAR?             -> nadie lo aprieta por accidente
+ *   4. Bajar y VALIDAR la foto ENTERA   -> antes de tocar un solo dato
+ *   5. Respaldo pre_restauracion        -> si falla, se CANCELA
+ *   6. Recién entonces, reemplazar
+ *
+ * El candado 5 es el más importante: vuelve reversible el peor error posible.
+ * Si Victor restaura el día equivocado, se restaura de vuelta y no se perdió
+ * nada.
+ *
+ * DB.respaldos NO se restaura: el índice viejo borraría de la vista los
+ * respaldos hechos después de esa foto, incluido el pre_restauracion que acaba
+ * de salvarle el pellejo.
+ */
+async function restaurar(DB, drive, {
+  copiaId, llave, clave, confirmacion, usuario = null, env = process.env,
+} = {}) {
+  // Candado 0 — alcance, DENTRO del módulo (restricción global #5, agregado por
+  // el escaneo previo del 2026-08-12). La ruta ya lleva `requiereAlcanceGlobal`,
+  // y aun así este chequeo va aquí: exactamente eso era lo que hacía "segura" la
+  // ruta de Apartados antes del bug de alcance de julio. Es la operación más
+  // destructiva del sistema; si mañana alguien llama `restaurar()` desde un
+  // script, una tarea programada, o reordena por accidente los middlewares, esto
+  // es lo único que queda de pie. Un usuario amarrado a una sucursal trae
+  // `sucursal_id` en su token; quien ve todas trae `null`.
+  if (usuario && usuario.sucursal_id != null) {
+    throw new Error("Restaurar requiere una cuenta con alcance global (todas las sucursales).");
+  }
+
+  if (!claveRestauracionConfigurada(env)) {
+    throw new Error(
+      "La restauración no está habilitada: falta configurar CLAVE_RESTAURACION en el servidor."
+    );
+  }
+  if (!claveCorrecta(clave, env)) {
+    throw new Error("La clave de restauración no es correcta.");
+  }
+  if (confirmacion !== PALABRA_CONFIRMACION) {
+    throw new Error(`Escribe ${PALABRA_CONFIRMACION} para confirmar.`);
+  }
+
+  // Se baja y valida ENTERA antes de tocar nada. Si el archivo está corrupto,
+  // incompleto o de otra versión, se rechaza aquí y la base ni se enteró.
+  // Esto va ANTES de bloquear el sistema a propósito: un archivo dañado no debe
+  // dejar la tienda cerrada ni un segundo.
+  const { copia, foto } = await leerRespaldo(DB, drive, copiaId, llave);
+
+  // A partir de aquí el sistema queda BLOQUEADO para escrituras, y no se
+  // desbloquea pase lo que pase (el `finally` de más abajo).
+  //
+  // El bloqueo va ANTES del respaldo previo, no después, y esa diferencia es
+  // justo el punto: una venta capturada ENTRE el respaldo previo y el reemplazo
+  // se perdería dos veces — no estaría en los datos restaurados (son más viejos)
+  // ni en el respaldo previo (se tomó antes de esa venta). Sería dinero cobrado
+  // que no existe en ningún archivo. Con el bloqueo aquí, esa ventana no existe.
+  mantenimiento.activar(
+    `Restaurando el respaldo del ${copia.fecha} ${copia.hora_local}. ` +
+    "El sistema vuelve solo en cuanto termine."
+  );
+
+  try {
+    // La red de seguridad. Si esto falla, NO se restaura: mejor no restaurar que
+    // restaurar sin poder deshacerlo.
+    let pre;
+    try {
+      pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario });
+    } catch (e) {
+      throw new Error(
+        "No se pudo crear el respaldo de seguridad previo, así que la restauración se canceló " +
+        "(no se tocó ningún dato). Revisa la conexión con Google Drive. Detalle: " + e.message
+      );
+    }
+
+    const comparacion = compararConEstadoActual(DB, copia);
+
+    // Recién ahora se muta. Colección por colección, solo las respaldadas.
+    for (const nombre of COLECCIONES_RESPALDADAS) {
+      if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
+    }
+
+    pushMovimiento(
+      DB, copia.id, "restauracion",
+      `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
+      `Respaldo previo: ${pre.nombre_archivo}`,
+      usuario
+    );
+
+    return { copia, pre_restauracion: pre, aplicado: true, comparacion };
+  } finally {
+    // SIEMPRE se desbloquea: si algo revienta a media restauración, la tienda no
+    // se queda cerrada esperando a que alguien reinicie el servidor. Un `finally`
+    // y no un `desactivar()` al final del camino feliz — ese es el error que deja
+    // negocios parados.
+    mantenimiento.desactivar();
+  }
+}
+
 module.exports = {
   nuevoEstadoRespaldos, contarRegistros, armarFoto, crearRespaldo, estadoRespaldos,
   pushMovimiento, siguienteId, limpiarViejos,
   leerRespaldo, verificarRespaldo, buscarCopia,
   COLECCIONES_RESPALDADAS, VERSION_FORMATO, MINUTOS_PARA_ALERTA,
   DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
+  restaurar, claveRestauracionConfigurada, claveCorrecta, compararConEstadoActual,
+  PALABRA_CONFIRMACION,
 };
