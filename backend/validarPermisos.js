@@ -32,6 +32,7 @@ const MODULOS_QUE_REQUIEREN_PERMISOS = [
   "reportes",
   "gastos",
   "cuenta_comun",
+  "respaldos",
 ];
 
 function validarSistemaDePermisos() {

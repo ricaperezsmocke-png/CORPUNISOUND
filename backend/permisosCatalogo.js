@@ -108,6 +108,10 @@ const PERMISOS = [
   { clave: "ver_estado_cuenta", etiqueta: "Ver Estado de Cuenta", modulo: "cuenta_comun", implementado: true },
   { clave: "registrar_depositos", etiqueta: "Registrar Depósito", modulo: "cuenta_comun", implementado: true },
   { clave: "cancelar_depositos", etiqueta: "Cancelar Depósito", modulo: "cuenta_comun", implementado: true },
+
+  // ---- Respaldos y punto de restauración ----
+  { clave: "ver_respaldos",      etiqueta: "Ver Respaldos",       modulo: "respaldos", implementado: true },
+  { clave: "restaurar_respaldo", etiqueta: "Restaurar Respaldo",  modulo: "respaldos", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
@@ -120,6 +124,7 @@ const MODULOS_SISTEMA = [
   { id: "reportes",  nombre: "Reportes" },
   { id: "gastos",    nombre: "Gastos" },
   { id: "cuenta_comun", nombre: "Estado de Cuenta" },
+  { id: "respaldos", nombre: "Respaldos" },
 ];
 
 function listarPermisos() {
