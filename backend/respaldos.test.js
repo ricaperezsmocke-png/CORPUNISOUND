@@ -485,6 +485,39 @@ test("un usuario amarrado a una sucursal NO puede restaurar, aunque traiga la cl
   );
 });
 
+test("restaurar() sin el campo usuario (omitido) NO restaura — falla cerrado", async () => {
+  // Candado 0 debe fallar CERRADO: sin usuario, no hay alcance global implícito.
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
+test("restaurar() con usuario: null NO restaura — falla cerrado", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, usuario: null, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
 test("sin CLAVE_RESTAURACION configurada, restaurar está APAGADO (falla cerrado)", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
   assert.strictEqual(claveRestauracionConfigurada({}), false);

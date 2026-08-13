@@ -1688,6 +1688,39 @@ test("un usuario amarrado a una sucursal NO puede restaurar, aunque traiga la cl
   );
 });
 
+test("restaurar() sin el campo usuario (omitido) NO restaura — falla cerrado", async () => {
+  // Candado 0 debe fallar CERRADO: sin usuario, no hay alcance global implícito.
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
+test("restaurar() con usuario: null NO restaura — falla cerrado", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, usuario: null, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
 test("sin CLAVE_RESTAURACION configurada, restaurar está APAGADO (falla cerrado)", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
   assert.strictEqual(claveRestauracionConfigurada({}), false);
@@ -1994,8 +2027,10 @@ async function restaurar(DB, drive, {
   // destructiva del sistema; si mañana alguien llama `restaurar()` desde un
   // script, una tarea programada, o reordena por accidente los middlewares, esto
   // es lo único que queda de pie. Un usuario amarrado a una sucursal trae
-  // `sucursal_id` en su token; quien ve todas trae `null`.
-  if (usuario && usuario.sucursal_id != null) {
+  // `sucursal_id` en su token; quien ve todas trae `null`. Falla CERRADO: sin
+  // `usuario` (ausente, `null` o `undefined`) no se restaura — no hay alcance
+  // global implícito por default.
+  if (!usuario || usuario.sucursal_id != null) {
     throw new Error("Restaurar requiere una cuenta con alcance global (todas las sucursales).");
   }
 
@@ -2084,7 +2119,7 @@ Una a la vez, revirtiendo entre cada una:
 | Borrar el bloque `try { pre = await crearRespaldo(...) }` y dejar la mutación | "si el respaldo previo FALLA, la restauración se cancela" |
 | Cambiar `claveCorrecta(clave, env)` por `true` | "con la clave equivocada NO restaura y NO muta nada" |
 | Borrar el `if (!claveRestauracionConfigurada(env))` | "sin CLAVE_RESTAURACION configurada, restaurar está APAGADO" |
-| Borrar el `if (usuario && usuario.sucursal_id != null)` (candado 0, alcance) | "un usuario amarrado a una sucursal NO puede restaurar" |
+| Borrar el `if (!usuario || usuario.sucursal_id != null)` (candado 0, alcance) | "un usuario amarrado a una sucursal NO puede restaurar" |
 | Mover `mantenimiento.activar(...)` a DESPUÉS del bloque del respaldo previo | "mientras restaura, el sistema está BLOQUEADO — y el bloqueo empieza ANTES del respaldo previo" |
 | Cambiar el `finally { mantenimiento.desactivar(); }` por un `desactivar()` al final del camino feliz | "si la restauración TRUENA a media faena, el sistema se desbloquea igual" |
 

@@ -373,8 +373,10 @@ async function restaurar(DB, drive, {
   // destructiva del sistema; si mañana alguien llama `restaurar()` desde un
   // script, una tarea programada, o reordena por accidente los middlewares, esto
   // es lo único que queda de pie. Un usuario amarrado a una sucursal trae
-  // `sucursal_id` en su token; quien ve todas trae `null`.
-  if (usuario && usuario.sucursal_id != null) {
+  // `sucursal_id` en su token; quien ve todas trae `null`. Falla CERRADO: sin
+  // `usuario` (ausente, `null` o `undefined`) no se restaura — no hay alcance
+  // global implícito por default.
+  if (!usuario || usuario.sucursal_id != null) {
     throw new Error("Restaurar requiere una cuenta con alcance global (todas las sucursales).");
   }
 
