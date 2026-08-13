@@ -22,12 +22,21 @@ const path = require("path");
 const DB_TEMPORAL = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "respaldos-")), "datos.sqlite");
 process.env.DB_PATH = DB_TEMPORAL;
 process.env.JWT_SECRET = process.env.JWT_SECRET || "secreto-de-pruebas";
+// Llave válida para que LLAVE_RESPALDO quede configurada en el servidor de
+// pruebas: sin esto, las rutas fallan ANTES de llegar al candado que cada
+// prueba dice estar probando (RESPALDO_LLAVE ausente, no CLAVE_RESTAURACION
+// ni el token de descarga), y las pruebas de esos candados no muerden nada.
+process.env.RESPALDO_LLAVE = process.env.RESPALDO_LLAVE || "a".repeat(64);
 
 const { PALABRA_CONFIRMACION } = require("./respaldos");
 const app = require("./server");
 const { firmarToken } = require("./auth");
 const { listarPermisos } = require("./permisosCatalogo");
 const mantenimiento = require("./mantenimiento");
+// Mismo módulo que usa server.js (require cachea por ruta resuelta): mutar
+// sus funciones aquí cambia lo que ven las rutas reales, sin tocar Google
+// Drive de verdad. Patrón tomado de respaldos.test.js -> driveConMemoria().
+const drive = require("./drive");
 
 // Rol 1 = "Administrador" (sembrarRolesIniciales en backend/roles.js): tiene
 // TODOS los permisos, incluidos los dos nuevos de respaldos (reconciliarRoles
@@ -85,29 +94,91 @@ test("GET /api/respaldos/estado responde 200 con los avisos de configuración", 
   assert.ok("mantenimiento" in r.cuerpo);
 });
 
+// ---------- Descarga: se necesita una copia REAL para que las pruebas muerdan ----------
+//
+// Sin una copia sembrada, "sin token" y "token malo" caen los dos en el MISMO
+// 404 genérico de "copia no encontrada" — pasarían igual sin ningún chequeo de
+// token. Se crea un respaldo de verdad (vía la propia ruta /ahora, con Drive
+// mockeado) para que el contraste con "token correcto" sea real.
+let copiaSembrada = null;
+
+test("preparación: crea un respaldo real (Drive mockeado) para las pruebas de descarga", async () => {
+  const asegurarOriginal = drive.asegurarCarpetaRespaldos;
+  const subirOriginal = drive.subirArchivoADrive;
+  drive.asegurarCarpetaRespaldos = async () => "carpeta-prueba";
+  drive.subirArchivoADrive = async () => ({ id: "drive-file-fake-1", webViewLink: "https://drive/fake-1" });
+  try {
+    const r = await pedir("/api/respaldos/ahora", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.cuerpo));
+    assert.ok(r.cuerpo.drive_file_id, "la copia sembrada necesita drive_file_id para poder descargarse");
+    copiaSembrada = r.cuerpo;
+  } finally {
+    drive.asegurarCarpetaRespaldos = asegurarOriginal;
+    drive.subirArchivoADrive = subirOriginal;
+  }
+});
+
 test("GET /api/respaldos/:id/descargar sin TOKEN_DESCARGA_RESPALDOS responde 404", async () => {
   const guardado = process.env.TOKEN_DESCARGA_RESPALDOS;
   delete process.env.TOKEN_DESCARGA_RESPALDOS;
-  assert.strictEqual((await pedir("/api/respaldos/1/descargar")).status, 404);
+  assert.strictEqual((await pedir(`/api/respaldos/${copiaSembrada.id}/descargar`)).status, 404);
   if (guardado !== undefined) process.env.TOKEN_DESCARGA_RESPALDOS = guardado;
 });
 
 test("GET /api/respaldos/:id/descargar con token equivocado responde 404", async () => {
   process.env.TOKEN_DESCARGA_RESPALDOS = "token-bueno";
-  const r = await pedir("/api/respaldos/1/descargar", { headers: { "X-Token-Respaldo": "token-malo" } });
+  const r = await pedir(`/api/respaldos/${copiaSembrada.id}/descargar`, { headers: { "X-Token-Respaldo": "token-malo" } });
   assert.strictEqual(r.status, 404);
   delete process.env.TOKEN_DESCARGA_RESPALDOS;
 });
 
-test("POST /api/respaldos/:id/restaurar sin CLAVE_RESTAURACION responde 400 y no muta", async () => {
+test("GET /api/respaldos/:id/descargar con el token correcto SÍ sirve los bytes (contraste real con los 404 de arriba)", async () => {
+  process.env.TOKEN_DESCARGA_RESPALDOS = "token-bueno";
+  const bytesFalsos = Buffer.from("contenido-cifrado-de-prueba");
+  const descargarOriginal = drive.descargarArchivoDeDrive;
+  drive.descargarArchivoDeDrive = async () => bytesFalsos;
+  try {
+    const r = await fetch(`${base}/api/respaldos/${copiaSembrada.id}/descargar`, {
+      headers: { "X-Token-Respaldo": "token-bueno" },
+    });
+    // Lo que importa: NO es el mismo 404 genérico de las dos pruebas de arriba.
+    assert.notStrictEqual(r.status, 404);
+    assert.strictEqual(r.status, 200);
+    const bytesRecibidos = Buffer.from(await r.arrayBuffer());
+    assert.ok(bytesRecibidos.equals(bytesFalsos), "debió servir exactamente los bytes que devolvió Drive");
+  } finally {
+    drive.descargarArchivoDeDrive = descargarOriginal;
+    delete process.env.TOKEN_DESCARGA_RESPALDOS;
+  }
+});
+
+test("POST /api/respaldos/:id/restaurar sin CLAVE_RESTAURACION responde 400 con el mensaje del candado y no muta nada", async () => {
   const guardado = process.env.CLAVE_RESTAURACION;
   delete process.env.CLAVE_RESTAURACION;
-  const r = await pedir("/api/respaldos/1/restaurar", {
+
+  const antes = await pedir("/api/respaldos", { headers: { Authorization: `Bearer ${TOKEN_ADMIN}` } });
+
+  const r = await pedir(`/api/respaldos/${copiaSembrada.id}/restaurar`, {
     method: "POST",
     headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
     body: JSON.stringify({ clave: "x", confirmacion: PALABRA_CONFIRMACION }),
   });
-  assert.ok([400, 403].includes(r.status));
+  assert.strictEqual(r.status, 400);
+  // El aserto que vale es el del MENSAJE: sin este candado, otros caminos
+  // (respaldo no encontrado, clave incorrecta) también darían 400 — el
+  // mensaje es lo único que distingue que se paró aquí y no más adelante.
+  assert.match(r.cuerpo.error, /CLAVE_RESTAURACION/);
+
+  // "No muta": ni el índice de respaldos cambió, ni quedó el sistema en
+  // mantenimiento (el candado de la clave es el PRIMERO, antes de tocar nada).
+  const despues = await pedir("/api/respaldos", { headers: { Authorization: `Bearer ${TOKEN_ADMIN}` } });
+  assert.deepStrictEqual(despues.cuerpo, antes.cuerpo, "el índice de respaldos no debió cambiar");
+  const estado = await pedir("/api/respaldos/estado", { headers: { Authorization: `Bearer ${TOKEN_ADMIN}` } });
+  assert.strictEqual(estado.cuerpo.mantenimiento.activo, false, "no debió activarse el mantenimiento");
+
   if (guardado !== undefined) process.env.CLAVE_RESTAURACION = guardado;
 });
 

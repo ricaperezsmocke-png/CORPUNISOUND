@@ -60,7 +60,7 @@ const { crearTraspaso, recibirTraspaso, listarTraspasos } = require("./traspasos
 const { crearRecepcion, listarRecepciones, historialCostoProducto } = require("./compras");
 const { reconciliarSucursalesCedis } = require("./sucursales");
 const { fechaLocal } = require("./fechas");
-const { crearRegistroIntentos, estaBloqueado, registrarFallo, registrarExito, BLOQUEO_MS } = require("./intentosLogin");
+const { crearRegistroIntentos, estaBloqueado, registrarFallo, registrarExito } = require("./intentosLogin");
 const { contarClavesSat, necesitaImportarClavesSat } = require("./clavesSat");
 const { importarClavesSat } = require("./scripts/importarClavesSat");
 const { parsearExcel, previsualizarImportacion, aplicarImportacion, exportarRespaldo } = require("./migracion");
@@ -79,9 +79,8 @@ const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./docum
 const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
 const crypto = require("crypto");
 const {
-  crearRespaldo, limpiarViejos, verificarRespaldo, restaurar, leerRespaldo,
+  crearRespaldo, limpiarViejos, verificarRespaldo, restaurar,
   estadoRespaldos, compararConEstadoActual, claveRestauracionConfigurada,
-  PALABRA_CONFIRMACION,
 } = require("./respaldos");
 const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
