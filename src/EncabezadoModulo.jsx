@@ -16,6 +16,7 @@ const TITULOS = {
   corte:      "Corte de Caja",
   ml:         "MercadoLibre",
   reportes:   "Reportes",
+  respaldos: "Respaldos",
 };
 
 export default function EncabezadoModulo({ vista, usuario, onVolver, onSalir }) {
