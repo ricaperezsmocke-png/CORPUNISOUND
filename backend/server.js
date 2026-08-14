@@ -1529,6 +1529,23 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
   }
 });
 
+/** Índice para el script de la PC. Mismo token y mismo 404-si-no-cuadra que la
+ *  ruta de descarga. Devuelve solo lo que el script necesita para decidir qué
+ *  bajar — ningún dato del negocio. */
+app.get("/api/respaldos/indice", (req, res) => {
+  const esperado = process.env.TOKEN_DESCARGA_RESPALDOS;
+  const dado = req.get("X-Token-Respaldo") || "";
+  if (!esperado || !dado) return res.status(404).json({ error: "No encontrado" });
+  const a = crypto.createHash("sha256").update(dado).digest();
+  const b = crypto.createHash("sha256").update(esperado).digest();
+  if (!crypto.timingSafeEqual(a, b)) return res.status(404).json({ error: "No encontrado" });
+
+  res.json(DB.respaldos.copias.map((c) => ({
+    id: c.id, tipo: c.tipo, fecha: c.fecha, hora_local: c.hora_local,
+    nombre_archivo: c.nombre_archivo, bytes: c.bytes, estado: c.estado,
+  })));
+});
+
 /**
  * Descarga cruda para el script de la PC de Victor. Sin sesión, porque la corre
  * una tarea programada de Windows sin nadie enfrente.
