@@ -27,11 +27,23 @@ function log(msg) {
 }
 
 async function main() {
+  let contenido;
+  try {
+    contenido = await fs.readFile(RUTA_CONFIG, "utf8");
+  } catch (e) {
+    // e.message aquí es seguro: es un error de sistema de archivos (ENOENT,
+    // permisos), nunca incluye contenido del archivo.
+    log(`ERROR: no se pudo leer ${RUTA_CONFIG} — ${e.message}`);
+    process.exit(1);
+  }
   let config;
   try {
-    config = JSON.parse(await fs.readFile(RUTA_CONFIG, "utf8"));
+    config = JSON.parse(contenido);
   } catch (e) {
-    log(`ERROR: no se pudo leer ${RUTA_CONFIG} — ${e.message}`);
+    // e.message de un JSON.parse fallido NO es seguro: V8 incrusta un
+    // fragmento del archivo en el mensaje (y ese archivo lleva el token).
+    // Mensaje fijo, sin e.message ni e.name.
+    log(`ERROR: ${RUTA_CONFIG} no es JSON válido. Revisa que los valores tengan comillas.`);
     process.exit(1);
   }
   const { api, token, carpeta, diasAConservar = 90 } = config;
@@ -63,19 +75,35 @@ async function main() {
 
   let bajados = 0;
   for (const c of aBajar) {
+    // El nombre viene del servidor y esta tarea corre como administrador
+    // (schtasks /RL HIGHEST): nunca se le pasa directo a path.join. Se toma
+    // solo el nombre de archivo (sin ../ ni rutas) y se exige la forma que
+    // realmente produce el servidor.
+    const nombreSeguro = path.basename(c.nombre_archivo || "");
+    if (!/^[\w.-]+\.respaldo$/.test(nombreSeguro)) {
+      log(`AVISO: nombre_archivo sospechoso del servidor, se salta: ${JSON.stringify(c.nombre_archivo)}`);
+      continue;
+    }
     try {
       const rr = await fetch(`${api}/respaldos/${c.id}/descargar`, { headers: { "X-Token-Respaldo": token } });
-      if (!rr.ok) { log(`AVISO: ${c.nombre_archivo} respondió ${rr.status}, se salta.`); continue; }
+      if (!rr.ok) { log(`AVISO: ${nombreSeguro} respondió ${rr.status}, se salta.`); continue; }
       const bytes = Buffer.from(await rr.arrayBuffer());
+      // El índice ya trae el tamaño esperado: si no cuadra, el cuerpo no es
+      // el respaldo completo (proxy caído, corte a medias) y no se debe
+      // guardar como si ya lo tuviéramos, o nunca se vuelve a reintentar.
+      if (typeof c.bytes === "number" && bytes.length !== c.bytes) {
+        log(`AVISO: ${nombreSeguro} bajó con ${bytes.length} bytes, se esperaban ${c.bytes}; se descarta y se reintenta mañana.`);
+        continue;
+      }
       // Se escribe a un temporal y se renombra: así un corte a media descarga
       // nunca deja un archivo a medias con nombre de archivo bueno.
-      const temporal = path.join(carpeta, `.${c.nombre_archivo}.parcial`);
+      const temporal = path.join(carpeta, `.${nombreSeguro}.parcial`);
       await fs.writeFile(temporal, bytes);
-      await fs.rename(temporal, path.join(carpeta, c.nombre_archivo));
-      log(`Bajado ${c.nombre_archivo} (${bytes.length} bytes)`);
+      await fs.rename(temporal, path.join(carpeta, nombreSeguro));
+      log(`Bajado ${nombreSeguro} (${bytes.length} bytes)`);
       bajados++;
     } catch (e) {
-      log(`AVISO: falló ${c.nombre_archivo} — ${e.message}`);
+      log(`AVISO: falló ${nombreSeguro} — ${e.message}`);
     }
   }
 

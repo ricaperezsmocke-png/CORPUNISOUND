@@ -155,6 +155,54 @@ test("GET /api/respaldos/:id/descargar con el token correcto SÍ sirve los bytes
   }
 });
 
+// ---------- Índice: el mismo candado que /descargar, para el script de la PC ----------
+
+test("GET /api/respaldos/indice sin TOKEN_DESCARGA_RESPALDOS responde 404", async () => {
+  const guardado = process.env.TOKEN_DESCARGA_RESPALDOS;
+  delete process.env.TOKEN_DESCARGA_RESPALDOS;
+  assert.strictEqual((await pedir("/api/respaldos/indice")).status, 404);
+  if (guardado !== undefined) process.env.TOKEN_DESCARGA_RESPALDOS = guardado;
+});
+
+test("GET /api/respaldos/indice con token equivocado responde 404", async () => {
+  process.env.TOKEN_DESCARGA_RESPALDOS = "token-bueno";
+  const r = await pedir("/api/respaldos/indice", { headers: { "X-Token-Respaldo": "token-malo" } });
+  assert.strictEqual(r.status, 404);
+  delete process.env.TOKEN_DESCARGA_RESPALDOS;
+});
+
+test("GET /api/respaldos/indice con el token correcto responde 200 con un arreglo que incluye la copia sembrada", async () => {
+  process.env.TOKEN_DESCARGA_RESPALDOS = "token-bueno";
+  try {
+    const r = await pedir("/api/respaldos/indice", { headers: { "X-Token-Respaldo": "token-bueno" } });
+    // Lo que importa: NO es el mismo 404 genérico de las dos pruebas de arriba.
+    assert.notStrictEqual(r.status, 404);
+    assert.strictEqual(r.status, 200);
+    assert.ok(Array.isArray(r.cuerpo));
+    assert.ok(r.cuerpo.some((c) => c.id === copiaSembrada.id), "la copia sembrada debe aparecer en el índice");
+  } finally {
+    delete process.env.TOKEN_DESCARGA_RESPALDOS;
+  }
+});
+
+test("GET /api/respaldos/indice NO filtra drive_file_id ni conteos (solo lo que el script necesita)", async () => {
+  process.env.TOKEN_DESCARGA_RESPALDOS = "token-bueno";
+  try {
+    const r = await pedir("/api/respaldos/indice", { headers: { "X-Token-Respaldo": "token-bueno" } });
+    assert.strictEqual(r.status, 200);
+    const entrada = r.cuerpo.find((c) => c.id === copiaSembrada.id);
+    assert.ok(entrada, "la copia sembrada debe aparecer en el índice");
+    assert.ok(!("drive_file_id" in entrada), "el id de Drive no debe salir de esta ruta pública sin sesión");
+    assert.ok(!("conteos" in entrada), "los conteos son dato del negocio, no le sirven al script de la PC");
+    assert.deepStrictEqual(
+      Object.keys(entrada).sort(),
+      ["bytes", "estado", "fecha", "hora_local", "id", "nombre_archivo", "tipo"].sort()
+    );
+  } finally {
+    delete process.env.TOKEN_DESCARGA_RESPALDOS;
+  }
+});
+
 test("POST /api/respaldos/:id/restaurar sin CLAVE_RESTAURACION responde 400 con el mensaje del candado y no muta nada", async () => {
   const guardado = process.env.CLAVE_RESTAURACION;
   delete process.env.CLAVE_RESTAURACION;

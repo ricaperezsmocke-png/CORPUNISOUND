@@ -12,7 +12,11 @@ Hay **tres copias** de los datos:
    restauración".
 3. **En tu computadora**, también cifradas — un script las baja todos los
    días a una carpeta en tu PC. Es la copia que sobrevive aunque algo le
-   pase a Render Y a tu cuenta de Google Drive al mismo tiempo.
+   pase a Render Y a tu cuenta de Google Drive al mismo tiempo. **Ojo:** hoy
+   esa copia es solo de resguardo — la pantalla de restaurar lee de Drive, no
+   de tu PC, así que todavía no hay un procedimiento para usar directamente
+   los archivos de tu computadora si Drive no está disponible (ver el punto
+   7, "El hueco que sigue abierto").
 
 ---
 
@@ -87,27 +91,45 @@ gestor de contraseñas.
 
 Mientras estés instalando el sistema por primera vez, también agrega ahí
 mismo `RESPALDO_LLAVE` (sección anterior) y `TOKEN_DESCARGA_RESPALDOS`
-(sección 5, más abajo) — las tres se ponen igual, desde el panel de
-Render, **a mano**. Nunca se tocan en el archivo `render.yaml` del repositorio.
+(lo necesita el Apéndice, al final de este documento, para que el script de
+tu PC pueda descargar los respaldos) — las tres se ponen igual, desde el
+panel de Render, **a mano**. Nunca se tocan en el archivo `render.yaml` del
+repositorio.
+
+**Cómo generar `TOKEN_DESCARGA_RESPALDOS`:** igual que `RESPALDO_LLAVE`, con
+el mismo comando:
+
+```
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+**Tiene que ser una cadena larga y aleatoria como esa — nunca una palabra que
+se te ocurra a ti.** El sistema no bloquea los intentos en esta ruta (no
+tiene el mismo freno que sí tiene el login), así que un token corto o
+adivinable es un candado débil. Con los 32 bytes aleatorios del comando de
+arriba, no hay forma práctica de adivinarlo.
 
 ## 4. Cómo restaurar, paso a paso
 
 Solo hazlo si de verdad necesitas regresar el sistema a un momento anterior
 (por ejemplo, después de un error grave o una restauración de emergencia).
 
-1. Entra al sistema con un usuario que tenga permiso de restaurar
-   respaldos.
+1. Entra al sistema con un usuario que tenga el permiso de restaurar
+   respaldos **y** acceso a **todas las sucursales** — con una cuenta
+   amarrada a una sola tienda, el botón de restaurar ni siquiera aparece.
 2. Ve al módulo **Respaldos**. Vas a ver la lista de puntos de restauración
    disponibles (las copias del día y las de antes de una restauración
    anterior).
-3. Elige el punto al que quieres regresar y presiona **Comparar**. El
-   sistema te muestra qué tan distinto es ese punto de lo que hay ahora
-   (cuántos registros se ganarían o perderían).
-4. Si decides seguir, el sistema te pide:
+3. Junto al punto al que quieres regresar, presiona **Restaurar**. Se abre
+   una ventana que, apenas se abre, ya te muestra la comparación: qué tan
+   distinto es ese punto de lo que hay ahora (cuántos registros se ganarían
+   o perderían). No hay un botón "Comparar" aparte — la comparación viene
+   incluida al abrir esa ventana.
+4. Si decides seguir, en esa misma ventana el sistema te pide:
    - La **`CLAVE_RESTAURACION`** que configuraste en Render.
    - Escribir la palabra **`RESTAURAR`** para confirmar que entendiste lo
      que va a pasar.
-5. Presiona restaurar.
+5. Presiona el botón de confirmar dentro de la ventana.
 
 > **Advertencia:** restaurar corta la sesión de **todos** los usuarios
 > conectados en las 5 tiendas en ese momento. Todos van a tener que volver
@@ -137,12 +159,14 @@ error.
 
 ## 6. Qué hacer si el semáforo está rojo
 
-El módulo Respaldos tiene un semáforo arriba. Si está en rojo (o amarillo),
-revisa en este orden:
+El módulo Respaldos tiene un semáforo arriba, con solo dos colores: verde
+(todo bien) o rojo (algo falla). Si está en rojo, revisa en este orden:
 
-1. **La conexión de Google Drive**, en el módulo **Roles y Personal** —
-   confirma que la cuenta de Drive siga conectada y no haya pedido volver a
-   iniciar sesión.
+1. **La conexión de Google Drive**, en el módulo **Roles y Personal**, en el
+   recuadro etiquetado *"Google Drive (expedientes de personal)"* — el
+   nombre menciona expedientes porque ahí se conectó primero, pero **es la
+   misma cuenta de Google que usan los respaldos**. Confirma que siga
+   conectada y no haya pedido volver a iniciar sesión.
 2. **Tu correo**, buscando avisos de **Sentry** — el sistema manda un aviso
    ahí cuando un respaldo falla varias veces seguidas.
 3. **Que `RESPALDO_LLAVE` siga puesta en Render** (Environment del
