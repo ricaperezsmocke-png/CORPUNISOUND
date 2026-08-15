@@ -154,6 +154,12 @@ test("las rutas de efecto global llevan el guard CABLEADO en server.js", () => {
     // asigna el rol y la sucursal de cada cuenta, y aquí se borran cuentas.
     'app.put("/api/usuarios/:id"',
     'app.delete("/api/usuarios/:id"',
+    // Respaldos (Task 7): un respaldo/restauración es de TODA la empresa, no de
+    // una sucursal. Sin este guard, un rol amarrado a una sucursal podría
+    // disparar un respaldo o restaurar el negocio entero.
+    'app.post("/api/respaldos/ahora"',
+    'app.get("/api/respaldos/:id/comparar"',
+    'app.post("/api/respaldos/:id/restaurar"',
   ];
   for (const ruta of rutasGlobales) {
     const linea = lineas.find((l) => l.includes(ruta));

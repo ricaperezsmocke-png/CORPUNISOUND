@@ -45,4 +45,34 @@ function ahora() {
   return new Date().toISOString();
 }
 
-module.exports = { fechaLocal, ahora, ZONA_TIENDA };
+// Igual que `formateador` pero con hora y minuto. hourCycle "h23" evita el
+// "24:00" que en-CA produce a medianoche con hour12:false.
+const formateadorMomento = new Intl.DateTimeFormat("en-CA", {
+  timeZone: ZONA_TIENDA,
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+/**
+ * Fecha Y hora de la tienda, ya partidas. Lo usa el reloj de respaldos para
+ * saber si son las 4 o las 5 de la tarde EN CHIAPAS — no en UTC, que es donde
+ * corre Render. Sin esto, los "puntos del día" caerían a las 10 de la mañana.
+ *
+ * Acepta Date, string ISO, milisegundos, o nada (= ahora).
+ */
+function momentoLocal(instante) {
+  const d = instante === undefined || instante === null ? new Date() : new Date(instante);
+  const valido = isNaN(d.getTime()) ? new Date() : d;
+  const partes = Object.fromEntries(
+    formateadorMomento.formatToParts(valido).map((p) => [p.type, p.value])
+  );
+  const hora = Number(partes.hour);
+  const minuto = Number(partes.minute);
+  return {
+    fecha: `${partes.year}-${partes.month}-${partes.day}`,
+    hora, minuto,
+    hhmm: `${partes.hour}:${partes.minute}`,
+  };
+}
+
+module.exports = { fechaLocal, ahora, momentoLocal, ZONA_TIENDA };

@@ -63,7 +63,14 @@ export default function Login({ onIngreso }) {
         body: JSON.stringify({ usuario, password, sucursal_id_seleccionada: sucursalSeleccionada || null, lat, lng })
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      if (!r.ok) {
+        // Mientras se restaura un respaldo, el backend congela las escrituras
+        // (incluido el login) y responde 503 con su propio mensaje — se
+        // muestra tal cual, en vez de dejar un error confuso justo en el
+        // momento más delicado (una cajera intentando entrar mientras se
+        // restaura). Solo presentación: no cambia el flujo de abajo.
+        throw new Error(r.status === 503 ? (data.error || "El sistema está en mantenimiento. Espera un momento y vuelve a intentar.") : data.error);
+      }
       localStorage.setItem("token", data.token);
       localStorage.setItem("usuario", JSON.stringify(data.usuario));
       onIngreso(data.usuario, data.token);

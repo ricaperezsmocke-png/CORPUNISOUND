@@ -47,13 +47,47 @@ function verificarToken(token) {
   return jwt.verify(token, JWT_SECRET);
 }
 
+/**
+ * Corte de sesiones ("epoch"). Todo token emitido ANTES de este instante deja de
+ * valer, aunque su firma sea buena y no haya expirado.
+ *
+ * Existe por la restauración. `requiereLogin` solo verifica la firma y
+ * `requierePermiso` resuelve los permisos con el `rol_id` que viene DENTRO del
+ * token, contra el DB de ese momento. Al restaurar se reemplaza `DB.admin`
+ * entero —usuarios y roles—, y los ids de rol se reciclan: una cajera con sesión
+ * abierta podía quedar apuntando a un rol que en la foto restaurada era
+ * Administrador, y una cuenta borrada revivía con su token todavía válido.
+ *
+ * Vive en memoria y NO en el DB a propósito: el DB es justo lo que se está
+ * reemplazando, y persistirlo dejaría el corte apuntando a un instante restaurado.
+ * Un reinicio del servidor ya invalida todo por su cuenta si no hay JWT_SECRET
+ * fijo, y si lo hay, las sesiones sobreviven — que es el comportamiento normal.
+ */
+let sesionesValidasDesdeMs = 0;
+
+function invalidarSesionesAnterioresA(instanteMs = Date.now()) {
+  sesionesValidasDesdeMs = instanteMs;
+}
+
+function sesionesValidasDesde() {
+  return sesionesValidasDesdeMs;
+}
+
 /** Middleware: exige un JWT válido, y adjunta req.usuarioToken con lo que trae el token */
 function requiereLogin(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "No autenticado" });
   try {
-    req.usuarioToken = verificarToken(token);
+    const datos = verificarToken(token);
+    // `iat` viene en segundos. Se compara con el corte redondeado hacia abajo al
+    // segundo para no rechazar por error un token emitido en el mismo segundo.
+    if (sesionesValidasDesdeMs && Number(datos.iat) * 1000 < Math.floor(sesionesValidasDesdeMs / 1000) * 1000) {
+      return res.status(401).json({
+        error: "Se restauró un respaldo del sistema. Vuelve a iniciar sesión.",
+      });
+    }
+    req.usuarioToken = datos;
     next();
   } catch {
     return res.status(401).json({ error: "Sesión inválida o expirada" });
@@ -281,7 +315,7 @@ function mensajePorMotivoUbicacion(motivo) {
 
 module.exports = {
   hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso,
-  requiereAlcanceGlobal,
+  requiereAlcanceGlobal, invalidarSesionesAnterioresA, sesionesValidasDesde,
   alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
   sucursalDeEscritura, sucursalDelFormulario,
   distanciaMetros, validarUbicacionLogin, mensajePorMotivoUbicacion,

@@ -64,3 +64,31 @@ test("ahora() sigue devolviendo un instante ISO en UTC", () => {
   const t = ahora();
   assert.match(t, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });
+
+const { momentoLocal } = require("./fechas");
+
+test("momentoLocal da la hora de Chiapas, no la de UTC", () => {
+  // 2026-08-11 22:30 UTC = 2026-08-11 16:30 en Chiapas (UTC-6)
+  const m = momentoLocal("2026-08-11T22:30:00.000Z");
+  assert.strictEqual(m.fecha, "2026-08-11");
+  assert.strictEqual(m.hora, 16);
+  assert.strictEqual(m.minuto, 30);
+  assert.strictEqual(m.hhmm, "16:30");
+});
+
+test("momentoLocal cruza bien el cambio de día", () => {
+  // 2026-08-12 03:00 UTC = 2026-08-11 21:00 en Chiapas: sigue siendo día 11
+  const m = momentoLocal("2026-08-12T03:00:00.000Z");
+  assert.strictEqual(m.fecha, "2026-08-11");
+  assert.strictEqual(m.hora, 21);
+});
+
+test("momentoLocal acepta milisegundos además de ISO", () => {
+  const ms = Date.parse("2026-08-11T22:00:00.000Z");
+  assert.strictEqual(momentoLocal(ms).hhmm, "16:00");
+});
+
+test("momentoLocal rellena la hora con cero a la izquierda", () => {
+  // 2026-08-11 14:05 UTC = 08:05 en Chiapas
+  assert.strictEqual(momentoLocal("2026-08-11T14:05:00.000Z").hhmm, "08:05");
+});

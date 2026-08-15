@@ -22,6 +22,7 @@ const CARPETA_RAIZ_NOMBRE = "Expedientes de Personal";
 const CARPETA_GARANTIAS_NOMBRE = "Comprobantes de Garantías";
 const CARPETA_GASTOS_NOMBRE = "Comprobantes de Gastos";
 const CARPETA_DEPOSITOS_NOMBRE = "Comprobantes de Depósitos";
+const CARPETA_RESPALDOS_NOMBRE = "Respaldos del Sistema";
 
 async function intercambiarCodigo(DB, codigo, redirectUri) {
   const params = new URLSearchParams({
@@ -221,6 +222,16 @@ async function asegurarCarpetaDepositosSucursal(DB, sucursal) {
   return id;
 }
 
+/** Carpeta raíz de los respaldos automáticos. Aparte de los comprobantes a
+ *  propósito: son cosas distintas y Victor las va a mirar por separado. */
+async function asegurarCarpetaRespaldos(DB) {
+  if (DB.respaldos?.carpeta_drive_id) return DB.respaldos.carpeta_drive_id;
+  let id = await buscarCarpeta(DB, CARPETA_RESPALDOS_NOMBRE, null);
+  if (!id) id = await crearCarpeta(DB, CARPETA_RESPALDOS_NOMBRE, null);
+  if (DB.respaldos) DB.respaldos.carpeta_drive_id = id;
+  return id;
+}
+
 async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpetaId }) {
   const token = await tokenActivo(DB);
   const boundary = `unisound_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -245,6 +256,15 @@ async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpe
   return await r.json();
 }
 
+/** Baja el contenido de un archivo de Drive como Buffer. `alt=media` pide el
+ *  contenido y no los metadatos. */
+async function descargarArchivoDeDrive(DB, fileId) {
+  const token = await tokenActivo(DB);
+  const r = await fetch(`${DRIVE_API}/${fileId}?alt=media`, { headers: driveHeaders(token) });
+  if (!r.ok) throw new Error("Error al descargar archivo de Google Drive: " + (await r.text()));
+  return Buffer.from(await r.arrayBuffer());
+}
+
 async function eliminarArchivoDeDrive(DB, fileId) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${DRIVE_API}/${fileId}`, {
@@ -262,6 +282,7 @@ module.exports = {
   asegurarCarpetaGarantia,
   asegurarCarpetaGastosRaiz, asegurarCarpetaGastosSucursal,
   asegurarCarpetaDepositosRaiz, asegurarCarpetaDepositosSucursal,
-  subirArchivoADrive, eliminarArchivoDeDrive,
+  asegurarCarpetaRespaldos, CARPETA_RESPALDOS_NOMBRE,
+  subirArchivoADrive, eliminarArchivoDeDrive, descargarArchivoDeDrive,
   CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE, CARPETA_GASTOS_NOMBRE, CARPETA_DEPOSITOS_NOMBRE,
 };

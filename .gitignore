@@ -11,3 +11,6 @@ Thumbs.db
 
 # Salida de "node --test" cuando se redirige a archivo (no es del proyecto)
 backend/test_output.txt
+
+# Lleva el TOKEN_DESCARGA_RESPALDOS de Victor: solo vive en su PC.
+scripts/respaldo-local.config.json

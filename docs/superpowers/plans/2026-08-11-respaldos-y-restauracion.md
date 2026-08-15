@@ -1121,6 +1121,36 @@ test("NUNCA se borra la copia más reciente, aunque las reglas lo digan", async 
   assert.strictEqual(DB.respaldos.copias.length, 1);
 });
 
+test("un intento FALLIDO reciente no le roba la protección al último respaldo bueno", async () => {
+  // El bug que encontró la revisión de la Task 4 (2026-08-12). `crearRespaldo`
+  // registra la copia con estado "fallido" ANTES de subir a Drive. Si la
+  // protección mira solo la fecha, el fallido —que no es ni un byte en Drive— se
+  // lleva el escudo, y el último respaldo REAL lo borra la retención por edad.
+  // El índice quedaría con un renglón y la carpeta de Drive vacía.
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 10, id: 1, estado: "ok" });      // el único real, ya vencido
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 0, id: 2, estado: "fallido" });  // el más nuevo, y no existe en Drive
+  await limpiarViejos(DB, drive, HOY);
+  const vivosDeVerdad = DB.respaldos.copias.filter((c) => c.estado === "ok");
+  assert.strictEqual(vivosDeVerdad.length, 1, "se borró el único respaldo que existía en Drive");
+  assert.strictEqual(vivosDeVerdad[0].id, 1);
+});
+
+test("protege la más reciente aunque ELLA MISMA esté vencida (y borra las demás)", async () => {
+  // ESTA es la prueba que le da dientes a la protección de `masReciente`.
+  // La de arriba NO sirve para eso: con una sola copia, la guarda
+  // `if (copias.length <= 1) return ...` regresa ANTES de que la línea de
+  // `masReciente` se ejecute siquiera, así que quitar esa línea la deja
+  // igual de verde. Hacen falta DOS copias, ambas vencidas, para que la
+  // protección sea lo único que separa "borra una" de "vacía la carpeta".
+  const DB = nuevoDB(); const drive = driveFalso();
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 10, id: 1 }); // vencida (>7d), pero es la más nueva
+  copiaFalsa(DB, { tipo: "hora", diasAtras: 20, id: 2 }); // vencida y más vieja
+  const r = await limpiarViejos(DB, drive, HOY);
+  assert.strictEqual(r.borradas, 1);
+  assert.deepStrictEqual(DB.respaldos.copias.map((c) => c.id), [1]);
+});
+
 test("la retención borra el archivo en Drive, no solo el renglón del índice", async () => {
   const DB = nuevoDB(); const drive = driveFalso();
   const borrados = [];
@@ -1182,9 +1212,16 @@ function diasDeVida(tipo) {
  * Rueda de retención: 30 días de puntos del día, 7 días de detalle por hora.
  *
  * Dos reglas que no se negocian:
- *  1) La copia MÁS RECIENTE nunca se borra, aunque su fecha diga que ya venció.
- *     Es la última red contra un reloj mal puesto o una fecha corrupta: mejor un
- *     archivo de más que quedarse sin ninguno.
+ *  1) El respaldo UTILIZABLE más reciente nunca se borra, aunque su fecha diga
+ *     que ya venció. Es la última red contra un reloj mal puesto o una fecha
+ *     corrupta: mejor un archivo de más que quedarse sin ninguno.
+ *     OJO — "utilizable" quiere decir `estado === "ok"`, y esa palabra costó un
+ *     bug real (revisión de la Task 4, 2026-08-12): `crearRespaldo` mete el
+ *     registro con estado "fallido" ANTES de subir a Drive. Si se elige el más
+ *     reciente solo por fecha, un intento fallido — que no representa un solo
+ *     byte en Drive — se lleva la protección, y el último respaldo bueno deja de
+ *     ser el más nuevo, la pierde, y lo borra la retención por edad. El índice
+ *     queda con un renglón vivo y la carpeta de Drive VACÍA.
  *  2) Si Drive falla al borrar, el renglón se CONSERVA en el índice. Quitarlo
  *     dejaría un archivo huérfano en Drive que nadie volvería a mirar; dejarlo
  *     hace que el siguiente ciclo lo reintente.
@@ -1193,9 +1230,13 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   const copias = DB.respaldos.copias;
   if (copias.length <= 1) return { borradas: 0, conservadas: copias.length };
 
-  const masReciente = copias.reduce((a, b) =>
-    Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b
-  );
+  // El más nuevo de los que SÍ están en Drive. Si ninguno tuvo éxito nunca
+  // (arranque, o Drive lleva horas caído), se cae al más nuevo a secas: proteger
+  // algo es mejor que no proteger nada.
+  const masNuevoDe = (lista) =>
+    lista.reduce((a, b) => (Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b));
+  const utilizables = copias.filter((c) => c.estado === "ok" && c.drive_file_id);
+  const masReciente = masNuevoDe(utilizables.length ? utilizables : copias);
 
   const vencidas = copias.filter((c) => {
     if (c === masReciente) return false;
@@ -1232,7 +1273,19 @@ Expected: PASS — 22 pruebas.
 - [ ] **Step 5: Verificación por mutación de la red de seguridad**
 
 Quitar la línea `if (c === masReciente) return false;`. Correr.
-Expected: **roja** la prueba "NUNCA se borra la copia más reciente".
+Expected: **roja** la prueba "protege la más reciente aunque ELLA MISMA esté vencida".
+
+⚠️ **Corrección del escaneo previo (2026-08-12):** este paso decía que la roja
+sería "NUNCA se borra la copia más reciente". **Es falso, y comprobarlo importa:**
+esa prueba tiene una sola copia, y la guarda `if (copias.length <= 1) return ...`
+regresa antes de llegar a la línea de `masReciente`, así que sigue verde con y sin
+la protección. Ninguna de las otras pruebas de retención la cubría tampoco (en
+todas, la copia más reciente no calificaba para borrarse de por sí). Sin la prueba
+nueva de dos copias vencidas, un implementador podía borrar la protección entera y
+las 22 pruebas quedaban en verde — hasta el día en que el reloj se atrase y haya
+200 copias vencidas: se borrarían TODAS y la carpeta quedaría vacía. Es el mismo
+defecto que costó dos rondas en la Task 1. **Si al mutar no se pone roja la prueba
+que este paso nombra, PARA y repórtalo — no lo des por bueno.**
 **Revertir** y confirmar verde.
 
 - [ ] **Step 6: Commit**
@@ -1462,21 +1515,129 @@ git commit -m "feat(respaldos): verificacion real bajando el archivo de Drive y 
 
 ---
 
-## Task 6: Restaurar — los cuatro candados
+## Task 6: Restaurar — los cuatro candados (y el modo mantenimiento)
 
 **Files:**
+- Create: `backend/mantenimiento.js`
+- Test: `backend/mantenimiento.test.js`
 - Modify: `backend/respaldos.js` (agregar `claveRestauracionConfigurada`, `claveCorrecta`, `compararConEstadoActual`, `restaurar`)
 - Modify: `backend/respaldos.test.js`
 
 **Interfaces:**
-- Produces:
+- Produces en `mantenimiento.js`:
+  - `activar(motivo) → void`, `desactivar() → void`
+  - `estaActivo() → boolean`
+  - `estado() → { activo: boolean, motivo: string|null, desde: string|null }`
+- Produces en `respaldos.js`:
   - `claveRestauracionConfigurada(env = process.env) → boolean`
   - `claveCorrecta(dada, env = process.env) → boolean` (tiempo constante)
   - `compararConEstadoActual(DB, copia) → { perdidas: {clave: n}, resumen: string }`
-  - `restaurar(DB, drive, { copiaId, llave, clave, confirmacion, usuario, env }) → { copia, pre_restauracion, aplicado }`
+  - `restaurar(DB, drive, { copiaId, llave, clave, confirmacion, usuario, env }) → { copia, pre_restauracion, aplicado, comparacion }`
+    (el `comparacion` lo produce el código del Step 3 y esta línea lo omitía — corregido por el escaneo previo del 2026-08-12)
   - `PALABRA_CONFIRMACION = "RESTAURAR"`
 
 **La operación más destructiva del sistema.** Borra todo lo de hoy y lo reemplaza. Los cuatro candados del spec, en este orden: **clave → confirmación escrita → aviso de qué se pierde → auto-respaldo previo**.
+
+> **Decisión de Victor (2026-08-12): el sistema se bloquea solo mientras restaura.**
+> El diseño original dejaba esto como riesgo de procedimiento — la pantalla avisaba
+> en rojo, pero nada impedía que una cajera estuviera cobrando justo en el momento
+> del reemplazo. Victor pidió que se bloquee solo. De ahí salen el Step 0 y el
+> Step 3bis de esta tarea, más el middleware de la Task 7.
+
+- [ ] **Step 0: El interruptor de mantenimiento (módulo nuevo)**
+
+Crear `backend/mantenimiento.test.js`:
+
+```js
+const { test } = require("node:test");
+const assert = require("node:assert");
+const { activar, desactivar, estaActivo, estado } = require("./mantenimiento");
+
+test("arranca apagado", () => {
+  desactivar();
+  assert.strictEqual(estaActivo(), false);
+  assert.strictEqual(estado().motivo, null);
+});
+
+test("activar prende el interruptor y guarda el motivo y la hora", () => {
+  activar("Restaurando el respaldo del 2026-08-11 16:00");
+  assert.strictEqual(estaActivo(), true);
+  assert.match(estado().motivo, /Restaurando/);
+  assert.ok(Date.parse(estado().desde) > 0);
+  desactivar();
+});
+
+test("desactivar lo apaga y limpia el motivo", () => {
+  activar("lo que sea");
+  desactivar();
+  assert.strictEqual(estaActivo(), false);
+  assert.strictEqual(estado().motivo, null);
+  assert.strictEqual(estado().desde, null);
+});
+
+test("activar dos veces seguidas no truena y conserva el primer 'desde'", () => {
+  activar("uno");
+  const primero = estado().desde;
+  activar("dos");
+  assert.strictEqual(estado().desde, primero, "no debe reiniciar el reloj");
+  assert.match(estado().motivo, /dos/, "el motivo sí se actualiza");
+  desactivar();
+});
+```
+
+Crear `backend/mantenimiento.js`:
+
+```js
+/**
+ * mantenimiento.js — El interruptor que congela el sistema mientras se restaura.
+ *
+ * Restaurar reemplaza TODOS los datos del negocio. Si una cajera está cobrando en
+ * ese momento, su venta se escribe sobre datos que están a punto de desaparecer, o
+ * peor: se pierde sin que nadie se entere. Victor pidió que el sistema se bloquee
+ * solo (2026-08-12) en vez de confiar en el aviso de la pantalla.
+ *
+ * El estado vive en una variable de módulo, NO en el objeto DB, y eso es a
+ * propósito: `persistencia.js` serializa el DB entero a SQLite, y un interruptor
+ * de mantenimiento persistido podría quedarse trabado en "prendido" tras un
+ * reinicio a media restauración — dejando la tienda cerrada sin forma de abrirla
+ * desde la interfaz. En memoria, un reinicio siempre despierta con el sistema
+ * abierto: si la restauración quedó a medias, se vuelve a intentar; una tienda
+ * trabada sería peor.
+ */
+
+let activo = false;
+let motivo = null;
+let desde = null;
+
+/** Prende el bloqueo. Llamar dos veces NO reinicia el reloj: si ya estaba
+ *  bloqueado, lo que importa es desde cuándo lo está. */
+function activar(razon) {
+  motivo = razon || "Mantenimiento en curso";
+  if (!activo) {
+    activo = true;
+    desde = new Date().toISOString();
+  }
+}
+
+function desactivar() {
+  activo = false;
+  motivo = null;
+  desde = null;
+}
+
+function estaActivo() {
+  return activo;
+}
+
+function estado() {
+  return { activo, motivo, desde };
+}
+
+module.exports = { activar, desactivar, estaActivo, estado };
+```
+
+Run: `cd backend && node --test mantenimiento.test.js`
+Expected: PASS — 4 pruebas.
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
 
@@ -1487,8 +1648,18 @@ const {
   restaurar, claveRestauracionConfigurada, claveCorrecta,
   compararConEstadoActual, PALABRA_CONFIRMACION,
 } = require("./respaldos");
+const { estaActivo, desactivar } = require("./mantenimiento");
 
 const ENV_OK = { CLAVE_RESTAURACION: "la-clave-secreta-de-victor" };
+/** Una llave válida pero distinta: sirve para simular un respaldo ilegible. */
+const OTRA_LLAVE = Buffer.from("b".repeat(64), "hex");
+
+// El interruptor de mantenimiento es estado de MÓDULO, no del DB: vive entre
+// pruebas. Se apaga antes de cada una para que el orden de ejecución no cambie
+// el resultado — una prueba que depende de la anterior es una prueba que miente.
+beforeEach(() => desactivar());
+// ^ requiere ampliar el import de arriba del archivo a:
+//   const { test, beforeEach } = require("node:test");
 
 async function conRespaldoListo() {
   const DB = nuevoDB();
@@ -1496,6 +1667,59 @@ async function conRespaldoListo() {
   const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
   return { DB, drive, copia };
 }
+
+test("un usuario amarrado a una sucursal NO puede restaurar, aunque traiga la clave buena", async () => {
+  // Candado 0, dentro del módulo. La ruta ya exige alcance global; esta prueba
+  // vigila que el módulo NO dependa solo de la ruta (restricción global #5).
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION,
+      usuario: { nombre: "Gerente de Ocosingo", sucursal_id: 1 }, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  // Y no debió dejar ni siquiera el respaldo pre_restauracion.
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
+test("restaurar() sin el campo usuario (omitido) NO restaura — falla cerrado", async () => {
+  // Candado 0 debe fallar CERRADO: sin usuario, no hay alcance global implícito.
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
+
+test("restaurar() con usuario: null NO restaura — falla cerrado", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  const antes = JSON.stringify(DB.pos.ventas);
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION, usuario: null, env: ENV_OK,
+    }),
+    /alcance global/i,
+  );
+  assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "no debió tocar nada");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length, 0,
+  );
+});
 
 test("sin CLAVE_RESTAURACION configurada, restaurar está APAGADO (falla cerrado)", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
@@ -1627,6 +1851,59 @@ test("la restauración queda en la bitácora con quién y qué", async () => {
   assert.strictEqual(mov.usuario, "Victor Pérez");
 });
 
+test("mientras restaura, el sistema está BLOQUEADO — y el bloqueo empieza ANTES del respaldo previo", async () => {
+  // La ventana que este bloqueo cierra: una venta capturada entre el respaldo
+  // previo y el reemplazo se perdería DOS veces (no está en los datos viejos que
+  // se restauran, ni en el respaldo previo que se tomó antes de ella).
+  const { DB, drive, copia } = await conRespaldoListo();
+  let bloqueadoDuranteElPrevio = null;
+  const subirOriginal = drive.subirArchivoADrive;
+  drive.subirArchivoADrive = async (...args) => {
+    bloqueadoDuranteElPrevio = estaActivo(); // esto corre DENTRO del respaldo previo
+    return subirOriginal(...args);
+  };
+
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  });
+
+  assert.strictEqual(bloqueadoDuranteElPrevio, true, "el bloqueo llegó tarde");
+  assert.strictEqual(estaActivo(), false, "no se desbloqueó al terminar");
+});
+
+test("si la restauración TRUENA a media faena, el sistema se desbloquea igual", async () => {
+  // Un negocio trabado en mantenimiento para siempre sería peor que la falla.
+  const { DB, drive, copia } = await conRespaldoListo();
+  drive.subirArchivoADrive = async () => { throw new Error("Drive caído"); };
+
+  await assert.rejects(() => restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  }));
+  assert.strictEqual(estaActivo(), false, "quedó trabado en mantenimiento");
+});
+
+test("una clave equivocada NO bloquea la tienda", async () => {
+  // Cerrar la tienda porque alguien se equivocó al teclear sería un modo de
+  // negación de servicio con tres letras mal escritas.
+  const { DB, drive, copia } = await conRespaldoListo();
+  await assert.rejects(() => restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: "clave-mala",
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  }));
+  assert.strictEqual(estaActivo(), false);
+});
+
+test("un respaldo ilegible NO bloquea la tienda (se valida antes de bloquear)", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  await assert.rejects(() => restaurar(DB, drive, {
+    copiaId: copia.id, llave: OTRA_LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+  }));
+  assert.strictEqual(estaActivo(), false);
+});
+
 test("la clave NUNCA aparece en la bitácora", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
   await restaurar(DB, drive, {
@@ -1676,6 +1953,7 @@ Agregar a `backend/respaldos.js`:
 
 ```js
 const crypto = require("crypto");
+const mantenimiento = require("./mantenimiento");
 
 const PALABRA_CONFIRMACION = "RESTAURAR";
 
@@ -1742,6 +2020,20 @@ function compararConEstadoActual(DB, copia) {
 async function restaurar(DB, drive, {
   copiaId, llave, clave, confirmacion, usuario = null, env = process.env,
 } = {}) {
+  // Candado 0 — alcance, DENTRO del módulo (restricción global #5, agregado por
+  // el escaneo previo del 2026-08-12). La ruta ya lleva `requiereAlcanceGlobal`,
+  // y aun así este chequeo va aquí: exactamente eso era lo que hacía "segura" la
+  // ruta de Apartados antes del bug de alcance de julio. Es la operación más
+  // destructiva del sistema; si mañana alguien llama `restaurar()` desde un
+  // script, una tarea programada, o reordena por accidente los middlewares, esto
+  // es lo único que queda de pie. Un usuario amarrado a una sucursal trae
+  // `sucursal_id` en su token; quien ve todas trae `null`. Falla CERRADO: sin
+  // `usuario` (ausente, `null` o `undefined`) no se restaura — no hay alcance
+  // global implícito por default.
+  if (!usuario || usuario.sucursal_id != null) {
+    throw new Error("Restaurar requiere una cuenta con alcance global (todas las sucursales).");
+  }
+
   if (!claveRestauracionConfigurada(env)) {
     throw new Error(
       "La restauración no está habilitada: falta configurar CLAVE_RESTAURACION en el servidor."
@@ -1756,35 +2048,58 @@ async function restaurar(DB, drive, {
 
   // Se baja y valida ENTERA antes de tocar nada. Si el archivo está corrupto,
   // incompleto o de otra versión, se rechaza aquí y la base ni se enteró.
+  // Esto va ANTES de bloquear el sistema a propósito: un archivo dañado no debe
+  // dejar la tienda cerrada ni un segundo.
   const { copia, foto } = await leerRespaldo(DB, drive, copiaId, llave);
 
-  // La red de seguridad. Si esto falla, NO se restaura: mejor no restaurar que
-  // restaurar sin poder deshacerlo.
-  let pre;
-  try {
-    pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario });
-  } catch (e) {
-    throw new Error(
-      "No se pudo crear el respaldo de seguridad previo, así que la restauración se canceló " +
-      "(no se tocó ningún dato). Revisa la conexión con Google Drive. Detalle: " + e.message
-    );
-  }
-
-  const comparacion = compararConEstadoActual(DB, copia);
-
-  // Recién ahora se muta. Colección por colección, solo las respaldadas.
-  for (const nombre of COLECCIONES_RESPALDADAS) {
-    if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
-  }
-
-  pushMovimiento(
-    DB, copia.id, "restauracion",
-    `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
-    `Respaldo previo: ${pre.nombre_archivo}`,
-    usuario
+  // A partir de aquí el sistema queda BLOQUEADO para escrituras, y no se
+  // desbloquea pase lo que pase (el `finally` de más abajo).
+  //
+  // El bloqueo va ANTES del respaldo previo, no después, y esa diferencia es
+  // justo el punto: una venta capturada ENTRE el respaldo previo y el reemplazo
+  // se perdería dos veces — no estaría en los datos restaurados (son más viejos)
+  // ni en el respaldo previo (se tomó antes de esa venta). Sería dinero cobrado
+  // que no existe en ningún archivo. Con el bloqueo aquí, esa ventana no existe.
+  mantenimiento.activar(
+    `Restaurando el respaldo del ${copia.fecha} ${copia.hora_local}. ` +
+    "El sistema vuelve solo en cuanto termine."
   );
 
-  return { copia, pre_restauracion: pre, aplicado: true, comparacion };
+  try {
+    // La red de seguridad. Si esto falla, NO se restaura: mejor no restaurar que
+    // restaurar sin poder deshacerlo.
+    let pre;
+    try {
+      pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario });
+    } catch (e) {
+      throw new Error(
+        "No se pudo crear el respaldo de seguridad previo, así que la restauración se canceló " +
+        "(no se tocó ningún dato). Revisa la conexión con Google Drive. Detalle: " + e.message
+      );
+    }
+
+    const comparacion = compararConEstadoActual(DB, copia);
+
+    // Recién ahora se muta. Colección por colección, solo las respaldadas.
+    for (const nombre of COLECCIONES_RESPALDADAS) {
+      if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
+    }
+
+    pushMovimiento(
+      DB, copia.id, "restauracion",
+      `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
+      `Respaldo previo: ${pre.nombre_archivo}`,
+      usuario
+    );
+
+    return { copia, pre_restauracion: pre, aplicado: true, comparacion };
+  } finally {
+    // SIEMPRE se desbloquea: si algo revienta a media restauración, la tienda no
+    // se queda cerrada esperando a que alguien reinicie el servidor. Un `finally`
+    // y no un `desactivar()` al final del camino feliz — ese es el error que deja
+    // negocios parados.
+    mantenimiento.desactivar();
+  }
 }
 ```
 
@@ -1792,10 +2107,10 @@ Agregar al `module.exports`: `restaurar, claveRestauracionConfigurada, claveCorr
 
 - [ ] **Step 4: Correr y verificar que pasa**
 
-Run: `cd backend && node --test respaldos.test.js`
-Expected: PASS — 42 pruebas.
+Run: `cd backend && node --test respaldos.test.js mantenimiento.test.js`
+Expected: PASS. (El conteo lo da la corrida — el texto de este plan ya se equivocó una vez con un número de pruebas; no lo tomes como requisito.)
 
-- [ ] **Step 5: Verificación por mutación de los tres candados críticos**
+- [ ] **Step 5: Verificación por mutación de los candados críticos**
 
 Una a la vez, revirtiendo entre cada una:
 
@@ -1804,19 +2119,33 @@ Una a la vez, revirtiendo entre cada una:
 | Borrar el bloque `try { pre = await crearRespaldo(...) }` y dejar la mutación | "si el respaldo previo FALLA, la restauración se cancela" |
 | Cambiar `claveCorrecta(clave, env)` por `true` | "con la clave equivocada NO restaura y NO muta nada" |
 | Borrar el `if (!claveRestauracionConfigurada(env))` | "sin CLAVE_RESTAURACION configurada, restaurar está APAGADO" |
+| Borrar el `if (!usuario || usuario.sucursal_id != null)` (candado 0, alcance) | "un usuario amarrado a una sucursal NO puede restaurar" |
+| Mover `mantenimiento.activar(...)` a DESPUÉS del bloque del respaldo previo | "mientras restaura, el sistema está BLOQUEADO — y el bloqueo empieza ANTES del respaldo previo" |
+| Cambiar el `finally { mantenimiento.desactivar(); }` por un `desactivar()` al final del camino feliz | "si la restauración TRUENA a media faena, el sistema se desbloquea igual" |
 
-**Revertir las tres** y confirmar las 42 en verde.
+**Revertir las seis** y confirmar todas en verde (el conteo exacto lo da la corrida; no lo adivines).
+
+> **Si alguna mutación NO pone roja la prueba que le toca, PARA y repórtalo como
+> DONE_WITH_CONCERNS o BLOCKED.** En este mismo plan ya pasó tres veces que una
+> verificación por mutación no comprobaba lo que prometía (Task 1 dos veces, Task 3
+> una). Una mutación que no rompe nada significa que la prueba no está vigilando esa
+> protección — no que la protección sea sólida. No lo des por bueno.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/respaldos.js backend/respaldos.test.js
-git commit -m "feat(respaldos): restaurar con clave propia, confirmacion escrita y auto-respaldo previo"
+git add backend/mantenimiento.js backend/mantenimiento.test.js backend/respaldos.js backend/respaldos.test.js
+git commit -m "feat(respaldos): restaurar con clave propia, confirmacion escrita, auto-respaldo previo y bloqueo del sistema"
 ```
 
 ---
 
 ## Task 7: Módulo, permisos, rutas y arranque del reloj
+
+> **Dos avisos del escaneo previo (2026-08-12), para que no se asuman resueltos en otra tarea:**
+>
+> 1. **El "reintenta con espera creciente" del diseño NO está implementado en ninguna tarea.** El diseño promete, en su tabla de manejo de errores: *"Drive no responde → Reintenta con espera creciente"*. Ni `crearRespaldo` (Task 3), ni `subirArchivoADrive` (`drive.js`), ni el `cicloRespaldo` de esta tarea lo hacen. En la práctica el ciclo de 5 minutos funciona como reintento de facto y **eso es aceptable**, pero constrúyelo sabiéndolo: no agregues backoff por tu cuenta (sería ámbito nuevo), y no supongas que ya existe.
+> 2. **`req.usuarioToken?.usuario` es SIEMPRE `undefined`.** `firmarToken()` (`backend/auth.js`) firma solo `{ id, nombre, rol_id, sucursal_id }` — nunca un campo `usuario`. La línea `const usuario = req.usuarioToken?.usuario || \`id:${req.usuarioToken?.id}\`` funciona (cae siempre a `id:N`, que es una clave estable por persona para el bloqueo de intentos), pero sugiere dos caminos donde solo hay uno. Déjala funcionando, y si la simplificas a `id:N` a secas, dilo en tu reporte.
 
 **Files:**
 - Modify: `backend/permisosCatalogo.js`
@@ -2044,6 +2373,9 @@ El ciclo, junto al bloque de `ESTE_PROCESO_ES_EL_SERVIDOR` (para que **requerir*
  */
 async function cicloRespaldo() {
   if (!LLAVE_RESPALDO) return;
+  // Mientras se restaura, el reloj se calla. Respaldar a media restauración
+  // guardaría una foto de un estado que no es ni el viejo ni el nuevo.
+  if (mantenimiento.estaActivo()) return;
   try {
     const veredicto = debeRespaldar(DB.respaldos, Date.now());
     if (veredicto.respaldar) {
@@ -2078,6 +2410,104 @@ if (ESTE_PROCESO_ES_EL_SERVIDOR) {
 >
 > **Sí falta `crypto`:** `server.js` **no** lo requiere hoy. Agregar `const crypto = require("crypto");` junto a los demás requires — lo necesitan las dos rutas con token de la Task 7 y de la Task 9.
 
+- [ ] **Step 6bis: El middleware que congela el sistema mientras se restaura**
+
+**Decisión de Victor (2026-08-12).** El diseño original solo avisaba en rojo en la
+pantalla y confiaba en que nadie estuviera cobrando. Victor pidió que el sistema se
+bloquee solo. El interruptor ya existe (`backend/mantenimiento.js`, Task 6); esto es
+lo que lo hace valer para todo el backend.
+
+En `backend/server.js`, **antes de todas las rutas de la aplicación** (después de los
+parsers de cuerpo y de CORS, junto a los otros middlewares globales):
+
+```js
+const mantenimiento = require("./mantenimiento");
+
+/**
+ * Mientras se restaura un respaldo, el sistema no acepta escrituras.
+ *
+ * Solo se frenan los métodos que MUTAN. Las lecturas siguen pasando a propósito:
+ * la propia pantalla de Respaldos necesita consultar el estado para mostrar el
+ * aviso, y una cajera que tiene la pantalla abierta debe poder ver por qué no la
+ * dejan cobrar, en vez de encontrarse con un sistema que no responde.
+ *
+ * Esto también cierra el doble clic en "Restaurar": la segunda petición se topa
+ * con el bloqueo que puso la primera.
+ */
+const METODOS_QUE_ESCRIBEN = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+app.use((req, res, next) => {
+  if (!mantenimiento.estaActivo() || !METODOS_QUE_ESCRIBEN.has(req.method)) return next();
+  const info = mantenimiento.estado();
+  return res.status(503).json({
+    error:
+      info.motivo ||
+      "El sistema está en mantenimiento. Espera un momento y vuelve a intentar.",
+    mantenimiento: true,
+  });
+});
+```
+
+Y agregar a `backend/respaldosRutas.test.js` (le pega a las rutas REALES vía
+`require("./server")`):
+
+```js
+const mantenimiento = require("./mantenimiento");
+
+test("con el sistema en mantenimiento, una venta recibe 503 y NO se registra", async () => {
+  const token = firmarToken({ id: 1, nombre: "Victor", rol_id: 1, sucursal_id: null });
+  mantenimiento.activar("Restaurando el respaldo del 2026-08-11 16:00");
+  try {
+    const r = await fetch(`${base}/api/ventas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ sucursal_id: 1, lineas: [] }),
+    });
+    assert.strictEqual(r.status, 503);
+    const cuerpo = await r.json();
+    assert.strictEqual(cuerpo.mantenimiento, true);
+    assert.match(cuerpo.error, /Restaurando|mantenimiento/i);
+  } finally {
+    mantenimiento.desactivar();
+  }
+});
+
+test("en mantenimiento las LECTURAS siguen pasando (para poder ver por qué)", async () => {
+  const token = firmarToken({ id: 1, nombre: "Victor", rol_id: 1, sucursal_id: null });
+  mantenimiento.activar("Restaurando");
+  try {
+    const r = await fetch(`${base}/api/respaldos/estado`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.strictEqual(r.status, 200);
+    const cuerpo = await r.json();
+    assert.strictEqual(cuerpo.mantenimiento.activo, true);
+  } finally {
+    mantenimiento.desactivar();
+  }
+});
+
+test("apagado el mantenimiento, las escrituras vuelven solas", async () => {
+  const token = firmarToken({ id: 1, nombre: "Victor", rol_id: 1, sucursal_id: null });
+  mantenimiento.activar("x");
+  mantenimiento.desactivar();
+  const r = await fetch(`${base}/api/ventas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ sucursal_id: 1, lineas: [] }),
+  });
+  assert.notStrictEqual(r.status, 503, "el bloqueo se quedó pegado");
+});
+```
+
+> Ajusta el nombre del helper de token y de `base` a como los tenga ya el archivo de
+> pruebas de rutas; lo que no se negocia son los tres comportamientos: **503 al
+> escribir, 200 al leer, y que se destrabe al apagarlo.**
+
+**Verificación por mutación:** quitar el `app.use` del middleware debe poner roja la
+primera prueba. Si no la pone, el middleware quedó colgado después de las rutas —
+en Express el orden de registro ES el comportamiento. Revertir.
+
 - [ ] **Step 7: Agregar las 6 rutas**
 
 Junto a las rutas de depósitos (`backend/server.js:1325`):
@@ -2099,6 +2529,7 @@ app.get("/api/respaldos/estado", requiereLogin, requierePermiso("ver_respaldos",
     ...estadoRespaldos(DB),
     respaldo_configurado: !!LLAVE_RESPALDO,
     restauracion_habilitada: claveRestauracionConfigurada(),
+    mantenimiento: mantenimiento.estado(),
   });
 });
 
@@ -2232,20 +2663,25 @@ Seguir la estructura de `src/EstadoCuenta.jsx` (encabezado, tabla, modal). Requi
 
 1. **Semáforo arriba**, leyendo `GET /api/respaldos/estado`:
    - 🟢 `Último respaldo hace {minutos_desde_ultimo} minutos` cuando `alerta === false`
-   - 🔴 `Sin respaldar desde hace {n} horas` cuando `alerta === true`
+   - 🔴 `Sin respaldar desde hace {n} horas` cuando `alerta === true` **y `minutos_desde_ultimo !== null`**
+   - 🔴 `Nunca se ha hecho un respaldo` cuando `minutos_desde_ultimo === null` — es el caso de un sistema recién desplegado, y es **el primer momento en que alguien va a mirar esta pantalla**. Sin este caso aparte, el renglón dice "hace null horas" o "hace NaN horas" (agregado por el escaneo previo del 2026-08-12).
+   - El estado viene con `total_copias` (número), **no** con `copias` ni con `conectado` — la revisión de la Task 3 confirmó los campos reales: `{ ultimo_exitoso, ultimo_intento, minutos_desde_ultimo, alerta, total_copias }`. Si hace falta mostrar si Drive está conectado, eso sale aparte de `drive.js`, no de aquí.
    - 🔴 `El sistema NO se está respaldando — falta configurar la llave en el servidor` cuando `respaldo_configurado === false`
 2. **Dos listas**: "Puntos de restauración (30 días)" filtrando `tipo !== "hora"`, y "Detalle por hora (7 días)" filtrando `tipo === "hora"`. Columnas: fecha, hora, tamaño, ventas, productos, clientes, verificado.
 3. **Ningún botón de borrar.** La única forma de que un respaldo desaparezca es la rueda de retención.
-4. **Botón "Restaurar"** por renglón, **solo si** `permisos.includes("restaurar_respaldo") && estado.restauracion_habilitada`. Si `restauracion_habilitada === false`, mostrar en su lugar el texto: *"Restaurar está deshabilitado: falta configurar la clave en el servidor."*
+4. **Botón "Restaurar"** por renglón **en LAS DOS listas** — tanto en los puntos de restauración de 30 días como en el detalle por hora de 7 días, con el mismo gate de permisos. El diseño promete que Victor puede "afinar por hora" y el backend no distingue por `tipo`; dejar la lista por hora sin botón rompería ese requisito en silencio (aclarado por el escaneo previo del 2026-08-12). Solo se muestra **si** `permisos.includes("restaurar_respaldo") && permisos.includes("ver_todas_las_sucursales") && estado.restauracion_habilitada`. Si `restauracion_habilitada === false`, mostrar en su lugar el texto: *"Restaurar está deshabilitado: falta configurar la clave en el servidor."*
+   > **El gate del frontend debe coincidir EXACTAMENTE con el de la ruta** (`requierePermiso("restaurar_respaldo")` + `requiereAlcanceGlobal`, Task 7). Un botón visible que rebota con 403, o un botón escondido a quien sí puede usarlo, son las dos mitades del mismo defecto.
 5. **Modal de restauración** con `max-h-[92vh] flex flex-col overflow-hidden`, cuerpo `flex-1 min-h-0 overflow-y-auto`, encabezado y pie `shrink-0`. Contiene, en orden:
    - El resultado de `GET /api/respaldos/:id/comparar`: *"Vas a volver al estado del {fecha} {hora}."* y el `resumen`.
    - Aviso en rojo: **"Al restaurar, todos los usuarios conectados tienen que volver a entrar. Si hay cajeras vendiendo, se les corta la venta."**
    - Campo de **clave de restauración** (`type="password"`, `autoComplete="off"`).
    - Campo donde hay que escribir `RESTAURAR`.
    - Botón rojo **deshabilitado** hasta que el texto sea exactamente `RESTAURAR` y la clave no esté vacía. Con `type="submit"` explícito.
-6. **Botón "Respaldar ahora"** contra `POST /api/respaldos/ahora`, visible solo con `restaurar_respaldo` (la ruta exige alcance global).
+6. **Botón "Respaldar ahora"** contra `POST /api/respaldos/ahora`, visible solo si `permisos.includes("ver_respaldos") && permisos.includes("ver_todas_las_sucursales")` — el mismo par que exige la ruta (`requierePermiso("ver_respaldos")` + `requiereAlcanceGlobal`). No usar `restaurar_respaldo` aquí: es otro permiso y produciría un botón que rebota.
 7. La clave **nunca** se guarda en estado persistente ni en `localStorage`; se limpia al cerrar el modal.
+7bis. **El botón de restaurar se deshabilita mientras la petición está en vuelo** (un doble clic dispararía dos restauraciones y dos respaldos previos). Y si la ruta responde **429** (Task 7 bloquea tras 5 intentos de clave fallidos), mostrar el mensaje que devuelve el servidor — los minutos que faltan — dentro del modal, sin cerrarlo y sin borrar lo que Victor ya escribió, salvo la clave (agregado por el escaneo previo del 2026-08-12).
 8. Tras una restauración exitosa, mostrar el aviso devuelto y **mandar al login** (`localStorage.removeItem("token")` + recargar), porque los usuarios y roles acaban de cambiar.
+9. **Aviso de mantenimiento** (decisión de Victor, 2026-08-12): `GET /api/respaldos/estado` ahora devuelve también `mantenimiento: { activo, motivo, desde }`. Cuando `activo === true`, mostrar una banda amarilla fija arriba con el `motivo` y **deshabilitar los botones "Restaurar" y "Respaldar ahora"** — el backend ya rechaza esas peticiones con 503, esto solo evita que Victor las apriete en balde. El aviso en rojo del modal (punto 5) se queda: dice lo que VA a pasar; esta banda dice lo que ESTÁ pasando.
 
 - [ ] **Step 2: Agregar el tile al Dashboard**
 
@@ -2379,15 +2815,26 @@ async function main() {
 
   // Limpieza local, con la misma red que el servidor: nunca dejar la carpeta
   // vacía. Si algo sale mal con las fechas, mejor archivos de más.
+  // OJO (corregido por el escaneo previo, 2026-08-12): la versión anterior de
+  // este bloque prometía "nunca dejar la carpeta vacía" y NO lo cumplía.
+  // Comparaba `archivos.length > 1` dentro del loop contra una foto fija tomada
+  // ANTES de empezar a borrar: ese número nunca bajaba, así que con 5 archivos
+  // todos vencidos borraba los 5 y dejaba la carpeta vacía — justo el caso en
+  // que la protección importa. Ahora se ordena por fecha y el índice 0 (el más
+  // nuevo) queda fuera del loop: no hay conteo del que depender.
   const limite = Date.now() - diasAConservar * 24 * 60 * 60 * 1000;
-  const archivos = (await fs.readdir(carpeta)).filter((n) => n.endsWith(".respaldo"));
-  if (archivos.length > 1) {
-    for (const nombre of archivos) {
-      const st = await fs.stat(path.join(carpeta, nombre));
-      if (st.mtimeMs < limite && archivos.length > 1) {
-        await fs.unlink(path.join(carpeta, nombre));
-        log(`Borrado por antigüedad: ${nombre}`);
-      }
+  const nombres = (await fs.readdir(carpeta)).filter((n) => n.endsWith(".respaldo"));
+  const conFecha = await Promise.all(
+    nombres.map(async (n) => ({
+      n,
+      mtimeMs: (await fs.stat(path.join(carpeta, n))).mtimeMs,
+    }))
+  );
+  conFecha.sort((a, b) => b.mtimeMs - a.mtimeMs); // el más nuevo primero
+  for (let i = 1; i < conFecha.length; i++) {      // el índice 0 NUNCA se toca
+    if (conFecha[i].mtimeMs < limite) {
+      await fs.unlink(path.join(carpeta, conFecha[i].n));
+      log(`Borrado por antigüedad: ${conFecha[i].n}`);
     }
   }
 
