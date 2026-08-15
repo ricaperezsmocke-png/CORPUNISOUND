@@ -23,8 +23,22 @@ Hay **tres copias** de los datos:
 ## 1. Qué se respalda y qué no
 
 **Sí se respaldan:** todos los datos del negocio — ventas, clientes,
-inventario, apartados, garantías, gastos, depósitos, usuarios, roles,
-configuración de sucursales, etc. Básicamente todo lo que ves en el sistema.
+**catálogo de productos** (productos, categorías, proveedores, departamentos),
+existencias y movimientos de inventario, apartados, garantías, gastos,
+depósitos, usuarios, roles, configuración de sucursales, etc. Básicamente todo
+lo que ves en el sistema.
+
+> Esta lista no se mantiene a mano: hay una prueba automática
+> (`respaldos.test.js`) que lee las colecciones reales del sistema y truena si
+> alguna quedara fuera del respaldo. Se agregó después de descubrir que el
+> catálogo de productos llevaba nueve tareas sin respaldarse sin que nada
+> avisara.
+
+**Ojo con las conexiones:** el respaldo guarda también el estado de conexión a
+Google Drive y a Mercado Libre, pero al restaurar **no se pisan las conexiones
+vivas**. Si restauras una foto anterior a la última vez que reconectaste Drive,
+tu conexión actual se conserva — si no fuera así, restaurar te dejaría sin
+Drive, y sin Drive el sistema deja de respaldarse.
 
 **No se respaldan** (y no hace falta, porque ya están seguros en otro lado):
 
@@ -74,8 +88,9 @@ abrir con la nueva.
 Esta es una segunda clave, **distinta** de `RESPALDO_LLAVE`. Es la que se
 teclea en la pantalla de Respaldos cada vez que alguien quiere **restaurar**
 el sistema a un punto anterior. Piénsala como el "botón rojo": sin esta
-variable configurada, el botón de restaurar **ni siquiera aparece** en el
-sistema — restaurar está completamente apagado.
+variable configurada, restaurar está **completamente apagado** — en la pantalla
+aparece el aviso *"Restaurar está deshabilitado: falta configurar la clave en el
+servidor"* y ningún intento procede, ni con la contraseña correcta.
 
 **Cómo configurarla:**
 
@@ -109,6 +124,24 @@ tiene el mismo freno que sí tiene el login), así que un token corto o
 adivinable es un candado débil. Con los 32 bytes aleatorios del comando de
 arriba, no hay forma práctica de adivinarlo.
 
+## 3.b El botón "Respaldar ahora"
+
+En el módulo Respaldos hay un botón para forzar un respaldo en el momento, sin
+esperar al ciclo automático. Úsalo **antes de hacer algo riesgoso** (importar un
+Excel grande de SICAR, una recepción de compras enorme, o justo antes de
+restaurar).
+
+El respaldo que crea es un **punto de restauración completo**: vive 30 días,
+aparece en la tabla "Puntos de restauración" y el script de tu PC también lo
+baja. (Hasta la auditoría del 15 de agosto este botón creaba un respaldo "de
+hora", que vivía solo 7 días, salía en la otra tabla y nunca llegaba a tu
+computadora — justo al revés de lo que uno espera del botón que aprieta antes de
+algo delicado.)
+
+Requiere el permiso **"Respaldar Ahora"** (`crear_respaldo`), que es distinto del
+de solo ver. Si le das a alguien "Ver Respaldos" para que vigile el semáforo, esa
+persona **no** podrá disparar respaldos.
+
 ## 4. Cómo restaurar, paso a paso
 
 Solo hazlo si de verdad necesitas regresar el sistema a un momento anterior
@@ -121,20 +154,39 @@ Solo hazlo si de verdad necesitas regresar el sistema a un momento anterior
    disponibles (las copias del día y las de antes de una restauración
    anterior).
 3. Junto al punto al que quieres regresar, presiona **Restaurar**. Se abre
-   una ventana que, apenas se abre, ya te muestra la comparación: qué tan
-   distinto es ese punto de lo que hay ahora (cuántos registros se ganarían
-   o perderían). No hay un botón "Comparar" aparte — la comparación viene
-   incluida al abrir esa ventana.
+   una ventana que, apenas se abre, ya te muestra la comparación: **cuántos
+   registros vas a PERDER** si regresas a ese punto (ventas, clientes, gastos…
+   capturados después de esa hora). No hay un botón "Comparar" aparte — la
+   comparación viene incluida al abrir esa ventana.
+   *Nota: la comparación solo te dice lo que se pierde, no lo que se recupera,
+   y es una estimación por conteo, no un listado renglón por renglón.*
 4. Si decides seguir, en esa misma ventana el sistema te pide:
    - La **`CLAVE_RESTAURACION`** que configuraste en Render.
    - Escribir la palabra **`RESTAURAR`** para confirmar que entendiste lo
      que va a pasar.
-5. Presiona el botón de confirmar dentro de la ventana.
+5. Presiona el botón rojo **Restaurar** al pie de la ventana (el mismo nombre
+   que el del paso 3, pero este es el que ejecuta de verdad).
+6. **Espera sin cerrar la ventana ni recargar la página.** Puede tardar varios
+   minutos: el sistema baja el archivo de Google Drive y antes guarda una copia
+   de seguridad del estado actual. Si se te corta la conexión a media
+   restauración, **no vuelvas a apretar**: espera un minuto, recarga la página y
+   revisa en la lista si ya apareció un respaldo `pre_restauracion` nuevo. Si
+   apareció, la restauración sí ocurrió.
 
-> **Advertencia:** restaurar corta la sesión de **todos** los usuarios
+> **Advertencia 1:** restaurar corta la sesión de **todos** los usuarios
 > conectados en las 5 tiendas en ese momento. Todos van a tener que volver
 > a iniciar sesión. Avisa antes de hacerlo, sobre todo si es en horario de
 > venta.
+
+> **Advertencia 2:** mientras dura la restauración **nadie puede cobrar, ni
+> capturar nada, ni siquiera iniciar sesión** — el sistema se cierra solo y
+> muestra un aviso de mantenimiento. Se reabre solo en cuanto termina. Por eso
+> conviene hacerlo en horario cerrado.
+
+> **Solo una a la vez.** Si dos personas (o dos pestañas) intentan restaurar al
+> mismo tiempo, la segunda recibe "Ya hay una restauración en curso" y no se
+> ejecuta. Es a propósito: dos restauraciones traslapadas dejarían el respaldo
+> de marcha atrás apuntando al estado equivocado.
 
 Si te equivocas 5 veces seguidas con la `CLAVE_RESTAURACION`, el sistema se
 bloquea un rato antes de dejarte intentar de nuevo (protección contra
@@ -168,7 +220,9 @@ El módulo Respaldos tiene un semáforo arriba, con solo dos colores: verde
    misma cuenta de Google que usan los respaldos**. Confirma que siga
    conectada y no haya pedido volver a iniciar sesión.
 2. **Tu correo**, buscando avisos de **Sentry** — el sistema manda un aviso
-   ahí cuando un respaldo falla varias veces seguidas.
+   ahí **cada vez** que falla un respaldo (no espera a que fallen varios). Si
+   Google Drive se cae un rato, vas a recibir varios avisos seguidos del mismo
+   problema: es normal, no son fallas distintas.
 3. **Que `RESPALDO_LLAVE` siga puesta en Render** (Environment del
    servicio) — si alguien la borró sin querer, el sistema deja de
    respaldar por completo, aunque el resto siga funcionando normal.
@@ -231,13 +285,33 @@ todos los días, sin que tengas que acordarte). Abre PowerShell **como
 administrador** y escribe:
 
 ```powershell
-schtasks /Create /TN "CORPUNISOUND-Respaldo-Local" /TR "C:\Users\Victor\Desktop\CORPUNISOUND\scripts\respaldo-local.cmd" /SC DAILY /ST 20:00 /RL HIGHEST /F
-schtasks /Change /TN "CORPUNISOUND-Respaldo-Local" /Z /V1
+$accion = New-ScheduledTaskAction -Execute "C:\Users\Victor\Desktop\CORPUNISOUND\scripts\respaldo-local.cmd"
+$disparo = New-ScheduledTaskTrigger -Daily -At 20:00
+$opciones = New-ScheduledTaskSettingsSet -StartWhenAvailable
+Register-ScheduledTask -TaskName "CORPUNISOUND-Respaldo-Local" -Action $accion -Trigger $disparo -Settings $opciones -RunLevel Highest -Force
 ```
 
-La segunda línea hace que, si tu PC estaba apagada a las 8pm, la tarea se
-ejecute en cuanto la prendas — así nunca se te acumulan varios días sin
+`-StartWhenAvailable` es lo que hace que, si tu PC estaba apagada a las 8pm, la
+tarea se ejecute en cuanto la prendas — así nunca se te acumulan varios días sin
 respaldo local.
+
+Para comprobar que quedó bien instalada:
+
+```powershell
+Get-ScheduledTask -TaskName "CORPUNISOUND-Respaldo-Local" | Select-Object TaskName, State
+(Get-ScheduledTask -TaskName "CORPUNISOUND-Respaldo-Local").Settings.StartWhenAvailable
+```
+
+Debe decir `Ready` y `True`.
+
+> **Nota histórica, por si ves el comando viejo en alguna parte.** Antes aquí
+> decía `schtasks /Change /TN "..." /Z /V1`, con la explicación de que servía
+> para ponerse al corriente tras un apagón. **Era falso, y en el peor sentido:**
+> `/Z` marca la tarea *para eliminarse después de su última ejecución*, y `/V1`
+> la degrada al formato anterior a Windows Vista, que **no soporta**
+> "ejecutar en cuanto se pueda". O sea que el comando no solo no hacía lo
+> prometido: dejaba la tarea marcada para borrarse. Si alguna vez lo corriste,
+> vuelve a instalar la tarea con los comandos de arriba (`-Force` la reemplaza).
 
 > Esta tarea vive en Windows, no en el sistema. Si cambias de computadora o
 > reinstalas Windows, hay que volver a crearla con estos mismos comandos.

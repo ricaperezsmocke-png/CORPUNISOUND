@@ -46,6 +46,17 @@ function driveConMemoria() {
   };
 }
 
+/**
+ * Fixture con la forma REAL del DB de server.js.
+ *
+ * OJO CON ESTO: la versión anterior inventó una forma que el sistema no tiene —
+ * puso productos/categorías/proveedores DENTRO de `inventario` y omitió
+ * `catalogo-productos` por completo. Como todo el módulo se construyó y se probó
+ * contra ese fixture, el catálogo entero de la tienda quedó fuera del respaldo y
+ * ninguna de las 679 pruebas lo notó. Si agregas una colección aquí, agrégala
+ * también en server.js (y al revés): la prueba "COLECCIONES_RESPALDADAS cubre
+ * todas las llaves del DB real" lo vigila leyendo server.js de verdad.
+ */
 function nuevoDB() {
   return {
     pos: {
@@ -58,9 +69,14 @@ function nuevoDB() {
     },
     crm: { clientes: [{ id: 1, nombre: "Ana" }], contactos_cliente: [], oportunidades: [] },
     inventario: {
-      existencias: [], movimientos_inventario: [], compras: [], compra_detalle: [],
+      existencias: [{ producto_id: 1, sucursal_id: 1, cantidad_actual: 5 }],
+      movimientos_inventario: [], compras: [], compra_detalle: [],
       traspasos: [], garantias: [{ id: 1 }], garantia_movimientos: [], garantia_gastos: [],
-      productos: [{ id: 1, nombre: "Guitarra" }], categorias: [], proveedores: [],
+    },
+    "catalogo-productos": {
+      productos: [{ id: 1, nombre: "Guitarra" }],
+      categorias: [{ id: 1, nombre: "Cuerdas" }],
+      proveedores: [{ id: 1, nombre: "Distribuidora" }],
       departamentos: [], producto_proveedor: [],
     },
     admin: { roles: [], usuarios: [{ id: 1, usuario: "victor" }], intentos_bloqueados_ubicacion: [], documentos_personal: [] },
@@ -71,6 +87,9 @@ function nuevoDB() {
     respaldos: nuevoEstadoRespaldos(),
   };
 }
+
+/** Quien restaura necesita el permiso de alcance global. */
+const PERMISOS_GLOBALES = ["restaurar_respaldo", "ver_todas_las_sucursales"];
 
 test("contarRegistros cuenta apartados como ventas con tipo_documento Apartado", () => {
   const c = contarRegistros(nuevoDB());
@@ -95,6 +114,65 @@ test("armarFoto incluye TODAS las colecciones de negocio", () => {
     assert.ok(foto.datos[clave] !== undefined, `falta la colección ${clave}`);
   }
   assert.strictEqual(foto.version_formato, VERSION_FORMATO);
+});
+
+/**
+ * LA prueba que faltaba, y que le habría ahorrado a Victor un respaldo sin
+ * catálogo de productos.
+ *
+ * La anterior recorría COLECCIONES_RESPALDADAS y comprobaba que cada una
+ * estuviera en la foto — es decir, comparaba la constante consigo misma: no
+ * podía fallar aunque el respaldo olvidara media empresa. Esta lee las llaves
+ * REALES del DB de server.js y exige que ninguna quede fuera. El día que alguien
+ * agregue un módulo nuevo, esta prueba truena y le recuerda incluirlo, en vez de
+ * que el respaldo lo omita en silencio durante meses.
+ */
+test("COLECCIONES_RESPALDADAS cubre TODAS las llaves del DB real de server.js", () => {
+  const fuente = require("node:fs").readFileSync(require.resolve("./server.js"), "utf8");
+  // El objeto DB literal de server.js: desde "const DB = {" hasta su cierre.
+  const desde = fuente.indexOf("const DB = {");
+  assert.ok(desde !== -1, "no se encontró el objeto DB en server.js");
+  const cuerpo = fuente.slice(desde, fuente.indexOf("\n};", desde));
+  // Llaves de primer nivel = las que están indentadas con exactamente 2 espacios.
+  const llavesReales = [...cuerpo.matchAll(/^ {2}"?([a-z_-]+)"?:\s*\{/gm)].map((m) => m[1]);
+
+  assert.ok(llavesReales.length >= 9, `solo se detectaron ${llavesReales.length} llaves: ${llavesReales}`);
+  assert.ok(llavesReales.includes("catalogo-productos"), "el detector no vio catalogo-productos");
+
+  const olvidadas = llavesReales.filter(
+    (k) => k !== "respaldos" && !COLECCIONES_RESPALDADAS.includes(k)
+  );
+  assert.deepStrictEqual(
+    olvidadas, [],
+    `Estas colecciones del sistema NO se están respaldando: ${olvidadas.join(", ")}. ` +
+    "Agrégalas a COLECCIONES_RESPALDADAS en respaldos.js (y al fixture nuevoDB de este archivo)."
+  );
+});
+
+test("el fixture de pruebas tiene la MISMA forma que el DB real", () => {
+  // Sin esto, el fixture puede volver a divergir del sistema y las pruebas
+  // pasarían probando un sistema que no existe. Es lo que ya pasó una vez.
+  const delFixture = Object.keys(nuevoDB()).sort();
+  const esperadas = [...COLECCIONES_RESPALDADAS, "respaldos"].sort();
+  assert.deepStrictEqual(delFixture, esperadas);
+});
+
+test("contarRegistros lee los productos de catalogo-productos, NO de inventario", () => {
+  // El conteo miraba DB.inventario.productos, que no existe: devolvía 0 siempre.
+  // Como verificarRespaldo compara el conteo del índice contra el del archivo,
+  // 0 === 0 daba VERDE con el catálogo entero ausente del respaldo.
+  const DB = nuevoDB();
+  assert.strictEqual(contarRegistros(DB).productos, 1);
+  assert.strictEqual(contarRegistros(DB).categorias, 1);
+  assert.strictEqual(contarRegistros(DB).proveedores, 1);
+  assert.strictEqual(contarRegistros(DB).existencias, 1);
+  assert.strictEqual(DB.inventario.productos, undefined, "productos NO vive en inventario");
+});
+
+test("armarFoto TRUENA si al DB le falta una colección (simetría con leerRespaldo)", () => {
+  const DB = nuevoDB();
+  delete DB["catalogo-productos"];
+  assert.throws(() => armarFoto(DB, "hora"), /catalogo-productos/);
 });
 
 test("armarFoto NO incluye DB.respaldos (el índice no se respalda a sí mismo)", () => {
@@ -412,8 +490,11 @@ test("leerRespaldo rechaza una foto a la que le falta una colección", async () 
   const DB = nuevoDB(); const drive = driveConMemoria();
   const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
   const { empaquetar } = require("./respaldoCifrado");
+  // La versión debe ser la VIGENTE: con una vieja, leerRespaldo rechazaría por
+  // versión y esta prueba pasaría sin llegar nunca a la validación de
+  // colecciones, que es justo lo que quiere probar.
   drive.archivos.set(copia.drive_file_id, empaquetar(
-    { version_formato: 1, generado_en: "2026-08-11T22:00:00.000Z", conteos: {}, datos: { pos: { ventas: [] } } },
+    { version_formato: VERSION_FORMATO, generado_en: "2026-08-11T22:00:00.000Z", conteos: {}, datos: { pos: { ventas: [] } } },
     LLAVE,
   ));
   await assert.rejects(() => leerRespaldo(DB, drive, copia.id, LLAVE), /incompleto|falta/i);
@@ -474,7 +555,12 @@ test("un usuario amarrado a una sucursal NO puede restaurar, aunque traiga la cl
     () => restaurar(DB, drive, {
       copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
       confirmacion: PALABRA_CONFIRMACION,
-      usuario: { nombre: "Gerente de Ocosingo", sucursal_id: 1 }, env: ENV_OK,
+      usuario: { nombre: "Gerente de Ocosingo", sucursal_id: 1 },
+      // Trae permisos de respaldos, pero NO `ver_todas_las_sucursales`: ese es
+      // el rol Gerente real. El alcance se decide por el PERMISO, no por si la
+      // sucursal del token es nula (ninguna cuenta real la tiene nula).
+      permisos: ["ver_respaldos", "restaurar_respaldo"],
+      env: ENV_OK,
     }),
     /alcance global/i,
   );
@@ -524,7 +610,7 @@ test("sin CLAVE_RESTAURACION configurada, restaurar está APAGADO (falla cerrado
   await assert.rejects(
     () => restaurar(DB, drive, {
       copiaId: copia.id, llave: LLAVE, clave: "loquesea",
-      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: {},
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: {},
     }),
     /no está habilitada|no está configurada/i,
   );
@@ -538,7 +624,7 @@ test("con la clave equivocada NO restaura y NO muta nada", async () => {
   await assert.rejects(
     () => restaurar(DB, drive, {
       copiaId: copia.id, llave: LLAVE, clave: "clave-mala",
-      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
     }),
     /clave de restauración/i,
   );
@@ -550,7 +636,7 @@ test("sin escribir RESTAURAR no restaura", async () => {
   await assert.rejects(
     () => restaurar(DB, drive, {
       copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-      confirmacion: "restaurar porfa", usuario: { nombre: "Victor" }, env: ENV_OK,
+      confirmacion: "restaurar porfa", usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
     }),
     /RESTAURAR/,
   );
@@ -563,7 +649,7 @@ test("restaurar deja la base exactamente igual a la foto", async () => {
 
   const r = await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
 
   assert.strictEqual(r.aplicado, true);
@@ -578,7 +664,7 @@ test("ANTES de tocar nada se crea el respaldo pre_restauracion", async () => {
 
   const r = await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
 
   assert.strictEqual(r.pre_restauracion.tipo, "pre_restauracion");
@@ -598,7 +684,7 @@ test("si el respaldo previo FALLA, la restauración se cancela y no se muta nada
   await assert.rejects(
     () => restaurar(DB, drive, {
       copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
     }),
     /respaldo de seguridad|no se pudo/i,
   );
@@ -612,7 +698,7 @@ test("restaurar NO pisa DB.respaldos con el índice viejo", async () => {
 
   await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
 
   // El índice conserva la copia original MÁS el pre_restauracion.
@@ -630,7 +716,7 @@ test("un archivo corrupto se rechaza SIN mutación parcial", async () => {
   await assert.rejects(
     () => restaurar(DB, drive, {
       copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+      confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
     }),
     /no se pudo descifrar/,
   );
@@ -641,7 +727,7 @@ test("la restauración queda en la bitácora con quién y qué", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
   await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor Pérez" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor Pérez" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
   const mov = DB.respaldos.movimientos.find((m) => m.tipo === "restauracion");
   assert.ok(mov);
@@ -662,7 +748,7 @@ test("mientras restaura, el sistema está BLOQUEADO — y el bloqueo empieza ANT
 
   await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
 
   assert.strictEqual(bloqueadoDuranteElPrevio, true, "el bloqueo llegó tarde");
@@ -676,7 +762,7 @@ test("si la restauración TRUENA a media faena, el sistema se desbloquea igual",
 
   await assert.rejects(() => restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   }));
   assert.strictEqual(estaActivo(), false, "quedó trabado en mantenimiento");
 });
@@ -687,7 +773,7 @@ test("una clave equivocada NO bloquea la tienda", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
   await assert.rejects(() => restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: "clave-mala",
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   }));
   assert.strictEqual(estaActivo(), false);
 });
@@ -696,7 +782,7 @@ test("un respaldo ilegible NO bloquea la tienda (se valida antes de bloquear)", 
   const { DB, drive, copia } = await conRespaldoListo();
   await assert.rejects(() => restaurar(DB, drive, {
     copiaId: copia.id, llave: OTRA_LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   }));
   assert.strictEqual(estaActivo(), false);
 });
@@ -705,7 +791,7 @@ test("la clave NUNCA aparece en la bitácora", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
   await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, env: ENV_OK,
+    confirmacion: PALABRA_CONFIRMACION, usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
   const texto = JSON.stringify(DB.respaldos.movimientos);
   assert.ok(!texto.includes(ENV_OK.CLAVE_RESTAURACION), "la clave se filtró a la bitácora");
@@ -760,4 +846,82 @@ test("verificarRespaldo limpia verificado_en si una re-verificación encuentra e
     copia.verificado_en, null,
     "el índice quedó mintiendo: sigue con la fecha del éxito anterior"
   );
+});
+
+// ---------- Lo que NO debe perderse al restaurar ----------
+
+test("restaurar CONSERVA la conexión viva de Google Drive y de Mercado Libre", async () => {
+  // Sin esto, restaurar una foto anterior a la última reconexión devolvía un
+  // refresh_token muerto. Y sin Drive el sistema DEJA DE RESPALDARSE, además de
+  // volver inalcanzable el pre_restauracion que se acababa de crear: la
+  // restauración se comía su propia red de seguridad.
+  const { DB, drive, copia } = await conRespaldoListo();
+  // El respaldo se tomó SIN cuenta conectada; después alguien conectó Drive y ML.
+  DB.drive.cuenta = { refresh_token: "token-NUEVO-de-drive" };
+  DB.ml.cuenta = { refresh_token: "token-NUEVO-de-ml" };
+
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION,
+    usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+  });
+
+  assert.deepStrictEqual(
+    DB.drive.cuenta, { refresh_token: "token-NUEVO-de-drive" },
+    "restaurar desconectó Google Drive: sin Drive no hay respaldos",
+  );
+  assert.deepStrictEqual(
+    DB.ml.cuenta, { refresh_token: "token-NUEVO-de-ml" },
+    "restaurar desconectó Mercado Libre",
+  );
+});
+
+test("si NO hay conexión viva, restaurar sí recupera la del respaldo (servidor nuevo)", async () => {
+  // El otro lado de la moneda: levantar el sistema desde cero en un servidor
+  // limpio SÍ debe recuperar la conexión que venga en la foto.
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  DB.drive.cuenta = { refresh_token: "token-del-respaldo" };
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  DB.drive.cuenta = null; // servidor nuevo: nada conectado
+
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION,
+    usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+  });
+
+  assert.deepStrictEqual(DB.drive.cuenta, { refresh_token: "token-del-respaldo" });
+});
+
+test("restaurar vuelve a aplicar las reconciliaciones de arranque (no es puerta de una sola dirección)", async () => {
+  // Una foto anterior al despliegue de este módulo no trae el rol Administrador
+  // con los permisos de respaldos. Sin volver a reconciliar, restaurar dejaba a
+  // Victor SIN el propio botón de restaurar: la pantalla desaparecía del
+  // Dashboard y las rutas devolvían 403. Solo un reinicio en Render lo arreglaba.
+  const { DB, drive, copia } = await conRespaldoListo();
+  let reconciliado = false;
+
+  await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION,
+    usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+    alTerminar: (db) => { reconciliado = db === DB; },
+  });
+
+  assert.ok(reconciliado, "no se llamó alTerminar con el DB ya restaurado");
+});
+
+test("con el alcance global por PERMISO, una cuenta REAL sí puede restaurar", async () => {
+  // La forma que produce el sistema de verdad: sucursal_id numérica (crearUsuario
+  // fuerza `Number(...) || 1`). Con el candado viejo —que exigía sucursal_id
+  // null— esto fallaba, y por eso la restauración era imposible en producción
+  // mientras las pruebas seguían verdes con tokens inventados.
+  const { DB, drive, copia } = await conRespaldoListo();
+  const r = await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION,
+    usuario: { id: 1, nombre: "Victor", rol_id: 1, sucursal_id: 1 },
+    permisos: PERMISOS_GLOBALES, env: ENV_OK,
+  });
+  assert.strictEqual(r.aplicado, true);
 });

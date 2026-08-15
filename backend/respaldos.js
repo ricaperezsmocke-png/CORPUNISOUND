@@ -21,12 +21,44 @@ const { empaquetar } = require("./respaldoCifrado");
 const { fechaLocal, ahora, momentoLocal } = require("./fechas");
 const mantenimiento = require("./mantenimiento");
 
-const VERSION_FORMATO = 1;
+// Versión 2 (2026-08-15): la 1 OLVIDABA "catalogo-productos" — el catálogo
+// entero de la tienda (productos, categorías, proveedores, departamentos). Un
+// respaldo v1 restaurado dejaba ventas y existencias apuntando a productos que
+// ya no existían. Se sube la versión para que ningún archivo v1 pueda aplicarse
+// creyendo que está completo. No se pierde nada: la rama nunca se desplegó, así
+// que no existe ni un solo respaldo v1 en el mundo.
+const VERSION_FORMATO = 2;
 
-/** Las llaves de primer nivel de DB que SÍ se respaldan. Ver server.js:107. */
+/**
+ * Las llaves de primer nivel de DB que SÍ se respaldan. Ver server.js:116.
+ *
+ * Esta lista NO se escribe a mano al agregar un módulo: `respaldos.test.js`
+ * compara contra las llaves reales del DB de server.js y truena si alguna queda
+ * fuera. Ese candado existe porque la ausencia de "catalogo-productos" pasó
+ * inadvertida a través de nueve tareas y sus revisiones — el conteo de productos
+ * miraba el lugar equivocado, así que la verificación contra Drive comparaba 0
+ * contra 0 y siempre daba verde.
+ *
+ * La única llave excluida a propósito es "respaldos": el índice no se respalda a
+ * sí mismo (ver el encabezado del archivo).
+ */
 const COLECCIONES_RESPALDADAS = [
-  "pos", "crm", "inventario", "admin", "ml", "drive", "gastos", "cuenta_comun",
+  "pos", "crm", "inventario", "catalogo-productos", "admin", "ml", "drive",
+  "gastos", "cuenta_comun",
 ];
+
+/**
+ * Llaves cuyo contenido es ESTADO DE CONEXIÓN, no datos del negocio: los tokens
+ * OAuth de Google Drive y de Mercado Libre. Se respaldan (sirven para levantar un
+ * servidor desde cero), pero al restaurar NO pisan una conexión viva.
+ *
+ * El motivo es un círculo vicioso real: restaurar una foto anterior a la última
+ * reconexión de Drive devolvía un refresh_token muerto, y sin Drive el sistema
+ * DEJA DE RESPALDARSE — y el pre_restauracion que acababa de salvar el pellejo
+ * se vuelve inalcanzable, porque leerRespaldo necesita Drive. El peor efecto
+ * colateral imaginable justo para esta operación.
+ */
+const CREDENCIALES_A_CONSERVAR = { drive: "cuenta", ml: "cuenta" };
 
 /** Sin respaldo en este tiempo, la pantalla se pone roja. Dos horas y no una:
  *  el ciclo es de una hora y un reintento no debe pintar alarma. */
@@ -71,7 +103,15 @@ function contarRegistros(DB) {
     // Los apartados no son colección propia: son ventas marcadas.
     apartados: ventas.filter((v) => v && v.tipo_documento === "Apartado").length,
     cortes: DB?.pos?.cortes_caja?.length || 0,
-    productos: DB?.inventario?.productos?.length || 0,
+    // OJO: productos/categorías/proveedores viven en DB["catalogo-productos"],
+    // NO en DB.inventario (que solo guarda existencias y movimientos). Mirar el
+    // lugar equivocado no daba error: el optional chaining devolvía 0, el
+    // archivo también traía 0, y la verificación contra Drive daba verde con el
+    // catálogo entero ausente del respaldo.
+    productos: DB?.["catalogo-productos"]?.productos?.length || 0,
+    categorias: DB?.["catalogo-productos"]?.categorias?.length || 0,
+    proveedores: DB?.["catalogo-productos"]?.proveedores?.length || 0,
+    existencias: DB?.inventario?.existencias?.length || 0,
     garantias: DB?.inventario?.garantias?.length || 0,
     clientes: DB?.crm?.clientes?.length || 0,
     gastos: DB?.gastos?.gastos?.length || 0,
@@ -81,10 +121,21 @@ function contarRegistros(DB) {
 }
 
 function armarFoto(DB, tipo) {
-  const datos = {};
-  for (const clave of COLECCIONES_RESPALDADAS) {
-    if (DB[clave] !== undefined) datos[clave] = DB[clave];
+  // Simetría con leerRespaldo: el que ESCRIBE es tan estricto como el que LEE.
+  // Antes armarFoto saltaba en silencio las colecciones ausentes y leerRespaldo
+  // rechazaba el archivo entero por incompleto — el sistema producía y subía
+  // respaldos que él mismo se negaba a abrir, y solo se descubría el día de la
+  // emergencia. Mejor que truene al respaldar (queda el renglón "fallido" a la
+  // vista y el semáforo se pone rojo a las dos horas) que al restaurar.
+  const faltantes = COLECCIONES_RESPALDADAS.filter((k) => DB[k] === undefined);
+  if (faltantes.length) {
+    throw new Error(
+      `No se puede respaldar: al sistema le faltan datos que deberían existir (${faltantes.join(", ")}). ` +
+      "Es un problema del servidor, no de tus datos."
+    );
   }
+  const datos = {};
+  for (const clave of COLECCIONES_RESPALDADAS) datos[clave] = DB[clave];
   const instante = ahora();
   return {
     version_formato: VERSION_FORMATO,
@@ -162,6 +213,10 @@ function estadoRespaldos(DB, ahoraMs = Date.now()) {
 const DIAS_RETENCION_DIA = 30;   // los puntos del día y los pre_restauracion
 const DIAS_RETENCION_HORA = 7;   // el detalle fino
 const DIA_MS = 24 * 60 * 60 * 1000;
+/** Cuántas copias utilizables recientes quedan a salvo de la retención pase lo
+ *  que pase. Tres y no una: si la más nueva resultara ilegible el día de la
+ *  emergencia, todavía quedan dos atrás. */
+const COPIAS_PROTEGIDAS = 3;
 
 function diasDeVida(tipo) {
   return tipo === "hora" ? DIAS_RETENCION_HORA : DIAS_RETENCION_DIA;
@@ -194,14 +249,30 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   const copias = DB.respaldos.copias;
   if (copias.length <= 1) return { borradas: 0, conservadas: copias.length };
 
-  const exitosas = copias.filter((c) => c.estado === "ok" && c.drive_file_id);
-  const candidatas = exitosas.length ? exitosas : copias;
-  const masReciente = candidatas.reduce((a, b) =>
-    Date.parse(a.fecha_hora) >= Date.parse(b.fecha_hora) ? a : b
-  );
+  // Se protegen DOS copias: la utilizable más reciente y la VERIFICADA más
+  // reciente (suelen ser la misma; cuando no lo son, hace falta cuidar las dos).
+  //
+  // "Utilizable" = estado "ok" con drive_file_id: hay un byte real en Drive
+  // detrás. "Verificada" = además se volvió a bajar de Drive y los conteos
+  // cuadraron. La diferencia importa porque `verificarRespaldo` limpia
+  // `verificado_en` cuando falla pero NO toca `estado`: una copia que se
+  // descargó rota sigue diciendo "ok". Protegiendo solo la más reciente
+  // utilizable, esa copia rota se llevaba el escudo y la última copia realmente
+  // comprobada se la comía la retención por edad — quedaba en Drive un archivo
+  // que no sirve, con el índice mostrándolo en verde.
+  const porFechaDesc = (a, b) => Date.parse(b.fecha_hora) - Date.parse(a.fecha_hora);
+  const utilizables = copias.filter((c) => c.estado === "ok" && c.drive_file_id);
+  const protegidas = new Set();
+  const masRecienteUtilizable = [...utilizables].sort(porFechaDesc)[0];
+  if (masRecienteUtilizable) protegidas.add(masRecienteUtilizable);
+  const masRecienteVerificada = [...utilizables].filter((c) => c.verificado_en).sort(porFechaDesc)[0];
+  if (masRecienteVerificada) protegidas.add(masRecienteVerificada);
+  // Caso degenerado: si NUNCA hubo una subida exitosa, se protege el renglón más
+  // nuevo que haya, sea cual sea su estado. Mejor un archivo de más que ninguno.
+  if (!protegidas.size) protegidas.add([...copias].sort(porFechaDesc)[0]);
 
   const vencidas = copias.filter((c) => {
-    if (c === masReciente) return false;
+    if (protegidas.has(c)) return false;
     const nacida = Date.parse(c.fecha_hora);
     if (!Number.isFinite(nacida)) return false; // fecha corrupta: no se toca
     return ahoraMs - nacida > diasDeVida(c.tipo) * DIA_MS;
@@ -303,6 +374,21 @@ async function verificarRespaldo(DB, drive, copiaId, llave) {
 
 const PALABRA_CONFIRMACION = "RESTAURAR";
 
+/**
+ * Candado de exclusión de la restauración. Variable de MÓDULO, igual que el
+ * interruptor de mantenimiento y por el mismo motivo: si viviera en el DB, una
+ * restauración interrumpida a la mitad lo dejaría trabado en "sí" para siempre
+ * (y el DB además se reemplaza justo en medio de la operación que lo usa).
+ * En memoria, un reinicio siempre despierta con el candado suelto.
+ */
+let restauracionEnVuelo = false;
+
+/** Solo para las pruebas: suelta el candado entre escenarios. En producción lo
+ *  suelta el `finally` de restaurar(). */
+function _resetCandadoRestauracion() {
+  restauracionEnVuelo = false;
+}
+
 /** ¿Está puesta la clave en Render? Si no, restaurar NO EXISTE. Falla cerrado:
  *  mientras Victor no la ponga a propósito, nadie puede restaurar nada. */
 function claveRestauracionConfigurada(env = process.env) {
@@ -364,19 +450,28 @@ function compararConEstadoActual(DB, copia) {
  * de salvarle el pellejo.
  */
 async function restaurar(DB, drive, {
-  copiaId, llave, clave, confirmacion, usuario = null, env = process.env,
+  copiaId, llave, clave, confirmacion, usuario = null, permisos = null,
+  env = process.env, alTerminar = null,
 } = {}) {
-  // Candado 0 — alcance, DENTRO del módulo (restricción global #5, agregado por
-  // el escaneo previo del 2026-08-12). La ruta ya lleva `requiereAlcanceGlobal`,
-  // y aun así este chequeo va aquí: exactamente eso era lo que hacía "segura" la
-  // ruta de Apartados antes del bug de alcance de julio. Es la operación más
-  // destructiva del sistema; si mañana alguien llama `restaurar()` desde un
-  // script, una tarea programada, o reordena por accidente los middlewares, esto
-  // es lo único que queda de pie. Un usuario amarrado a una sucursal trae
-  // `sucursal_id` en su token; quien ve todas trae `null`. Falla CERRADO: sin
-  // `usuario` (ausente, `null` o `undefined`) no se restaura — no hay alcance
-  // global implícito por default.
-  if (!usuario || usuario.sucursal_id != null) {
+  // Candado 0 — alcance, DENTRO del módulo (restricción global #5). La ruta ya
+  // lleva `requiereAlcanceGlobal`, y aun así este chequeo va aquí: exactamente
+  // eso era lo que hacía "segura" la ruta de Apartados antes del bug de alcance
+  // de julio. Es la operación más destructiva del sistema; si mañana alguien
+  // llama `restaurar()` desde un script o reordena por accidente los
+  // middlewares, esto es lo único que queda de pie.
+  //
+  // El alcance global se decide por el PERMISO `ver_todas_las_sucursales`, que es
+  // como lo decide el resto del sistema (ver alcanceSucursal en auth.js). Antes
+  // se exigía `usuario.sucursal_id == null`, y eso hacía la restauración
+  // literalmente IMPOSIBLE: crearUsuario fuerza `Number(...) || 1` (usuarios.js)
+  // y el setup inicial crea al primer administrador con sucursal_id 1, así que
+  // ninguna cuenta real puede traer null. El botón existía y no lo podía apretar
+  // nadie. Las pruebas no lo vieron porque fabricaban tokens a mano con una forma
+  // que el sistema no puede producir.
+  //
+  // Falla CERRADO: sin `usuario` o sin lista de `permisos` no se restaura — no
+  // hay alcance global implícito por default.
+  if (!usuario || !Array.isArray(permisos) || !permisos.includes("ver_todas_las_sucursales")) {
     throw new Error("Restaurar requiere una cuenta con alcance global (todas las sucursales).");
   }
 
@@ -392,59 +487,109 @@ async function restaurar(DB, drive, {
     throw new Error(`Escribe ${PALABRA_CONFIRMACION} para confirmar.`);
   }
 
-  // Se baja y valida ENTERA antes de tocar nada. Si el archivo está corrupto,
-  // incompleto o de otra versión, se rechaza aquí y la base ni se enteró.
-  // Esto va ANTES de bloquear el sistema a propósito: un archivo dañado no debe
-  // dejar la tienda cerrada ni un segundo.
-  const { copia, foto } = await leerRespaldo(DB, drive, copiaId, llave);
-
-  // A partir de aquí el sistema queda BLOQUEADO para escrituras, y no se
-  // desbloquea pase lo que pase (el `finally` de más abajo).
+  // Candado 3.5 — UNA restauración a la vez. Bandera SÍNCRONA, tomada antes del
+  // primer `await`, y a propósito NO delegada a `mantenimiento`: el bloqueo de
+  // mantenimiento se prende varios pasos más abajo (después de bajar el archivo
+  // de Drive, que tarda segundos), así que entre la entrada y ese punto había una
+  // ventana por la que una segunda petición pasaba entera.
   //
-  // El bloqueo va ANTES del respaldo previo, no después, y esa diferencia es
-  // justo el punto: una venta capturada ENTRE el respaldo previo y el reemplazo
-  // se perdería dos veces — no estaría en los datos restaurados (son más viejos)
-  // ni en el respaldo previo (se tomó antes de esa venta). Sería dinero cobrado
-  // que no existe en ningún archivo. Con el bloqueo aquí, esa ventana no existe.
-  mantenimiento.activar(
-    `Restaurando el respaldo del ${copia.fecha} ${copia.hora_local}. ` +
-    "El sistema vuelve solo en cuanto termine."
-  );
-
+  // Lo que rompía: la segunda restauración creaba su propio pre_restauracion —
+  // que es una foto del estado YA RESTAURADO, no del anterior— y el instructivo
+  // le dice a Victor que para deshacer busque "el pre_restauracion más reciente".
+  // Habría deshecho hacia el estado equivocado, quedándose sin marcha atrás justo
+  // en la emergencia. Además el `finally` de la primera apagaba el bloqueo con la
+  // segunda todavía escribiendo: una venta capturada ahí se pierde para siempre.
+  //
+  // Va DESPUÉS de los candados de clave y confirmación para que una petición
+  // basura no le bloquee el turno a la buena.
+  if (restauracionEnVuelo) {
+    throw new Error("Ya hay una restauración en curso. Espera a que termine antes de intentar otra.");
+  }
+  restauracionEnVuelo = true;
   try {
-    // La red de seguridad. Si esto falla, NO se restaura: mejor no restaurar que
-    // restaurar sin poder deshacerlo.
-    let pre;
-    try {
-      pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario });
-    } catch (e) {
-      throw new Error(
-        "No se pudo crear el respaldo de seguridad previo, así que la restauración se canceló " +
-        "(no se tocó ningún dato). Revisa la conexión con Google Drive. Detalle: " + e.message
-      );
-    }
+    // Se baja y valida ENTERA antes de tocar nada. Si el archivo está corrupto,
+    // incompleto o de otra versión, se rechaza aquí y la base ni se enteró.
+    // Esto va ANTES de bloquear el sistema a propósito: un archivo dañado no debe
+    // dejar la tienda cerrada ni un segundo.
+    const { copia, foto } = await leerRespaldo(DB, drive, copiaId, llave);
 
-    const comparacion = compararConEstadoActual(DB, copia);
-
-    // Recién ahora se muta. Colección por colección, solo las respaldadas.
-    for (const nombre of COLECCIONES_RESPALDADAS) {
-      if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
-    }
-
-    pushMovimiento(
-      DB, copia.id, "restauracion",
-      `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
-      `Respaldo previo: ${pre.nombre_archivo}`,
-      usuario
+    // A partir de aquí el sistema queda BLOQUEADO para escrituras, y no se
+    // desbloquea pase lo que pase (el `finally` de más abajo).
+    //
+    // El bloqueo va ANTES del respaldo previo, no después, y esa diferencia es
+    // justo el punto: una venta capturada ENTRE el respaldo previo y el reemplazo
+    // se perdería dos veces — no estaría en los datos restaurados (son más viejos)
+    // ni en el respaldo previo (se tomó antes de esa venta). Sería dinero cobrado
+    // que no existe en ningún archivo. Con el bloqueo aquí, esa ventana no existe.
+    mantenimiento.activar(
+      `Restaurando el respaldo del ${copia.fecha} ${copia.hora_local}. ` +
+      "El sistema vuelve solo en cuanto termine."
     );
 
-    return { copia, pre_restauracion: pre, aplicado: true, comparacion };
+    try {
+      // La red de seguridad. Si esto falla, NO se restaura: mejor no restaurar que
+      // restaurar sin poder deshacerlo.
+      let pre;
+      try {
+        pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario });
+      } catch (e) {
+        throw new Error(
+          "No se pudo crear el respaldo de seguridad previo, así que la restauración se canceló " +
+          "(no se tocó ningún dato). Revisa la conexión con Google Drive. Detalle: " + e.message
+        );
+      }
+
+      const comparacion = compararConEstadoActual(DB, copia);
+
+      // Las credenciales vivas se apartan ANTES de mutar. Ver
+      // CREDENCIALES_A_CONSERVAR: restaurar no debe desconectar Google Drive,
+      // porque sin Drive el sistema deja de respaldarse Y el pre_restauracion
+      // que acaba de crearse se vuelve inalcanzable.
+      const credencialesVivas = {};
+      for (const [coleccion, campo] of Object.entries(CREDENCIALES_A_CONSERVAR)) {
+        const viva = DB[coleccion]?.[campo];
+        if (viva) credencialesVivas[coleccion] = viva;
+      }
+
+      // Recién ahora se muta. Colección por colección, solo las respaldadas.
+      for (const nombre of COLECCIONES_RESPALDADAS) {
+        if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
+      }
+
+      // Se devuelven las conexiones vivas. Si NO había ninguna (servidor nuevo,
+      // levantado desde cero), se respeta la que venga en el respaldo: ahí sí es
+      // justo lo que se quiere recuperar.
+      for (const [coleccion, viva] of Object.entries(credencialesVivas)) {
+        if (!DB[coleccion] || typeof DB[coleccion] !== "object") DB[coleccion] = {};
+        DB[coleccion][CREDENCIALES_A_CONSERVAR[coleccion]] = viva;
+      }
+
+      // Las reconciliaciones de arranque se vuelven a aplicar. Sin esto,
+      // restaurar era una PUERTA DE UNA SOLA DIRECCIÓN: una foto anterior al
+      // despliegue de este módulo no tiene el módulo `respaldos` ni sus permisos,
+      // así que el rol Administrador se quedaba sin ellos, la pantalla
+      // desaparecía del Dashboard y las rutas devolvían 403 — nadie podía
+      // deshacer la restauración desde el sistema. Lo mismo con CEDIS.
+      // Se inyectan desde server.js para no acoplar este módulo a roles.js.
+      if (typeof alTerminar === "function") alTerminar(DB);
+
+      pushMovimiento(
+        DB, copia.id, "restauracion",
+        `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
+        `Respaldo previo: ${pre.nombre_archivo}`,
+        usuario
+      );
+
+      return { copia, pre_restauracion: pre, aplicado: true, comparacion };
+    } finally {
+      // SIEMPRE se desbloquea: si algo revienta a media restauración, la tienda no
+      // se queda cerrada esperando a que alguien reinicie el servidor. Un `finally`
+      // y no un `desactivar()` al final del camino feliz — ese es el error que deja
+      // negocios parados.
+      mantenimiento.desactivar();
+    }
   } finally {
-    // SIEMPRE se desbloquea: si algo revienta a media restauración, la tienda no
-    // se queda cerrada esperando a que alguien reinicie el servidor. Un `finally`
-    // y no un `desactivar()` al final del camino feliz — ese es el error que deja
-    // negocios parados.
-    mantenimiento.desactivar();
+    restauracionEnVuelo = false;
   }
 }
 
@@ -452,8 +597,8 @@ module.exports = {
   nuevoEstadoRespaldos, contarRegistros, armarFoto, crearRespaldo, estadoRespaldos,
   pushMovimiento, siguienteId, limpiarViejos,
   leerRespaldo, verificarRespaldo, buscarCopia,
-  COLECCIONES_RESPALDADAS, VERSION_FORMATO, MINUTOS_PARA_ALERTA,
-  DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
+  COLECCIONES_RESPALDADAS, CREDENCIALES_A_CONSERVAR, VERSION_FORMATO, MINUTOS_PARA_ALERTA,
+  DIAS_RETENCION_DIA, DIAS_RETENCION_HORA, COPIAS_PROTEGIDAS,
   restaurar, claveRestauracionConfigurada, claveCorrecta, compararConEstadoActual,
-  PALABRA_CONFIRMACION,
+  PALABRA_CONFIRMACION, _resetCandadoRestauracion,
 };

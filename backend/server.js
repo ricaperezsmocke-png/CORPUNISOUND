@@ -46,7 +46,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPe
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion } = require("./auth");
+const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { sembrarCategoriasGastos } = require("./gastosCategorias");
@@ -324,17 +324,25 @@ const ESTE_PROCESO_ES_EL_SERVIDOR = require.main === module;
  * Todo va dentro de try/catch: un respaldo que falla NUNCA debe tumbar el
  * backend ni interrumpir una venta. La tienda siempre puede seguir vendiendo.
  */
+/** Guardia de reentrada del ciclo. `debeRespaldar` mira `ultimo_exitoso`, que
+ *  solo se actualiza cuando Drive confirma: si una subida tarda más que el
+ *  intervalo de revisión (base grande, Drive lento), el siguiente tick disparaba
+ *  OTRO respaldo encima, y dos `limpiarViejos` traslapados llegaban a pedirle a
+ *  Drive el borrado del mismo archivo dos veces. */
+let cicloEnCurso = false;
+
 async function cicloRespaldo() {
   if (!LLAVE_RESPALDO) return;
   // Mientras se restaura, el reloj se calla. Respaldar a media restauración
   // guardaría una foto de un estado que no es ni el viejo ni el nuevo.
   if (mantenimiento.estaActivo()) return;
+  if (cicloEnCurso) return;
+  cicloEnCurso = true;
   try {
     const veredicto = debeRespaldar(DB.respaldos, Date.now());
     if (veredicto.respaldar) {
       const copia = await crearRespaldo(DB, drive, { tipo: veredicto.tipo, llave: LLAVE_RESPALDO });
       console.log(`💾 Respaldo ${copia.tipo} ${copia.nombre_archivo} (${veredicto.motivo})`);
-      await limpiarViejos(DB, drive, Date.now());
       // La verificación que de verdad cuenta: se baja de Drive el punto del día
       // y se comprueba. Solo en los "dia" para no duplicar tráfico cada hora.
       if (copia.tipo === "dia") {
@@ -347,6 +355,19 @@ async function cicloRespaldo() {
     console.error("⚠️  Falló el ciclo de respaldo:", e.message);
     Sentry.captureException(e);
     try { guardar(DB); } catch (_) {} // conserva la copia marcada "fallido"
+  } finally {
+    // La retención corre SIEMPRE, haya respaldo nuevo o no, y en su propio
+    // try/catch. Antes colgaba del camino feliz: si Drive rechazaba las subidas
+    // por falta de espacio, `crearRespaldo` lanzaba y la limpieza no corría nunca
+    // — justo cuando hacía falta liberar espacio. Un atasco que se sostenía solo.
+    // La verificación de las 3 copias protegidas hace que esto no pueda dejar a
+    // nadie sin respaldos.
+    try {
+      await limpiarViejos(DB, drive, Date.now());
+    } catch (e) {
+      console.error("⚠️  Falló la limpieza de respaldos viejos:", e.message);
+    }
+    cicloEnCurso = false;
   }
 }
 
@@ -1478,10 +1499,14 @@ app.get("/api/respaldos/estado", requiereLogin, requierePermiso("ver_respaldos",
   });
 });
 
-app.post("/api/respaldos/ahora", requiereLogin, requierePermiso("ver_respaldos", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), async (req, res) => {
+app.post("/api/respaldos/ahora", requiereLogin, requierePermiso("crear_respaldo", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), async (req, res) => {
   try {
     if (!LLAVE_RESPALDO) throw new Error("RESPALDO_LLAVE no está configurada en el servidor");
-    const copia = await crearRespaldo(DB, drive, { tipo: "hora", llave: LLAVE_RESPALDO, usuario: req.usuarioToken });
+    // tipo "dia" y no "hora": el caso de uso del botón es "voy a hacer algo
+    // riesgoso, déjame respaldar antes". Como "hora" vivía 7 días, salía en la
+    // tabla equivocada, nunca se verificaba contra Drive y el script jamás lo
+    // bajaba a la PC — las cuatro propiedades que uno esperaría al revés.
+    const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE_RESPALDO, usuario: req.usuarioToken });
     res.json(copia);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -1512,8 +1537,28 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       clave: req.body?.clave,
       confirmacion: req.body?.confirmacion,
       usuario: req.usuarioToken,
+      // El alcance global se decide por PERMISO, no por la sucursal del token.
+      // Ver el candado 0 de restaurar(): exigir sucursal_id null volvía la
+      // restauración imposible para cualquier cuenta que el sistema pueda crear.
+      permisos: resolverPermisosDeRol(req.usuarioToken?.rol_id),
+      // Reconciliaciones de arranque, después de reemplazar los datos: una foto
+      // anterior a este módulo no trae el rol Administrador con los permisos de
+      // respaldos, y sin esto restaurar dejaba a Victor sin el propio botón de
+      // restaurar (y sin CEDIS).
+      alTerminar: (db) => {
+        db.pos.sucursales = reconciliarSucursalesCedis(db.pos.sucursales);
+        reconciliarRoles(db);
+      },
     });
     registrarExito(intentosRestauracion, usuario);
+    // Corte REAL de las sesiones abiertas. Antes esto era solo una frase en la
+    // respuesta: los tokens siguen siendo válidos 12 h y `requierePermiso`
+    // resuelve los permisos con el `rol_id` que trae el token, contra el DB YA
+    // restaurado. Como los ids de rol se reciclan, una cajera con sesión abierta
+    // podía despertar con los permisos de otro rol; y una cuenta borrada revivía
+    // con su token todavía bueno. Ahora todo token emitido antes de este instante
+    // queda inválido (ver requiereLogin en auth.js).
+    invalidarSesionesAnterioresA(Date.now());
     res.json({
       ok: true,
       restaurado_a: `${resultado.copia.fecha} ${resultado.copia.hora_local}`,
@@ -1533,11 +1578,15 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
  *  ruta de descarga. Devuelve solo lo que el script necesita para decidir qué
  *  bajar — ningún dato del negocio. */
 app.get("/api/respaldos/indice", (req, res) => {
-  const esperado = process.env.TOKEN_DESCARGA_RESPALDOS;
-  const dado = req.get("X-Token-Respaldo") || "";
-  if (!esperado || !dado) return res.status(404).json({ error: "No encontrado" });
-  const a = crypto.createHash("sha256").update(dado).digest();
-  const b = crypto.createHash("sha256").update(esperado).digest();
+  // Los nombres llevan "token" a propósito: el depurador de Sentry
+  // (instrument.js) filtra por nombre además de por valor, y con
+  // `includeLocalVariables` estas locales viajan en el stack trace de cualquier
+  // excepción que ocurra en este handler.
+  const tokenEsperado = process.env.TOKEN_DESCARGA_RESPALDOS;
+  const tokenDado = req.get("X-Token-Respaldo") || "";
+  if (!tokenEsperado || !tokenDado) return res.status(404).json({ error: "No encontrado" });
+  const a = crypto.createHash("sha256").update(tokenDado).digest();
+  const b = crypto.createHash("sha256").update(tokenEsperado).digest();
   if (!crypto.timingSafeEqual(a, b)) return res.status(404).json({ error: "No encontrado" });
 
   res.json(DB.respaldos.copias.map((c) => ({

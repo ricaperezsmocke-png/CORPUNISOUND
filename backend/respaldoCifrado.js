@@ -30,15 +30,19 @@ const LARGO_LLAVE_HEX = 64; // 32 bytes
  *    configuración que hay que ver de inmediato: aceptarla en silencio dejaría
  *    respaldos ilegibles el día que se necesiten. */
 function llaveDesdeEnv(env = process.env) {
-  const hex = env.RESPALDO_LLAVE;
-  if (!hex) return null;
-  if (!new RegExp(`^[0-9a-fA-F]{${LARGO_LLAVE_HEX}}$`).test(hex)) {
+  // El nombre lleva "llave" a propósito: con `includeLocalVariables` de Sentry,
+  // las variables locales de este frame viajan en el stack trace de cualquier
+  // excepción, y el depurador de instrument.js filtra por nombre. Llamarla `hex`
+  // mandaba la llave maestra en claro.
+  const llaveHex = env.RESPALDO_LLAVE;
+  if (!llaveHex) return null;
+  if (!new RegExp(`^[0-9a-fA-F]{${LARGO_LLAVE_HEX}}$`).test(llaveHex)) {
     throw new Error(
       `RESPALDO_LLAVE debe ser ${LARGO_LLAVE_HEX} caracteres hexadecimales (32 bytes). ` +
       "Genera una nueva con: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
     );
   }
-  return Buffer.from(hex, "hex");
+  return Buffer.from(llaveHex, "hex");
 }
 
 function generarLlaveNueva() {

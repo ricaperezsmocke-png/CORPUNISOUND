@@ -32,6 +32,13 @@ function yaExistePuntoDelDia(copias, fecha, hora) {
   );
 }
 
+/** ¿Hay ALGÚN punto de restauración bueno para esta fecha, a la hora que sea? */
+function hayPuntoDelDia(copias, fecha) {
+  return (copias || []).some(
+    (c) => c && c.tipo === "dia" && c.fecha === fecha && c.estado === "ok"
+  );
+}
+
 /**
  * @param {object} estado  DB.respaldos ({ ultimo_exitoso, copias })
  * @param {number} ahoraMs milisegundos
@@ -49,6 +56,22 @@ function debeRespaldar(estado, ahoraMs = Date.now()) {
   //    días, no uno cualquiera.
   if (esPuntoDia && !yaExistePuntoDelDia(copias, m.fecha, m.hora)) {
     return { respaldar: true, tipo: "dia", motivo: `punto del día de las ${m.hhmm}` };
+  }
+
+  // 1.b) RECUPERACIÓN del punto del día perdido. Si ya pasó la última hora punto
+  //      y hoy no hay NINGÚN punto de restauración bueno, se toma ahora aunque
+  //      sea a deshora. Sin esto, un redespliegue de Render o un dyno dormido
+  //      entre las 4 y las 6 pm dejaba el día entero sin punto de 30 días: el
+  //      respaldo de las 18:10 salía de tipo "hora" y desaparecía a los 7 días.
+  //      Victor creería tener 30 días de puntos diarios y tendría hoyos que nada
+  //      le reporta.
+  const ultimaHoraPunto = Math.max(...HORAS_PUNTO_DIA);
+  if (!esPuntoDia && m.hora > ultimaHoraPunto && !hayPuntoDelDia(copias, m.fecha)) {
+    return {
+      respaldar: true,
+      tipo: "dia",
+      motivo: `recuperando el punto del día (se perdió la hora habitual, son las ${m.hhmm})`,
+    };
   }
 
   // 2) Regla general: ¿pasó una hora desde el último respaldo que SÍ subió?
@@ -69,4 +92,7 @@ function debeRespaldar(estado, ahoraMs = Date.now()) {
   return { respaldar: false, tipo: null, motivo: "al corriente" };
 }
 
-module.exports = { debeRespaldar, UNA_HORA_MS, HORAS_PUNTO_DIA, INTERVALO_REVISION_MS };
+module.exports = {
+  debeRespaldar, hayPuntoDelDia,
+  UNA_HORA_MS, HORAS_PUNTO_DIA, INTERVALO_REVISION_MS,
+};

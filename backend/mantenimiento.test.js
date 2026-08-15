@@ -3,9 +3,13 @@ const assert = require("node:assert");
 const { activar, desactivar, estaActivo, estado } = require("./mantenimiento");
 
 test("arranca apagado", () => {
-  desactivar();
+  // Se afirma el estado inicial SIN tocar nada antes. La versión anterior
+  // llamaba a desactivar() primero, así que no probaba el arranque: solo que
+  // desactivar() funciona. El default importa — si el módulo naciera prendido,
+  // el sistema despertaría cerrado tras cada reinicio del servidor.
   assert.strictEqual(estaActivo(), false);
   assert.strictEqual(estado().motivo, null);
+  assert.strictEqual(estado().desde, null);
 });
 
 test("activar prende el interruptor y guarda el motivo y la hora", () => {

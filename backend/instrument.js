@@ -36,9 +36,37 @@ function esNombreSecreto(nombre) {
   return NOMBRES_SECRETOS.some((s) => normalizado.includes(s));
 }
 
+/**
+ * Env vars cuyo VALOR nunca debe salir, se llame como se llame la variable que
+ * lo sostiene. Filtrar solo por nombre es frágil: `includeLocalVariables` manda
+ * las variables locales de cada frame, y basta con que alguien escriba
+ * `const esperado = process.env.TOKEN_DESCARGA_RESPALDOS` o
+ * `const hex = env.RESPALDO_LLAVE` para que el secreto viaje entero, porque
+ * "esperado" y "hex" no están —ni pueden estar— en NOMBRES_SECRETOS. Este
+ * segundo filtro no depende de cómo se llame nada.
+ */
+const ENV_SECRETAS = [
+  "RESPALDO_LLAVE", "CLAVE_RESTAURACION", "TOKEN_DESCARGA_RESPALDOS",
+  "JWT_SECRET", "ML_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET", "ANTHROPIC_API_KEY",
+];
+
+/** Se lee una sola vez, al cargar: si una env var cambiara en caliente, el
+ *  filtro seguiría cubriendo el valor viejo, que es el lado seguro. Se ignoran
+ *  los valores muy cortos para no convertir en "[Filtrado]" media aplicación. */
+function secretosVivos() {
+  return ENV_SECRETAS
+    .map((n) => process.env[n])
+    .filter((v) => typeof v === "string" && v.length >= 8);
+}
+
+function contieneSecreto(texto, secretos) {
+  return secretos.some((s) => texto.includes(s));
+}
+
 /** Reemplaza en el lugar, en `obj`, el valor de toda propiedad cuyo NOMBRE
- *  case con la lista de secretos. `visitados` evita ciclos infinitos. */
-function filtrarObjeto(obj, visitados) {
+ *  case con la lista de secretos, O cuyo VALOR contenga un secreto vivo.
+ *  `visitados` evita ciclos infinitos. */
+function filtrarObjeto(obj, visitados, secretos = secretosVivos()) {
   if (!obj || typeof obj !== "object") return;
   if (visitados.has(obj)) return;
   visitados.add(obj);
@@ -48,7 +76,11 @@ function filtrarObjeto(obj, visitados) {
       continue;
     }
     const valor = obj[clave];
-    if (valor && typeof valor === "object") filtrarObjeto(valor, visitados);
+    if (typeof valor === "string" && secretos.length && contieneSecreto(valor, secretos)) {
+      obj[clave] = "[Filtrado]";
+      continue;
+    }
+    if (valor && typeof valor === "object") filtrarObjeto(valor, visitados, secretos);
   }
 }
 

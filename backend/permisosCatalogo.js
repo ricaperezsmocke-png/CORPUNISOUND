@@ -111,6 +111,10 @@ const PERMISOS = [
 
   // ---- Respaldos y punto de restauración ----
   { clave: "ver_respaldos",      etiqueta: "Ver Respaldos",       modulo: "respaldos", implementado: true },
+  // "Respaldar ahora" ESCRIBE (registra una copia y sube un archivo con toda la
+  // empresa a Drive), así que no puede ir con el permiso de VER. Regla del
+  // proyecto: cada botón con su permiso propio, nunca uno prestado.
+  { clave: "crear_respaldo",     etiqueta: "Respaldar Ahora",     modulo: "respaldos", implementado: true },
   { clave: "restaurar_respaldo", etiqueta: "Restaurar Respaldo",  modulo: "respaldos", implementado: true },
 ];
 

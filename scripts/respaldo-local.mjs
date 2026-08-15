@@ -52,13 +52,54 @@ async function main() {
     process.exit(1);
   }
 
+  // Trampa real de JSON en rutas de Windows: si Victor escribe "C:\respaldos"
+  // con UNA sola barra, `\r` es un escape VÁLIDO (retorno de carro) y JSON.parse
+  // no se queja — la ruta queda corrupta en silencio, mkdir crea una carpeta
+  // basura donde caiga, y el script reporta "Listo" como si todo estuviera bien.
+  // Victor creería tener 90 días de respaldos en una carpeta vacía. Lo mismo con
+  // \t (C:\temp), \b (C:\backup), \n (C:\nuevo) y \f. Solo "C:\Respaldos" con
+  // mayúscula falla ruidosamente, porque \R no es un escape válido.
+  if (/[\r\n\t\b\f\v]/.test(carpeta)) {
+    log('ERROR: la ruta de "carpeta" tiene caracteres inválidos. En el archivo de');
+    log('       configuración las barras van DOBLES: "C:\\\\Respaldos CORPUNISOUND"');
+    process.exit(1);
+  }
+  if (!path.isAbsolute(carpeta)) {
+    log(`ERROR: "carpeta" debe ser una ruta absoluta (empezando por C:\\), no "${carpeta}".`);
+    process.exit(1);
+  }
+
   await fs.mkdir(carpeta, { recursive: true });
+  // Se registra la ruta REAL en cada corrida: si algún día los respaldos no
+  // están donde Victor cree, el log dice exactamente dónde quedaron.
+  log(`Carpeta de destino: ${path.resolve(carpeta)}`);
   const yaTengo = new Set(await fs.readdir(carpeta));
 
   // El índice se pide con el token de descarga, igual que los archivos.
-  const r = await fetch(`${api}/respaldos/indice`, { headers: { "X-Token-Respaldo": token } });
+  let r;
+  try {
+    r = await fetch(`${api}/respaldos/indice`, { headers: { "X-Token-Respaldo": token } });
+  } catch (e) {
+    // `fetch failed` a secas no le dice nada a nadie, y este log solo se lee el
+    // día que algo va mal.
+    log("ERROR: no se pudo conectar con el servidor. Revisa tu internet, o que el");
+    log(`       sistema esté en línea (${api}). Se reintenta mañana.`);
+    process.exit(1);
+  }
   if (!r.ok) {
-    log(`ERROR: el servidor respondió ${r.status} al pedir el índice.`);
+    if (r.status === 404) {
+      // El 404 es a propósito en el backend (no confirma que la ruta exista),
+      // pero en este log se lee como "la ruta no existe" y manda a buscar donde
+      // no es.
+      log("ERROR: el servidor respondió 404. Casi siempre significa que el token de");
+      log("       este archivo no coincide con TOKEN_DESCARGA_RESPALDOS en Render,");
+      log("       o que esa variable no está configurada allá.");
+    } else if (r.status >= 500) {
+      log(`ERROR: el servidor respondió ${r.status}. Puede estar reiniciándose o caído;`);
+      log("       se reintenta mañana. Si sigue igual, revisa el panel de Render.");
+    } else {
+      log(`ERROR: el servidor respondió ${r.status} al pedir el índice.`);
+    }
     process.exit(1);
   }
   const copias = await r.json();
@@ -132,7 +173,18 @@ async function main() {
     }
   }
 
-  log(`Listo. ${bajados} nuevos, ${(await fs.readdir(carpeta)).length} en total.`);
+  // Los temporales de descargas cortadas se limpian: la poda de arriba solo mira
+  // los `.respaldo`, así que un `.parcial` huérfano sobrevivía para siempre Y se
+  // contaba en el "N en total" de abajo — que es justo la cifra tranquilizadora
+  // que Victor lee. Con un `.parcial` y un respaldo real decía "2 en total".
+  for (const n of await fs.readdir(carpeta)) {
+    if (n.endsWith(".parcial")) {
+      try { await fs.unlink(path.join(carpeta, n)); } catch (_) {}
+    }
+  }
+
+  const finales = (await fs.readdir(carpeta)).filter((n) => n.endsWith(".respaldo"));
+  log(`Listo. ${bajados} nuevos, ${finales.length} respaldos en total en la carpeta.`);
 }
 
 main().catch((e) => { log("ERROR: " + e.message); process.exit(1); });

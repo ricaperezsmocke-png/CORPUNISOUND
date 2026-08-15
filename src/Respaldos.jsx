@@ -57,7 +57,11 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
   // El mismo par que exige cada ruta en el backend (Task 7): un botón visible
   // que rebota con 403, o uno escondido a quien sí puede usarlo, son las dos
   // mitades del mismo defecto.
-  const puedeRespaldar = puede("ver_respaldos") && veTodas;
+  // "Respaldar ahora" ESCRIBE (sube a Drive un archivo con toda la empresa), así
+  // que va con su permiso PROPIO, no con el de ver. Debe casar exactamente con
+  // lo que exige la ruta: un botón visible que rebota con 403, o uno escondido a
+  // quien sí puede usarlo, son las dos mitades del mismo defecto.
+  const puedeRespaldar = puede("crear_respaldo") && veTodas;
   const puedeRestaurar = puede("restaurar_respaldo") && veTodas;
   const enMantenimiento = !!estado?.mantenimiento?.activo;
 
@@ -110,16 +114,39 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
         method: "POST",
         body: JSON.stringify({ clave, confirmacion }),
       });
-      const data = await r.json();
+      // Si el proxy corta la conexión, la respuesta puede ser HTML y no JSON:
+      // `r.json()` lanzaría "Unexpected token '<'", que no le dice nada a nadie.
+      let data;
+      try {
+        data = await r.json();
+      } catch (_) {
+        throw new Error(
+          r.ok
+            ? "La restauración terminó, pero la respuesta llegó incompleta. Recarga la página en un minuto."
+            : "El servidor respondió algo que no se entiende. Recarga la página en un minuto y revisa la lista."
+        );
+      }
       if (!r.ok) throw new Error(data.error);
       // Los usuarios y roles acaban de cambiar: no hay sesión que valga.
       window.alert(data.aviso);
       localStorage.removeItem("token");
       window.location.reload();
     } catch (err) {
+      // Un corte de red NO es un error de la restauración: el backend puede
+      // seguir trabajando del otro lado. Volver a apretar dispararía una segunda
+      // restauración, y el candado del backend la rechazaría — pero el mensaje
+      // tiene que decirle a Victor qué hacer, no dejarlo adivinando con un
+      // "Failed to fetch" del navegador.
+      const esFalloDeRed = err instanceof TypeError || /fetch|network|conexión/i.test(err.message || "");
+      setErrorModal(
+        esFalloDeRed
+          ? "Se perdió la conexión mientras se restauraba. NO vuelvas a intentarlo: " +
+            "espera un minuto, recarga la página y revisa en la lista si ya apareció " +
+            "el respaldo de seguridad (pre_restauracion). Si aparece, la restauración sí ocurrió."
+          : err.message
+      );
       // Se queda abierto y conserva lo que Victor ya escribió (folio de
       // confirmación incluido) — salvo la clave, que se borra siempre.
-      setErrorModal(err.message);
       setClave("");
       setRestaurando(false);
     }
@@ -277,6 +304,22 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
               <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 font-medium">
                 Al restaurar, todos los usuarios conectados tienen que volver a entrar. Si hay cajeras vendiendo, se les corta la venta.
               </p>
+
+              {/* Sin este aviso, un botón gris durante varios minutos se lee como
+                  "se colgó" e invita al segundo clic. */}
+              <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1.5">
+                Puede tardar varios minutos: se baja el respaldo de Google Drive y antes se
+                guarda una copia de seguridad del estado actual. <strong>No cierres esta ventana
+                ni recargues la página</strong> mientras trabaja. Mientras dure, nadie puede cobrar
+                ni iniciar sesión.
+              </p>
+
+              {restaurando && (
+                <p className="text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
+                  Restaurando… no cierres esta ventana. Al terminar, el sistema te va a pedir que
+                  entres otra vez.
+                </p>
+              )}
 
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Clave de restauración *</label>
