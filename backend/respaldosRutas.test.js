@@ -481,3 +481,30 @@ test("dos restauraciones a la vez: solo UNA procede y solo se crea UN respaldo p
 
 // (La conservación de las credenciales de Drive/ML al restaurar se prueba a
 // nivel de módulo en respaldos.test.js, donde se puede manipular el DB directo.)
+
+test("el índice sin sesión tiene freno de fuerza bruta tras varios tokens malos", async () => {
+  // Son las únicas rutas del sistema sin sesión que tocan datos del negocio, y
+  // no hay rate limiting a nivel de red. Sin freno se podían probar tokens sin
+  // límite, y cada acierto dispara una descarga de Drive con el OAuth del
+  // negocio. El login y el botón de restaurar ya tenían su freno; estas no.
+  process.env.TOKEN_DESCARGA_RESPALDOS = "token-bueno-para-el-freno";
+  try {
+    // Se agota el contador con tokens equivocados.
+    for (let i = 0; i < 6; i++) {
+      await pedir("/api/respaldos/indice", { headers: { "X-Token-Respaldo": `malo-${i}` } });
+    }
+    // Y ahora ni el token CORRECTO pasa: el freno está puesto.
+    const r = await pedir("/api/respaldos/indice", {
+      headers: { "X-Token-Respaldo": "token-bueno-para-el-freno" },
+    });
+    assert.strictEqual(
+      r.status, 404,
+      "tras varios intentos fallidos la ruta debe quedar frenada, incluso para el token bueno",
+    );
+    // 404 y no 429: desde fuera no se distingue "frenado" de "no existe". Que la
+    // ruta no confirme nada es parte del diseño.
+    assert.deepStrictEqual(r.cuerpo, { error: "No encontrado" });
+  } finally {
+    delete process.env.TOKEN_DESCARGA_RESPALDOS;
+  }
+});

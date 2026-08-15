@@ -372,6 +372,31 @@ async function verificarRespaldo(DB, drive, copiaId, llave) {
   }
 }
 
+/**
+ * Elige UNA copia vieja para volver a comprobar contra Drive.
+ *
+ * Sin esto, una copia solo se verificaba el día que nació: si alguien entra a
+ * Google Drive, ve una carpeta con archivos raros que no reconoce y la vacía, el
+ * índice del sistema sigue mostrando 30 días de renglones en verde y nadie se
+ * entera hasta el día que hace falta restaurar. Reverificando una por ciclo, el
+ * semáforo se entera en horas en vez de nunca.
+ *
+ * Se elige la que lleve MÁS tiempo sin comprobarse (las nunca verificadas van
+ * primero), y solo entre las utilizables. Una por vuelta para no multiplicar el
+ * tráfico contra Drive.
+ */
+function copiaParaReverificar(DB, excluirId = null) {
+  const utilizables = (DB.respaldos?.copias || []).filter(
+    (c) => c.estado === "ok" && c.drive_file_id && c.id !== excluirId
+  );
+  if (!utilizables.length) return null;
+  return utilizables.sort((a, b) => {
+    const ta = a.verificado_en ? Date.parse(a.verificado_en) : 0; // nunca verificada = lo más urgente
+    const tb = b.verificado_en ? Date.parse(b.verificado_en) : 0;
+    return ta - tb;
+  })[0];
+}
+
 const PALABRA_CONFIRMACION = "RESTAURAR";
 
 /**
@@ -596,7 +621,7 @@ async function restaurar(DB, drive, {
 module.exports = {
   nuevoEstadoRespaldos, contarRegistros, armarFoto, crearRespaldo, estadoRespaldos,
   pushMovimiento, siguienteId, limpiarViejos,
-  leerRespaldo, verificarRespaldo, buscarCopia,
+  leerRespaldo, verificarRespaldo, buscarCopia, copiaParaReverificar,
   COLECCIONES_RESPALDADAS, CREDENCIALES_A_CONSERVAR, VERSION_FORMATO, MINUTOS_PARA_ALERTA,
   DIAS_RETENCION_DIA, DIAS_RETENCION_HORA, COPIAS_PROTEGIDAS,
   restaurar, claveRestauracionConfigurada, claveCorrecta, compararConEstadoActual,

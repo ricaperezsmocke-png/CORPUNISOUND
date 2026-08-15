@@ -79,7 +79,7 @@ const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./docum
 const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
 const crypto = require("crypto");
 const {
-  crearRespaldo, limpiarViejos, verificarRespaldo, restaurar,
+  crearRespaldo, limpiarViejos, verificarRespaldo, copiaParaReverificar, restaurar,
   estadoRespaldos, compararConEstadoActual, claveRestauracionConfigurada,
 } = require("./respaldos");
 const { llaveDesdeEnv } = require("./respaldoCifrado");
@@ -348,6 +348,18 @@ async function cicloRespaldo() {
       if (copia.tipo === "dia") {
         const v = await verificarRespaldo(DB, drive, copia.id, LLAVE_RESPALDO);
         if (!v.ok) console.error("⚠️  Respaldo NO verificado:", v.diferencias.join("; "));
+      }
+      // Y se revisa UNA copia vieja, la que lleve más tiempo sin comprobarse.
+      // Antes una copia solo se verificaba el día que nacía: si alguien vaciaba
+      // la carpeta de Drive, el índice seguía mostrando 30 días en verde y nadie
+      // se enteraba hasta el día que hacía falta restaurar de verdad.
+      const vieja = copiaParaReverificar(DB, copia.id);
+      if (vieja) {
+        const v = await verificarRespaldo(DB, drive, vieja.id, LLAVE_RESPALDO);
+        if (!v.ok) {
+          console.error(`⚠️  El respaldo ${vieja.nombre_archivo} YA NO SIRVE:`, v.diferencias.join("; "));
+          Sentry.captureMessage(`Respaldo previo ilegible: ${vieja.nombre_archivo}`);
+        }
       }
       guardar(DB);
     }
@@ -1574,20 +1586,51 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
   }
 });
 
+/**
+ * Puerta de las dos rutas SIN SESIÓN de respaldos (índice y descarga), que corre
+ * la tarea programada de la PC de Victor sin nadie enfrente.
+ *
+ * Devuelve true solo si el token cuadra. Además pone un freno de fuerza bruta:
+ * son las únicas rutas del sistema sin sesión que tocan datos del negocio, y no
+ * hay rate limiting a nivel de red. Sin freno se podían probar tokens sin
+ * límite, y cada acierto dispara una descarga de Google Drive con el OAuth del
+ * negocio (cuota y costo). El login y el botón de restaurar ya tienen su propio
+ * freno; estas eran las que faltaban.
+ *
+ * Los nombres llevan "token" a propósito: el depurador de Sentry
+ * (instrument.js) filtra por nombre además de por valor, y con
+ * `includeLocalVariables` estas locales viajan en el stack trace de cualquier
+ * excepción que ocurra dentro del handler.
+ */
+const intentosDescarga = crearRegistroIntentos();
+
+function tokenDeDescargaValido(req) {
+  // Una sola cubeta para las dos rutas: la IP detrás del proxy de Render no es
+  // confiable, así que se frena el conjunto. El script legítimo corre una vez al
+  // día y nunca se acerca al límite.
+  if (estaBloqueado(intentosDescarga, "descarga-respaldos").bloqueado) return false;
+
+  const tokenEsperado = process.env.TOKEN_DESCARGA_RESPALDOS;
+  const tokenDado = req.get("X-Token-Respaldo") || "";
+  if (!tokenEsperado || !tokenDado) return false;
+
+  const a = crypto.createHash("sha256").update(tokenDado).digest();
+  const b = crypto.createHash("sha256").update(tokenEsperado).digest();
+  if (!crypto.timingSafeEqual(a, b)) {
+    registrarFallo(intentosDescarga, "descarga-respaldos");
+    return false;
+  }
+  registrarExito(intentosDescarga, "descarga-respaldos");
+  return true;
+}
+
 /** Índice para el script de la PC. Mismo token y mismo 404-si-no-cuadra que la
  *  ruta de descarga. Devuelve solo lo que el script necesita para decidir qué
  *  bajar — ningún dato del negocio. */
 app.get("/api/respaldos/indice", (req, res) => {
-  // Los nombres llevan "token" a propósito: el depurador de Sentry
-  // (instrument.js) filtra por nombre además de por valor, y con
-  // `includeLocalVariables` estas locales viajan en el stack trace de cualquier
-  // excepción que ocurra en este handler.
-  const tokenEsperado = process.env.TOKEN_DESCARGA_RESPALDOS;
-  const tokenDado = req.get("X-Token-Respaldo") || "";
-  if (!tokenEsperado || !tokenDado) return res.status(404).json({ error: "No encontrado" });
-  const a = crypto.createHash("sha256").update(tokenDado).digest();
-  const b = crypto.createHash("sha256").update(tokenEsperado).digest();
-  if (!crypto.timingSafeEqual(a, b)) return res.status(404).json({ error: "No encontrado" });
+  // 404 y no 429 ni 401: desde fuera, "token malo", "sin token", "bloqueado" y
+  // "no existe" son indistinguibles. No se confirma ni que la ruta exista.
+  if (!tokenDeDescargaValido(req)) return res.status(404).json({ error: "No encontrado" });
 
   res.json(DB.respaldos.copias.map((c) => ({
     id: c.id, tipo: c.tipo, fecha: c.fecha, hora_local: c.hora_local,
@@ -1604,13 +1647,7 @@ app.get("/api/respaldos/indice", (req, res) => {
  * configurada responde 404, no 401: no confirma ni que la ruta exista.
  */
 app.get("/api/respaldos/:id/descargar", async (req, res) => {
-  const esperado = process.env.TOKEN_DESCARGA_RESPALDOS;
-  const dado = req.get("X-Token-Respaldo") || "";
-  if (!esperado || !dado) return res.status(404).json({ error: "No encontrado" });
-
-  const a = crypto.createHash("sha256").update(dado).digest();
-  const b = crypto.createHash("sha256").update(esperado).digest();
-  if (!crypto.timingSafeEqual(a, b)) return res.status(404).json({ error: "No encontrado" });
+  if (!tokenDeDescargaValido(req)) return res.status(404).json({ error: "No encontrado" });
 
   try {
     const copia = DB.respaldos.copias.find((c) => c.id === Number(req.params.id));

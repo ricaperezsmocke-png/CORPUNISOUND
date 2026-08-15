@@ -4,7 +4,7 @@ const {
   crearRespaldo, armarFoto, contarRegistros, nuevoEstadoRespaldos,
   estadoRespaldos, COLECCIONES_RESPALDADAS, VERSION_FORMATO,
   limpiarViejos, DIAS_RETENCION_DIA, DIAS_RETENCION_HORA,
-  verificarRespaldo, leerRespaldo,
+  verificarRespaldo, leerRespaldo, copiaParaReverificar,
   restaurar, claveRestauracionConfigurada, claveCorrecta,
   compararConEstadoActual, PALABRA_CONFIRMACION,
 } = require("./respaldos");
@@ -924,4 +924,52 @@ test("con el alcance global por PERMISO, una cuenta REAL sí puede restaurar", a
     permisos: PERMISOS_GLOBALES, env: ENV_OK,
   });
   assert.strictEqual(r.aplicado, true);
+});
+
+// ---------- Reverificación de copias viejas ----------
+
+test("copiaParaReverificar elige la que lleva MÁS tiempo sin comprobarse", async () => {
+  // Sin reverificación periódica, una copia solo se comprobaba el día que nacía:
+  // si alguien vacía la carpeta de Drive, el índice sigue en verde durante 30
+  // días y nadie se entera hasta la emergencia.
+  const DB = nuevoDB();
+  DB.respaldos.copias = [
+    { id: 1, estado: "ok", drive_file_id: "f1", verificado_en: "2026-08-14T10:00:00.000Z" },
+    { id: 2, estado: "ok", drive_file_id: "f2", verificado_en: "2026-08-10T10:00:00.000Z" },
+    { id: 3, estado: "ok", drive_file_id: "f3", verificado_en: "2026-08-15T10:00:00.000Z" },
+  ];
+  assert.strictEqual(copiaParaReverificar(DB).id, 2, "debió elegir la más rezagada");
+});
+
+test("copiaParaReverificar prioriza las que NUNCA se verificaron", async () => {
+  const DB = nuevoDB();
+  DB.respaldos.copias = [
+    { id: 1, estado: "ok", drive_file_id: "f1", verificado_en: "2026-08-01T10:00:00.000Z" },
+    { id: 2, estado: "ok", drive_file_id: "f2", verificado_en: null },
+  ];
+  assert.strictEqual(copiaParaReverificar(DB).id, 2);
+});
+
+test("copiaParaReverificar ignora las fallidas y la recién creada", async () => {
+  const DB = nuevoDB();
+  DB.respaldos.copias = [
+    { id: 1, estado: "fallido", drive_file_id: null, verificado_en: null },
+    { id: 2, estado: "ok", drive_file_id: "f2", verificado_en: null },
+  ];
+  assert.strictEqual(copiaParaReverificar(DB, 2), null, "sin candidatas debe devolver null");
+  assert.strictEqual(copiaParaReverificar(DB).id, 2);
+});
+
+test("una copia borrada de Drive a mano se detecta al reverificar", async () => {
+  // El escenario real: Victor entra a su Drive, ve archivos raros que no
+  // reconoce y los borra. El índice seguía diciendo "ok" y verificado.
+  const DB = nuevoDB(); const drive = driveConMemoria();
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  assert.strictEqual((await verificarRespaldo(DB, drive, copia.id, LLAVE)).ok, true);
+
+  drive.archivos.delete(copia.drive_file_id); // alguien vació la carpeta
+
+  const r = await verificarRespaldo(DB, drive, copia.id, LLAVE);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(copia.verificado_en, null, "el índice quedó mintiendo en verde");
 });
