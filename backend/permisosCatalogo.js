@@ -82,6 +82,14 @@ const PERMISOS = [
   { clave: "registrar_contacto_cliente", etiqueta: "Registrar Contacto con Cliente", modulo: "crm", implementado: true },
   { clave: "enviar_campana_masiva", etiqueta: "Enviar Campaña Masiva", modulo: "crm", implementado: true },
 
+  // ---- Gerencia de Ventas (objetivos y tareas del vendedor) ----
+  // Van en el módulo `pos` a propósito: es la misma pantalla de trabajo de la
+  // cajera/vendedora, no un módulo administrativo aparte.
+  { clave: "usar_gerente_ventas", etiqueta: "Ver Mi Objetivo de Venta", modulo: "pos", implementado: true },
+  // Fijar metas y ligar cuentas a vendedores es una decisión de jefatura: no la
+  // toma quien va a ser medido por ella.
+  { clave: "editar_objetivos_venta", etiqueta: "Fijar Objetivos de Venta del Personal", modulo: "pos", implementado: true },
+
   // ---- Administración ----
   { clave: "administrar_roles", etiqueta: "Administrar Roles y Personal", modulo: "admin", implementado: true },
   { clave: "dar_alta_personal", etiqueta: "Dar de Alta Personal", modulo: "admin", implementado: true },

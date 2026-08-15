@@ -203,9 +203,11 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [modalPersonal, setModalPersonal] = useState(false);
-  const [formPersonal, setFormPersonal] = useState({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "" });
+  const [formPersonal, setFormPersonal] = useState({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "", vendedor_id: "" });
   const [personaEditando, setPersonaEditando] = useState(null); // usuario seleccionado o null
-  const [formEditarPersonal, setFormEditarPersonal] = useState({ nombre: "", rol_id: "", password: "", sucursal_id: "" });
+  const [formEditarPersonal, setFormEditarPersonal] = useState({ nombre: "", rol_id: "", password: "", sucursal_id: "", vendedor_id: "" });
+  // Catálogo de vendedores, para ligar una cuenta con su objetivo de venta.
+  const [vendedores, setVendedores] = useState([]);
   const [tabPersonaEditando, setTabPersonaEditando] = useState("datos"); // "datos" | "documentos"
   const [documentosPersona, setDocumentosPersona] = useState([]);
   const [cargandoDocumentos, setCargandoDocumentos] = useState(false);
@@ -216,12 +218,14 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     setCargando(true);
     setError(null);
     try {
-      const [rRoles, rCatalogo, rUsuarios, rSucursales, rDrive] = await Promise.all([
+      const [rRoles, rCatalogo, rUsuarios, rSucursales, rDrive, rVendedores] = await Promise.all([
         apiFetch("/roles"),
         apiFetch("/permisos-catalogo"),
         apiFetch("/usuarios"),
         apiFetch("/sucursales"),
         apiFetch("/drive/estado"),
+        // Para ligar cada cuenta con su vendedor (Gerencia de Ventas).
+        apiFetch("/vendedores"),
       ]);
       if (!rRoles.ok) throw new Error("No se pudieron cargar los roles");
       const roles = await rRoles.json();
@@ -231,6 +235,7 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       if (rUsuarios.ok) setUsuarios(await rUsuarios.json());
       if (rSucursales.ok) setSucursales(await rSucursales.json());
       if (rDrive.ok) setEstadoDrive(await rDrive.json());
+      if (rVendedores.ok) setVendedores(await rVendedores.json());
     } catch (e) {
       setError("No se pudo conectar con el backend, o tu usuario no tiene permiso para administrar roles.");
     } finally {
@@ -355,14 +360,14 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Personal agregado");
       setModalPersonal(false);
-      setFormPersonal({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "" });
+      setFormPersonal({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "", vendedor_id: "" });
       cargarTodo();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
   const abrirEditarPersonal = (u) => {
     setPersonaEditando(u);
-    setFormEditarPersonal({ nombre: u.nombre, rol_id: u.rol_id, password: "", sucursal_id: u.sucursal_id });
+    setFormEditarPersonal({ nombre: u.nombre, rol_id: u.rol_id, password: "", sucursal_id: u.sucursal_id, vendedor_id: u.vendedor_id ?? "" });
     setTabPersonaEditando("datos");
     setDocumentosPersona([]);
   };
@@ -373,6 +378,9 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     if (!formEditarPersonal.sucursal_id) return mostrarAviso("Selecciona una sucursal");
     try {
       const payload = { nombre: formEditarPersonal.nombre, rol_id: formEditarPersonal.rol_id, sucursal_id: formEditarPersonal.sucursal_id };
+      // Cadena vacia = desligar la cuenta de su vendedor (se manda null explicito,
+      // porque el backend distingue "no lo mandes" de "quitalo").
+      payload.vendedor_id = formEditarPersonal.vendedor_id === "" ? null : Number(formEditarPersonal.vendedor_id);
       if (formEditarPersonal.password) payload.password = formEditarPersonal.password;
       const r = await apiFetch(`/usuarios/${personaEditando.id}`, { method: "PUT", body: JSON.stringify(payload) });
       const data = await r.json();
@@ -713,6 +721,18 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                   {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">
+                  Vendedor <span className="text-slate-400">(opcional)</span>
+                </label>
+                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.vendedor_id} onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
+                  <option value="">No participa en objetivos de venta</option>
+                  {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Al ligarla, esta persona verá su objetivo de venta y sus tareas del mes.
+                </p>
+              </div>
               <button onClick={guardarPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
                 <Check size={15} /> Guardar
               </button>
@@ -764,6 +784,18 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                     <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
                       {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">
+                      Vendedor <span className="text-slate-400">(opcional)</span>
+                    </label>
+                    <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.vendedor_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
+                      <option value="">No participa en objetivos de venta</option>
+                      {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Al ligarla, esta persona verá su objetivo de venta y sus tareas del mes.
+                    </p>
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Nueva contraseña (opcional — déjalo en blanco para no cambiarla)</label>

@@ -75,6 +75,11 @@ async function crearUsuario(DB, datos) {
     password_hash: await hashearPassword(datos.password),
     rol_id: Number(datos.rol_id),
     sucursal_id: Number(datos.sucursal_id) || 1,
+    // Liga con el catálogo DB.pos.vendedores (Gerencia de Ventas). null = esta
+    // cuenta no participa del programa de objetivos, que es el comportamiento
+    // de siempre. Es un dato administrativo: lo pone quien da de alta al
+    // personal, nunca la propia persona.
+    vendedor_id: datos.vendedor_id ? Number(datos.vendedor_id) : null,
     activo: true,
   };
   DB.admin.usuarios.push(nuevo);
@@ -92,6 +97,11 @@ async function actualizarUsuario(DB, id, datos) {
     nombre: datos.nombre ?? DB.admin.usuarios[idx].nombre,
     rol_id: datos.rol_id !== undefined ? Number(datos.rol_id) : DB.admin.usuarios[idx].rol_id,
     sucursal_id: datos.sucursal_id !== undefined ? Number(datos.sucursal_id) : DB.admin.usuarios[idx].sucursal_id,
+    // Se acepta null explícito para DESLIGAR una cuenta de su vendedor (por eso
+    // se distingue `undefined` de `null` en vez de usar `||`).
+    vendedor_id: datos.vendedor_id !== undefined
+      ? (datos.vendedor_id === null || datos.vendedor_id === "" ? null : Number(datos.vendedor_id))
+      : (DB.admin.usuarios[idx].vendedor_id ?? null),
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };
   if (datos.password) {

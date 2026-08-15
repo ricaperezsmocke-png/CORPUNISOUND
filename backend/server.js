@@ -45,6 +45,7 @@ const { obtenerConfiguracion, actualizarConfiguracion } = require("./configuraci
 const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
+const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
@@ -139,6 +140,8 @@ const DB = {
       { id: 4, nombre: "Pedro L.", sucursal_id: 3, meta_mensual: 50000 },
       { id: 5, nombre: "Ana G.", sucursal_id: 4, meta_mensual: 50000 }
     ],
+    // Tareas sugeridas al vendedor para alcanzar su meta. Ver gerenteVentas.js.
+    tareas_venta: { tareas: [], ultimo_id: 0 },
     sucursales: [
       { id: 1, nombre: "Ocosingo", ciudad: "Chiapas", lat: null, lng: null },
       { id: 2, nombre: "Yajalón", ciudad: "Chiapas", lat: null, lng: null },
@@ -285,6 +288,13 @@ DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
 // o permisos nuevos (ml, traspasos, compras...). Los demás roles no se tocan.
 // Ver backend/roles.js -> reconciliarRoles.
 reconciliarRoles(DB);
+
+// Las bases que vienen de un SQLite anterior a Gerencia de Ventas no traen la
+// colección de tareas. Mismo patrón que reconciliarSucursalesCedis: se repara
+// al arrancar en vez de reventar la primera vez que alguien abre la pantalla.
+if (!DB.pos.tareas_venta || !Array.isArray(DB.pos.tareas_venta.tareas)) {
+  DB.pos.tareas_venta = nuevoEstadoTareasVenta();
+}
 
 // Mismo espíritu que el aviso de DB_PATH en persistencia.js: si los respaldos
 // NO están funcionando, hay que gritarlo. Creer que hay respaldos y que no los
@@ -1079,7 +1089,11 @@ app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", re
 });
 
 // ---------- Vendedores y Sucursales (catálogo compartido) ----------
-app.get("/api/vendedores", (req, res) => res.json(DB.pos.vendedores));
+// Exige sesión: con Gerencia de Ventas, `meta_mensual` dejó de ser un número
+// sembrado sin uso y pasó a ser el objetivo real de cada persona — un dato de
+// desempeño del personal, no un catálogo público. Antes esta ruta respondía a
+// cualquiera en internet.
+app.get("/api/vendedores", requiereLogin, (req, res) => res.json(DB.pos.vendedores));
 app.get("/api/sucursales", (req, res) => {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
@@ -1489,6 +1503,96 @@ app.put("/api/depositos/:id/cancelar", requiereLogin, requierePermiso("cancelar_
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(cancelarDeposito(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- Gerencia de Ventas: objetivo y tareas del vendedor ----------
+
+/**
+ * Resuelve DE QUIÉN es el tablero que se está pidiendo, y si quien pregunta
+ * tiene derecho a verlo.
+ *
+ * La regla: una vendedora ve SU tablero y nadie más. Quien tiene
+ * `editar_objetivos_venta` (jefatura) puede ver el de cualquiera dentro de su
+ * alcance de sucursal.
+ *
+ * OJO — la trampa que ya mordió tres veces en este repo (Estado de Cuenta,
+ * "Venta no encontrada", expedientes): el alcance de "¿tengo derecho a ESTE
+ * registro?" se resuelve SOLO desde quien pregunta (su permiso y la sucursal de
+ * su token), NUNCA desde `?sucursal_id=`, que `apiFetch` inyecta desde el
+ * selector del encabezado. Ver [[feedback-workflow]].
+ */
+function vendedorPermitido(req, vendedorIdPedido) {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  const esJefatura = permisos.includes("editar_objetivos_venta");
+  const pedido = Number(vendedorIdPedido);
+
+  const cuenta = DB.admin.usuarios.find((u) => u.id === req.usuarioToken.id);
+  const propio = cuenta?.vendedor_id != null ? Number(cuenta.vendedor_id) : null;
+
+  if (!esJefatura) {
+    // No es jefatura: solo el suyo, y solo si su cuenta está ligada a un vendedor.
+    if (propio == null || pedido !== propio) return null;
+    return pedido;
+  }
+
+  // Jefatura: puede ver a cualquiera de su alcance de sucursal.
+  const vendedor = DB.pos.vendedores.find((v) => v.id === pedido);
+  if (!vendedor) return null;
+  const verTodas = permisos.includes("ver_todas_las_sucursales");
+  if (!verTodas && Number(vendedor.sucursal_id) !== Number(req.usuarioToken.sucursal_id)) return null;
+  return pedido;
+}
+
+/** Mi tablero (o el de alguien más, si soy jefatura). */
+app.get("/api/gerente-ventas/:vendedorId", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  try {
+    const vendedorId = vendedorPermitido(req, req.params.vendedorId);
+    // 404 y no 403: no se confirma que el tablero de otra persona exista.
+    if (vendedorId == null) return res.status(404).json({ error: "Tablero no encontrado" });
+    res.json(tablero(DB, vendedorId));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/** ¿Con qué vendedor está ligada MI cuenta? La pantalla lo necesita para saber
+ *  si mostrar el módulo, sin tener que adivinar un id. */
+app.get("/api/gerente-ventas/mi/vendedor", requiereLogin, (req, res) => {
+  const cuenta = DB.admin.usuarios.find((u) => u.id === req.usuarioToken.id);
+  res.json({ vendedor_id: cuenta?.vendedor_id ?? null });
+});
+
+/** Marcar una tarea como hecha o descartada. El guard de "es mía" vive DENTRO
+ *  del módulo (gerenteVentas.js), no solo aquí. */
+app.put("/api/gerente-ventas/:vendedorId/tareas/:tareaId", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  try {
+    const vendedorId = vendedorPermitido(req, req.params.vendedorId);
+    if (vendedorId == null) return res.status(404).json({ error: "Tarea no encontrada" });
+    res.json(cambiarEstadoTarea(DB, vendedorId, req.params.tareaId, req.body?.estado));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/** Fijar la meta mensual de un vendedor. Solo jefatura — nunca el propio
+ *  vendedor sobre sí mismo: no se pone su propia calificación. */
+app.put("/api/gerente-ventas/:vendedorId/meta", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), (req, res) => {
+  try {
+    const vendedor = DB.pos.vendedores.find((v) => v.id === Number(req.params.vendedorId));
+    if (!vendedor) return res.status(404).json({ error: "Vendedor no encontrado" });
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    if (!permisos.includes("ver_todas_las_sucursales") &&
+        Number(vendedor.sucursal_id) !== Number(req.usuarioToken.sucursal_id)) {
+      return res.status(404).json({ error: "Vendedor no encontrado" });
+    }
+    res.json(fijarMeta(DB, req.params.vendedorId, req.body?.meta));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/** Lista de vendedores con su meta y progreso, para la pantalla de jefatura. */
+app.get("/api/gerente-ventas", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), (req, res) => {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  const verTodas = permisos.includes("ver_todas_las_sucursales");
+  const visibles = DB.pos.vendedores.filter(
+    (v) => verTodas || Number(v.sucursal_id) === Number(req.usuarioToken.sucursal_id)
+  );
+  res.json(visibles.map((v) => calcularProgreso(DB, v.id)));
 });
 
 // ---------- Respaldos y punto de restauración ----------

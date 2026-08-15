@@ -186,6 +186,11 @@ function rankingVendedores(DB, alcance) {
 }
 
 module.exports = {
+  // calcularSegmento se exporta para que gerenteVentas.js decida qué cliente
+  // está "en riesgo" con la MISMA regla que ve Victor en el CRM. Reimplementarla
+  // allá habría dejado dos definiciones de "cliente en riesgo" que se separan
+  // en cuanto alguien toque una.
+  calcularSegmento,
   comprasDeCliente, listarClientesCRM, obtenerClienteCRM, cambiarEstadoCliente,
   registrarContacto, listarContactos, resumenPorSucursal, rankingVendedores,
   obtenerSeguimientosPostventaPendientes,
