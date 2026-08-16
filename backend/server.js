@@ -1584,7 +1584,7 @@ app.get("/api/gerente-ventas/:vendedorId", requiereLogin, requierePermiso("usar_
 
 /** ¿Con qué vendedor está ligada MI cuenta? La pantalla lo necesita para saber
  *  si mostrar el módulo, sin tener que adivinar un id. */
-app.get("/api/gerente-ventas/mi/vendedor", requiereLogin, (req, res) => {
+app.get("/api/gerente-ventas/mi/vendedor", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
   const cuenta = DB.admin.usuarios.find((u) => u.id === req.usuarioToken.id);
   res.json({ vendedor_id: cuenta?.vendedor_id ?? null });
 });
@@ -1712,6 +1712,12 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       alTerminar: (db) => {
         db.pos.sucursales = reconciliarSucursalesCedis(db.pos.sucursales);
         reconciliarRoles(db);
+        // Un respaldo anterior a Gerencia de Ventas no trae esta coleccion, y
+        // restaurar reemplaza DB.pos entero. Se auto-repara sola al abrir la
+        // pantalla, pero el patron es reconciliar aqui igual que al arrancar.
+        if (!db.pos.tareas_venta || !Array.isArray(db.pos.tareas_venta.tareas)) {
+          db.pos.tareas_venta = nuevoEstadoTareasVenta();
+        }
       },
     });
     registrarExito(intentosRestauracion, usuario);

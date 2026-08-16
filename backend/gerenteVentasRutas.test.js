@@ -153,19 +153,37 @@ test("/mi/vendedor dice con qué vendedor está ligada mi cuenta", async () => {
 // ---------- Tareas ----------
 
 test("una vendedora NO puede cerrar una tarea del tablero de otra", async () => {
-  // Primero se generan tareas en el tablero de Carlos (vendedor 2).
-  const tableroCarlos = await pedir("/api/gerente-ventas/2", {
-    headers: { Authorization: `Bearer ${tokenDe(CARLOS_ID, "Carlos Ruiz")}` },
-  });
-  assert.strictEqual(tableroCarlos.status, 200);
-
-  // Ana intenta cerrar una tarea del tablero de Carlos.
-  const r = await pedir("/api/gerente-ventas/2/tareas/1", {
-    method: "PUT",
+  // OJO con el fixture: el sembrado genera tareas para ANA (vendedor 1) porque
+  // sus clientes estan en riesgo; a Carlos (vendedor 2) no le genera ninguna.
+  // La version anterior de esta prueba atacaba "la tarea 1 del tablero de
+  // Carlos", que en realidad es de Ana, asi que nunca probo el ataque que su
+  // nombre promete -- sobrevivia a quitar el guard solo por accidente.
+  const tableroAna = await pedir("/api/gerente-ventas/1", {
     headers: { Authorization: `Bearer ${tokenDe(ANA_ID, "Ana López")}` },
+  });
+  assert.strictEqual(tableroAna.status, 200);
+  assert.ok(tableroAna.cuerpo.tareas.length > 0, "el fixture debe darle tareas reales a Ana");
+  const tareaDeAna = tableroAna.cuerpo.tareas[0].id;
+
+  // Carlos intenta cerrar una tarea REAL de Ana, por el tablero de ella.
+  const r = await pedir(`/api/gerente-ventas/1/tareas/${tareaDeAna}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${tokenDe(CARLOS_ID, "Carlos Ruiz")}` },
     body: JSON.stringify({ estado: "hecha" }),
   });
   assert.strictEqual(r.status, 404);
+  // El MENSAJE es lo que vale: sin el guard el status puede seguir siendo un
+  // error por otra razon, y la prueba pasaria sin probar nada.
+  assert.match(r.cuerpo.error, /tarea no encontrada/i);
+
+  // Y la tarea sigue pendiente: el intento no la toco.
+  const despues = await pedir("/api/gerente-ventas/1", {
+    headers: { Authorization: `Bearer ${tokenDe(ANA_ID, "Ana López")}` },
+  });
+  assert.ok(
+    despues.cuerpo.tareas.some((t) => t.id === tareaDeAna),
+    "la tarea de Ana debe seguir en su lista",
+  );
 });
 
 // ---------- Metas: solo jefatura ----------

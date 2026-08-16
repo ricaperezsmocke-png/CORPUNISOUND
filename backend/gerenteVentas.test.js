@@ -106,6 +106,12 @@ test("días restantes del mes cuenta el día de hoy", () => {
   assert.strictEqual(diasRestantesDelMes("2026-08-31"), 1, "el último día todavía cuenta");
   assert.strictEqual(diasRestantesDelMes("2026-02-01"), 28);
   assert.strictEqual(diasRestantesDelMes("2028-02-01"), 29, "2028 es bisiesto");
+  // Diciembre es el que cruza de año: el mes siguiente es enero del año que
+  // entra, y ahí es donde una resta de meses mal hecha se rompe.
+  assert.strictEqual(diasRestantesDelMes("2026-12-01"), 31);
+  assert.strictEqual(diasRestantesDelMes("2026-12-31"), 1, "31 de diciembre: queda hoy");
+  assert.strictEqual(diasRestantesDelMes("2026-04-15"), 16, "abril tiene 30");
+  assert.strictEqual(diasRestantesDelMes("2100-02-01"), 28, "2100 NO es bisiesto");
 });
 
 test("un vendedor que no existe da un error claro, no cifras en cero", () => {

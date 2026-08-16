@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Target, RefreshCw, Check, X, Users } from "lucide-react";
 import { apiFetch } from "./api";
 
@@ -83,18 +83,27 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
     if (vendedorId === verVendedorId) cargarTablero(vendedorId);
   };
 
+  // Contador de petición: si se piden dos sugerencias seguidas, la respuesta
+  // lenta de la primera ya no apaga el "Calculando…" de la segunda ni pisa su
+  // resultado. Sin esto el estado quedaba inconsistente (las cifras no se
+  // cruzaban, porque el vendedor_id viaja con el dato, pero la pantalla mentía
+  // sobre qué se estaba calculando).
+  const peticionSugerencia = useRef(0);
+
   const pedirSugerencia = async (vendedorId) => {
+    const miTurno = ++peticionSugerencia.current;
     setPidiendoSugerencia(vendedorId);
     setSugerencia(null);
     try {
       const r = await apiFetch(`/gerente-ventas/${vendedorId}/sugerencia-meta`);
       const data = await r.json().catch(() => ({}));
+      if (miTurno !== peticionSugerencia.current) return; // llegó tarde: se descarta
       if (!r.ok) throw new Error(data.error || "No se pudo calcular la sugerencia");
       setSugerencia({ vendedor_id: vendedorId, ...data });
     } catch (err) {
-      mostrarAviso("❌ " + err.message);
+      if (miTurno === peticionSugerencia.current) mostrarAviso("❌ " + err.message);
     } finally {
-      setPidiendoSugerencia(null);
+      if (miTurno === peticionSugerencia.current) setPidiendoSugerencia(null);
     }
   };
 

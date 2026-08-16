@@ -61,6 +61,23 @@ function reservarSiguienteId(DB) {
   return estado.ultimo_id;
 }
 
+/**
+ * ¿Esta venta cuenta para la meta de este vendedor?
+ *
+ * Solo si se hizo en SU tienda. Decisión de Victor (2026-08-16): la meta mide
+ * el desempeño dentro de su sucursal, así que si alguien cubre un turno en otra
+ * tienda esa venta no le suma. En la práctica el personal de Unisound no cambia
+ * de sucursal, así que esto no mueve ninguna cifra hoy — es la red para el día
+ * que pase, y evita que un gerente vea totales mezclados de otra tienda.
+ *
+ * Una venta sin `sucursal_id` se cuenta: es un dato viejo o incompleto, y
+ * castigar a la vendedora por eso sería peor que contarlo.
+ */
+function esVentaDeSuTienda(venta, vendedor) {
+  if (venta.sucursal_id == null) return true;
+  return Number(venta.sucursal_id) === Number(vendedor.sucursal_id);
+}
+
 function primerDiaDelMes(fechaLocalStr) {
   return `${fechaLocalStr.slice(0, 7)}-01`;
 }
@@ -91,6 +108,7 @@ function calcularProgreso(DB, vendedorId, instante = ahora()) {
   const vendido_mes = DB.pos.ventas
     .filter((v) => v.vendedor_id === Number(vendedorId))
     .filter((v) => v.estatus === "cerrada")
+    .filter((v) => esVentaDeSuTienda(v, vendedor))
     .filter((v) => {
       // `v.fecha` ya es una fecha sola (AAAA-MM-DD) en hora local de la tienda.
       const f = String(v.fecha || "").slice(0, 10);
@@ -435,6 +453,8 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
   const porMes = new Map();
   for (const v of DB.pos.ventas) {
     if (v.vendedor_id !== Number(vendedorId)) continue;
+    // Mismo criterio que el avance del mes: solo su tienda (ver esVentaDeSuTienda).
+    if (!esVentaDeSuTienda(v, vendedor)) continue;
     if (v.estatus !== "cerrada") continue;
     const mes = String(v.fecha || "").slice(0, 7);
     if (!mes || mes >= mesActual) continue;
@@ -513,6 +533,37 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
 
   const pct = Math.round(tendencia * 100);
   const rumbo = pct > 5 ? `viene subiendo (${pct}%)` : pct < -5 ? `viene bajando (${pct}%)` : "viene pareja";
+  const detalle = {
+    promedio: Math.round(promedio),
+    tendencia_pct: pct,
+    meses: usados.map(([mes, monto]) => ({ mes, monto: Math.round(monto) })),
+  };
+
+  // Una meta de $0 no es una meta. Con un promedio muy bajo el redondeo a
+  // centenas da 0, y en la pantalla `sugerencia != null` es cierto para 0: salía
+  // el botón "Usar esta meta" con $0, y aplicarlo dejaba a la vendedora SIN
+  // objetivo — lo contrario de lo que el botón promete.
+  //
+  // El corte va aquí, DESPUÉS de calcular la confianza y el aviso de historial
+  // viejo, y no antes: cortar arriba se tragaba ese aviso, que es justo el que
+  // explica por qué las cifras son tan bajas.
+  if (sugerencia <= 0) {
+    return {
+      vendedor_id: vendedor.id,
+      vendedor_nombre: vendedor.nombre,
+      sugerencia: null,
+      meses_de_historial: usados.length,
+      confianza: "ninguna",
+      motivo:
+        `El historial de ${vendedor.nombre} es demasiado bajo para calcular una meta: ` +
+        `en los últimos ${usados.length} mes(es) vendió en promedio $${Math.round(promedio).toLocaleString("es-MX")} al mes. ` +
+        (historialViejo
+          ? `Además no tiene ventas registradas desde ${ultimoMesConVentas}. `
+          : "") +
+        "Ponla a mano por ahora.",
+      detalle,
+    };
+  }
 
   return {
     vendedor_id: vendedor.id,
@@ -531,11 +582,7 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
       (confianza === "baja" && !historialViejo
         ? " Ojo: es poco historial, así que tómala como un punto de partida, no como un dato firme."
         : ""),
-    detalle: {
-      promedio: Math.round(promedio),
-      tendencia_pct: pct,
-      meses: usados.map(([mes, monto]) => ({ mes, monto: Math.round(monto) })),
-    },
+    detalle,
   };
 }
 

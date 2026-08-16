@@ -128,6 +128,19 @@ test("sin historial NO se inventa una meta", () => {
   assert.match(s.motivo, /no hay/i);
 });
 
+test("una meta que redondea a CERO no se ofrece como sugerencia", () => {
+  // Con un promedio de $49, Math.round(49/100)*100 daba 0, y en la pantalla la
+  // condición `sugerencia != null` es cierta para 0: salía el botón "Usar esta
+  // meta" con $0 y aplicarlo dejaba a la vendedora sin objetivo.
+  const DB = nuevoDB();
+  venta(DB, "2026-07-10", 49);
+
+  const s = sugerirMeta(DB, 1, AHORA);
+  assert.strictEqual(s.sugerencia, null, "una meta de $0 no es una meta");
+  assert.strictEqual(s.confianza, "ninguna");
+  assert.match(s.motivo, /demasiado bajo/i, "el texto debe decir por qué no hay cifra");
+});
+
 test("la confianza es honesta sobre cuánto historial hay", () => {
   // Los meses van HACIA ATRÁS desde julio (el último mes completo antes de
   // agosto), no desde enero: si el historial termina hace medio año, la
@@ -295,4 +308,53 @@ test("si la IA tarda demasiado, no deja la pantalla colgada", async () => {
   ]);
   assert.ok(!r.agotado, `no debió esperar 20s (esperó ${Date.now() - empezo} ms)`);
   assert.strictEqual(r.redactado_por_ia, false);
+});
+
+// ---------- Solo cuenta la venta de SU tienda (decisión de Victor, 2026-08-16) ----------
+
+test("una venta hecha en OTRA tienda no cuenta para su meta ni para la sugerencia", () => {
+  // El personal de Unisound no cambia de sucursal, así que hoy esto no mueve
+  // ninguna cifra. Es la red para el día que alguien cubra un turno: la meta
+  // mide el desempeño dentro de su tienda, y un gerente no debe ver totales
+  // mezclados de otra sucursal.
+  const DB = nuevoDB();
+  DB.pos.ventas.push({ id: 1, vendedor_id: 1, total: 40000, fecha: "2026-07-10", estatus: "cerrada", sucursal_id: 1 });
+  DB.pos.ventas.push({ id: 2, vendedor_id: 1, total: 90000, fecha: "2026-07-15", estatus: "cerrada", sucursal_id: 4 });
+
+  const s = sugerirMeta(DB, 1, AHORA);
+  assert.strictEqual(s.detalle.promedio, 40000, "la venta de Palenque no debe sumar");
+});
+
+test("una venta SIN sucursal registrada sí cuenta: no se castiga por un dato viejo", () => {
+  const DB = nuevoDB();
+  DB.pos.ventas.push({ id: 1, vendedor_id: 1, total: 40000, fecha: "2026-07-10", estatus: "cerrada" });
+  assert.strictEqual(sugerirMeta(DB, 1, AHORA).detalle.promedio, 40000);
+});
+
+// ---------- El nombre del personal no sale hacia la IA ----------
+
+test("el prompt que se le manda a Claude NO lleva el nombre de la vendedora", async () => {
+  // Decisión de Victor: la explicación no mejora por saber el nombre, y el
+  // nombre de su personal no tiene por qué salir del sistema. La pantalla sigue
+  // mostrando el nombre real porque lo pone el código, no la IA.
+  const DB = nuevoDB();
+  venta(DB, "2026-07-10", 30000);
+
+  let loQueSeEnvio = null;
+  const ia = {
+    messages: {
+      create: async (params) => {
+        loQueSeEnvio = JSON.stringify(params);
+        return respuestaConTexto("Ponle $30,000: es su promedio.");
+      },
+    },
+  };
+
+  const r = await sugerirMetaConExplicacion(DB, ia, 1, AHORA);
+
+  assert.ok(loQueSeEnvio, "la IA debió ser llamada");
+  assert.ok(!loQueSeEnvio.includes("Ana López"), "el nombre no debe viajar a la IA");
+  assert.ok(!loQueSeEnvio.includes("Ana"), "ni el nombre de pila");
+  assert.ok(loQueSeEnvio.includes("30000"), "las cifras sí, son el dato del que se explica");
+  assert.strictEqual(r.vendedor_nombre, "Ana López", "pero la pantalla sí lo muestra");
 });

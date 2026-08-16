@@ -49,6 +49,8 @@ Reglas que no puedes romper:
 - No menciones ninguna cantidad, porcentaje ni mes que no esté en el JSON.
 - Si la confianza es "baja", dilo claramente: es poco historial.
 
+No conoces el nombre de la persona y no debes inventarlo: refiérete a ella como "esta vendedora".
+
 Escribe en español de México, hablándole de tú al dueño, en máximo 3 frases cortas:
 1. Qué meta sugieres y de dónde sale.
 2. Si la venta viene subiendo, bajando o pareja.
@@ -127,6 +129,12 @@ async function sugerirMetaConExplicacion(DB, anthropic, vendedorId, instante) {
     return { ...base, redaccion: base.motivo, redactado_por_ia: false };
   }
 
+  // El temporizador se guarda para poder apagarlo, y el AbortController corta
+  // la petición HTTP del otro lado: sin esto, una respuesta rápida dejaba 12 s
+  // de temporizador armado retrasando el apagado, y un timeout dejaba viva la
+  // llamada a Claude.
+  const corte = new AbortController();
+  let temporizador;
   try {
     const respuesta = await Promise.race([
       anthropic.messages.create({
@@ -137,7 +145,11 @@ async function sugerirMetaConExplicacion(DB, anthropic, vendedorId, instante) {
         messages: [{
           role: "user",
           content: JSON.stringify({
-            vendedor: base.vendedor_nombre,
+            // El NOMBRE no se manda: la explicacion no mejora por saberlo, y el
+            // nombre del personal de Victor no tiene por que salir del sistema.
+            // La pantalla sigue mostrando el nombre real -- lo pone el codigo,
+            // no la IA. Decision de Victor (2026-08-16).
+            vendedor: "la vendedora",
             meta_sugerida: base.sugerencia,
             promedio_mensual: base.detalle.promedio,
             tendencia_pct: base.detalle.tendencia_pct,
@@ -146,10 +158,13 @@ async function sugerirMetaConExplicacion(DB, anthropic, vendedorId, instante) {
             meses: base.detalle.meses,
           }),
         }],
+      }, { signal: corte.signal }),
+      new Promise((_, rechazar) => {
+        temporizador = setTimeout(() => {
+          corte.abort();
+          rechazar(new Error("La IA tardó demasiado"));
+        }, TIMEOUT_MS);
       }),
-      new Promise((_, rechazar) =>
-        setTimeout(() => rechazar(new Error("La IA tardó demasiado")), TIMEOUT_MS)
-      ),
     ]);
 
     // Una negativa del clasificador llega como respuesta exitosa con
@@ -176,6 +191,8 @@ async function sugerirMetaConExplicacion(DB, anthropic, vendedorId, instante) {
     // igual. Se registra para poder diagnosticarlo, sin datos del negocio.
     console.warn("Sugerencia de meta sin redacción de IA:", e.message);
     return { ...base, redaccion: base.motivo, redactado_por_ia: false };
+  } finally {
+    clearTimeout(temporizador);
   }
 }
 
