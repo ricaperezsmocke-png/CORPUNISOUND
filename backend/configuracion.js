@@ -11,7 +11,12 @@
 const CONFIG_DEFAULT = {
   documento_por_defecto: "Ticket",
   cerrar_venta_con_enter: true,
-  solicitar_vendedor_al_cerrar_venta: false,
+  // Encendida por defecto: Gerencia de Ventas entero cuelga de `vendedor_id`,
+  // y apagada la caja no preguntaba NUNCA — toda venta entraba con vendedor
+  // nulo, el avance de todas se quedaba en cero y el módulo era inalcanzable
+  // desde la caja. Quien no lleve objetivos de venta la apaga en Configuración;
+  // el default tiene que ser el que hace que los números existan.
+  solicitar_vendedor_al_cerrar_venta: true,
   permitir_ventas_sin_existencia: true,
   permitir_cambio_en_todas_las_formas_de_pago: false,
   descuentos_pago_habilitado: true,

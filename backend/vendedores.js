@@ -60,16 +60,27 @@ function listarVendedores(DB, alcance, { incluirInactivos = false } = {}) {
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 
-function validarNombre(DB, nombre, idQueSeEdita = null) {
+function validarNombre(DB, nombre, sucursalId, idQueSeEdita = null) {
   const limpio = String(nombre || "").trim();
   if (!limpio) throw new Error("El nombre del vendedor es obligatorio");
-  // Dos vendedores con el mismo nombre son indistinguibles en el selector de
-  // personal y en los reportes, y ligar la cuenta equivocada es justo el error
-  // que este catálogo debe evitar.
+  // La unicidad es POR SUCURSAL, que es donde de verdad estorba el homónimo:
+  // el selector de la caja y el de Personal ya solo muestran a los de una
+  // tienda. Global tenía dos defectos: le filtraba a un gerente el nombre
+  // exacto de alguien de otra sucursal que ni siquiera puede ver —lo contrario
+  // de la regla de "no encontrado" que sigue el resto del módulo— y lo dejaba
+  // sin salida propia si de verdad contrató a una tocaya.
   const repetido = DB.pos.vendedores.find(
-    (v) => v.nombre.trim().toLowerCase() === limpio.toLowerCase() && v.id !== Number(idQueSeEdita)
+    (v) =>
+      v.nombre.trim().toLowerCase() === limpio.toLowerCase() &&
+      Number(v.sucursal_id) === Number(sucursalId) &&
+      v.id !== Number(idQueSeEdita)
   );
-  if (repetido) throw new Error(`Ya existe un vendedor llamado "${repetido.nombre}"`);
+  if (repetido) {
+    throw new Error(
+      `Ya existe un vendedor llamado "${repetido.nombre}" en esta sucursal` +
+      (repetido.activo === false ? " (está desactivado; puedes reactivarlo)" : "")
+    );
+  }
   return limpio;
 }
 
@@ -97,7 +108,7 @@ function crearVendedor(DB, datos, alcance) {
   }
   const nuevo = {
     id: siguienteId(DB.pos.vendedores),
-    nombre: validarNombre(DB, datos.nombre),
+    nombre: validarNombre(DB, datos.nombre, sucursal_id),
     sucursal_id,
     meta_mensual: validarMeta(datos.meta_mensual),
     activo: true,
@@ -120,7 +131,11 @@ function buscarConAlcance(DB, id, alcance) {
 function actualizarVendedor(DB, id, datos, alcance) {
   const vendedor = buscarConAlcance(DB, id, alcance);
 
-  if (datos.nombre !== undefined) vendedor.nombre = validarNombre(DB, datos.nombre, vendedor.id);
+  // El nombre se valida contra la sucursal DONDE VA A QUEDAR, no donde estaba:
+  // si el mismo PUT lo mueve de tienda, el homónimo que importa es el de la
+  // tienda destino.
+  const sucursalFinal = datos.sucursal_id !== undefined ? Number(datos.sucursal_id) : vendedor.sucursal_id;
+  if (datos.nombre !== undefined) vendedor.nombre = validarNombre(DB, datos.nombre, sucursalFinal, vendedor.id);
   if (datos.meta_mensual !== undefined) vendedor.meta_mensual = validarMeta(datos.meta_mensual);
 
   if (datos.sucursal_id !== undefined) {
@@ -140,7 +155,23 @@ function actualizarVendedor(DB, id, datos, alcance) {
     vendedor.sucursal_id = nueva;
   }
 
-  if (datos.activo !== undefined) vendedor.activo = !!datos.activo;
+  if (datos.activo !== undefined) {
+    // Desactivar POR AQUÍ tiene que pasar por el mismo guard que
+    // `desactivarVendedor`, o la ruta genérica se lo salta: quedaba inactivo
+    // con la cuenta viva, fuera del tablero de jefatura y fuera de la caja
+    // —su avance ya no podía subir— pero él seguía viendo su pantalla como si
+    // nada. Reactivar no necesita guard: siempre devuelve a un estado sano.
+    if (!datos.activo) {
+      const cuenta = cuentaLigada(DB, vendedor.id);
+      if (cuenta) {
+        throw new Error(
+          `La cuenta "${cuenta.usuario}" está ligada a este vendedor. ` +
+          "Desligala primero en Roles y Personal."
+        );
+      }
+    }
+    vendedor.activo = !!datos.activo;
+  }
 
   return { ...vendedor, activo: estaActivo(vendedor), cuenta_ligada: cuentaLigada(DB, vendedor.id)?.usuario || null };
 }

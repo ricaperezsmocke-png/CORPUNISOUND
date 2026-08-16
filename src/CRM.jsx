@@ -530,7 +530,10 @@ export default function CRM({ onVolver, permisos }) {
           <label style={{ fontSize: 11, color: T.sub, fontWeight: 600, marginBottom: 4, display: "block" }}>Vendedor asignado</label>
           <select style={inp} value={fmC.vendedor_asignado_id} onChange={(e) => setFmC({ ...fmC, vendedor_asignado_id: e.target.value })}>
             <option value="">Selecciona...</option>
-            {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+            {/* Los desactivados no se ofrecen: asignarles un cliente nuevo los
+                devolvía al ranking y les generaba tareas de seguimiento a
+                alguien que ya no trabaja aquí. */}
+            {vendedores.filter((v) => v.activo !== false).map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
           </select>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}><Btn full v="blue" onClick={guardarCliente}>Guardar cliente</Btn><Btn full v="ghost" onClick={() => setModal(null)}>Cancelar</Btn></div>

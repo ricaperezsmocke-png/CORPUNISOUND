@@ -315,19 +315,33 @@ test("una cajera NO lee la meta de sus compañeras por /api/vendedores", async (
   }
 });
 
-test("jefatura sí lee las metas, pero solo las de su alcance", async () => {
+test("jefatura solo ve a los vendedores de su sucursal, y con su meta", async () => {
+  // El contrato se endureció: antes salía la cadena entera y a los de otras
+  // tiendas solo se les recortaba `meta_mensual`. Eso alcanzaba para que la
+  // caja de Ocosingo ofreciera a la vendedora de Palenque, y esa venta no le
+  // contaba a nadie. Ahora los de otra sucursal no salen en absoluto.
   const r = await pedir("/api/vendedores", {
     headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
   });
   assert.strictEqual(r.status, 200);
-  const conMeta = r.cuerpo.filter((v) => v.meta_mensual !== undefined);
-  const sinMeta = r.cuerpo.filter((v) => v.meta_mensual === undefined);
-  assert.ok(conMeta.length > 0, "de su sucursal sí ve las metas");
-  assert.ok(sinMeta.length > 0, "de las demás no");
+  assert.ok(r.cuerpo.length > 0, "sí ve a los suyos");
   assert.ok(
-    conMeta.every((v) => Number(v.sucursal_id) === 2),
-    "solo las de su propia sucursal",
+    r.cuerpo.every((v) => Number(v.sucursal_id) === 2),
+    "ni un solo vendedor de otra sucursal",
   );
+  assert.ok(
+    r.cuerpo.every((v) => v.meta_mensual !== undefined),
+    "y de los suyos sí lee la meta",
+  );
+});
+
+test("una cajera tampoco ve vendedores de otras sucursales", async () => {
+  // Es la mitad del arreglo: el otro candado está en registrarVenta, porque la
+  // pantalla se puede saltar y la ruta no.
+  const r = await pedir("/api/vendedores", { headers: { Authorization: `Bearer ${TOKEN_CAJERA}` } });
+  assert.strictEqual(r.status, 200);
+  assert.ok(r.cuerpo.length > 0);
+  assert.ok(r.cuerpo.every((v) => Number(v.sucursal_id) === 1), "solo los de la suya");
 });
 
 test("el administrador ve todas las metas", async () => {
@@ -504,4 +518,140 @@ test("no se puede ligar una cuenta a un vendedor desactivado", async () => {
   });
   assert.notStrictEqual(intento.status, 200, "debe rechazarse");
   assert.match(intento.cuerpo.error, /desactivado/i);
+});
+
+// ---------- Los guards de las 4 rutas del catálogo, amarrados ----------
+//
+// La revisión independiente verificó a mano que el guard es correcto, y luego
+// demostró que se le podía BORRAR entero a las cuatro rutas dejando 818/818 en
+// verde. Un guard sin prueba es un guard que alguien quita el mes que viene.
+//
+// La trampa concreta: src/api.js inyecta `sucursal_id` desde localStorage en
+// TODA petición. Un guard que lea el alcance de ahí en vez del token es un
+// hueco, y ya mordió tres veces en este repo.
+
+test("el catálogo no se ensancha mandando ?sucursal_id=", async () => {
+  for (const intento of ["", "?sucursal_id=1", "?sucursal_id=todas", "?sucursal_id=4"]) {
+    const r = await pedir(`/api/vendedores/catalogo${intento}`, {
+      headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+    });
+    assert.strictEqual(r.status, 200, intento);
+    assert.ok(
+      r.cuerpo.every((v) => Number(v.sucursal_id) === 2),
+      `con "${intento}" se coló un vendedor de otra sucursal`,
+    );
+  }
+});
+
+test("una cajera no entra al catálogo aunque tenga sesión", async () => {
+  const r = await pedir("/api/vendedores/catalogo", { headers: { Authorization: `Bearer ${TOKEN_CAJERA}` } });
+  assert.strictEqual(r.status, 403);
+});
+
+test("dar de alta, editar y desactivar respetan la sucursal del TOKEN, no la de la query", async () => {
+  const conGerente = { Authorization: `Bearer ${TOKEN_GERENTE_S2}` };
+
+  const alta = await pedir("/api/vendedores?sucursal_id=1", {
+    method: "POST", headers: conGerente,
+    body: JSON.stringify({ nombre: "Colado De Ocosingo", sucursal_id: 1 }),
+  });
+  assert.notStrictEqual(alta.status, 200, "no debe poder sembrar en otra tienda");
+  assert.match(alta.cuerpo.error, /tu propia sucursal/i);
+
+  // El vendedor 1 (Ana López) es de la sucursal 1. Mismo mensaje que "no
+  // existe": no se le confirma al gerente que el de la otra tienda exista.
+  const edicion = await pedir("/api/vendedores/1?sucursal_id=1", {
+    method: "PUT", headers: conGerente, body: JSON.stringify({ nombre: "Renombrada" }),
+  });
+  assert.notStrictEqual(edicion.status, 200);
+  assert.match(edicion.cuerpo.error, /no encontrado/i);
+
+  const baja = await pedir("/api/vendedores/1/desactivar?sucursal_id=1", { method: "PUT", headers: conGerente });
+  assert.notStrictEqual(baja.status, 200);
+  assert.match(baja.cuerpo.error, /no encontrado/i);
+});
+
+test("una cajera no puede dar de alta ni desactivar vendedores", async () => {
+  const conCajera = { Authorization: `Bearer ${TOKEN_CAJERA}` };
+  const alta = await pedir("/api/vendedores", {
+    method: "POST", headers: conCajera, body: JSON.stringify({ nombre: "Yo Misma", sucursal_id: 1 }),
+  });
+  assert.strictEqual(alta.status, 403);
+  const baja = await pedir("/api/vendedores/1/desactivar", { method: "PUT", headers: conCajera });
+  assert.strictEqual(baja.status, 403);
+});
+
+// ---------- Mover una cuenta de sucursal revalida su vendedor ----------
+
+test("mover una cuenta a otra sucursal no le deja el vendedor de la tienda vieja", async () => {
+  // El modal de Personal manda `sucursal_id` sin `vendedor_id`, así que la liga
+  // se conservaba sin revalidar: su tablero seguía contando las ventas de la
+  // tienda vieja, y de rebote el vendedor quedaba imposible de editar desde el
+  // catálogo — cualquier PUT chocaba contra "la cuenta pertenece a otra
+  // sucursal", sin nada que dijera que la salida es desligar en Personal.
+  const cuenta = await pedir("/api/usuarios", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({
+      nombre: "Se Muda", usuario: "se.muda.prueba", password: "secreto123",
+      rol_id: 3, sucursal_id: 2, vendedor_id: 3,
+    }),
+  });
+  assert.strictEqual(cuenta.status, 200, JSON.stringify(cuenta.cuerpo));
+
+  const mudanza = await pedir(`/api/usuarios/${cuenta.cuerpo.id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({ sucursal_id: 4 }),
+  });
+  assert.notStrictEqual(mudanza.status, 200, "debe rechazarse, o desligarse primero");
+  assert.match(mudanza.cuerpo.error, /sucursal|vendedor/i);
+});
+
+// ---------- El candado del vendedor al registrar una venta ----------
+//
+// La caja ya solo ofrece a los de la sucursal, pero la pantalla se puede
+// saltar y la ruta no. Sin este candado, una venta atribuida a alguien de otra
+// tienda se aceptaba con 200 y quedaba en tierra de nadie: `esVentaDeSuTienda`
+// la descartaba de su objetivo, pero el reporte SÍ se la acreditaba. Dos
+// pantallas contradiciéndose sobre la misma venta, y la persona que de verdad
+// vendió sin ella.
+
+test("una venta no se puede atribuir a un vendedor de otra sucursal", async () => {
+  const { crearVenta } = require("./ventas");
+  const DB = {
+    pos: {
+      ventas: [], venta_detalle: [], cortes: [],
+      vendedores: [
+        { id: 1, nombre: "De Ocosingo", sucursal_id: 1 },
+        { id: 2, nombre: "De Palenque", sucursal_id: 4 },
+        { id: 3, nombre: "Ya Se Fue", sucursal_id: 1, activo: false },
+      ],
+      configuracion: { permitir_ventas_sin_existencia: true },
+    },
+    inventario: { existencias: [] },
+    "catalogo-productos": { productos: [] },
+  };
+  const venta = {
+    sucursal_id: 1,
+    lineas: [{ descripcion: "Guitarra", cantidad: 1, precio: 1000 }],
+    total: 1000, subtotal: 1000,
+  };
+
+  assert.throws(() => crearVenta(DB, { ...venta, vendedor_id: 2 }), /no vende en esta sucursal/i);
+  assert.throws(() => crearVenta(DB, { ...venta, vendedor_id: 3 }), /no está activo/i);
+  assert.throws(() => crearVenta(DB, { ...venta, vendedor_id: 999 }), /no existe/i);
+
+  // El de su propia sucursal sí pasa, y sin vendedor también (se puede cobrar
+  // aunque nadie se haya identificado: una caja que no cobra es peor).
+  assert.strictEqual(crearVenta(DB, { ...venta, vendedor_id: 1 }).vendedor_id, 1);
+  assert.strictEqual(crearVenta(DB, { ...venta }).vendedor_id, null);
+});
+
+test("la caja pregunta por el vendedor con la configuración de fábrica", async () => {
+  // Apagada, la caja no preguntaba NUNCA: toda venta entraba con vendedor nulo,
+  // el avance de todas se quedaba en cero y Gerencia de Ventas era inalcanzable
+  // desde la caja — justo lo que el catálogo vino a resolver.
+  const { CONFIG_DEFAULT } = require("./configuracion");
+  assert.strictEqual(CONFIG_DEFAULT.solicitar_vendedor_al_cerrar_venta, true);
 });

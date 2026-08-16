@@ -741,6 +741,10 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                 <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.vendedor_id} onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
                   <option value="">No participa en objetivos de venta</option>
                   {vendedores
+                    // Sin `activo` esto era error-al-guardar: el backend ya lo
+                    // rechaza, pero ofrecerlo y luego negarlo es justo lo que
+                    // este catálogo vino a quitar.
+                    .filter((v) => v.activo !== false)
                     .filter((v) => !formPersonal.sucursal_id || Number(v.sucursal_id) === Number(formPersonal.sucursal_id))
                     .map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                 </select>
@@ -809,6 +813,9 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                     <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.vendedor_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
                       <option value="">No participa en objetivos de venta</option>
                       {vendedores
+                        // Igual que el de alta: no se ofrece a quien ya no
+                        // trabaja aquí, o el error sale hasta guardar.
+                        .filter((v) => v.activo !== false)
                         .filter((v) => !formEditarPersonal.sucursal_id || Number(v.sucursal_id) === Number(formEditarPersonal.sucursal_id))
                         .map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                     </select>

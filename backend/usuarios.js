@@ -156,9 +156,20 @@ async function actualizarUsuario(DB, id, datos) {
     sucursal_id: datos.sucursal_id !== undefined ? Number(datos.sucursal_id) : DB.admin.usuarios[idx].sucursal_id,
     // Se acepta null explícito para DESLIGAR una cuenta de su vendedor (por eso
     // se distingue `undefined` de `null` en vez de usar `||`).
-    vendedor_id: datos.vendedor_id !== undefined
-      ? validarVendedorId(DB, datos.vendedor_id, sucursalFinal, Number(id))
-      : (DB.admin.usuarios[idx].vendedor_id ?? null),
+    // Se revalida también cuando SOLO cambia la sucursal, aunque el cuerpo no
+    // traiga `vendedor_id`: el modal de Personal manda la sucursal sin la liga,
+    // así que mover a alguien de tienda conservaba en silencio un vendedor de
+    // la tienda vieja. Su tablero seguía contando las ventas de allá, lo que
+    // vendiera aquí no le contaba a nadie, y de rebote el vendedor quedaba
+    // imposible de editar desde el catálogo — cualquier PUT chocaba contra el
+    // guard de "la cuenta pertenece a otra sucursal", sin nada que dijera que
+    // la salida es desligar la cuenta en Personal.
+    vendedor_id:
+      datos.vendedor_id !== undefined
+        ? validarVendedorId(DB, datos.vendedor_id, sucursalFinal, Number(id))
+        : (DB.admin.usuarios[idx].vendedor_id != null && datos.sucursal_id !== undefined
+            ? validarVendedorId(DB, DB.admin.usuarios[idx].vendedor_id, sucursalFinal, Number(id))
+            : (DB.admin.usuarios[idx].vendedor_id ?? null)),
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };
   if (datos.password) {

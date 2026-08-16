@@ -1132,7 +1132,17 @@ app.get("/api/vendedores", requiereLogin, (req, res) => {
   const esJefatura = permisos.includes("editar_objetivos_venta");
   const verTodas = permisos.includes("ver_todas_las_sucursales");
 
-  res.json(DB.pos.vendedores.map((v) => {
+  // Recortado a la sucursal de quien pregunta. Antes salía la cadena completa:
+  // la caja de Ocosingo ofrecía a la vendedora de Palenque en el mismo
+  // desplegable, sin decir de qué tienda era cada quien ("Ana López" de la 1 y
+  // "Ana G." de la 4, una debajo de la otra). Elegir a la de otra tienda no
+  // fallaba —la venta se aceptaba con 200— pero `esVentaDeSuTienda` la
+  // descartaba: no le contaba a ella NI a quien de verdad vendió.
+  const suyos = DB.pos.vendedores.filter(
+    (v) => verTodas || Number(v.sucursal_id) === Number(req.usuarioToken.sucursal_id)
+  );
+
+  res.json(suyos.map((v) => {
     // El alcance sale SOLO de quien pregunta (permiso + sucursal del token),
     // nunca de `?sucursal_id=` — la trampa que ya mordió tres veces en el repo.
     const puedeVerLaMeta =

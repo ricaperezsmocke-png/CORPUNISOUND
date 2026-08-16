@@ -163,8 +163,42 @@ test("una meta negativa se rechaza al editar", () => {
   assert.throws(() => actualizarVendedor(nuevoDB(), 1, { meta_mensual: -1 }, TODAS), /mayor o igual/i);
 });
 
-test("renombrar a un vendedor con el nombre de otro se rechaza", () => {
-  assert.throws(() => actualizarVendedor(nuevoDB(), 3, { nombre: "Ana López" }, TODAS), /ya existe/i);
+test("renombrar a un vendedor con el nombre de otro DE SU MISMA SUCURSAL se rechaza", () => {
+  const DB = nuevoDB();
+  DB.pos.vendedores.push({ id: 7, nombre: "Otra De Ocosingo", sucursal_id: 1 });
+  assert.throws(() => actualizarVendedor(DB, 7, { nombre: "Ana López" }, TODAS), /ya existe/i);
+});
+
+test("dos tocayas en sucursales DISTINTAS sí se permiten", () => {
+  // La unicidad es por sucursal: el homónimo estorba en el selector de la caja
+  // y en el de Personal, y esos ya solo muestran a los de una tienda. Global le
+  // filtraba a un gerente el nombre exacto de alguien que no puede ni ver, y lo
+  // dejaba sin salida si de verdad contrató a una tocaya.
+  const DB = nuevoDB(); // Ana López está en la sucursal 1
+  const v = crearVendedor(DB, { nombre: "Ana López", sucursal_id: 2 }, TODAS);
+  assert.strictEqual(v.sucursal_id, 2);
+  assert.strictEqual(DB.pos.vendedores.filter((x) => x.nombre === "Ana López").length, 2);
+});
+
+test("el homónimo DESACTIVADO se nombra como tal, para que se sepa que hay que reactivarlo", () => {
+  // Si no, el error señala a alguien que no aparece en la pantalla.
+  const DB = nuevoDB();
+  desactivarVendedor(DB, 1, TODAS);
+  assert.throws(
+    () => crearVendedor(DB, { nombre: "Ana López", sucursal_id: 1 }, TODAS),
+    /desactivado/i,
+  );
+});
+
+test("no se puede desactivar por la ruta genérica saltándose el guard de cuenta ligada", () => {
+  // `PUT {activo:false}` y `/desactivar` piden el mismo permiso: si uno valida
+  // y el otro no, el guard no existe. El estado que evita: vendedor inactivo
+  // con cuenta viva — fuera del tablero y fuera de la caja, su avance ya no
+  // puede subir, pero él sigue viendo su pantalla como si nada.
+  const DB = nuevoDB();
+  DB.admin.usuarios.push({ id: 10, usuario: "ana", vendedor_id: 1, sucursal_id: 1 });
+  assert.throws(() => actualizarVendedor(DB, 1, { activo: false }, TODAS), /ligada/i);
+  assert.notStrictEqual(DB.pos.vendedores.find((v) => v.id === 1).activo, false);
 });
 
 test("renombrarse a sí mismo con el mismo nombre no se bloquea", () => {
