@@ -70,15 +70,26 @@ const MINIMO_PARA_SER_DINERO = 1000;
  * centenas.
  */
 function cantidadesEn(texto) {
-  const crudos = texto.match(/\d[\d.,]*/g) || [];
-  return crudos
-    .map((s) => {
-      // Coma = separador de miles; punto = decimal (formato de México).
-      const n = Number(s.replace(/,/g, ""));
-      return Number.isFinite(n) ? Math.round(n) : null;
-    })
-    .filter((n) => n !== null);
+  const crudos = texto.match(/\d[\d.,\s]*\d|\d/g) || [];
+  const numeros = [];
+  let hayIlegible = false;
+  for (const s of crudos) {
+    // Coma y espacio = separadores de miles; punto = decimal (formato de México).
+    const n = Number(s.replace(/[,\s]/g, ""));
+    if (Number.isFinite(n)) numeros.push(Math.round(n));
+    // Un token numérico que no parsea ("1.000.000") NO se descarta en silencio:
+    // se marca, y el texto entero se rechaza. Tirarlo era el hueco por el que
+    // pasaba una cifra inventada escrita con puntos de millar.
+    else hayIlegible = true;
+  }
+  return { numeros, hayIlegible };
 }
+
+/** Números escritos con letras. No se pretende cubrir el idioma entero: basta
+ *  con que un texto que diga "cuarenta mil" o "treinta mil pesos" se rechace,
+ *  porque es la forma más natural de escribir una cantidad en español de
+ *  México y era por donde se colaba una cifra que nadie calculó. */
+const NUMERO_EN_PALABRAS = /\b(mil|millon|millón|millones)\b/i;
 
 /**
  * ¿La redacción respeta la cifra calculada?
@@ -94,24 +105,53 @@ function cantidadesEn(texto) {
  * justo cuando no hay historial — el único caso donde no existe ninguna cifra
  * legítima y la IA quedaba libre de inventar una que Victor leería como buena.
  *
- * Ahora se comparan NÚMEROS, no cadenas, y con dos condiciones:
- *  1. La meta calculada tiene que estar entre las cantidades del texto.
- *  2. NINGUNA otra cantidad de dinero puede aparecer. Si la IA menciona la
- *     correcta y además otra, no hay forma de saber cuál va a leer Victor como
- *     la meta, así que se descarta todo.
- * Sin cifra calculada (sin historial), el texto no puede mencionar ninguna
- * cantidad de dinero en absoluto.
+ * Ahora se comparan NÚMEROS contra una LISTA BLANCA: la meta calculada más las
+ * demás cifras que el sistema le pasó a la IA (el promedio y el monto de cada
+ * mes). Cualquier número fuera de esa lista invalida el texto.
+ *
+ * La lista blanca importa tanto como el rechazo: el prompt le pide a la IA que
+ * diga "de dónde sale" la meta, y el JSON que recibe incluye el promedio. Una
+ * versión que solo aceptara la meta rechazaba "Ponle $30,000; su promedio fue
+ * de $28,450" — o sea, casi toda explicación legítima, dejando la llamada a
+ * Claude pagada y sin usar.
+ *
+ * Se rechaza además cuando:
+ *  - un token numérico no parsea ("1.000.000"): antes se tiraba en silencio y
+ *    por ahí se colaba una cifra inventada con puntos de millar;
+ *  - el texto escribe una cantidad con letras ("cuarenta mil"), que es la forma
+ *    más natural en español de México y no la ve ningún regex de dígitos.
+ *
+ * Sin cifra calculada (sin historial), el texto no puede mencionar NINGUNA
+ * cantidad de dinero, ni en dígitos ni en palabras.
  */
-function laCifraCuadra(texto, sugerencia) {
+function laCifraCuadra(texto, sugerencia, cifrasPermitidas = []) {
   if (!texto || typeof texto !== "string") return false;
 
-  const montos = cantidadesEn(texto).filter((n) => n >= MINIMO_PARA_SER_DINERO);
+  // Un año dentro de una fecha AAAA-MM no es una cantidad: "no vende desde
+  // 2026-02" es información legítima, no una meta inventada.
+  const sinFechas = texto.replace(/\b(19|20)\d\d-\d\d\b/g, " ");
+  if (NUMERO_EN_PALABRAS.test(sinFechas)) return false;
 
-  // Sin cifra calculada: la IA no puede nombrar ninguna cantidad.
+  const { numeros, hayIlegible } = cantidadesEn(sinFechas);
+  if (hayIlegible) return false;
+
+  const permitidas = new Set(
+    [sugerencia, ...cifrasPermitidas]
+      .map((n) => Math.round(Number(n)))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+
+  // La meta se busca ANTES del filtro de "esto es dinero": una meta de $800 es
+  // legítima (sugerirMeta redondea a centenas) y el filtro la habría escondido,
+  // haciendo imposible que ninguna redacción pasara.
+  if (sugerencia && sugerencia > 0 && !numeros.includes(Math.round(sugerencia))) return false;
+
+  const montos = numeros.filter((n) => n >= MINIMO_PARA_SER_DINERO);
+
+  // Sin cifra calculada: la IA no puede nombrar ninguna cantidad de dinero.
   if (!sugerencia || sugerencia <= 0) return montos.length === 0;
 
-  if (!montos.includes(sugerencia)) return false;
-  return montos.every((n) => n === sugerencia);
+  return montos.every((n) => permitidas.has(n));
 }
 
 /**
@@ -180,7 +220,13 @@ async function sugerirMetaConExplicacion(DB, anthropic, vendedorId, instante) {
       .join("")
       .trim();
 
-    if (!texto || !laCifraCuadra(texto, base.sugerencia)) {
+    // Las cifras permitidas son las que el sistema le PASÓ a la IA: la meta, el
+    // promedio y el monto de cada mes. Mencionar cualquier otra invalida el texto.
+    const cifrasPermitidas = [
+      base.detalle.promedio,
+      ...base.detalle.meses.map((m) => m.monto),
+    ];
+    if (!texto || !laCifraCuadra(texto, base.sugerencia, cifrasPermitidas)) {
       // La IA escribió una cifra distinta de la calculada: se descarta entera.
       return { ...base, redaccion: base.motivo, redactado_por_ia: false };
     }

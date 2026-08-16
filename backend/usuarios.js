@@ -70,7 +70,7 @@ function listarUsuarios(DB) {
  *
  * @returns el id ya normalizado, o null si la cuenta no participa
  */
-function validarVendedorId(DB, valor, sucursalDeLaCuenta) {
+function validarVendedorId(DB, valor, sucursalDeLaCuenta, idCuentaQueSeEdita = null) {
   if (valor === undefined || valor === null || valor === "") return null;
   const id = Number(valor);
   if (!Number.isInteger(id) || id <= 0) {
@@ -80,9 +80,22 @@ function validarVendedorId(DB, valor, sucursalDeLaCuenta) {
   if (!vendedor) {
     throw new Error("Ese vendedor no existe en el catálogo");
   }
+  if (typeof valor === "boolean") throw new Error("El vendedor seleccionado no es válido");
   if (Number(vendedor.sucursal_id) !== Number(sucursalDeLaCuenta)) {
     throw new Error(
       `${vendedor.nombre} es vendedor de otra sucursal; elige uno de la misma sucursal que la cuenta`
+    );
+  }
+  // UNA cuenta por vendedor. Sin esto, dos cuentas ligadas al mismo vendedor
+  // comparten tablero: la segunda persona ve la meta, el avance y los clientes
+  // de la primera, y puede cerrar sus tareas -- el aislamiento que este modulo
+  // existe para proteger, roto por un error de captura y sin ningun aviso.
+  const yaLigada = DB.admin.usuarios.find(
+    (u) => u.vendedor_id === id && u.id !== Number(idCuentaQueSeEdita)
+  );
+  if (yaLigada) {
+    throw new Error(
+      `La cuenta "${yaLigada.usuario}" ya está ligada a ${vendedor.nombre}; cada vendedor puede tener una sola cuenta`
     );
   }
   return id;
@@ -137,7 +150,7 @@ async function actualizarUsuario(DB, id, datos) {
     // Se acepta null explícito para DESLIGAR una cuenta de su vendedor (por eso
     // se distingue `undefined` de `null` en vez de usar `||`).
     vendedor_id: datos.vendedor_id !== undefined
-      ? validarVendedorId(DB, datos.vendedor_id, sucursalFinal)
+      ? validarVendedorId(DB, datos.vendedor_id, sucursalFinal, Number(id))
       : (DB.admin.usuarios[idx].vendedor_id ?? null),
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };

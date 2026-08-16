@@ -127,7 +127,7 @@ test("propone contactar a los clientes en riesgo e inactivos ASIGNADOS al vended
   cliente(DB, { id: 3, nombre: "Pedro", vendedor_asignado_id: 1, ultimaCompra: "2026-01-05" }); // inactivo
   cliente(DB, { id: 4, nombre: "Rosa", vendedor_asignado_id: 2, ultimaCompra: "2026-01-05" }); // de otro vendedor
 
-  const nombres = generarTareas(DB, 1)
+  const nombres = generarTareas(DB, 1, AHORA)
     .filter((t) => t.tipo === "contactar_cliente")
     .map((t) => t.cliente_id);
 
@@ -140,7 +140,7 @@ test("propone contactar a los clientes en riesgo e inactivos ASIGNADOS al vended
 test('nunca propone contactar a "Público en General"', () => {
   const DB = nuevoDB();
   DB.crm.clientes.push({ id: 0, nombre: "Público en General", vendedor_asignado_id: 1, sucursal_id: 1 });
-  const tareas = generarTareas(DB, 1).filter((t) => t.tipo === "contactar_cliente");
+  const tareas = generarTareas(DB, 1, AHORA).filter((t) => t.tipo === "contactar_cliente");
   assert.strictEqual(tareas.length, 0);
 });
 
@@ -154,7 +154,7 @@ test("prioriza a los clientes que llevan MÁS tiempo sin comprar", () => {
   cliente(DB, { id: 5, nombre: "C5", vendedor_asignado_id: 1, ultimaCompra: "2026-04-01" });
   cliente(DB, { id: 6, nombre: "C6", vendedor_asignado_id: 1, ultimaCompra: "2026-03-01" });
 
-  const ids = generarTareas(DB, 1).filter((t) => t.tipo === "contactar_cliente").map((t) => t.cliente_id);
+  const ids = generarTareas(DB, 1, AHORA).filter((t) => t.tipo === "contactar_cliente").map((t) => t.cliente_id);
   assert.strictEqual(ids.length, MAX_CLIENTES_SUGERIDOS, "la lista se acota para que sea seguible");
   assert.strictEqual(ids[0], 2, "el más antiguo va primero");
   assert.ok(!ids.includes(1), "el más reciente de los seis queda fuera del tope");
@@ -164,7 +164,7 @@ test("un cliente asignado que NUNCA compró también se propone, pero al final",
   const DB = nuevoDB();
   cliente(DB, { id: 1, nombre: "Nunca", vendedor_asignado_id: 1 });
   cliente(DB, { id: 2, nombre: "Viejo", vendedor_asignado_id: 1, ultimaCompra: "2026-01-01" });
-  const ids = generarTareas(DB, 1).filter((t) => t.tipo === "contactar_cliente").map((t) => t.cliente_id);
+  const ids = generarTareas(DB, 1, AHORA).filter((t) => t.tipo === "contactar_cliente").map((t) => t.cliente_id);
   assert.deepStrictEqual(ids, [2, 1]);
 });
 
@@ -185,7 +185,7 @@ test("sin historial para predecir demanda, las tareas de clientes SIGUEN saliend
   // No se siembra ni un venta_detalle: no hay de dónde proyectar nada.
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
 
-  const tareas = generarTareas(DB, 1);
+  const tareas = generarTareas(DB, 1, AHORA);
   assert.ok(tareas.some((t) => t.tipo === "contactar_cliente"), "las de cliente no deben perderse");
   assert.ok(
     !tareas.some((t) => t.tipo === "empujar_producto"),
@@ -364,7 +364,7 @@ test("con el catálogo real (6,000+ productos) generarTareas no bloquea el siste
   }
 
   const t0 = Date.now();
-  generarTareas(DB, 1);
+  generarTareas(DB, 1, AHORA);
   const ms = Date.now() - t0;
 
   // Umbral holgado (la máquina de CI puede ser más lenta) pero muy por debajo

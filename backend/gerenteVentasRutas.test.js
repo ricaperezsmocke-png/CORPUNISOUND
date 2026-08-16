@@ -369,3 +369,53 @@ test("no se puede ligar una cuenta a un vendedor de OTRA sucursal", async () => 
   assert.strictEqual(r.status, 400);
   assert.match(r.cuerpo.error, /otra sucursal/i);
 });
+
+test("dos cuentas NO pueden quedar ligadas al mismo vendedor", async () => {
+  // Sin esto, la segunda persona ve la meta, el avance y los clientes de la
+  // primera, y puede cerrar sus tareas: el aislamiento del módulo roto por un
+  // error de captura del administrador, y sin ningún aviso.
+  const r = await pedir("/api/usuarios", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({
+      nombre: "Suplantador", usuario: "suplantador.prueba", password: "secreto123",
+      rol_id: 3, sucursal_id: 1, vendedor_id: 1, // el vendedor 1 ya es de Ana
+    }),
+  });
+  assert.strictEqual(r.status, 400);
+  assert.match(r.cuerpo.error, /ya está ligada/i);
+});
+
+test("la meta NO sale por el Asistente de IA", async () => {
+  // El arreglo de /api/vendedores cerró esa puerta, pero pos.vendedores seguía
+  // siendo consultable CRUDA por la herramienta del asistente, y el rol Cajero
+  // tiene usar_asistente_ia: bastaba pedirle "dame la tabla vendedores".
+  const { consultarModulo } = require("./consultarModulo");
+  const DB = {
+    pos: { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1, meta_mensual: 50000 }] },
+  };
+  for (const alcance of [{ verTodas: false, sucursalId: 1 }, { verTodas: true }]) {
+    const filas = consultarModulo({ modulo: "pos", tabla: "vendedores" }, alcance, DB);
+    assert.ok(filas.length > 0, "el catálogo sí se sigue pudiendo consultar");
+    for (const f of filas) {
+      assert.strictEqual(f.meta_mensual, undefined, "la meta no debe salir por aquí para nadie");
+      assert.ok(f.nombre, "el nombre sí, es lo que el asistente necesita");
+    }
+  }
+});
+
+test("tareas_venta no rompe la herramienta del asistente", async () => {
+  const { consultarModulo } = require("./consultarModulo");
+  const DB = { pos: { tareas_venta: { tareas: [], ultimo_id: 0 }, ventas: [] } };
+  assert.throws(
+    () => consultarModulo({ modulo: "pos", tabla: "tareas_venta" }, { verTodas: true }, DB),
+    /no existe/i,
+    "debe rechazarse limpio, no reventar con 'datos is not iterable'",
+  );
+  // Y no debe anunciarse como disponible, o el modelo la intentará una y otra vez.
+  try {
+    consultarModulo({ modulo: "pos", tabla: "inventada" }, { verTodas: true }, DB);
+  } catch (e) {
+    assert.ok(!e.message.includes("tareas_venta"), "no debe aparecer en 'Disponibles'");
+  }
+});

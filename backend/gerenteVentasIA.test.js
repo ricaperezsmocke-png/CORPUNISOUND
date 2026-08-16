@@ -358,3 +358,60 @@ test("el prompt que se le manda a Claude NO lleva el nombre de la vendedora", as
   assert.ok(loQueSeEnvio.includes("30000"), "las cifras sí, son el dato del que se explica");
   assert.strictEqual(r.vendedor_nombre, "Ana López", "pero la pantalla sí lo muestra");
 });
+
+// ---------- El candado, endurecido tras la segunda revisión ----------
+
+test("una cifra escrita CON LETRAS también se descarta", () => {
+  // "cuarenta mil" es la forma más natural en español de México, y ningún
+  // regex de dígitos la ve. Era el hueco por el que seguía colándose una cifra
+  // que nadie calculó — incluso sin historial, que es el caso peor.
+  assert.ok(!laCifraCuadra("Ponle $30,000. Yo la subiría a cuarenta mil.", 30000, []));
+  assert.ok(!laCifraCuadra("Te sugiero treinta mil pesos de meta.", null, []));
+  assert.ok(!laCifraCuadra("Te sugiero una meta de 65 mil pesos.", null, []));
+});
+
+test("un número que no se puede leer invalida el texto, no se ignora", () => {
+  // "1.000.000" no parsea; antes se tiraba en silencio y el texto pasaba como
+  // si esa cantidad no existiera.
+  assert.ok(!laCifraCuadra("Ponle $30,000; el potencial es 1.000.000 al mes.", 30000, []));
+});
+
+test("la explicación SÍ puede mencionar el promedio y los meses reales", () => {
+  // El prompt le pide a la IA que diga "de dónde sale" la meta, y el JSON que
+  // recibe incluye el promedio. Una versión que solo aceptara la meta rechazaba
+  // casi toda explicación legítima, dejando la llamada a Claude pagada y sin
+  // usar.
+  const permitidas = [28450, 27000, 31000];
+  assert.ok(laCifraCuadra("Ponle $30,000. Su promedio fue de $28,450.", 30000, permitidas));
+  assert.ok(laCifraCuadra("Ponle $30,000; en julio vendió $31,000.", 30000, permitidas));
+  // Pero una cifra que NO venía en el JSON sigue invalidando todo.
+  assert.ok(!laCifraCuadra("Ponle $30,000. Su promedio fue de $99,999.", 30000, permitidas));
+});
+
+test("una fecha no se confunde con una cantidad", () => {
+  // "no vende desde 2026-02" es información legítima; 2026 pasaría el filtro de
+  // $1,000 y habría invalidado el texto.
+  assert.ok(laCifraCuadra("Ponle $30,000. No tiene ventas desde 2026-02.", 30000, []));
+});
+
+test("una meta menor a $1,000 puede validarse", () => {
+  // sugerirMeta redondea a centenas y solo exige > 0, así que $800 es una meta
+  // posible. El filtro de "esto es dinero" la escondía y NINGUNA redacción
+  // podía pasar jamás para ese vendedor.
+  assert.ok(laCifraCuadra("Ponle $800 de meta.", 800, []));
+});
+
+test("el separador de miles con espacio también se entiende", () => {
+  assert.ok(laCifraCuadra("Ponle $30 000 de meta.", 30000, []));
+});
+
+test("la confianza baja UN escalón por historial viejo, no dos", () => {
+  // Los dos `if` seguidos corrían sobre la variable ya mutada: seis meses
+  // sólidos caían hasta "baja", indistinguibles de un solo mes.
+  const DB = nuevoDB();
+  // Seis meses completos, pero terminando dos meses antes del pasado.
+  for (const mes of ["01", "02", "03", "04", "05", "06"]) venta(DB, `2026-${mes}-10`, 30000);
+  const s = sugerirMeta(DB, 1, AHORA);
+  assert.strictEqual(s.meses_de_historial, 6);
+  assert.strictEqual(s.confianza, "media", "de 'alta' baja a 'media', no hasta 'baja'");
+});

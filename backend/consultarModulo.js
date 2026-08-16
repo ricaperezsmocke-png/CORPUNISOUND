@@ -46,9 +46,51 @@ function agruparYSumar(datos, campoAgrupar, campoSumar) {
   return Object.entries(grupos).map(([clave, total]) => ({ [campoAgrupar]: clave, [campoSumar]: total }));
 }
 
+/**
+ * Campos que NUNCA salen por esta herramienta, pase quien pase.
+ *
+ * El Asistente de IA acepta cualquier nombre de tabla y devuelve las filas
+ * CRUDAS al navegador (server.js las incluye en `consultas`), así que es una
+ * puerta lateral a cualquier dato del DB. La meta mensual de una vendedora es
+ * información de desempeño: se cerró su salida por `GET /api/vendedores`, y
+ * dejarla salir por aquí sería el mismo dato para la misma audiencia — el rol
+ * Cajero tiene `usar_asistente_ia`, así que bastaba con pedirle al asistente
+ * "dame la tabla vendedores" para leer las metas de las compañeras.
+ *
+ * Se recorta SIEMPRE, no según permisos: el asistente responde sobre ventas,
+ * inventario y clientes, y nunca ha necesitado las metas. Falla cerrado. Si
+ * algún día hiciera falta, se abre a propósito y con su propio guard.
+ */
+const CAMPOS_OCULTOS_POR_TABLA = {
+  vendedores: ["meta_mensual"],
+};
+
+/**
+ * Tablas que esta herramienta no puede leer porque no son arreglos de filas.
+ * `tareas_venta` es `{tareas, ultimo_id}`: al iterarla reventaba con
+ * "datos is not iterable". El try/catch de la ruta lo contenía, pero la tabla
+ * aparecía en la lista de "Disponibles" de cada mensaje de error, así que el
+ * modelo la intentaba una y otra vez.
+ */
+const TABLAS_NO_CONSULTABLES = new Set(["tareas_venta"]);
+
+function ocultarCamposSensibles(filas, tabla) {
+  const ocultos = CAMPOS_OCULTOS_POR_TABLA[tabla];
+  if (!ocultos || !Array.isArray(filas)) return filas;
+  return filas.map((fila) => {
+    if (!fila || typeof fila !== "object") return fila;
+    const copia = { ...fila };
+    for (const campo of ocultos) delete copia[campo];
+    return copia;
+  });
+}
+
 function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB) {
   if (!DB[modulo]) throw new Error(`Módulo "${modulo}" no existe. Disponibles: ${Object.keys(DB).join(", ")}`);
-  if (!DB[modulo][tabla]) throw new Error(`Tabla "${tabla}" no existe en "${modulo}". Disponibles: ${Object.keys(DB[modulo]).join(", ")}`);
+  const tablasVisibles = Object.keys(DB[modulo]).filter((t) => !TABLAS_NO_CONSULTABLES.has(t));
+  if (TABLAS_NO_CONSULTABLES.has(tabla) || !DB[modulo][tabla]) {
+    throw new Error(`Tabla "${tabla}" no existe en "${modulo}". Disponibles: ${tablasVisibles.join(", ")}`);
+  }
 
   const filtrosEfectivos = { ...(filtros || {}) };
   const amarrado = alcance && !alcance.verTodas;
@@ -71,7 +113,9 @@ function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB) {
   }
 
   if (agrupar_por) resultado = agruparYSumar(resultado, agrupar_por, CAMPO_SUMA[tabla] || "total");
-  return resultado;
+  // El recorte va al final, después de filtrar y agrupar: agrupar por un campo
+  // oculto no devuelve nada de todos modos, y así ninguna salida lo lleva.
+  return ocultarCamposSensibles(resultado, tabla);
 }
 
-module.exports = { consultarModulo };
+module.exports = { consultarModulo, CAMPOS_OCULTOS_POR_TABLA, TABLAS_NO_CONSULTABLES };

@@ -528,8 +528,12 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
   const historialViejo = !ultimoMesConVentas || ultimoMesConVentas < mesPasado;
 
   let confianza = usados.length >= 6 ? "alta" : usados.length >= 3 ? "media" : "baja";
+  // `else if`: los dos `if` seguidos corrian sobre la variable ya mutada, asi
+  // que "alta" caia hasta "baja" de una pasada y un historial solido quedaba
+  // indistinguible de uno de un solo mes -- justo lo que la etiqueta deberia
+  // comunicarle a Victor.
   if (historialViejo && confianza === "alta") confianza = "media";
-  if (historialViejo && confianza === "media") confianza = "baja";
+  else if (historialViejo && confianza === "media") confianza = "baja";
 
   const pct = Math.round(tendencia * 100);
   const rumbo = pct > 5 ? `viene subiendo (${pct}%)` : pct < -5 ? `viene bajando (${pct}%)` : "viene pareja";
