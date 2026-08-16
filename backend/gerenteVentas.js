@@ -441,6 +441,14 @@ function fijarMeta(DB, vendedorId, meta) {
  *    y se ajusta la base con ella, topada a ±MAX_AJUSTE_TENDENCIA para que un
  *    mes extraordinario no dispare una meta imposible.
  *  - Se redondea a centenas: una meta de $47,383 se ve calculada con calzador.
+ *
+ * LO QUE NO PUEDE HACER, y por qué no se intente otra vez: la sugerencia solo
+ * ve las ventas capturadas EN ESTE SISTEMA. El historial que se importó de
+ * SICAR no sirve aquí — `historialVentas.js` agrega por (producto, mes) y
+ * nunca guarda tickets ni vendedor, así que no existe forma de saber quién
+ * vendió qué antes de la migración. El dato no está incompleto: no está.
+ * Consecuencia práctica: durante los primeros meses la sugerencia tendrá poca
+ * sustancia, y hay que fijar las metas a mano.
  */
 function sugerirMeta(DB, vendedorId, instante = ahora()) {
   const vendedor = DB.pos.vendedores.find((v) => v.id === Number(vendedorId));
