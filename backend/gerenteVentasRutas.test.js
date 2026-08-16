@@ -30,7 +30,6 @@ const { listarPermisos } = require("./permisosCatalogo");
 // sistema no puede producir esconde bugs enteros.
 const TOKEN_ADMIN = firmarToken({ id: 1, nombre: "Victor", rol_id: 1, sucursal_id: 1 });
 const TOKEN_CAJERA = firmarToken({ id: 50, nombre: "Ana López", rol_id: 3, sucursal_id: 1 });
-const TOKEN_OTRA_CAJERA = firmarToken({ id: 51, nombre: "Carlos Ruiz", rol_id: 3, sucursal_id: 1 });
 
 let servidor = null;
 let base = "";
@@ -217,4 +216,138 @@ test("una cajera no puede ver la lista de desempeño de todo el personal", async
     headers: { Authorization: `Bearer ${tokenDe(ANA_ID, "Ana López")}` },
   });
   assert.strictEqual(r.status, 403);
+});
+
+// ---------- Cruce entre SUCURSALES ----------
+//
+// Ninguna de estas rutas tenía cobertura de la rama
+// `if (!verTodas && vendedor.sucursal_id !== token.sucursal_id)`, que aparece
+// tres veces en server.js. La revisión independiente verificó a mano que el
+// código es correcto; esto lo deja amarrado para mañana.
+
+// Rol 2 = "Gerente de sucursal": tiene editar_objetivos_venta pero NO
+// ver_todas_las_sucursales. Amarrado a la sucursal 2 (Yajalón).
+const TOKEN_GERENTE_S2 = firmarToken({ id: 60, nombre: "Gerente Yajalón", rol_id: 2, sucursal_id: 2 });
+
+test("un gerente NO alcanza el tablero de un vendedor de otra sucursal", async () => {
+  // El vendedor 1 (Ana López) es de Ocosingo; el gerente es de Yajalón.
+  const r = await pedir("/api/gerente-ventas/1", {
+    headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+  });
+  assert.strictEqual(r.status, 404);
+});
+
+test("un gerente SÍ alcanza el de su propia sucursal", async () => {
+  // El vendedor 3 (María R.) es de Yajalón, la sucursal del gerente. Sin este
+  // contraste, la prueba de arriba pasaría aunque el guard bloqueara a todos.
+  const r = await pedir("/api/gerente-ventas/3", {
+    headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+  });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.cuerpo));
+  assert.strictEqual(r.cuerpo.vendedor_id, 3);
+});
+
+test("un gerente NO puede fijar la meta de otra sucursal, ni pedir su sugerencia", async () => {
+  const meta = await pedir("/api/gerente-ventas/1/meta", {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+    body: JSON.stringify({ meta: 1 }),
+  });
+  assert.strictEqual(meta.status, 404);
+
+  const sug = await pedir("/api/gerente-ventas/1/sugerencia-meta", {
+    headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+  });
+  assert.strictEqual(sug.status, 404);
+});
+
+test("el selector del encabezado NO ensancha ni encoge el alcance del gerente", async () => {
+  // `apiFetch` inyecta ?sucursal_id= desde localStorage. La trampa que ya mordió
+  // TRES veces en este repo: el alcance debe salir del token, no del query.
+  const conQuery = async (q) => {
+    const r = await pedir(`/api/gerente-ventas?sucursal_id=${q}`, {
+      headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+    });
+    assert.strictEqual(r.status, 200);
+    return r.cuerpo.map((v) => v.vendedor_id).sort();
+  };
+  const suyos = await conQuery("2");
+  assert.deepStrictEqual(await conQuery("1"), suyos, "pedir otra sucursal no debe REGALAR alcance");
+  assert.deepStrictEqual(await conQuery("todas"), suyos, "'todas' tampoco");
+});
+
+// ---------- El catálogo de vendedores no puede filtrar metas ----------
+
+test("una cajera NO lee la meta de sus compañeras por /api/vendedores", async () => {
+  // BUG CRITICAL encontrado por la revisión independiente: ponerle sesión a esta
+  // ruta cerró "cualquiera en internet" pero NO "cualquier cajera de la cadena",
+  // y con eso se rodeaba entero el guard que protege las metas. Bastaba abrir la
+  // pestaña de Red del navegador en cualquier pantalla que la use.
+  const r = await pedir("/api/vendedores", {
+    headers: { Authorization: `Bearer ${TOKEN_CAJERA}` },
+  });
+  assert.strictEqual(r.status, 200);
+  assert.ok(r.cuerpo.length > 0, "el selector sí debe seguir funcionando");
+  for (const v of r.cuerpo) {
+    assert.ok(v.nombre, "el nombre sí se necesita para el selector");
+    assert.strictEqual(
+      v.meta_mensual, undefined,
+      `la meta de ${v.nombre} no debe salir para una cajera`,
+    );
+  }
+});
+
+test("jefatura sí lee las metas, pero solo las de su alcance", async () => {
+  const r = await pedir("/api/vendedores", {
+    headers: { Authorization: `Bearer ${TOKEN_GERENTE_S2}` },
+  });
+  assert.strictEqual(r.status, 200);
+  const conMeta = r.cuerpo.filter((v) => v.meta_mensual !== undefined);
+  const sinMeta = r.cuerpo.filter((v) => v.meta_mensual === undefined);
+  assert.ok(conMeta.length > 0, "de su sucursal sí ve las metas");
+  assert.ok(sinMeta.length > 0, "de las demás no");
+  assert.ok(
+    conMeta.every((v) => Number(v.sucursal_id) === 2),
+    "solo las de su propia sucursal",
+  );
+});
+
+test("el administrador ve todas las metas", async () => {
+  const r = await pedir("/api/vendedores", {
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+  });
+  assert.strictEqual(r.status, 200);
+  assert.ok(r.cuerpo.every((v) => v.meta_mensual !== undefined));
+});
+
+// ---------- La liga cuenta ↔ vendedor se valida ----------
+
+test("no se puede ligar una cuenta a un vendedor que no existe", async () => {
+  // Dejaba la pantalla EN BLANCO, sin aviso: el componente cree que la cuenta
+  // está ligada, el tablero nunca carga y no se renderiza nada.
+  const r = await pedir("/api/usuarios", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({
+      nombre: "Fantasma", usuario: "fantasma.prueba", password: "secreto123",
+      rol_id: 3, sucursal_id: 1, vendedor_id: 999,
+    }),
+  });
+  assert.strictEqual(r.status, 400);
+  assert.match(r.cuerpo.error, /no existe/i);
+});
+
+test("no se puede ligar una cuenta a un vendedor de OTRA sucursal", async () => {
+  // Una cuenta de Palenque viendo el tablero de una vendedora de Ocosingo es
+  // exactamente lo que el módulo existe para impedir.
+  const r = await pedir("/api/usuarios", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({
+      nombre: "Cruzada", usuario: "cruzada.prueba", password: "secreto123",
+      rol_id: 3, sucursal_id: 4, vendedor_id: 1, // vendedor 1 es de la sucursal 1
+    }),
+  });
+  assert.strictEqual(r.status, 400);
+  assert.match(r.cuerpo.error, /otra sucursal/i);
 });

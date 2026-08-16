@@ -56,19 +56,60 @@ Escribe en español de México, hablándole de tú al dueño, en máximo 3 frase
 
 Sin saludos, sin despedidas, sin viñetas. Solo el texto.`;
 
+/** Debajo de esto, un número del texto no es una cantidad de dinero: es un
+ *  conteo de meses, un porcentaje, un día. No tiene caso compararlo con la meta. */
+const MINIMO_PARA_SER_DINERO = 1000;
+
 /**
- * Comprueba que la redacción no haya inventado la cifra.
+ * Saca del texto los números que podrían leerse como una cantidad de dinero.
  *
- * Es una verificación deliberadamente sencilla: la cantidad sugerida tiene que
- * aparecer en el texto. Si Claude escribió otro número como meta, esto lo
- * atrapa y se cae al texto determinista. No pretende detectar toda invención
- * posible — pretende que la cifra que Victor lee sea la calculada.
+ * Normaliza el formato mexicano: "$30,000.50" → 30000.5. Se ignoran los
+ * decimales al comparar porque la meta siempre es un entero redondeado a
+ * centenas.
+ */
+function cantidadesEn(texto) {
+  const crudos = texto.match(/\d[\d.,]*/g) || [];
+  return crudos
+    .map((s) => {
+      // Coma = separador de miles; punto = decimal (formato de México).
+      const n = Number(s.replace(/,/g, ""));
+      return Number.isFinite(n) ? Math.round(n) : null;
+    })
+    .filter((n) => n !== null);
+}
+
+/**
+ * ¿La redacción respeta la cifra calculada?
+ *
+ * LA VERSIÓN ANTERIOR NO SERVÍA, y la revisión independiente lo demostró
+ * ejecutándola: comparaba `texto.replace(/[^\d]/g,"")` contra la meta como
+ * SUBCADENA, así que dejaba pasar todo esto con una meta real de $30,000:
+ *   "Ponle $300,000"                        → los dígitos "30000" están dentro de "300000"
+ *   "Ponle $300.00"                          → igual, tras quitar el punto
+ *   "En 5 meses vendió 23,000"               → "52300" se forma cruzando dos números
+ *   "da $30,000 pero te sugiero $85,000"     → la correcta estaba, la inventada también
+ * y, peor, con `if (!sugerencia) return true` la verificación se APAGABA ENTERA
+ * justo cuando no hay historial — el único caso donde no existe ninguna cifra
+ * legítima y la IA quedaba libre de inventar una que Victor leería como buena.
+ *
+ * Ahora se comparan NÚMEROS, no cadenas, y con dos condiciones:
+ *  1. La meta calculada tiene que estar entre las cantidades del texto.
+ *  2. NINGUNA otra cantidad de dinero puede aparecer. Si la IA menciona la
+ *     correcta y además otra, no hay forma de saber cuál va a leer Victor como
+ *     la meta, así que se descarta todo.
+ * Sin cifra calculada (sin historial), el texto no puede mencionar ninguna
+ * cantidad de dinero en absoluto.
  */
 function laCifraCuadra(texto, sugerencia) {
   if (!texto || typeof texto !== "string") return false;
-  if (!sugerencia) return true; // sin meta que verificar (historial vacío)
-  const soloDigitos = texto.replace(/[^\d]/g, "");
-  return soloDigitos.includes(String(sugerencia));
+
+  const montos = cantidadesEn(texto).filter((n) => n >= MINIMO_PARA_SER_DINERO);
+
+  // Sin cifra calculada: la IA no puede nombrar ninguna cantidad.
+  if (!sugerencia || sugerencia <= 0) return montos.length === 0;
+
+  if (!montos.includes(sugerencia)) return false;
+  return montos.every((n) => n === sugerencia);
 }
 
 /**

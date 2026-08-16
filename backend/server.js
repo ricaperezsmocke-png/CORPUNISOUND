@@ -1090,11 +1090,34 @@ app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", re
 });
 
 // ---------- Vendedores y Sucursales (catálogo compartido) ----------
-// Exige sesión: con Gerencia de Ventas, `meta_mensual` dejó de ser un número
-// sembrado sin uso y pasó a ser el objetivo real de cada persona — un dato de
-// desempeño del personal, no un catálogo público. Antes esta ruta respondía a
-// cualquiera en internet.
-app.get("/api/vendedores", requiereLogin, (req, res) => res.json(DB.pos.vendedores));
+/**
+ * Catálogo de vendedores. Lo consumen varias pantallas (Punto de Venta, CRM,
+ * Reportes, alta de personal) que solo necesitan id y nombre para un selector.
+ *
+ * `meta_mensual` NO sale por aquí salvo para jefatura, y solo de su alcance.
+ * Con Gerencia de Ventas ese campo dejó de ser un número sembrado sin uso y
+ * pasó a ser el objetivo real de cada persona: un dato de desempeño.
+ *
+ * Ponerle `requiereLogin` cerró "cualquiera en internet" pero NO cerró
+ * "cualquier cajera de la cadena" — y eso rodeaba entero el guard
+ * `vendedorPermitido`, que existe justo para que nadie vea la meta de otra
+ * persona. Una cajera de Ocosingo leía las metas de Palenque abriendo la
+ * pestaña de Red del navegador en cualquier pantalla que use esta ruta.
+ * Lo encontró la revisión independiente ejecutándolo contra el servidor real.
+ */
+app.get("/api/vendedores", requiereLogin, (req, res) => {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  const esJefatura = permisos.includes("editar_objetivos_venta");
+  const verTodas = permisos.includes("ver_todas_las_sucursales");
+
+  res.json(DB.pos.vendedores.map((v) => {
+    // El alcance sale SOLO de quien pregunta (permiso + sucursal del token),
+    // nunca de `?sucursal_id=` — la trampa que ya mordió tres veces en el repo.
+    const puedeVerLaMeta =
+      esJefatura && (verTodas || Number(v.sucursal_id) === Number(req.usuarioToken.sucursal_id));
+    return puedeVerLaMeta ? v : { id: v.id, nombre: v.nombre, sucursal_id: v.sucursal_id };
+  }));
+});
 app.get("/api/sucursales", (req, res) => {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;

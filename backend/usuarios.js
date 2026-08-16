@@ -58,6 +58,36 @@ function listarUsuarios(DB) {
   return DB.admin.usuarios.map(({ password_hash, ...resto }) => resto);
 }
 
+/**
+ * Valida la liga con el catálogo de vendedores (Gerencia de Ventas).
+ *
+ * Sin esto se aceptaba cualquier número: un `vendedor_id` inexistente dejaba a
+ * la persona con la pantalla EN BLANCO —sin aviso, sin error, un div vacío—
+ * porque el componente cree que sí está ligada y el tablero nunca carga. Y un
+ * `vendedor_id` de otra sucursal dejaba a una cuenta de Palenque viendo el
+ * tablero de una vendedora de Ocosingo, que es justo lo que el módulo entero
+ * existe para impedir.
+ *
+ * @returns el id ya normalizado, o null si la cuenta no participa
+ */
+function validarVendedorId(DB, valor, sucursalDeLaCuenta) {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const id = Number(valor);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("El vendedor seleccionado no es válido");
+  }
+  const vendedor = (DB.pos?.vendedores || []).find((v) => v.id === id);
+  if (!vendedor) {
+    throw new Error("Ese vendedor no existe en el catálogo");
+  }
+  if (Number(vendedor.sucursal_id) !== Number(sucursalDeLaCuenta)) {
+    throw new Error(
+      `${vendedor.nombre} es vendedor de otra sucursal; elige uno de la misma sucursal que la cuenta`
+    );
+  }
+  return id;
+}
+
 async function crearUsuario(DB, datos) {
   if (!datos.nombre || !datos.nombre.trim()) throw new Error("El nombre es obligatorio");
   if (!datos.usuario || !datos.usuario.trim()) throw new Error("El usuario (para iniciar sesión) es obligatorio");
@@ -79,7 +109,7 @@ async function crearUsuario(DB, datos) {
     // cuenta no participa del programa de objetivos, que es el comportamiento
     // de siempre. Es un dato administrativo: lo pone quien da de alta al
     // personal, nunca la propia persona.
-    vendedor_id: datos.vendedor_id ? Number(datos.vendedor_id) : null,
+    vendedor_id: validarVendedorId(DB, datos.vendedor_id, Number(datos.sucursal_id) || 1),
     activo: true,
   };
   DB.admin.usuarios.push(nuevo);
@@ -92,6 +122,13 @@ async function actualizarUsuario(DB, id, datos) {
   if (idx === -1) throw new Error("Usuario no encontrado");
   if (datos.password && datos.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres");
 
+  // El vendedor se valida contra la sucursal QUE VA A QUEDAR, no la anterior:
+  // si se mueve la cuenta de tienda y de vendedor en la misma edición, lo que
+  // debe cuadrar es el resultado final.
+  const sucursalFinal = datos.sucursal_id !== undefined
+    ? Number(datos.sucursal_id)
+    : DB.admin.usuarios[idx].sucursal_id;
+
   DB.admin.usuarios[idx] = {
     ...DB.admin.usuarios[idx],
     nombre: datos.nombre ?? DB.admin.usuarios[idx].nombre,
@@ -100,7 +137,7 @@ async function actualizarUsuario(DB, id, datos) {
     // Se acepta null explícito para DESLIGAR una cuenta de su vendedor (por eso
     // se distingue `undefined` de `null` en vez de usar `||`).
     vendedor_id: datos.vendedor_id !== undefined
-      ? (datos.vendedor_id === null || datos.vendedor_id === "" ? null : Number(datos.vendedor_id))
+      ? validarVendedorId(DB, datos.vendedor_id, sucursalFinal)
       : (DB.admin.usuarios[idx].vendedor_id ?? null),
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };
@@ -135,6 +172,7 @@ async function iniciarSesion(DB, usuario, password) {
 }
 
 module.exports = {
+  validarVendedorId,
   listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario,
   esAccionSobreSiMismo, iniciarSesion, normalizarUsuario, usuariosQueChocanAlNormalizar,
 };

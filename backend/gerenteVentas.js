@@ -19,7 +19,7 @@
  * el tablero de otro vendedor.
  */
 
-const { calcularSegmento, comprasDeCliente } = require("./crm");
+const { segmentoPorUltimaCompra } = require("./crm");
 const { predecirDemanda } = require("./predicciones");
 const { fechaLocal, ahora } = require("./fechas");
 
@@ -209,20 +209,39 @@ function candidatosAPredecir(DB, vendedor) {
  *  - "empujar_producto": productos con demanda proyectada al alza, tomados del
  *    módulo de Predicciones que ya existe.
  */
-function generarTareas(DB, vendedorId) {
+function generarTareas(DB, vendedorId, instante = ahora()) {
   const vendedor = DB.pos.vendedores.find((v) => v.id === Number(vendedorId));
   if (!vendedor) throw new Error("Vendedor no encontrado");
 
   const propuestas = [];
 
   // --- Clientes que se están enfriando ---
+  //
+  // La última compra de CADA cliente se saca en UN SOLO recorrido de las
+  // ventas, antes del bucle. La versión anterior llamaba a
+  // `comprasDeCliente` por cliente, y esa función recorre las 8,000 ventas Y
+  // las ~24,000 líneas de detalle Y hace un `find` lineal sobre los 6,229
+  // productos — todo para acabar mirando una sola fecha. Medido por la
+  // revisión independiente: 193 ms con 100 clientes asignados, 976 ms con 500.
+  // Node es de un hilo: ese tiempo es sistema congelado para todas las cajas.
+  // El arreglo de rendimiento anterior solo cubrió la mitad de productos; esta
+  // era la otra mitad, y la prueba no la veía porque el fixture tenía cero
+  // clientes.
+  const ultimaCompraPorCliente = new Map();
+  for (const v of DB.pos.ventas) {
+    if (v.estatus !== "cerrada" || v.cliente_id == null) continue;
+    const fecha = String(v.fecha || "").slice(0, 10);
+    if (!fecha) continue;
+    const previa = ultimaCompraPorCliente.get(v.cliente_id);
+    if (!previa || fecha > previa) ultimaCompraPorCliente.set(v.cliente_id, fecha);
+  }
+
   const clientes = DB.crm.clientes
     .filter((c) => c.id !== 0) // "Público en General" no se contacta
     .filter((c) => c.vendedor_asignado_id === Number(vendedorId))
     .map((c) => {
-      const compras = comprasDeCliente(DB, c.id);
-      const ultima = compras.length ? compras[compras.length - 1].fecha : null;
-      return { cliente: c, segmento: calcularSegmento(compras), ultima };
+      const ultima = ultimaCompraPorCliente.get(c.id) || null;
+      return { cliente: c, segmento: segmentoPorUltimaCompra(ultima, instante), ultima };
     })
     .filter((x) => x.segmento === "en_riesgo" || x.segmento === "inactivo");
 
@@ -285,7 +304,32 @@ function sincronizarTareas(DB, vendedorId, instante = ahora()) {
   if (!DB.pos.tareas_venta) DB.pos.tareas_venta = nuevoEstadoTareasVenta();
   let creadas = 0;
 
-  for (const p of generarTareas(DB, vendedorId)) {
+  // Primero se cierran solas las tareas que la realidad ya resolvió: si el
+  // cliente volvió a comprar, dejó de estar en riesgo y no hay nada que
+  // recuperar. Sin esto, la vendedora seguía viendo "Habla con María — su
+  // última compra fue el 2026-07-01" para siempre, con la fecha vieja, aunque
+  // María hubiera comprado ayer. Nada cerraba una tarea salvo un clic, y una
+  // lista con trabajo ya resuelto se deja de mirar — que es perder la lista
+  // entera.
+  const ultimaCompra = new Map();
+  for (const v of DB.pos.ventas) {
+    if (v.estatus !== "cerrada" || v.cliente_id == null) continue;
+    const f = String(v.fecha || "").slice(0, 10);
+    if (!f) continue;
+    const previa = ultimaCompra.get(v.cliente_id);
+    if (!previa || f > previa) ultimaCompra.set(v.cliente_id, f);
+  }
+  for (const t of DB.pos.tareas_venta.tareas) {
+    if (t.vendedor_id !== Number(vendedorId)) continue;
+    if (t.estado !== "pendiente" || t.tipo !== "contactar_cliente") continue;
+    const segmento = segmentoPorUltimaCompra(ultimaCompra.get(t.cliente_id) || null, instante);
+    if (segmento === "activo") {
+      t.estado = "resuelta_sola";
+      t.completada_en = instante;
+    }
+  }
+
+  for (const p of generarTareas(DB, vendedorId, instante)) {
     if (tareaYaCubierta(DB, vendedorId, p, instante)) continue;
     creadas++;
     DB.pos.tareas_venta.tareas.push({
@@ -397,8 +441,28 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
     porMes.set(mes, (porMes.get(mes) || 0) + Number(v.total || 0));
   }
 
-  const meses = [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const usados = meses.slice(-MESES_PARA_SUGERIR);
+  // La ventana se arma desde el CALENDARIO, no desde los datos: los últimos N
+  // meses completos anteriores a hoy, rellenando con 0 los que no tuvieron
+  // ventas.
+  //
+  // Tomar "los últimos N meses CON ACTIVIDAD" era engañoso, y la revisión
+  // independiente lo demostró: una vendedora con una sola venta de $120,000 en
+  // diciembre y nada en ocho meses recibía una meta sugerida de $120,000 con el
+  // texto "vendió en promedio $120,000 al mes, y su venta viene pareja". Un mes
+  // sin ventas es información — significa cero, no significa "sáltatelo".
+  const ventanaMeses = [];
+  const [anioActual, mesActualNum] = mesActual.split("-").map(Number);
+  for (let i = MESES_PARA_SUGERIR; i >= 1; i--) {
+    const d = new Date(Date.UTC(anioActual, mesActualNum - 1 - i, 1));
+    ventanaMeses.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+
+  // Solo se cuenta desde el primer mes con ventas: los meses anteriores a que
+  // la persona empezara a vender no son ceros suyos, es que no estaba.
+  const primerMesConVentas = [...porMes.keys()].sort()[0];
+  const usados = ventanaMeses
+    .filter((mes) => primerMesConVentas && mes >= primerMesConVentas)
+    .map((mes) => [mes, porMes.get(mes) || 0]);
 
   if (usados.length === 0) {
     return {
@@ -434,7 +498,18 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
 
   // La confianza NO adorna: con dos meses de historial una meta es un tiro al
   // aire, y Victor tiene que saberlo antes de evaluar a alguien con ella.
-  const confianza = usados.length >= 6 ? "alta" : usados.length >= 3 ? "media" : "baja";
+  //
+  // Y el historial VIEJO tampoco vale: alguien con seis meses buenos que dejó
+  // de vender hace un año recibía "confianza alta" sobre datos de 2025. Si el
+  // mes más reciente con ventas no es el mes pasado ni el anterior, la
+  // confianza baja y el texto lo dice.
+  const ultimoMesConVentas = [...porMes.keys()].sort().pop() || null;
+  const mesPasado = ventanaMeses[ventanaMeses.length - 1];
+  const historialViejo = !ultimoMesConVentas || ultimoMesConVentas < mesPasado;
+
+  let confianza = usados.length >= 6 ? "alta" : usados.length >= 3 ? "media" : "baja";
+  if (historialViejo && confianza === "alta") confianza = "media";
+  if (historialViejo && confianza === "media") confianza = "baja";
 
   const pct = Math.round(tendencia * 100);
   const rumbo = pct > 5 ? `viene subiendo (${pct}%)` : pct < -5 ? `viene bajando (${pct}%)` : "viene pareja";
@@ -449,7 +524,11 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
       `En los últimos ${usados.length} mes(es) completos, ${vendedor.nombre} vendió en promedio ` +
       `$${Math.round(promedio).toLocaleString("es-MX")} al mes, y su venta ${rumbo}. ` +
       `Sobre eso sale la meta sugerida de $${sugerencia.toLocaleString("es-MX")}.` +
-      (confianza === "baja"
+      (historialViejo
+        ? ` OJO: no tiene ventas registradas desde ${ultimoMesConVentas}, así que esta cifra ` +
+          "es de un periodo viejo y puede no reflejar lo que vende hoy."
+        : "") +
+      (confianza === "baja" && !historialViejo
         ? " Ojo: es poco historial, así que tómala como un punto de partida, no como un dato firme."
         : ""),
     detalle: {

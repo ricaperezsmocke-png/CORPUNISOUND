@@ -129,16 +129,57 @@ test("sin historial NO se inventa una meta", () => {
 });
 
 test("la confianza es honesta sobre cuánto historial hay", () => {
+  // Los meses van HACIA ATRÁS desde julio (el último mes completo antes de
+  // agosto), no desde enero: si el historial termina hace medio año, la
+  // confianza se degrada por vieja y esta prueba mediría otra cosa.
   const conMeses = (n) => {
     const DB = nuevoDB();
-    for (let i = 1; i <= n; i++) {
-      venta(DB, `2026-0${i}-10`, 30000);
-    }
+    const meses = ["2026-07", "2026-06", "2026-05", "2026-04", "2026-03", "2026-02"];
+    for (const mes of meses.slice(0, n)) venta(DB, `${mes}-10`, 30000);
     return sugerirMeta(DB, 1, AHORA).confianza;
   };
   assert.strictEqual(conMeses(1), "baja");
   assert.strictEqual(conMeses(3), "media");
   assert.strictEqual(conMeses(6), "alta");
+});
+
+test("un historial VIEJO no puede tener confianza alta", () => {
+  // Seis meses buenos de hace más de un año daban "confianza alta" sobre datos
+  // de 2025, y Victor iba a evaluar a una persona con esa cifra.
+  const DB = nuevoDB();
+  for (const mes of ["01", "02", "03", "04", "05", "06"]) venta(DB, `2025-${mes}-10`, 90000);
+
+  const s = sugerirMeta(DB, 1, AHORA);
+  assert.notStrictEqual(s.confianza, "alta", "no puede presentarse como dato firme");
+  assert.match(s.motivo, /no tiene ventas registradas desde/i, "el texto debe advertirlo");
+});
+
+test("un mes SIN ventas cuenta como cero, no se lo salta", () => {
+  // Una sola venta grande y ocho meses en blanco producían "vendió en promedio
+  // $120,000 al mes, y su venta viene pareja" — dos afirmaciones falsas
+  // presentadas como cálculo firme.
+  const DB = nuevoDB();
+  venta(DB, "2026-03-10", 120000); // un solo mes con ventas, dentro de la ventana
+
+  const s = sugerirMeta(DB, 1, AHORA);
+  assert.ok(s.meses_de_historial > 1, "los meses en blanco posteriores deben contar");
+  assert.ok(
+    s.detalle.promedio < 120000,
+    `el promedio no puede ser el único mes bueno: dio ${s.detalle.promedio}`,
+  );
+  assert.ok(s.detalle.meses.some((m) => m.monto === 0), "debe haber meses en cero");
+});
+
+test("no se cuentan como cero los meses ANTERIORES a que la persona empezara", () => {
+  // Alguien que entró en junio no debe arrastrar ceros de febrero a mayo: no
+  // estaba, no es que no vendiera.
+  const DB = nuevoDB();
+  venta(DB, "2026-06-10", 40000);
+  venta(DB, "2026-07-10", 40000);
+
+  const s = sugerirMeta(DB, 1, AHORA);
+  assert.strictEqual(s.meses_de_historial, 2);
+  assert.strictEqual(s.detalle.promedio, 40000);
 });
 
 test("con poco historial el texto lo ADVIERTE", () => {
@@ -214,12 +255,31 @@ test("si la IA respeta la cifra, su redacción SÍ se usa", async () => {
   assert.match(r.redaccion, /30,000/);
 });
 
-test("laCifraCuadra ignora el formato del número, no la cifra", () => {
-  // "$30,000", "30000" y "30 000" son la misma meta escrita distinto.
+test("laCifraCuadra compara NÚMEROS, no subcadenas de dígitos", () => {
+  // La versión anterior comparaba texto.replace(/[^\d]/g,"") como SUBCADENA, y
+  // la revisión independiente demostró ejecutándola que dejaba pasar los cinco
+  // primeros casos de abajo con una meta real de $30,000. Cada uno le habría
+  // mostrado a Victor una cifra que nadie calculó.
+  assert.ok(!laCifraCuadra("Ponle $300,000 al mes a Ana", 30000), "10x mas: 30000 esta dentro de 300000");
+  assert.ok(!laCifraCuadra("Ponle $300.00 al mes", 30000), "100x menos, tras quitar el punto");
+  assert.ok(!laCifraCuadra("Ponle $47,000", 4700), "10x mas");
+  assert.ok(!laCifraCuadra("En 5 meses vendio 23,000 en promedio", 52300), "cifra formada cruzando dos numeros");
+  assert.ok(!laCifraCuadra("da $30,000 pero yo te sugiero $85,000", 30000), "la correcta Y una inventada");
+
+  // Y sigue aceptando lo legítimo, en cualquier formato.
   assert.ok(laCifraCuadra("Ponle $30,000", 30000));
   assert.ok(laCifraCuadra("Ponle 30000 de meta", 30000));
-  assert.ok(!laCifraCuadra("Ponle $75,000", 30000));
-  assert.ok(laCifraCuadra("cualquier cosa", null), "sin meta que verificar, no hay nada que romper");
+  assert.ok(laCifraCuadra("En 6 meses vendio $30,000 mensuales", 30000), "numeros chicos no son dinero");
+});
+
+test("sin cifra calculada, la IA no puede mencionar NINGUNA cantidad", () => {
+  // El hueco peor de la version anterior: `if (!sugerencia) return true` apagaba
+  // la verificacion entera justo donde no existe ninguna cifra legitima. Y en la
+  // pantalla la insignia se oculta cuando no hay sugerencia, asi que lo UNICO
+  // que Victor leia era el numero inventado.
+  assert.ok(!laCifraCuadra("Ponle una meta de $65,000 a Ana", null));
+  assert.ok(!laCifraCuadra("Yo le pondria $50,000", 0), "una meta de 0 tambien apagaba el candado");
+  assert.ok(laCifraCuadra("Todavia no hay meses completos para calcular una meta.", null));
 });
 
 test("si la IA tarda demasiado, no deja la pantalla colgada", async () => {
