@@ -46,6 +46,7 @@ const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPe
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
+const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
@@ -1587,6 +1588,25 @@ app.put("/api/gerente-ventas/:vendedorId/meta", requiereLogin, requierePermiso("
       return res.status(404).json({ error: "Vendedor no encontrado" });
     }
     res.json(fijarMeta(DB, req.params.vendedorId, req.body?.meta));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/**
+ * Sugerencia de meta para un vendedor, con explicación redactada.
+ *
+ * La CIFRA sale del historial real (gerenteVentas.sugerirMeta); la IA solo la
+ * explica, y si falla la sugerencia se entrega igual con el texto calculado.
+ */
+app.get("/api/gerente-ventas/:vendedorId/sugerencia-meta", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), async (req, res) => {
+  try {
+    const vendedor = DB.pos.vendedores.find((v) => v.id === Number(req.params.vendedorId));
+    if (!vendedor) return res.status(404).json({ error: "Vendedor no encontrado" });
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    if (!permisos.includes("ver_todas_las_sucursales") &&
+        Number(vendedor.sucursal_id) !== Number(req.usuarioToken.sucursal_id)) {
+      return res.status(404).json({ error: "Vendedor no encontrado" });
+    }
+    res.json(await sugerirMetaConExplicacion(DB, anthropic, req.params.vendedorId));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

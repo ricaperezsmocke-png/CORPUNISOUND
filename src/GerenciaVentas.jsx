@@ -28,6 +28,8 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState(null);
   const [editandoMeta, setEditandoMeta] = useState(null); // { vendedor_id, valor }
+  const [sugerencia, setSugerencia] = useState(null);     // { vendedor_id, ...datos }
+  const [pidiendoSugerencia, setPidiendoSugerencia] = useState(null); // vendedor_id
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
 
@@ -79,6 +81,21 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
     mostrarAviso("✅ Objetivo actualizado");
     cargarEquipo();
     if (vendedorId === verVendedorId) cargarTablero(vendedorId);
+  };
+
+  const pedirSugerencia = async (vendedorId) => {
+    setPidiendoSugerencia(vendedorId);
+    setSugerencia(null);
+    try {
+      const r = await apiFetch(`/gerente-ventas/${vendedorId}/sugerencia-meta`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "No se pudo calcular la sugerencia");
+      setSugerencia({ vendedor_id: vendedorId, ...data });
+    } catch (err) {
+      mostrarAviso("❌ " + err.message);
+    } finally {
+      setPidiendoSugerencia(null);
+    }
   };
 
   const barra = (porcentaje) => {
@@ -294,6 +311,14 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
                           </button>
                           <button
                             type="button"
+                            disabled={pidiendoSugerencia === v.vendedor_id}
+                            onClick={() => pedirSugerencia(v.vendedor_id)}
+                            className="text-violet-600 hover:underline mr-3 disabled:opacity-40 disabled:no-underline"
+                          >
+                            {pidiendoSugerencia === v.vendedor_id ? "Calculando…" : "Sugerir meta"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => { setVerVendedorId(v.vendedor_id); cargarTablero(v.vendedor_id); }}
                             className="text-slate-600 hover:underline"
                           >
@@ -310,6 +335,51 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
 
           {equipo.length === 0 && (
             <p className="text-sm text-slate-500">No hay vendedores en tu alcance.</p>
+          )}
+
+          {sugerencia && (
+            <div className="mt-4 border border-violet-200 bg-violet-50 rounded-lg p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-violet-900 mb-1">
+                    Sugerencia para {sugerencia.vendedor_nombre}
+                    {sugerencia.sugerencia != null && (
+                      <span className="ml-2 text-violet-700">{pesos(sugerencia.sugerencia)}</span>
+                    )}
+                  </p>
+                  <p className="text-sm text-slate-700">{sugerencia.redaccion}</p>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    {/* La cifra SIEMPRE sale del historial; solo el texto puede
+                        venir de la IA. Decirlo evita que Victor crea que una IA
+                        le está poniendo metas a su personal. */}
+                    Calculada con {sugerencia.meses_de_historial} mes(es) de ventas reales · confianza{" "}
+                    {sugerencia.confianza}
+                    {sugerencia.redactado_por_ia ? " · explicación redactada por la IA" : ""}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {sugerencia.sugerencia != null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoMeta({ vendedor_id: sugerencia.vendedor_id, valor: sugerencia.sugerencia });
+                        setSugerencia(null);
+                      }}
+                      className="text-sm bg-violet-600 text-white px-2.5 py-1 rounded hover:bg-violet-700"
+                    >
+                      Usar esta meta
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSugerencia(null)}
+                    className="text-xs text-slate-500 hover:underline"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </section>
       )}

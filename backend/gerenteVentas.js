@@ -38,6 +38,14 @@ const DIAS_ANTES_DE_REPETIR = 30;
  *  los más vendidos de SU sucursal. Ver `candidatosAPredecir`: sin este tope,
  *  la pantalla congelaba el sistema entero 2.2 segundos por carga. */
 const MAX_PRODUCTOS_A_EVALUAR = 40;
+/** Meses completos de historial que mira `sugerirMeta`. Medio año: suficiente
+ *  para ver una tendencia, poco para que un diciembre viejo mande sobre la
+ *  meta de hoy. */
+const MESES_PARA_SUGERIR = 6;
+/** Cuánto puede mover la tendencia a la meta sugerida, hacia arriba o hacia
+ *  abajo. Sin este tope, un mes extraordinario produce una meta imposible que
+ *  desmotiva en vez de empujar. */
+const MAX_AJUSTE_TENDENCIA = 0.2;
 
 function nuevoEstadoTareasVenta() {
   return { tareas: [], ultimo_id: 0 };
@@ -355,6 +363,103 @@ function fijarMeta(DB, vendedorId, meta) {
   return vendedor;
 }
 
+/**
+ * Sugiere una meta mensual para un vendedor, a partir de SU historial real.
+ *
+ * La CIFRA es determinista y sale de las ventas de los últimos meses; la IA
+ * (opcional, ver `redactarSugerenciaMeta`) solo explica el porqué en lenguaje
+ * llano. Ese reparto es a propósito: una meta la usa Victor para evaluar a una
+ * persona, así que el número no puede salir de una IA que podría inventarlo.
+ *
+ * Cómo se calcula:
+ *  - Se toman los últimos MESES_PARA_SUGERIR meses COMPLETOS (el mes en curso
+ *    no cuenta: va a la mitad y arrastraría la meta hacia abajo).
+ *  - Base = promedio de esos meses.
+ *  - Se compara la mitad reciente contra la mitad vieja para ver la tendencia,
+ *    y se ajusta la base con ella, topada a ±MAX_AJUSTE_TENDENCIA para que un
+ *    mes extraordinario no dispare una meta imposible.
+ *  - Se redondea a centenas: una meta de $47,383 se ve calculada con calzador.
+ */
+function sugerirMeta(DB, vendedorId, instante = ahora()) {
+  const vendedor = DB.pos.vendedores.find((v) => v.id === Number(vendedorId));
+  if (!vendedor) throw new Error("Vendedor no encontrado");
+
+  const hoy = fechaLocal(instante);
+  const mesActual = hoy.slice(0, 7);
+
+  // Ventas cerradas por mes, del vendedor, excluyendo el mes en curso.
+  const porMes = new Map();
+  for (const v of DB.pos.ventas) {
+    if (v.vendedor_id !== Number(vendedorId)) continue;
+    if (v.estatus !== "cerrada") continue;
+    const mes = String(v.fecha || "").slice(0, 7);
+    if (!mes || mes >= mesActual) continue;
+    porMes.set(mes, (porMes.get(mes) || 0) + Number(v.total || 0));
+  }
+
+  const meses = [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const usados = meses.slice(-MESES_PARA_SUGERIR);
+
+  if (usados.length === 0) {
+    return {
+      vendedor_id: vendedor.id,
+      vendedor_nombre: vendedor.nombre,
+      sugerencia: null,
+      meses_de_historial: 0,
+      confianza: "ninguna",
+      motivo:
+        `Todavía no hay meses completos de ventas registradas a nombre de ${vendedor.nombre}, ` +
+        "así que no hay de dónde calcular una meta. Ponla a mano por ahora y vuelve en un mes.",
+      detalle: { promedio: 0, tendencia_pct: 0, meses: [] },
+    };
+  }
+
+  const promedio = usados.reduce((s, [, monto]) => s + monto, 0) / usados.length;
+
+  // Tendencia: mitad reciente contra mitad vieja. Con un solo mes no hay
+  // tendencia que medir (0), y eso es más honesto que inventarle una.
+  let tendencia = 0;
+  if (usados.length >= 2) {
+    const corte = Math.floor(usados.length / 2);
+    const vieja = usados.slice(0, corte);
+    const reciente = usados.slice(corte);
+    const promVieja = vieja.reduce((s, [, m]) => s + m, 0) / vieja.length;
+    const promReciente = reciente.reduce((s, [, m]) => s + m, 0) / reciente.length;
+    if (promVieja > 0) tendencia = (promReciente - promVieja) / promVieja;
+  }
+
+  const ajuste = Math.max(-MAX_AJUSTE_TENDENCIA, Math.min(MAX_AJUSTE_TENDENCIA, tendencia));
+  const cruda = promedio * (1 + ajuste);
+  const sugerencia = Math.max(0, Math.round(cruda / 100) * 100);
+
+  // La confianza NO adorna: con dos meses de historial una meta es un tiro al
+  // aire, y Victor tiene que saberlo antes de evaluar a alguien con ella.
+  const confianza = usados.length >= 6 ? "alta" : usados.length >= 3 ? "media" : "baja";
+
+  const pct = Math.round(tendencia * 100);
+  const rumbo = pct > 5 ? `viene subiendo (${pct}%)` : pct < -5 ? `viene bajando (${pct}%)` : "viene pareja";
+
+  return {
+    vendedor_id: vendedor.id,
+    vendedor_nombre: vendedor.nombre,
+    sugerencia,
+    meses_de_historial: usados.length,
+    confianza,
+    motivo:
+      `En los últimos ${usados.length} mes(es) completos, ${vendedor.nombre} vendió en promedio ` +
+      `$${Math.round(promedio).toLocaleString("es-MX")} al mes, y su venta ${rumbo}. ` +
+      `Sobre eso sale la meta sugerida de $${sugerencia.toLocaleString("es-MX")}.` +
+      (confianza === "baja"
+        ? " Ojo: es poco historial, así que tómala como un punto de partida, no como un dato firme."
+        : ""),
+    detalle: {
+      promedio: Math.round(promedio),
+      tendencia_pct: pct,
+      meses: usados.map(([mes, monto]) => ({ mes, monto: Math.round(monto) })),
+    },
+  };
+}
+
 /** El tablero completo del vendedor: progreso + tareas al día. */
 function tablero(DB, vendedorId, instante = ahora()) {
   const progreso = calcularProgreso(DB, vendedorId, instante);
@@ -364,8 +469,9 @@ function tablero(DB, vendedorId, instante = ahora()) {
 
 module.exports = {
   nuevoEstadoTareasVenta, calcularProgreso, generarTareas, sincronizarTareas,
-  listarTareas, cambiarEstadoTarea, fijarMeta, tablero, tareaYaCubierta,
+  listarTareas, cambiarEstadoTarea, fijarMeta, tablero, tareaYaCubierta, sugerirMeta,
   diasRestantesDelMes, primerDiaDelMes,
   MAX_CLIENTES_SUGERIDOS, MAX_PRODUCTOS_SUGERIDOS, DIAS_ANTES_DE_REPETIR, MAX_PRODUCTOS_A_EVALUAR,
+  MESES_PARA_SUGERIR, MAX_AJUSTE_TENDENCIA,
   candidatosAPredecir,
 };
