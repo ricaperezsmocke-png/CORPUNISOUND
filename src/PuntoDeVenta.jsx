@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Sparkles, SlidersHorizontal, Bookmark
 } from "lucide-react";
 
-import { apiFetch, sinSucursalElegida } from "./api";
+import { apiFetch, sinSucursalElegida, sucursalActiva } from "./api";
 import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
@@ -196,7 +196,17 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       const r = await apiFetch(`/vendedores`);
       if (!r.ok) throw new Error();
       const data = await r.json();
-      const activos = data.filter((v) => v.activo !== false);
+      // Se filtra ADEMÁS por la sucursal donde se va a registrar la venta. La
+      // ruta ya recorta para quien está amarrado a una tienda, pero a quien
+      // tiene `ver_todas_las_sucursales` le devuelve la cadena entera: al
+      // cobrar en Ocosingo veía a la vendedora de Palenque en la misma lista,
+      // sin nada que dijera de qué tienda era, y el servidor solo la rechazaba
+      // AL GUARDAR. Probado en el navegador: ofrecía "Ana G." y luego respondía
+      // "Ana G. no vende en esta sucursal".
+      const aqui = sucursalActiva();
+      const activos = data
+        .filter((v) => v.activo !== false)
+        .filter((v) => aqui === "todas" || Number(v.sucursal_id) === Number(aqui));
       setVendedores(activos);
       // Si solo hay uno, se preselecciona: en una tienda con una sola
       // vendedora, obligarla a elegirse en cada venta es fricción sin valor.

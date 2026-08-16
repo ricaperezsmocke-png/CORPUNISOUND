@@ -41,7 +41,7 @@ const {
   recibirEnTienda, entregarACliente, listarGarantias,
 } = require("./garantias");
 const { agregarGasto, listarGastos, eliminarGasto } = require("./garantiasGastos");
-const { obtenerConfiguracion, actualizarConfiguracion } = require("./configuracion");
+const { obtenerConfiguracion, actualizarConfiguracion, reconciliarPedirVendedor } = require("./configuracion");
 const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
@@ -290,6 +290,11 @@ DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
 // o permisos nuevos (ml, traspasos, compras...). Los demás roles no se tocan.
 // Ver backend/roles.js -> reconciliarRoles.
 reconciliarRoles(DB);
+
+// Enciende "solicitar vendedor al cerrar venta" en las bases que ya existen: el
+// default nuevo no las alcanza porque la configuración se guarda entera.
+// Ver backend/configuracion.js -> reconciliarPedirVendedor.
+reconciliarPedirVendedor(DB);
 
 // Las bases que vienen de un SQLite anterior a Gerencia de Ventas no traen la
 // colección de tareas. Mismo patrón que reconciliarSucursalesCedis: se repara

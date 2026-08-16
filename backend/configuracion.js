@@ -24,6 +24,27 @@ const CONFIG_DEFAULT = {
   dias_alerta_garantias: 15,
 };
 
+/**
+ * Enciende "solicitar vendedor al cerrar venta" en las bases que ya existen.
+ *
+ * Cambiar el valor de fábrica NO alcanza: la configuración se guarda entera en
+ * el SQLite, así que una instalación que ya arrancó conserva el `false` viejo
+ * para siempre. En la base real de Unisound eso dejaba la caja sin preguntar
+ * nunca por el vendedor —toda venta con vendedor nulo, todos los avances en
+ * cero— aunque el default nuevo dijera lo contrario.
+ *
+ * Se hace UNA sola vez y se deja marcado, para que apagar la casilla a
+ * propósito no se vuelva a encender en el siguiente arranque. Mismo patrón que
+ * reconciliarSucursalesCedis y reconciliarRoles en server.js.
+ */
+function reconciliarPedirVendedor(DB) {
+  if (!DB.pos) return;
+  const config = obtenerConfiguracion(DB);
+  if (config._pedir_vendedor_reconciliado) return;
+  config.solicitar_vendedor_al_cerrar_venta = true;
+  config._pedir_vendedor_reconciliado = true;
+}
+
 function obtenerConfiguracion(DB) {
   if (!DB.pos.configuracion) DB.pos.configuracion = { ...CONFIG_DEFAULT };
   return DB.pos.configuracion;
@@ -35,4 +56,4 @@ function actualizarConfiguracion(DB, cambios) {
   return DB.pos.configuracion;
 }
 
-module.exports = { obtenerConfiguracion, actualizarConfiguracion, CONFIG_DEFAULT };
+module.exports = { obtenerConfiguracion, actualizarConfiguracion, reconciliarPedirVendedor, CONFIG_DEFAULT };

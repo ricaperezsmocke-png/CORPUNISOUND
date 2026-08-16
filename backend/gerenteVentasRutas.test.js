@@ -655,3 +655,25 @@ test("la caja pregunta por el vendedor con la configuración de fábrica", async
   const { CONFIG_DEFAULT } = require("./configuracion");
   assert.strictEqual(CONFIG_DEFAULT.solicitar_vendedor_al_cerrar_venta, true);
 });
+
+test("y también se enciende en las bases que YA existen, una sola vez", async () => {
+  // Cambiar el default no alcanza: la configuración se guarda entera en el
+  // SQLite, así que una instalación que ya arrancó conserva el `false` viejo
+  // para siempre. Encontrado abriendo la base real de Unisound en el navegador:
+  // la casilla estaba guardada en false y la caja no preguntaba nada.
+  const { reconciliarPedirVendedor, obtenerConfiguracion } = require("./configuracion");
+
+  const DB = { pos: { configuracion: { solicitar_vendedor_al_cerrar_venta: false } } };
+  reconciliarPedirVendedor(DB);
+  assert.strictEqual(obtenerConfiguracion(DB).solicitar_vendedor_al_cerrar_venta, true);
+
+  // Y apagarla A PROPÓSITO tiene que aguantar el siguiente arranque, o la
+  // casilla de Configuración no sirve para nada.
+  obtenerConfiguracion(DB).solicitar_vendedor_al_cerrar_venta = false;
+  reconciliarPedirVendedor(DB);
+  assert.strictEqual(
+    obtenerConfiguracion(DB).solicitar_vendedor_al_cerrar_venta,
+    false,
+    "no debe volver a encenderse: se hace una sola vez",
+  );
+});
