@@ -11,7 +11,7 @@ const assert = require("node:assert");
 const {
   calcularProgreso, generarTareas, sincronizarTareas, listarTareas,
   cambiarEstadoTarea, fijarMeta, tablero, diasRestantesDelMes,
-  nuevoEstadoTareasVenta, MAX_CLIENTES_SUGERIDOS,
+  nuevoEstadoTareasVenta, MAX_CLIENTES_SUGERIDOS, DIAS_ANTES_DE_REPETIR, candidatosAPredecir,
 } = require("./gerenteVentas");
 
 /** Fecha local de la tienda para un instante dado. Las pruebas fijan el
@@ -195,21 +195,55 @@ test("abrir la pantalla dos veces NO duplica las tareas", () => {
   const DB = nuevoDB();
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
 
-  const primera = sincronizarTareas(DB, 1, AHORA);
-  const segunda = sincronizarTareas(DB, 1, AHORA);
+  const primera = sincronizarTareas(DB, 1, AHORA).tareas;
+  const segunda = sincronizarTareas(DB, 1, AHORA).tareas;
 
   assert.strictEqual(primera.length, segunda.length);
   assert.strictEqual(DB.pos.tareas_venta.tareas.length, primera.length);
 });
 
-test("una tarea DESCARTADA no vuelve a aparecer sola en la misma vuelta", () => {
+test("una tarea que ya HIZO no le vuelve a aparecer al recargar la pantalla", () => {
+  // BUG REAL encontrado en revisión, verificado ejecutándolo: la vendedora
+  // marcaba "habla con Juan" como hecha, recargaba, y le reaparecía — porque
+  // Juan sigue en riesgo hasta que compre. La lista se volvía inservible y la
+  // colección crecía dos renglones por cada visita.
+  //
+  // La versión anterior de esta prueba solo miraba las pendientes JUSTO DESPUÉS
+  // de cerrar la tarea, sin volver a sincronizar: aparentaba cubrir esto y no
+  // cubría nada.
   const DB = nuevoDB();
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
-  const [tarea] = sincronizarTareas(DB, 1, AHORA);
+  const [tarea] = sincronizarTareas(DB, 1, AHORA).tareas;
+  cambiarEstadoTarea(DB, 1, tarea.id, "hecha", AHORA);
+
+  const alRecargar = sincronizarTareas(DB, 1, AHORA).tareas; // <- la parte que faltaba
+  assert.strictEqual(alRecargar.length, 0, "la tarea que ya hizo no debe reaparecer");
+  assert.strictEqual(DB.pos.tareas_venta.tareas.length, 1, "tampoco debe duplicarse el renglón");
+});
+
+test("una tarea DESCARTADA tampoco reaparece al recargar", () => {
+  // El caso de "ese producto no lo tengo en piso": si reapareciera cada vez,
+  // la vendedora dejaría de mirar la lista.
+  const DB = nuevoDB();
+  cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
+  const [tarea] = sincronizarTareas(DB, 1, AHORA).tareas;
   cambiarEstadoTarea(DB, 1, tarea.id, "descartada", AHORA);
 
-  const pendientes = listarTareas(DB, 1);
-  assert.strictEqual(pendientes.length, 0, "la descartada no debe seguir pendiente");
+  assert.strictEqual(listarTareas(DB, 1).length, 0, "no debe seguir pendiente");
+  assert.strictEqual(sincronizarTareas(DB, 1, AHORA).tareas.length, 0, "ni reaparecer al recargar");
+});
+
+test("pasado un mes, si el cliente SIGUE sin comprar, la tarea vuelve a proponerse", () => {
+  // El otro lado: enterrar la tarea para siempre sería perder al cliente en
+  // silencio. Si lo contactó hace un mes y no volvió, hay que reintentar.
+  const DB = nuevoDB();
+  cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
+  const [tarea] = sincronizarTareas(DB, 1, AHORA).tareas;
+  cambiarEstadoTarea(DB, 1, tarea.id, "hecha", AHORA);
+
+  const masDeUnMesDespues = "2026-09-20T18:00:00.000Z";
+  const reaparecidas = sincronizarTareas(DB, 1, masDeUnMesDespues).tareas;
+  assert.strictEqual(reaparecidas.length, 1, `pasados ${DIAS_ANTES_DE_REPETIR} días debe volver a proponerse`);
 });
 
 test("los ids de tarea son únicos aunque se sincronice muchas veces", () => {
@@ -230,7 +264,7 @@ test("una vendedora NO puede cerrar la tarea de otra, aunque sepa el id", () => 
   // de alguien más pasando su folio. El guard vive DENTRO del módulo.
   const DB = nuevoDB();
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
-  const [ajena] = sincronizarTareas(DB, 1, AHORA);
+  const [ajena] = sincronizarTareas(DB, 1, AHORA).tareas;
 
   assert.throws(
     () => cambiarEstadoTarea(DB, 2, ajena.id, "hecha", AHORA),
@@ -243,7 +277,7 @@ test("una vendedora NO puede cerrar la tarea de otra, aunque sepa el id", () => 
 test("marcar hecha una tarea la saca de pendientes y guarda cuándo", () => {
   const DB = nuevoDB();
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
-  const [t] = sincronizarTareas(DB, 1, AHORA);
+  const [t] = sincronizarTareas(DB, 1, AHORA).tareas;
 
   const cerrada = cambiarEstadoTarea(DB, 1, t.id, "hecha", AHORA);
   assert.strictEqual(cerrada.estado, "hecha");
@@ -255,7 +289,7 @@ test("marcar hecha una tarea la saca de pendientes y guarda cuándo", () => {
 test("no se puede cerrar dos veces la misma tarea", () => {
   const DB = nuevoDB();
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
-  const [t] = sincronizarTareas(DB, 1, AHORA);
+  const [t] = sincronizarTareas(DB, 1, AHORA).tareas;
   cambiarEstadoTarea(DB, 1, t.id, "hecha", AHORA);
   assert.throws(() => cambiarEstadoTarea(DB, 1, t.id, "descartada", AHORA), /ya estaba cerrada/);
 });
@@ -263,7 +297,7 @@ test("no se puede cerrar dos veces la misma tarea", () => {
 test("un estado inventado se rechaza", () => {
   const DB = nuevoDB();
   cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
-  const [t] = sincronizarTareas(DB, 1, AHORA);
+  const [t] = sincronizarTareas(DB, 1, AHORA).tareas;
   assert.throws(() => cambiarEstadoTarea(DB, 1, t.id, "cancelada", AHORA), /inválido/i);
 });
 
@@ -303,4 +337,57 @@ test("el tablero trae progreso y tareas en una sola llamada", () => {
   assert.strictEqual(t.vendido_mes, 20000);
   assert.ok(Array.isArray(t.tareas));
   assert.ok(t.tareas.length > 0);
+});
+
+// ---------- Rendimiento: la pantalla NO puede congelar las cajas ----------
+
+test("con el catálogo real (6,000+ productos) generarTareas no bloquea el sistema", () => {
+  // Node es de un solo hilo: lo que tarde esta función es tiempo en el que
+  // NINGUNA caja de NINGUNA tienda puede cobrar. La versión original corría
+  // predecirDemanda sobre TODO el catálogo y tardaba 2.2 SEGUNDOS por carga de
+  // pantalla, medido con el tamaño real del catálogo de Unisound (6,229
+  // productos importados de SICAR).
+  const DB = nuevoDB();
+  for (let i = 1; i <= 6229; i++) {
+    DB["catalogo-productos"].productos.push({ id: i, nombre: `Producto ${i}`, activo: true });
+  }
+  for (let i = 1; i <= 8000; i++) {
+    const mes = String((i % 12) + 1).padStart(2, "0");
+    venta(DB, { id: i, vendedor_id: 1, total: 500, fecha: `2026-${mes}-10` });
+    DB.pos.venta_detalle.push({ id: i, venta_id: i, producto_id: (i % 6229) + 1, cantidad: 2 });
+  }
+
+  const t0 = Date.now();
+  generarTareas(DB, 1);
+  const ms = Date.now() - t0;
+
+  // Umbral holgado (la máquina de CI puede ser más lenta) pero muy por debajo
+  // del comportamiento viejo: sin la preselección esto tarda ~2,200 ms.
+  assert.ok(ms < 600, `generarTareas tardó ${ms} ms; sin preseleccionar productos congela las cajas`);
+});
+
+test("candidatosAPredecir se queda con los más vendidos de SU sucursal", () => {
+  const DB = nuevoDB();
+  DB.pos.sucursales.push({ id: 2, nombre: "Yajalón" });
+  DB.pos.vendedores.push({ id: 3, nombre: "María", sucursal_id: 2, meta_mensual: 10000 });
+  for (let i = 1; i <= 5; i++) {
+    DB["catalogo-productos"].productos.push({ id: i, nombre: `P${i}`, activo: true });
+  }
+  // Producto 1: mucho movimiento, pero en la sucursal 2 (no la del vendedor 1).
+  DB.pos.ventas.push({ id: 1, vendedor_id: 3, total: 100, fecha: "2026-08-01", estatus: "cerrada", sucursal_id: 2 });
+  DB.pos.venta_detalle.push({ id: 1, venta_id: 1, producto_id: 1, cantidad: 999 });
+  // Producto 2: movimiento en la sucursal 1, la del vendedor 1.
+  DB.pos.ventas.push({ id: 2, vendedor_id: 1, total: 100, fecha: "2026-08-01", estatus: "cerrada", sucursal_id: 1 });
+  DB.pos.venta_detalle.push({ id: 2, venta_id: 2, producto_id: 2, cantidad: 5 });
+
+  const ids = candidatosAPredecir(DB, DB.pos.vendedores[0]).map((p) => p.id);
+  assert.deepStrictEqual(ids, [2], "no debe proponer lo que se mueve en OTRA tienda");
+});
+
+test("una venta CANCELADA no vuelve candidato a un producto", () => {
+  const DB = nuevoDB();
+  DB["catalogo-productos"].productos.push({ id: 1, nombre: "P1", activo: true });
+  DB.pos.ventas.push({ id: 1, vendedor_id: 1, total: 100, fecha: "2026-08-01", estatus: "cancelada", sucursal_id: 1 });
+  DB.pos.venta_detalle.push({ id: 1, venta_id: 1, producto_id: 1, cantidad: 50 });
+  assert.deepStrictEqual(candidatosAPredecir(DB, DB.pos.vendedores[0]), []);
 });

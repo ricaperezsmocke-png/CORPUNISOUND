@@ -1549,7 +1549,12 @@ app.get("/api/gerente-ventas/:vendedorId", requiereLogin, requierePermiso("usar_
     const vendedorId = vendedorPermitido(req, req.params.vendedorId);
     // 404 y no 403: no se confirma que el tablero de otra persona exista.
     if (vendedorId == null) return res.status(404).json({ error: "Tablero no encontrado" });
-    res.json(tablero(DB, vendedorId));
+    const t = tablero(DB, vendedorId);
+    // Este GET genera tareas, y la auto-persistencia solo cubre POST/PUT/DELETE.
+    // Se guarda solo cuando de verdad hubo tareas nuevas, para no reescribir la
+    // base entera cada vez que alguien abre su pantalla.
+    if (t.tareas_nuevas > 0) guardar(DB);
+    res.json(t);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

@@ -29,6 +29,15 @@ const MAX_PRODUCTOS_SUGERIDOS = 3;
 /** Tope de clientes a contactar por vuelta, por el mismo motivo. Se priorizan
  *  los que llevan MÁS tiempo sin comprar: son los que se están perdiendo. */
 const MAX_CLIENTES_SUGERIDOS = 5;
+/** Días que una tarea ya cerrada (hecha o descartada) impide que se vuelva a
+ *  proponer la misma. Ver `tareaYaCubierta`. Un mes: suficiente para no
+ *  repetirle lo que acaba de hacer, y poco para no abandonar a un cliente que
+ *  sigue sin volver. */
+const DIAS_ANTES_DE_REPETIR = 30;
+/** Cuántos productos se evalúan con `predecirDemanda` en cada vuelta. Se toman
+ *  los más vendidos de SU sucursal. Ver `candidatosAPredecir`: sin este tope,
+ *  la pantalla congelaba el sistema entero 2.2 segundos por carga. */
+const MAX_PRODUCTOS_A_EVALUAR = 40;
 
 function nuevoEstadoTareasVenta() {
   return { tareas: [], ultimo_id: 0 };
@@ -101,17 +110,83 @@ function calcularProgreso(DB, vendedorId, instante = ahora()) {
   };
 }
 
-/** ¿Ya hay una tarea PENDIENTE para este vendedor sobre este mismo cliente o
- *  producto? Sin esto, cada vez que la vendedora abre su pantalla le aparecería
- *  otra vez "habla con Juan", y la lista se volvería inservible en dos días. */
-function yaTienePendiente(DB, vendedorId, { cliente_id = null, producto_id = null }) {
-  return DB.pos.tareas_venta.tareas.some(
-    (t) =>
-      t.vendedor_id === Number(vendedorId) &&
-      t.estado === "pendiente" &&
-      ((cliente_id != null && t.cliente_id === cliente_id) ||
-        (producto_id != null && t.producto_id === producto_id))
+/**
+ * ¿Se debe volver a proponer esta tarea, o ya está cubierta?
+ *
+ * Cubre DOS casos, y el segundo es el que importa:
+ *  1. Ya hay una PENDIENTE del mismo cliente/producto — no se duplica.
+ *  2. Ya hubo una que el vendedor CERRÓ (hecha o descartada) hace poco.
+ *
+ * Sin el caso 2 pasaba esto, verificado ejecutándolo: la vendedora marca
+ * "habla con Juan" como hecha, recarga la pantalla, y la tarea le VUELVE A
+ * APARECER — porque Juan sigue en riesgo hasta que compre. Lo mismo al
+ * descartar "empuja este producto" porque no lo tiene en piso: reaparecía cada
+ * vez. La lista se volvía inservible, y la colección crecía dos renglones por
+ * cada visita a la pantalla.
+ *
+ * Por qué una VENTANA y no "nunca más": si contactó a Juan hace un mes y Juan
+ * sigue sin comprar, sí hay que volver a intentarlo. Enterrar la tarea para
+ * siempre sería perder el cliente en silencio.
+ */
+function tareaYaCubierta(DB, vendedorId, { cliente_id = null, producto_id = null }, instante = ahora()) {
+  const limiteMs = Date.parse(instante) - DIAS_ANTES_DE_REPETIR * 24 * 60 * 60 * 1000;
+
+  return DB.pos.tareas_venta.tareas.some((t) => {
+    if (t.vendedor_id !== Number(vendedorId)) return false;
+    const mismoObjetivo =
+      (cliente_id != null && t.cliente_id === cliente_id) ||
+      (producto_id != null && t.producto_id === producto_id);
+    if (!mismoObjetivo) return false;
+
+    if (t.estado === "pendiente") return true;
+
+    // Cerrada: cuenta como cubierta solo si fue hace poco. Una fecha ilegible
+    // se trata como reciente (no se repite): mejor una tarea de menos que
+    // inundar la lista por un dato corrupto.
+    const cerradaMs = Date.parse(t.completada_en);
+    if (!Number.isFinite(cerradaMs)) return true;
+    return cerradaMs >= limiteMs;
+  });
+}
+
+/**
+ * Los pocos productos sobre los que vale la pena correr una predicción.
+ *
+ * ESTO EXISTE POR RENDIMIENTO, y no es un detalle: la versión anterior corría
+ * `predecirDemanda` sobre TODO el catálogo activo. Medido con el catálogo real
+ * de Unisound (6,229 productos importados de SICAR) y 8,000 ventas, eso tardaba
+ * **2.2 segundos bloqueando el event loop** — y Node es de un solo hilo, así que
+ * durante esos 2.2 s NINGUNA caja de NINGUNA tienda podía cobrar. Con tres
+ * vendedoras abriendo su pantalla, casi 7 segundos de sistema congelado.
+ *
+ * La preselección además tiene sentido de negocio: "empújale este producto al
+ * cliente" solo aplica a mercancía que la tienda de verdad mueve. Un producto
+ * sin ventas recientes no tiene historial del que proyectar nada
+ * (`predecirDemanda` devuelve `{ error }`), así que recorrerlo era trabajo puro
+ * sin resultado posible.
+ */
+function candidatosAPredecir(DB, vendedor) {
+  const productos = DB["catalogo-productos"].productos.filter((p) => p.activo !== false);
+  const porId = new Map(productos.map((p) => [p.id, p]));
+
+  // Un solo recorrido de las ventas de SU sucursal para saber qué se mueve ahí.
+  const ventasDeLaSucursal = new Set(
+    DB.pos.ventas
+      .filter((v) => v.estatus === "cerrada" && Number(v.sucursal_id) === Number(vendedor.sucursal_id))
+      .map((v) => v.id)
   );
+
+  const unidades = new Map();
+  for (const d of DB.pos.venta_detalle || []) {
+    if (!ventasDeLaSucursal.has(d.venta_id)) continue;
+    if (!porId.has(d.producto_id)) continue;
+    unidades.set(d.producto_id, (unidades.get(d.producto_id) || 0) + Number(d.cantidad || 0));
+  }
+
+  return [...unidades.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_PRODUCTOS_A_EVALUAR)
+    .map(([id]) => porId.get(id));
 }
 
 /**
@@ -167,7 +242,7 @@ function generarTareas(DB, vendedorId) {
   // predecirDemanda puede fallar si no hay historial suficiente; que no haya
   // predicción NO debe dejar a la vendedora sin sus tareas de clientes.
   try {
-    const productos = DB["catalogo-productos"].productos.filter((p) => p.activo !== false);
+    const productos = candidatosAPredecir(DB, vendedor);
     const conDemanda = [];
     for (const p of productos) {
       try {
@@ -200,9 +275,11 @@ function generarTareas(DB, vendedorId) {
  */
 function sincronizarTareas(DB, vendedorId, instante = ahora()) {
   if (!DB.pos.tareas_venta) DB.pos.tareas_venta = nuevoEstadoTareasVenta();
+  let creadas = 0;
 
   for (const p of generarTareas(DB, vendedorId)) {
-    if (yaTienePendiente(DB, vendedorId, p)) continue;
+    if (tareaYaCubierta(DB, vendedorId, p, instante)) continue;
+    creadas++;
     DB.pos.tareas_venta.tareas.push({
       id: reservarSiguienteId(DB),
       vendedor_id: Number(vendedorId),
@@ -217,7 +294,14 @@ function sincronizarTareas(DB, vendedorId, instante = ahora()) {
     });
   }
 
-  return listarTareas(DB, vendedorId);
+  // `creadas` lo usa la ruta para decidir si vale la pena persistir el DB: el
+  // tablero se pide por GET, y la auto-persistencia de server.js solo corre en
+  // POST/PUT/DELETE. Sin esto, las tareas recién generadas vivían solo en
+  // memoria hasta que alguien, en cualquier parte del sistema, hiciera una
+  // escritura — y se perdían en cada reinicio del servidor. Se persiste SOLO
+  // cuando de verdad hubo tareas nuevas, para no reescribir la base entera cada
+  // vez que alguien abre su pantalla.
+  return { tareas: listarTareas(DB, vendedorId), creadas };
 }
 
 /** Las tareas pendientes del vendedor. Las hechas y descartadas se conservan
@@ -274,13 +358,14 @@ function fijarMeta(DB, vendedorId, meta) {
 /** El tablero completo del vendedor: progreso + tareas al día. */
 function tablero(DB, vendedorId, instante = ahora()) {
   const progreso = calcularProgreso(DB, vendedorId, instante);
-  const tareas = sincronizarTareas(DB, vendedorId, instante);
-  return { ...progreso, tareas };
+  const { tareas, creadas } = sincronizarTareas(DB, vendedorId, instante);
+  return { ...progreso, tareas, tareas_nuevas: creadas };
 }
 
 module.exports = {
   nuevoEstadoTareasVenta, calcularProgreso, generarTareas, sincronizarTareas,
-  listarTareas, cambiarEstadoTarea, fijarMeta, tablero,
+  listarTareas, cambiarEstadoTarea, fijarMeta, tablero, tareaYaCubierta,
   diasRestantesDelMes, primerDiaDelMes,
-  MAX_CLIENTES_SUGERIDOS, MAX_PRODUCTOS_SUGERIDOS,
+  MAX_CLIENTES_SUGERIDOS, MAX_PRODUCTOS_SUGERIDOS, DIAS_ANTES_DE_REPETIR, MAX_PRODUCTOS_A_EVALUAR,
+  candidatosAPredecir,
 };
