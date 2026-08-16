@@ -89,6 +89,10 @@ const PERMISOS = [
   // Fijar metas y ligar cuentas a vendedores es una decisión de jefatura: no la
   // toma quien va a ser medido por ella.
   { clave: "editar_objetivos_venta", etiqueta: "Fijar Objetivos de Venta del Personal", modulo: "pos", implementado: true },
+  // Dar de alta/editar el catalogo de quien vende. Permiso propio y no
+  // prestado de dar_alta_personal: son cosas distintas -- un vendedor es un
+  // renglon del catalogo de ventas, una cuenta es un acceso al sistema.
+  { clave: "administrar_vendedores", etiqueta: "Administrar Catálogo de Vendedores", modulo: "pos", implementado: true },
 
   // ---- Administración ----
   { clave: "administrar_roles", etiqueta: "Administrar Roles y Personal", modulo: "admin", implementado: true },

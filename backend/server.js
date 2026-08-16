@@ -47,6 +47,7 @@ const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
+const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
@@ -1526,6 +1527,53 @@ app.put("/api/depositos/:id/cancelar", requiereLogin, requierePermiso("cancelar_
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(cancelarDeposito(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- Catálogo de vendedores (quién vende en cada tienda) ----------
+//
+// El alcance sale del token de quien pregunta, nunca de `?sucursal_id=`.
+
+app.get("/api/vendedores/catalogo", requiereLogin, requierePermiso("administrar_vendedores", resolverPermisosDeRol), (req, res) => {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  const alcance = {
+    verTodas: permisos.includes("ver_todas_las_sucursales"),
+    sucursalId: Number(req.usuarioToken.sucursal_id),
+  };
+  res.json(listarVendedores(DB, alcance, { incluirInactivos: req.query.incluir_inactivos === "1" }));
+});
+
+app.post("/api/vendedores", requiereLogin, requierePermiso("administrar_vendedores", resolverPermisosDeRol), (req, res) => {
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const alcance = {
+      verTodas: permisos.includes("ver_todas_las_sucursales"),
+      sucursalId: Number(req.usuarioToken.sucursal_id),
+    };
+    res.json(crearVendedor(DB, req.body, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put("/api/vendedores/:id", requiereLogin, requierePermiso("administrar_vendedores", resolverPermisosDeRol), (req, res) => {
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const alcance = {
+      verTodas: permisos.includes("ver_todas_las_sucursales"),
+      sucursalId: Number(req.usuarioToken.sucursal_id),
+    };
+    res.json(actualizarVendedor(DB, req.params.id, req.body, alcance));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Desactivar, NO borrar: las ventas historicas resuelven el nombre por id.
+app.put("/api/vendedores/:id/desactivar", requiereLogin, requierePermiso("administrar_vendedores", resolverPermisosDeRol), (req, res) => {
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const alcance = {
+      verTodas: permisos.includes("ver_todas_las_sucursales"),
+      sucursalId: Number(req.usuarioToken.sucursal_id),
+    };
+    res.json(desactivarVendedor(DB, req.params.id, alcance));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

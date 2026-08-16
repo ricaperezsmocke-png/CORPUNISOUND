@@ -5,6 +5,7 @@ import {
   Link, CheckCircle, AlertTriangle, Upload, FileText
 } from "lucide-react";
 import { apiFetch } from "./api";
+import CatalogoVendedores from "./CatalogoVendedores.jsx";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
@@ -197,7 +198,7 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const [usuarios, setUsuarios] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [estadoDrive, setEstadoDrive] = useState(null);
-  const [vistaRoles, setVistaRoles] = useState("roles"); // "roles" | "personal"
+  const [vistaRoles, setVistaRoles] = useState("roles"); // "roles" | "personal" | "vendedores"
   const [busquedaPermiso, setBusquedaPermiso] = useState("");
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
@@ -553,9 +554,17 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
             >
               Personal ({usuarios.length})
             </button>
+            <button
+              onClick={() => setVistaRoles("vendedores")}
+              className={`px-3 py-2 text-xs font-medium border-b-2 ${vistaRoles === "vendedores" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
+            >
+              Vendedores
+            </button>
           </div>
 
-          {vistaRoles === "personal" ? (
+          {vistaRoles === "vendedores" ? (
+            <CatalogoVendedores permisos={permisos} mostrarAviso={mostrarAviso} />
+          ) : vistaRoles === "personal" ? (
             <div className="flex-1 overflow-y-auto p-4">
               <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
                 <thead className="bg-[#1a7fe8] text-white">
@@ -731,10 +740,14 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                 </label>
                 <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.vendedor_id} onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
                   <option value="">No participa en objetivos de venta</option>
-                  {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                  {vendedores
+                    .filter((v) => !formPersonal.sucursal_id || Number(v.sucursal_id) === Number(formPersonal.sucursal_id))
+                    .map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                 </select>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Al ligarla, esta persona verá su objetivo de venta y sus tareas del mes.
+                  {formPersonal.sucursal_id
+                    ? "Solo se muestran los vendedores de esa sucursal. Al ligarla, esta persona verá su objetivo de venta y sus tareas del mes."
+                    : "Elige primero la sucursal para ver sus vendedores."}
                 </p>
               </div>
               <button onClick={guardarPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
@@ -795,10 +808,12 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                     </label>
                     <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.vendedor_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
                       <option value="">No participa en objetivos de venta</option>
-                      {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                      {vendedores
+                        .filter((v) => !formEditarPersonal.sucursal_id || Number(v.sucursal_id) === Number(formEditarPersonal.sucursal_id))
+                        .map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                     </select>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Al ligarla, esta persona verá su objetivo de venta y sus tareas del mes.
+                      Solo se muestran los vendedores de esa sucursal.
                     </p>
                   </div>
                   <div>
