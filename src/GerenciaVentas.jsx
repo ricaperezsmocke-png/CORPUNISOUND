@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Target, RefreshCw, Check, X, Users } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, sinSucursalElegida } from "./api";
 
 const pesos = (n) =>
   Number(n || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
@@ -30,31 +30,83 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
   const [editandoMeta, setEditandoMeta] = useState(null); // { vendedor_id, valor }
   const [sugerencia, setSugerencia] = useState(null);     // { vendedor_id, ...datos }
   const [pidiendoSugerencia, setPidiendoSugerencia] = useState(null); // vendedor_id
+  // Un fallo al cargar tiene que VERSE. Antes se tragaba el error y se dejaba
+  // `tablero` en null: una cuenta ligada a un vendedor que ya no existe (id mal
+  // capturado, o un respaldo restaurado sin ese vendedor) no entraba al aviso
+  // ámbar —porque sí tiene vendedor_id— y no renderizaba absolutamente nada.
+  // Para quien no programa, una pantalla en blanco es "el sistema no sirve".
+  const [errorCarga, setErrorCarga] = useState(null);
+  const [errorEquipo, setErrorEquipo] = useState(null);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
 
   const cargarTablero = useCallback(async (vendedorId) => {
     if (vendedorId == null) { setTablero(null); return; }
-    const r = await apiFetch(`/gerente-ventas/${vendedorId}`);
-    if (r.ok) setTablero(await r.json());
-    else setTablero(null);
+    try {
+      const r = await apiFetch(`/gerente-ventas/${vendedorId}`);
+      if (r.ok) {
+        setTablero(await r.json());
+        setErrorCarga(null);
+        return;
+      }
+      const data = await r.json().catch(() => ({}));
+      setTablero(null);
+      setErrorCarga(
+        data.error === "Tablero no encontrado" || r.status === 404
+          ? "Tu cuenta está ligada a un vendedor que ya no existe en el catálogo. " +
+            "Pídele a quien administra el personal que la vuelva a ligar desde Roles y Personal."
+          : data.error || "No se pudo cargar tu objetivo de venta. Intenta recargar la página."
+      );
+    } catch (_) {
+      setTablero(null);
+      setErrorCarga("No se pudo conectar con el sistema. Revisa tu internet y recarga la página.");
+    }
   }, []);
 
   const cargarEquipo = useCallback(async () => {
     if (!esJefatura) return;
-    const r = await apiFetch("/gerente-ventas");
-    if (r.ok) setEquipo(await r.json());
+    // Una lista vacía por fallo se ve idéntica a una lista vacía de verdad, y
+    // la pantalla decía "No hay vendedores en tu alcance" — o sea, mentía. El
+    // error se guarda aparte para poder distinguirlos.
+    try {
+      const r = await apiFetch("/gerente-ventas");
+      if (r.ok) {
+        setEquipo(await r.json());
+        setErrorEquipo(null);
+        return;
+      }
+      const data = await r.json().catch(() => ({}));
+      setEquipo([]);
+      setErrorEquipo(data.error || "No se pudo cargar a tu equipo. Intenta recargar la página.");
+    } catch (_) {
+      setEquipo([]);
+      setErrorEquipo("No se pudo conectar con el sistema. Revisa tu internet y recarga la página.");
+    }
   }, [esJefatura]);
 
   useEffect(() => {
     (async () => {
       setCargando(true);
-      const r = await apiFetch("/gerente-ventas/mi/vendedor");
-      const mio = r.ok ? (await r.json()).vendedor_id : null;
-      setMiVendedorId(mio);
-      setVerVendedorId(mio);
-      await Promise.all([cargarTablero(mio), cargarEquipo()]);
-      setCargando(false);
+      try {
+        const r = await apiFetch("/gerente-ventas/mi/vendedor");
+        // Si la consulta FALLA no se concluye "no está ligada": eso mandaba a
+        // la vendedora a pedirle al administrador que arreglara algo que no
+        // estaba roto. Sin try/catch, además, un error de red escapaba de este
+        // efecto y `cargando` se quedaba en true: "Cargando…" para siempre.
+        if (!r.ok) {
+          setErrorCarga("No se pudo consultar tu objetivo de venta. Intenta recargar la página.");
+          setCargando(false);
+          return;
+        }
+        const mio = (await r.json()).vendedor_id;
+        setMiVendedorId(mio);
+        setVerVendedorId(mio);
+        await Promise.all([cargarTablero(mio), cargarEquipo()]);
+      } catch (_) {
+        setErrorCarga("No se pudo conectar con el sistema. Revisa tu internet y recarga la página.");
+      } finally {
+        setCargando(false);
+      }
     })();
   }, [cargarTablero, cargarEquipo]);
 
@@ -143,6 +195,22 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
     <div className="p-4 space-y-4 overflow-y-auto">
       {aviso && (
         <div className="bg-slate-800 text-white text-sm rounded px-3 py-2 inline-block">{aviso}</div>
+      )}
+
+      {errorCarga && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-900">
+          {errorCarga}
+        </div>
+      )}
+
+      {/* El alcance de esta pantalla sale de QUIÉN eres, no del selector de
+          arriba — a propósito: así nadie ve el desempeño de otra tienda por
+          cambiar un menú. Pero sin decirlo, "Objetivos del equipo" con el
+          encabezado puesto en una tienda se lee como el equipo de esa tienda. */}
+      {esJefatura && !sinSucursalElegida() && equipo.length > 0 && (
+        <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded px-3 py-2">
+          Esta pantalla muestra a todo tu personal, sin importar la tienda seleccionada arriba.
+        </p>
       )}
 
       {/* ---------- Mi objetivo ---------- */}
@@ -343,7 +411,9 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
           </div>
 
           {equipo.length === 0 && (
-            <p className="text-sm text-slate-500">No hay vendedores en tu alcance.</p>
+            <p className="text-sm text-slate-500">
+              {errorEquipo || "No hay vendedores en tu alcance."}
+            </p>
           )}
 
           {sugerencia && (

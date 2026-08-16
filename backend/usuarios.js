@@ -81,6 +81,13 @@ function validarVendedorId(DB, valor, sucursalDeLaCuenta, idCuentaQueSeEdita = n
     throw new Error("Ese vendedor no existe en el catálogo");
   }
   if (typeof valor === "boolean") throw new Error("El vendedor seleccionado no es válido");
+  // Ligar a alguien desactivado deja un estado del que no se sale por el camino
+  // previsto: el vendedor queda `activo: false` con una cuenta viva y un tablero
+  // funcional, y `desactivarVendedor` ya no lo puede tocar porque rechaza
+  // mientras haya cuenta ligada.
+  if (vendedor.activo === false) {
+    throw new Error(`${vendedor.nombre} está desactivado; reactívalo primero en Roles y Personal → Vendedores`);
+  }
   if (Number(vendedor.sucursal_id) !== Number(sucursalDeLaCuenta)) {
     throw new Error(
       `${vendedor.nombre} es vendedor de otra sucursal; elige uno de la misma sucursal que la cuenta`

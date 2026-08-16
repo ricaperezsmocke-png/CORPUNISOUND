@@ -15,7 +15,8 @@ const MODULOS = [
   { id: "garantias",  nombre: "Garantías",              icono: ShieldAlert,  disponible: true, modulo: "inventario", permiso: "gestionar_garantias" },
   { id: "roles",     nombre: "Roles y Personal",        icono: ShieldCheck,  disponible: true, modulo: "admin" },
   { id: "respaldos",  nombre: "Respaldos",              icono: DatabaseBackup, disponible: true, modulo: "respaldos", permiso: "ver_respaldos" },
-  { id: "gerencia_ventas", nombre: "Mi Objetivo de Venta", icono: Target,     disponible: true, modulo: "pos", permiso: "usar_gerente_ventas" },
+  // Dos puertas: la vendedora entra a ver su objetivo, la jefatura a fijar metas.
+  { id: "gerencia_ventas", nombre: "Mi Objetivo de Venta", icono: Target,     disponible: true, modulo: "pos", permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
   { id: "crm",        nombre: "CRM",                     icono: Users,        disponible: true, modulo: "crm" },
   { id: "ml",         nombre: "MercadoLibre",             icono: Store,        disponible: true, modulo: "ml" },
   { id: "reportes",   nombre: "Reportes",                 icono: FileBarChart, disponible: true, modulo: "reportes", permiso: "ver_reportes" },
@@ -24,7 +25,17 @@ const MODULOS = [
 export default function Dashboard({ onEntrarModulo, usuario, onSalir }) {
   const modulosVisibles = MODULOS.filter((m) => {
     const moduloOk = !usuario?.modulos || usuario.modulos.includes(m.modulo);
-    const permisoOk = !m.permiso || !usuario?.permisos || usuario.permisos.includes(m.permiso);
+    // `permiso` acepta una clave o una lista. Con lista basta tener CUALQUIERA:
+    // hay módulos a los que se entra por dos puertas distintas — a Gerencia de
+    // Ventas entra la vendedora (a ver su objetivo) y también la jefatura (a
+    // fijar metas), y son permisos diferentes. Con una sola clave, un rol que
+    // solo tuviera el de jefatura no veía el azulejo y el módulo le
+    // "desaparecía" sin explicación.
+    const requeridos = m.permiso ? [].concat(m.permiso) : [];
+    const permisoOk =
+      requeridos.length === 0 ||
+      !usuario?.permisos ||
+      requeridos.some((clave) => usuario.permisos.includes(clave));
     return moduloOk && permisoOk;
   });
 

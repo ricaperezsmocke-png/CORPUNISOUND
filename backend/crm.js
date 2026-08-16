@@ -197,8 +197,19 @@ function rankingVendedores(DB, alcance) {
   return vendedores.map((v) => {
     const cs = clientes.filter((c) => c.vendedor_asignado_id === v.id);
     const ventas = cs.reduce((a, c) => a + c.compras.reduce((b, p) => b + p.monto, 0), 0);
-    return { vendedor_id: v.id, nombre: v.nombre, clientes: cs.length, ventas, convertidos: cs.filter((c) => c.estado === "compro").length };
-  }).sort((a, b) => b.ventas - a.ventas);
+    return {
+      vendedor_id: v.id, nombre: v.nombre, clientes: cs.length, ventas,
+      activo: v.activo !== false,
+      convertidos: cs.filter((c) => c.estado === "compro").length,
+    };
+  })
+    // Un vendedor desactivado se cae del ranking SOLO si ya no tiene clientes
+    // asignados. Si todavía los tiene, se queda: sacarlo haría que la suma del
+    // ranking no cuadre con el total de la sucursal, y Victor vería un hueco
+    // sin explicación. Lo que se evita es el renglón en ceros de alguien que
+    // ya se fue y a quien ya le reasignaron su cartera.
+    .filter((r) => r.activo || r.clientes > 0)
+    .sort((a, b) => b.ventas - a.ventas);
 }
 
 module.exports = {

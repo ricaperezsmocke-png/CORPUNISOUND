@@ -13,10 +13,16 @@ import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
 
-const VENDEDORES = [
-  { id: 1, nombre: "Ana López" },
-  { id: 2, nombre: "Carlos Ruiz" },
-];
+/**
+ * Vendedor de respaldo, SOLO para que la caja nunca se quede sin poder cobrar.
+ *
+ * La lista real se carga del catálogo (`GET /vendedores`). Antes había aquí dos
+ * nombres CABLEADOS —"Ana López" y "Carlos Ruiz", los del sembrado de ejemplo—
+ * y la caja no leía el catálogo en absoluto: quien no fuera uno de esos dos no
+ * podía registrarse como vendedor de ninguna venta, así que su meta se quedaba
+ * en cero para siempre y el módulo de objetivos era inalcanzable desde la caja.
+ */
+const VENDEDOR_SIN_ASIGNAR = { id: null, nombre: "Sin asignar" };
 
 const TIPOS_DOCUMENTO = ["Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión"];
 
@@ -112,7 +118,8 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [filaSeleccionada, setFilaSeleccionada] = useState(null);
   const [tipoDoc, setTipoDoc] = useState("Ticket");
   const [cliente, setCliente] = useState({ id: 0, nombre: "Público en General", tipo: "menudeo", credito_disponible: 0 });
-  const [vendedor, setVendedor] = useState(VENDEDORES[0]);
+  const [vendedor, setVendedor] = useState(VENDEDOR_SIN_ASIGNAR);
+  const [vendedores, setVendedores] = useState([]);
   const [esCotizacion, setEsCotizacion] = useState(false);
   const [folio, setFolio] = useState(1024);
   const [enEspera, setEnEspera] = useState([]);
@@ -173,6 +180,30 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     } catch { /* se queda con Público en General por defecto */ }
   }, []);
 
+  /**
+   * Vendedores del catálogo, para poder registrar QUIÉN vendió.
+   *
+   * Se excluyen los desactivados: la caja no debe ofrecer a alguien que ya no
+   * trabaja. Los inactivos siguen existiendo en el catálogo para que las ventas
+   * viejas conserven su nombre en los reportes, pero no se pueden elegir en una
+   * venta nueva.
+   *
+   * Si falla, la caja NO se bloquea: se queda con "Sin asignar" y se puede
+   * seguir cobrando. Una caja que no cobra es peor que una venta sin vendedor.
+   */
+  const cargarVendedores = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/vendedores`);
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      const activos = data.filter((v) => v.activo !== false);
+      setVendedores(activos);
+      // Si solo hay uno, se preselecciona: en una tienda con una sola
+      // vendedora, obligarla a elegirse en cada venta es fricción sin valor.
+      if (activos.length === 1) setVendedor(activos[0]);
+    } catch { /* se queda en "Sin asignar"; la caja sigue cobrando */ }
+  }, []);
+
   const cargarCategorias = useCallback(async () => {
     try {
       const r = await apiFetch(`/categorias`);
@@ -221,7 +252,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     } catch { /* si falla, se usan los valores por defecto ya establecidos */ }
   }, []);
 
-  useEffect(() => { cargarProductos(); cargarClientes(); cargarCategorias(); cargarDepartamentos(); cargarProveedores(); cargarCondicionesPago(); cargarConfiguracion(); }, [cargarProductos, cargarClientes, cargarCategorias, cargarDepartamentos, cargarProveedores, cargarCondicionesPago, cargarConfiguracion]);
+  useEffect(() => { cargarProductos(); cargarClientes(); cargarVendedores(); cargarCategorias(); cargarDepartamentos(); cargarProveedores(); cargarCondicionesPago(); cargarConfiguracion(); }, [cargarProductos, cargarClientes, cargarVendedores, cargarCategorias, cargarDepartamentos, cargarProveedores, cargarCondicionesPago, cargarConfiguracion]);
 
   // Consultas de Ventas y Configuración viven dentro de este mismo componente
   // (solo cambian de "vista", no se remonta la página) — si desde ahí se
@@ -1005,7 +1036,14 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       {modal === "vendedor" && (
         <Modal titulo="Seleccionar vendedor (Alt+V)" onCerrar={() => setModal(null)}>
           <div className="divide-y divide-slate-100">
-            {VENDEDORES.map((v) => (
+            {vendedores.length === 0 && (
+              <p className="py-3 px-2 text-sm text-slate-500">
+                Todavía no hay vendedores dados de alta. Se dan de alta en
+                <strong> Roles y Personal → Vendedores</strong>. Mientras tanto puedes cobrar
+                normalmente; la venta queda sin vendedor asignado.
+              </p>
+            )}
+            {vendedores.map((v) => (
               <button
                 key={v.id}
                 onClick={() => { setVendedor(v); setVendedorConfirmado(true); setModal(null); }}

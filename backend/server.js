@@ -47,7 +47,7 @@ const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
-const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor } = require("./vendedores");
+const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA } = require("./auth");
 const { consultarModulo } = require("./consultarModulo");
@@ -505,6 +505,27 @@ Módulos y tablas disponibles: ${JSON.stringify(listarModulosYTablas())}`;
 // RUTAS
 // ============================================================
 const resolverPermisosDeRol = (rolId) => permisosDeRol(DB, rolId);
+
+/**
+ * Aviso de arranque: Gerencia de Ventas invisible para todo el mundo.
+ *
+ * `reconciliarRoles` solo reparte permisos nuevos al rol Administrador, a
+ * propósito, para no escalar privilegios en silencio. La consecuencia es que
+ * tras desplegar este módulo NADIE más lo ve, y desde afuera parece que el
+ * despliegue no funcionó. Este mensaje convierte "el módulo no aparece" en una
+ * instrucción concreta.
+ */
+function avisarSiNadieUsaGerenciaDeVentas() {
+  const otros = (DB.admin.roles || []).filter((r) => r.nombre !== "Administrador");
+  const alguno = otros.some((r) => permisosDeRol(DB, r.id).includes("usar_gerente_ventas"));
+  if (otros.length > 0 && !alguno) {
+    console.warn(
+      "⚠️  Ningún rol distinto de Administrador tiene 'usar_gerente_ventas': " +
+      "tus vendedoras NO verán 'Mi Objetivo de Venta'. Dáselo en Roles y Personal → Roles."
+    );
+  }
+}
+avisarSiNadieUsaGerenciaDeVentas();
 // Atajo usado por las rutas de registro individual (:id) para saber si el
 // usuario puede ver TODAS las sucursales o está amarrado a la suya.
 const resolverAlcance = (req) => alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -1116,7 +1137,15 @@ app.get("/api/vendedores", requiereLogin, (req, res) => {
     // nunca de `?sucursal_id=` — la trampa que ya mordió tres veces en el repo.
     const puedeVerLaMeta =
       esJefatura && (verTodas || Number(v.sucursal_id) === Number(req.usuarioToken.sucursal_id));
-    return puedeVerLaMeta ? v : { id: v.id, nombre: v.nombre, sucursal_id: v.sucursal_id };
+    // Aquí NO se filtran los inactivos, y `activo` viaja siempre. Los dos tipos
+    // de pantalla que consumen esta ruta quieren cosas opuestas: la caja y el
+    // alta de personal solo deben ofrecer a quien sigue trabajando, mientras
+    // que el filtro de Reportes tiene que poder consultar las ventas de quien
+    // ya se fue. Filtrar aquí rompería a los segundos; que decida cada una.
+    // El campo tiene que ir también en la proyección recortada: sin él, el
+    // filtro del Punto de Venta comparaba contra `undefined` y no filtraba nada.
+    const base = { id: v.id, nombre: v.nombre, sucursal_id: v.sucursal_id, activo: estaActivo(v) };
+    return puedeVerLaMeta ? { ...v, activo: estaActivo(v) } : base;
   }));
 });
 app.get("/api/sucursales", (req, res) => {
@@ -1685,8 +1714,11 @@ app.get("/api/gerente-ventas/:vendedorId/sugerencia-meta", requiereLogin, requie
 app.get("/api/gerente-ventas", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), (req, res) => {
   const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
   const verTodas = permisos.includes("ver_todas_las_sucursales");
+  // Los desactivados no salen: el tablero es para dirigir a quien está
+  // trabajando hoy, y un renglón con meta y avance de alguien que ya se fue
+  // solo ensucia el promedio del equipo.
   const visibles = DB.pos.vendedores.filter(
-    (v) => verTodas || Number(v.sucursal_id) === Number(req.usuarioToken.sucursal_id)
+    (v) => estaActivo(v) && (verTodas || Number(v.sucursal_id) === Number(req.usuarioToken.sucursal_id))
   );
   res.json(visibles.map((v) => calcularProgreso(DB, v.id)));
 });

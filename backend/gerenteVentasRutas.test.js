@@ -419,3 +419,89 @@ test("tareas_venta no rompe la herramienta del asistente", async () => {
     assert.ok(!e.message.includes("tareas_venta"), "no debe aparecer en 'Disponibles'");
   }
 });
+
+// ---------- El campo `activo` y sus consumidores ----------
+//
+// El catálogo de vendedores introdujo `activo`. Ninguno de los consumidores
+// viejos de DB.pos.vendedores lo conocía, y el Punto de Venta llegó a filtrar
+// por un campo que la ruta no devolvía: comparaba contra `undefined` y no
+// filtraba nada.
+
+test("/api/vendedores devuelve `activo` también en la vista recortada de una cajera", async () => {
+  // Sin este campo, el filtro del Punto de Venta es letra muerta y la caja
+  // sigue ofreciendo a alguien que ya no trabaja aquí.
+  const r = await pedir("/api/vendedores", { headers: { Authorization: `Bearer ${TOKEN_CAJERA}` } });
+  assert.strictEqual(r.status, 200);
+  assert.ok(r.cuerpo.length > 0);
+  for (const v of r.cuerpo) {
+    assert.strictEqual(typeof v.activo, "boolean", `${v.nombre} viene sin activo`);
+    assert.strictEqual(v.meta_mensual, undefined, "una cajera no ve metas");
+  }
+});
+
+test("/api/vendedores NO esconde a los desactivados: Reportes necesita consultarlos", async () => {
+  // La caja los filtra por su cuenta. Filtrarlos aquí dejaría a Victor sin
+  // poder consultar las ventas de quien ya se fue.
+  const alta = await pedir("/api/vendedores", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({ nombre: "Temporal Navidad", sucursal_id: 1 }),
+  });
+  assert.strictEqual(alta.status, 200, JSON.stringify(alta.cuerpo));
+
+  const baja = await pedir(`/api/vendedores/${alta.cuerpo.id}/desactivar`, {
+    method: "PUT", headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+  });
+  assert.strictEqual(baja.status, 200, JSON.stringify(baja.cuerpo));
+
+  const lista = await pedir("/api/vendedores", { headers: { Authorization: `Bearer ${TOKEN_ADMIN}` } });
+  const temporal = lista.cuerpo.find((v) => v.id === alta.cuerpo.id);
+  assert.ok(temporal, "el desactivado debe seguir saliendo en el catálogo compartido");
+  assert.strictEqual(temporal.activo, false, "pero marcado como inactivo");
+});
+
+test("el tablero de jefatura no lista a los desactivados", async () => {
+  // Un renglón con meta y avance de alguien que ya se fue ensucia el promedio
+  // del equipo y no se puede accionar.
+  const alta = await pedir("/api/vendedores", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({ nombre: "Se Fue En Marzo", sucursal_id: 1, meta_mensual: 30000 }),
+  });
+  const id = alta.cuerpo.id;
+
+  const conEl = await pedir("/api/gerente-ventas", { headers: { Authorization: `Bearer ${TOKEN_ADMIN}` } });
+  assert.ok(conEl.cuerpo.some((v) => v.vendedor_id === id), "activo sí debe salir");
+
+  await pedir(`/api/vendedores/${id}/desactivar`, {
+    method: "PUT", headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+  });
+
+  const sinEl = await pedir("/api/gerente-ventas", { headers: { Authorization: `Bearer ${TOKEN_ADMIN}` } });
+  assert.ok(!sinEl.cuerpo.some((v) => v.vendedor_id === id), "desactivado NO debe salir");
+});
+
+test("no se puede ligar una cuenta a un vendedor desactivado", async () => {
+  // Sería un estado sin salida: el vendedor queda inactivo con cuenta viva y
+  // tablero funcional, y `desactivarVendedor` ya no lo puede tocar porque
+  // rechaza mientras haya cuenta ligada.
+  const alta = await pedir("/api/vendedores", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({ nombre: "Ya No Trabaja Aqui", sucursal_id: 1 }),
+  });
+  await pedir(`/api/vendedores/${alta.cuerpo.id}/desactivar`, {
+    method: "PUT", headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+  });
+
+  const intento = await pedir("/api/usuarios", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN_ADMIN}` },
+    body: JSON.stringify({
+      nombre: "Fantasma", usuario: "fantasma.prueba", password: "secreto123",
+      rol_id: 3, sucursal_id: 1, vendedor_id: alta.cuerpo.id,
+    }),
+  });
+  assert.notStrictEqual(intento.status, 200, "debe rechazarse");
+  assert.match(intento.cuerpo.error, /desactivado/i);
+});
