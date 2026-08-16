@@ -17,6 +17,7 @@ const TITULOS = {
   ml:         "MercadoLibre",
   reportes:   "Reportes",
   respaldos: "Respaldos",
+  gerencia_ventas: "Mi Objetivo de Venta",
 };
 
 export default function EncabezadoModulo({ vista, usuario, onVolver, onSalir }) {

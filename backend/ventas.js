@@ -50,13 +50,30 @@ function crearVenta(DB, datos) {
     }
   }
 
+  // El vendedor tiene que ser de ESTA sucursal. Una venta atribuida a alguien
+  // de otra tienda no le cuenta a nadie: `esVentaDeSuTienda` la descarta de su
+  // objetivo, pero el reporte sí se la acredita — dos pantallas que se
+  // contradicen sobre la misma venta, y la persona que de verdad vendió se
+  // queda sin ella. Se rechaza aquí, no solo en la pantalla: la caja se puede
+  // saltar, la ruta no.
+  let vendedorId = null;
+  if (datos.vendedor_id !== undefined && datos.vendedor_id !== null && datos.vendedor_id !== "") {
+    const v = DB.pos.vendedores.find((x) => x.id === Number(datos.vendedor_id));
+    if (!v) throw new Error("El vendedor de la venta no existe");
+    if (v.activo === false) throw new Error(`${v.nombre} ya no está activo como vendedor`);
+    if (Number(v.sucursal_id) !== Number(sucursalId)) {
+      throw new Error(`${v.nombre} no vende en esta sucursal`);
+    }
+    vendedorId = v.id;
+  }
+
   const nuevoId = siguienteId(DB.pos.ventas);
   const venta = {
     id: nuevoId,
     fecha: fechaLocal(),
     fecha_hora: new Date().toISOString(), // con hora — el corte de caja agrupa ventas por turno
     sucursal_id: sucursalId,
-    vendedor_id: datos.vendedor_id ? Number(datos.vendedor_id) : null,
+    vendedor_id: vendedorId,
     cliente_id: datos.cliente_id !== undefined && datos.cliente_id !== null ? Number(datos.cliente_id) : 0,
     tipo_documento: datos.tipo_documento || "Ticket",
     metodo_pago: datos.metodo_pago || "EFECTIVO",

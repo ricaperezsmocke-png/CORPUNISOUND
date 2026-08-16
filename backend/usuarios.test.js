@@ -317,3 +317,59 @@ test("el freno de fuerza bruta cuenta bajo la MISMA clave que usa el login para 
     assert.strictEqual(estaBloqueado(store, v).bloqueado, true, `el bloqueo debe aplicar también a "${v}"`);
   }
 });
+
+// ---------- La liga con el catálogo de vendedores ----------
+
+test("mandar vendedor_id null DESLIGA la cuenta de su vendedor", async () => {
+  // actualizarUsuario distingue con cuidado `undefined` (no tocar) de `null`
+  // (desligar), y nada lo ejercitaba.
+  const DB = construirDBPrueba();
+  DB.pos = { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }] };
+  DB.admin.usuarios.push({
+    id: 70, nombre: "Ana", usuario: "ana", password_hash: "x",
+    rol_id: 3, sucursal_id: 1, vendedor_id: 1, activo: true,
+  });
+
+  const r = await actualizarUsuario(DB, 70, { vendedor_id: null });
+  assert.strictEqual(r.vendedor_id, null);
+});
+
+test("omitir vendedor_id CONSERVA la liga anterior", async () => {
+  const DB = construirDBPrueba();
+  DB.pos = { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }] };
+  DB.admin.usuarios.push({
+    id: 71, nombre: "Ana", usuario: "ana2", password_hash: "x",
+    rol_id: 3, sucursal_id: 1, vendedor_id: 1, activo: true,
+  });
+
+  const r = await actualizarUsuario(DB, 71, { nombre: "Ana María" });
+  assert.strictEqual(r.vendedor_id, 1, "cambiar el nombre no debe desligarla");
+});
+
+test("no se puede ligar a un vendedor de otra sucursal al EDITAR", async () => {
+  const DB = construirDBPrueba();
+  DB.pos = { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }] };
+  DB.admin.usuarios.push({
+    id: 72, nombre: "Pedro", usuario: "pedro", password_hash: "x",
+    rol_id: 3, sucursal_id: 4, vendedor_id: null, activo: true,
+  });
+
+  await assert.rejects(
+    () => actualizarUsuario(DB, 72, { vendedor_id: 1 }),
+    /otra sucursal/i,
+  );
+});
+
+test("mover la cuenta de sucursal y de vendedor a la vez valida el resultado FINAL", async () => {
+  // Si se valida contra la sucursal vieja, este cambio legítimo se rechazaría.
+  const DB = construirDBPrueba();
+  DB.pos = { vendedores: [{ id: 9, nombre: "María", sucursal_id: 2 }] };
+  DB.admin.usuarios.push({
+    id: 73, nombre: "María", usuario: "maria2", password_hash: "x",
+    rol_id: 3, sucursal_id: 1, vendedor_id: null, activo: true,
+  });
+
+  const r = await actualizarUsuario(DB, 73, { sucursal_id: 2, vendedor_id: 9 });
+  assert.strictEqual(r.vendedor_id, 9);
+  assert.strictEqual(r.sucursal_id, 2);
+});

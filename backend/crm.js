@@ -48,12 +48,28 @@ function calcularScore(compras) {
   return Math.round(Math.min(100, Math.min(40, total / 500) + Math.min(30, frecuencia * 10) + recencia * 0.3));
 }
 
+/**
+ * Segmento de un cliente a partir de la fecha de su última compra.
+ *
+ * Se expone aparte de `calcularSegmento` para que quien ya tiene esa fecha no
+ * tenga que reconstruir el historial completo solo para llegar a ella
+ * (gerenteVentas.js lo hace en un recorrido; ver el comentario allá). El
+ * parámetro `hoyLocal` permite fijar el día: sin él, el resultado depende del
+ * reloj de la máquina y las pruebas dejan de ser reproducibles — una prueba de
+ * Gerencia de Ventas se iba a poner roja sola el 10 de septiembre de 2026.
+ */
+function segmentoPorUltimaCompra(ultimaFecha, hoyLocal = hoy()) {
+  if (!ultimaFecha) return "inactivo";
+  const f = ultimaFecha.length > 10 ? ultimaFecha.slice(0, 10) : ultimaFecha;
+  const referencia = hoyLocal.length > 10 ? fechaLocal(hoyLocal) : hoyLocal;
+  const d = Math.floor((new Date(referencia) - new Date(f)) / 86400000);
+  return d <= 30 ? "activo" : d <= 90 ? "en_riesgo" : "inactivo";
+}
+
 /** Segmento de valor según qué tan reciente fue su última compra */
 function calcularSegmento(compras) {
   const ultima = compras.length ? compras[compras.length - 1].fecha : null;
-  if (!ultima) return "inactivo";
-  const d = diasDesde(ultima);
-  return d <= 30 ? "activo" : d <= 90 ? "en_riesgo" : "inactivo";
+  return segmentoPorUltimaCompra(ultima);
 }
 
 /** Alertas automáticas de seguimiento */
@@ -181,11 +197,27 @@ function rankingVendedores(DB, alcance) {
   return vendedores.map((v) => {
     const cs = clientes.filter((c) => c.vendedor_asignado_id === v.id);
     const ventas = cs.reduce((a, c) => a + c.compras.reduce((b, p) => b + p.monto, 0), 0);
-    return { vendedor_id: v.id, nombre: v.nombre, clientes: cs.length, ventas, convertidos: cs.filter((c) => c.estado === "compro").length };
-  }).sort((a, b) => b.ventas - a.ventas);
+    return {
+      vendedor_id: v.id, nombre: v.nombre, clientes: cs.length, ventas,
+      activo: v.activo !== false,
+      convertidos: cs.filter((c) => c.estado === "compro").length,
+    };
+  })
+    // Un vendedor desactivado se cae del ranking SOLO si ya no tiene clientes
+    // asignados. Si todavía los tiene, se queda: sacarlo haría que la suma del
+    // ranking no cuadre con el total de la sucursal, y Victor vería un hueco
+    // sin explicación. Lo que se evita es el renglón en ceros de alguien que
+    // ya se fue y a quien ya le reasignaron su cartera.
+    .filter((r) => r.activo || r.clientes > 0)
+    .sort((a, b) => b.ventas - a.ventas);
 }
 
 module.exports = {
+  // calcularSegmento se exporta para que gerenteVentas.js decida qué cliente
+  // está "en riesgo" con la MISMA regla que ve Victor en el CRM. Reimplementarla
+  // allá habría dejado dos definiciones de "cliente en riesgo" que se separan
+  // en cuanto alguien toque una.
+  calcularSegmento, segmentoPorUltimaCompra,
   comprasDeCliente, listarClientesCRM, obtenerClienteCRM, cambiarEstadoCliente,
   registrarContacto, listarContactos, resumenPorSucursal, rankingVendedores,
   obtenerSeguimientosPostventaPendientes,

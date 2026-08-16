@@ -78,6 +78,10 @@ function sembrarRolesIniciales(DB) {
       "crear_cliente", "cambiar_estado_cliente", "registrar_contacto_cliente",
       "ver_lista_ventas", "mostrar_detalle_venta", "usar_asistente_ia",
       "realizar_corte_caja",
+      // Ver SU objetivo de venta y SUS tareas. Mismo criterio que
+      // usar_asistente_ia: es una herramienta de su propio trabajo diario.
+      // NO se incluye editar_objetivos_venta: nadie se fija su propia meta.
+      "usar_gerente_ventas",
     ],
     modulos: ["pos", "corte", "crm"],
   });

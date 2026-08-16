@@ -58,6 +58,56 @@ function listarUsuarios(DB) {
   return DB.admin.usuarios.map(({ password_hash, ...resto }) => resto);
 }
 
+/**
+ * Valida la liga con el catálogo de vendedores (Gerencia de Ventas).
+ *
+ * Sin esto se aceptaba cualquier número: un `vendedor_id` inexistente dejaba a
+ * la persona con la pantalla EN BLANCO —sin aviso, sin error, un div vacío—
+ * porque el componente cree que sí está ligada y el tablero nunca carga. Y un
+ * `vendedor_id` de otra sucursal dejaba a una cuenta de Palenque viendo el
+ * tablero de una vendedora de Ocosingo, que es justo lo que el módulo entero
+ * existe para impedir.
+ *
+ * @returns el id ya normalizado, o null si la cuenta no participa
+ */
+function validarVendedorId(DB, valor, sucursalDeLaCuenta, idCuentaQueSeEdita = null) {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const id = Number(valor);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("El vendedor seleccionado no es válido");
+  }
+  const vendedor = (DB.pos?.vendedores || []).find((v) => v.id === id);
+  if (!vendedor) {
+    throw new Error("Ese vendedor no existe en el catálogo");
+  }
+  if (typeof valor === "boolean") throw new Error("El vendedor seleccionado no es válido");
+  // Ligar a alguien desactivado deja un estado del que no se sale por el camino
+  // previsto: el vendedor queda `activo: false` con una cuenta viva y un tablero
+  // funcional, y `desactivarVendedor` ya no lo puede tocar porque rechaza
+  // mientras haya cuenta ligada.
+  if (vendedor.activo === false) {
+    throw new Error(`${vendedor.nombre} está desactivado; reactívalo primero en Roles y Personal → Vendedores`);
+  }
+  if (Number(vendedor.sucursal_id) !== Number(sucursalDeLaCuenta)) {
+    throw new Error(
+      `${vendedor.nombre} es vendedor de otra sucursal; elige uno de la misma sucursal que la cuenta`
+    );
+  }
+  // UNA cuenta por vendedor. Sin esto, dos cuentas ligadas al mismo vendedor
+  // comparten tablero: la segunda persona ve la meta, el avance y los clientes
+  // de la primera, y puede cerrar sus tareas -- el aislamiento que este modulo
+  // existe para proteger, roto por un error de captura y sin ningun aviso.
+  const yaLigada = DB.admin.usuarios.find(
+    (u) => u.vendedor_id === id && u.id !== Number(idCuentaQueSeEdita)
+  );
+  if (yaLigada) {
+    throw new Error(
+      `La cuenta "${yaLigada.usuario}" ya está ligada a ${vendedor.nombre}; cada vendedor puede tener una sola cuenta`
+    );
+  }
+  return id;
+}
+
 async function crearUsuario(DB, datos) {
   if (!datos.nombre || !datos.nombre.trim()) throw new Error("El nombre es obligatorio");
   if (!datos.usuario || !datos.usuario.trim()) throw new Error("El usuario (para iniciar sesión) es obligatorio");
@@ -75,6 +125,11 @@ async function crearUsuario(DB, datos) {
     password_hash: await hashearPassword(datos.password),
     rol_id: Number(datos.rol_id),
     sucursal_id: Number(datos.sucursal_id) || 1,
+    // Liga con el catálogo DB.pos.vendedores (Gerencia de Ventas). null = esta
+    // cuenta no participa del programa de objetivos, que es el comportamiento
+    // de siempre. Es un dato administrativo: lo pone quien da de alta al
+    // personal, nunca la propia persona.
+    vendedor_id: validarVendedorId(DB, datos.vendedor_id, Number(datos.sucursal_id) || 1),
     activo: true,
   };
   DB.admin.usuarios.push(nuevo);
@@ -87,11 +142,34 @@ async function actualizarUsuario(DB, id, datos) {
   if (idx === -1) throw new Error("Usuario no encontrado");
   if (datos.password && datos.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres");
 
+  // El vendedor se valida contra la sucursal QUE VA A QUEDAR, no la anterior:
+  // si se mueve la cuenta de tienda y de vendedor en la misma edición, lo que
+  // debe cuadrar es el resultado final.
+  const sucursalFinal = datos.sucursal_id !== undefined
+    ? Number(datos.sucursal_id)
+    : DB.admin.usuarios[idx].sucursal_id;
+
   DB.admin.usuarios[idx] = {
     ...DB.admin.usuarios[idx],
     nombre: datos.nombre ?? DB.admin.usuarios[idx].nombre,
     rol_id: datos.rol_id !== undefined ? Number(datos.rol_id) : DB.admin.usuarios[idx].rol_id,
     sucursal_id: datos.sucursal_id !== undefined ? Number(datos.sucursal_id) : DB.admin.usuarios[idx].sucursal_id,
+    // Se acepta null explícito para DESLIGAR una cuenta de su vendedor (por eso
+    // se distingue `undefined` de `null` en vez de usar `||`).
+    // Se revalida también cuando SOLO cambia la sucursal, aunque el cuerpo no
+    // traiga `vendedor_id`: el modal de Personal manda la sucursal sin la liga,
+    // así que mover a alguien de tienda conservaba en silencio un vendedor de
+    // la tienda vieja. Su tablero seguía contando las ventas de allá, lo que
+    // vendiera aquí no le contaba a nadie, y de rebote el vendedor quedaba
+    // imposible de editar desde el catálogo — cualquier PUT chocaba contra el
+    // guard de "la cuenta pertenece a otra sucursal", sin nada que dijera que
+    // la salida es desligar la cuenta en Personal.
+    vendedor_id:
+      datos.vendedor_id !== undefined
+        ? validarVendedorId(DB, datos.vendedor_id, sucursalFinal, Number(id))
+        : (DB.admin.usuarios[idx].vendedor_id != null && datos.sucursal_id !== undefined
+            ? validarVendedorId(DB, DB.admin.usuarios[idx].vendedor_id, sucursalFinal, Number(id))
+            : (DB.admin.usuarios[idx].vendedor_id ?? null)),
     activo: datos.activo !== undefined ? !!datos.activo : DB.admin.usuarios[idx].activo,
   };
   if (datos.password) {
@@ -125,6 +203,7 @@ async function iniciarSesion(DB, usuario, password) {
 }
 
 module.exports = {
+  validarVendedorId,
   listarUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario,
   esAccionSobreSiMismo, iniciarSesion, normalizarUsuario, usuariosQueChocanAlNormalizar,
 };
