@@ -32,9 +32,24 @@ function listarCondiciones(DB, sucursal_id = 1) {
   return DB.pos.condiciones_pago.filter((c) => c.sucursal_id === sucursal_id);
 }
 
-function actualizarCondicion(DB, id, datos) {
+/**
+ * Edita el descuento de una forma de pago. `alcance` NO es opcional de hecho:
+ * sin él, cualquiera con `editar_configuracion_pos` podía cambiar el descuento
+ * de OTRA sucursal con solo conocer el id — y los ids son secuenciales.
+ *
+ * Lo que evita, comprobado: el gerente de Ocosingo le ponía 99% de descuento en
+ * efectivo a Yajalón, y cada venta de esa tienda se cobraba al 1%.
+ *
+ * Mismo mensaje para "no existe" y "es de otra tienda", igual que en el resto
+ * del sistema: no se confirma que el registro ajeno exista.
+ */
+function actualizarCondicion(DB, id, datos, alcance) {
   const idx = DB.pos.condiciones_pago.findIndex((c) => c.id === Number(id));
   if (idx === -1) throw new Error("Condición de pago no encontrada");
+  const condicion = DB.pos.condiciones_pago[idx];
+  const dentro = !alcance || alcance.verTodas
+    || Number(condicion.sucursal_id) === Number(alcance.sucursalId);
+  if (!dentro) throw new Error("Condición de pago no encontrada");
   DB.pos.condiciones_pago[idx] = {
     ...DB.pos.condiciones_pago[idx],
     descuento_pct: datos.descuento_pct !== undefined ? Number(datos.descuento_pct) : DB.pos.condiciones_pago[idx].descuento_pct,

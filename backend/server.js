@@ -1913,12 +1913,25 @@ app.get("/api/respaldos/:id/descargar", async (req, res) => {
 });
 
 // ---------- Condiciones por forma de pago (configurable por sucursal) ----------
+// El alcance sale del TOKEN, no del `?sucursal_id=`. Antes se leía del query:
+// src/api.js inyecta ese parámetro desde localStorage en TODA llamada, así que
+// ese valor ERA la autorización — una cajera de Ocosingo listaba las formas de
+// pago de Yajalón con solo cambiar el número en la barra de direcciones. Era la
+// única ruta del sistema que caía en esa trampa.
 app.get("/api/condiciones-pago", requiereLogin, (req, res) => {
-  const sucursal_id = req.query.sucursal_id ? Number(req.query.sucursal_id) : 1;
+  const alcance = resolverAlcance(req);
+  // Sin sucursal elegida no se inventa la 1: antes el `else 1` le enseñaba
+  // Ocosingo a cualquiera que mandara un valor inválido.
+  const sucursal_id = alcance.verTodas
+    ? (req.query.sucursal_id ? Number(req.query.sucursal_id) : null)
+    : alcance.sucursalId;
+  if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
+    return res.json([]);
+  }
   res.json(listarCondiciones(DB, sucursal_id));
 });
 app.put("/api/condiciones-pago/:id", requiereLogin, requierePermiso("editar_configuracion_pos", resolverPermisosDeRol), (req, res) => {
-  try { res.json(actualizarCondicion(DB, req.params.id, req.body)); }
+  try { res.json(actualizarCondicion(DB, req.params.id, req.body, resolverAlcance(req))); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

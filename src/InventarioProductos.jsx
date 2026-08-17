@@ -469,7 +469,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                   <div className="font-semibold">${Number(seleccionado.costo).toFixed(2)}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-xs text-slate-400"><MapPin size={12} /> Sucursal Centro</div>
+              <div className="flex items-center gap-1 text-xs text-slate-400"><MapPin size={12} /> Ubicación en tienda</div>
               <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
                 <span className="text-sm text-slate-500">Cantidad Disponible</span>
                 <span className={`text-xl font-bold ${seleccionado.existencia < seleccionado.existencia_minima ? "text-red-600" : "text-emerald-700"}`}>

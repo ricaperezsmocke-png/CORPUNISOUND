@@ -253,7 +253,11 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   const cargarCondicionesPago = useCallback(async () => {
     try {
-      const r = await apiFetch(`/condiciones-pago?sucursal_id=1`);
+      // Sin `?sucursal_id=1` clavado: el backend resuelve la sucursal del
+      // token, y apiFetch ya manda la del encabezado para quien puede ver
+      // todas. Con el 1 fijo, las otras cinco tiendas cobraban con los
+      // descuentos de Ocosingo y no había forma de configurar los suyos.
+      const r = await apiFetch(`/condiciones-pago`);
       if (r.ok) {
         const data = await r.json();
         setCondicionesPago(data);
@@ -1133,7 +1137,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           ) : (
             <>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-400">Sucursal Centro — descuentos configurables por forma de pago</span>
+                <span className="text-xs text-slate-400">Descuentos configurables por forma de pago, para esta sucursal</span>
                 {puede("editar_configuracion_pos") && (
                   <button onClick={() => { setModal(null); setVista("configuracion"); }} className="text-xs text-blue-700 flex items-center gap-1 hover:underline">
                     <SlidersHorizontal size={12} /> Editar en Configuración

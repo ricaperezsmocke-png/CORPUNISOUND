@@ -96,6 +96,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const [modalHistorial, setModalHistorial] = useState(null);
   const [modalGastos, setModalGastos] = useState(null); // garantía o null
   const [gastos, setGastos] = useState([]);
+  const [errorGastos, setErrorGastos] = useState(null);
   const [formGasto, setFormGasto] = useState(FORM_GASTO);
   const [archivoGasto, setArchivoGasto] = useState(null); // File | null
 
@@ -202,13 +203,46 @@ export default function Garantias({ onVolver, permisos, usuario }) {
     setModalGastos(g);
     setFormGasto(FORM_GASTO);
     setArchivoGasto(null);
-    try {
-      const r = await apiFetch(`/garantias/${g.id}/gastos?sucursal_id=todas`);
-      setGastos(await r.json());
-    } catch { setGastos([]); mostrarAviso("❌ No se pudieron cargar los gastos"); }
+    await cargarGastosDe(g.id);
   };
 
-  const totalGastosModal = gastos.reduce((s, x) => s + Number(x.monto || 0), 0);
+  /**
+   * Carga los gastos de una garantía. ÚNICO camino: antes había tres copias de
+   * este `fetch` y ninguna comprobaba `r.ok`.
+   *
+   * Por qué importa tanto: cuando la garantía ya no existe —restauraste un
+   * respaldo, o alguien más la cerró mientras tenías la lista abierta— la ruta
+   * responde `{error: "..."}`. Ese objeto entraba en `gastos`, y el
+   * `gastos.reduce(...)` del cuerpo del componente reventaba AL DIBUJAR,
+   * dejando la pantalla en blanco y perdiendo lo capturado.
+   *
+   * El `catch` de antes no podía atraparlo: el error no ocurría al pedir los
+   * datos, ocurría después, al pintar. Por eso aquí se valida que lo recibido
+   * sea de verdad una lista antes de dejarlo entrar al estado.
+   */
+  const cargarGastosDe = async (garantiaId) => {
+    try {
+      const r = await apiFetch(`/garantias/${garantiaId}/gastos?sucursal_id=todas`);
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !Array.isArray(data)) {
+        throw new Error(data?.error || "No se pudieron cargar los gastos");
+      }
+      setGastos(data);
+      setErrorGastos(null);
+    } catch (e) {
+      setGastos([]);
+      // Se distingue "no hay gastos" de "no se pudieron cargar": una lista
+      // vacía por fallo se ve idéntica a una lista vacía de verdad.
+      setErrorGastos(e.message || "No se pudieron cargar los gastos");
+    }
+  };
+
+  // `Array.isArray` no sobra aunque el cargador ya lo valide: este cálculo
+  // corre en CADA render, y si algún día vuelve a entrar algo que no sea lista,
+  // el precio es la pantalla completa en blanco.
+  const totalGastosModal = Array.isArray(gastos)
+    ? gastos.reduce((s, x) => s + Number(x.monto || 0), 0)
+    : 0;
 
   const agregarGastoUI = async () => {
     const monto = Number(formGasto.monto);
@@ -230,8 +264,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       mostrarAviso("Gasto agregado");
       setFormGasto(FORM_GASTO);
       setArchivoGasto(null);
-      const rl = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`);
-      setGastos(await rl.json());
+      await cargarGastosDe(modalGastos.id);
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
@@ -243,8 +276,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Gasto eliminado");
-      const rl = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`);
-      setGastos(await rl.json());
+      await cargarGastosDe(modalGastos.id);
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
@@ -505,7 +537,12 @@ export default function Garantias({ onVolver, permisos, usuario }) {
             </div>
 
             <div className="border border-slate-200 rounded divide-y divide-slate-100 max-h-56 overflow-y-auto">
-              {gastos.length === 0 && <p className="text-slate-400 text-sm text-center py-6">Sin gastos registrados</p>}
+              {errorGastos && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 my-2">
+                  {errorGastos} — cierra y vuelve a abrir esta garantía, o recarga la página.
+                </p>
+              )}
+              {!errorGastos && gastos.length === 0 && <p className="text-slate-400 text-sm text-center py-6">Sin gastos registrados</p>}
               {gastos.map((x) => (
                 <div key={x.id} className="flex items-center justify-between px-3 py-2 text-sm">
                   <div>
