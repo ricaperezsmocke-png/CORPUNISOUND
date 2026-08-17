@@ -23,6 +23,7 @@ process.env.DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "condpago-
 process.env.JWT_SECRET = process.env.JWT_SECRET || "secreto-de-pruebas";
 
 const app = require("./server");
+const { sembrarCuentas } = require("./testHelpers");
 const { firmarToken } = require("./auth");
 
 // Rol 2 = "Gerente de sucursal": tiene editar_configuracion_pos pero NO
@@ -35,6 +36,10 @@ let servidor = null;
 let base = "";
 
 before(async () => {
+  // Cuentas REALES que respaldan los tokens firmados arriba: desde que la
+  // sesión comprueba que la cuenta siga activa, un token de un usuario
+  // inexistente ya no sirve (ver auth.js).
+  sembrarCuentas(app, [{ id: 1, rol_id: 1, sucursal_id: 1 }, { id: 60, rol_id: 2, sucursal_id: 1 }, { id: 61, rol_id: 3, sucursal_id: 1 }]);
   await new Promise((listo) => { servidor = app.listen(0, listo); });
   base = `http://127.0.0.1:${servidor.address().port}`;
 });

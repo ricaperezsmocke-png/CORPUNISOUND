@@ -49,8 +49,8 @@ const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTar
 const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
 const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA } = require("./auth");
-const { consultarModulo } = require("./consultarModulo");
+const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA, configurarRevisionDeCuenta } = require("./auth");
+const { consultarModulo, tablasConsultables } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { sembrarCategoriasGastos } = require("./gastosCategorias");
 const { crearGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosDeGasto } = require("./gastos");
@@ -422,7 +422,10 @@ if (ESTE_PROCESO_ES_EL_SERVIDOR && necesitaImportarClavesSat(contarClavesSat()))
 }
 
 function listarModulosYTablas() {
-  return Object.entries(DB).map(([id, tablas]) => ({ id, tablas: Object.keys(tablas) }));
+  // Solo lo que el asistente PUEDE leer. Antes anunciaba todas las tablas del
+  // sistema —incluidas `admin.usuarios` y las cuentas de Drive y ML—, así que
+  // al modelo se le estaba diciendo dónde estaban las contraseñas.
+  return tablasConsultables(DB);
 }
 
 // ============================================================
@@ -511,6 +514,14 @@ Módulos y tablas disponibles: ${JSON.stringify(listarModulosYTablas())}`;
 // ============================================================
 const resolverPermisosDeRol = (rolId) => permisosDeRol(DB, rolId);
 
+// Desactivar o borrar una cuenta corta su sesión en la siguiente petición, en
+// vez de dejarla viva hasta 12 h. Ver requiereLogin en auth.js.
+configurarRevisionDeCuenta((usuarioId) => {
+  const cuenta = (DB.admin.usuarios || []).find((u) => u.id === Number(usuarioId));
+  if (!cuenta || cuenta.activo === false) return null;
+  return { rol_id: cuenta.rol_id };
+});
+
 /**
  * Aviso de arranque: Gerencia de Ventas invisible para todo el mundo.
  *
@@ -571,7 +582,9 @@ app.use((req, res, next) => {
   });
 });
 
-app.get("/api/salud", (req, res) => res.json({ ok: true, modulos: listarModulosYTablas() }));
+// Sin la lista de módulos: esta ruta es PÚBLICA (la usa el monitor de Render)
+// y estaba entregándole a internet el mapa completo de tablas del sistema.
+app.get("/api/salud", (req, res) => res.json({ ok: true }));
 
 app.get("/api/predicciones", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -634,7 +647,8 @@ app.get("/api/productos", requiereLogin, (req, res) => {
 
 app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try {
-    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    const permisosDeQuienPregunta = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const alcance = alcanceSucursal(req, permisosDeQuienPregunta);
     const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de dar de alta un producto — su existencia inicial tiene que quedar en una tienda." });
@@ -1973,7 +1987,7 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
           if (bloque.name === "predecir_demanda") {
             resultado = predecirDemanda(DB, bloque.input);
           } else {
-            resultado = consultarModulo(bloque.input, alcance, DB);
+            resultado = consultarModulo(bloque.input, alcance, DB, permisosDeQuienPregunta);
           }
         } catch (e) {
           resultado = { error: e.message };
@@ -2195,4 +2209,9 @@ if (ESTE_PROCESO_ES_EL_SERVIDOR) {
 // Se exporta la app para que las pruebas puedan levantarla en un puerto
 // efímero y pegarle a las rutas REALES (con sus middlewares y sus guardas),
 // en vez de reimplementar a mano lo que hace cada ruta.
+// El DB se expone para las PRUEBAS, que necesitan sembrar cuentas reales: desde
+// que la sesión comprueba que la cuenta siga activa, un token firmado a mano
+// para un usuario inexistente ya no sirve — que es justo lo que se quería.
+app.DB = DB;
+
 module.exports = app;

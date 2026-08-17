@@ -30,6 +30,7 @@ process.env.RESPALDO_LLAVE = process.env.RESPALDO_LLAVE || "a".repeat(64);
 
 const { PALABRA_CONFIRMACION } = require("./respaldos");
 const app = require("./server");
+const { sembrarCuentas } = require("./testHelpers");
 const { firmarToken } = require("./auth");
 const { listarPermisos } = require("./permisosCatalogo");
 const mantenimiento = require("./mantenimiento");
@@ -67,6 +68,10 @@ let servidor = null;
 let base = "";
 
 before(async () => {
+  // Cuentas REALES que respaldan los tokens firmados arriba: desde que la
+  // sesión comprueba que la cuenta siga activa, un token de un usuario
+  // inexistente ya no sirve (ver auth.js).
+  sembrarCuentas(app, [{ id: 1, rol_id: 1, sucursal_id: 1 }, { id: 2, rol_id: 2, sucursal_id: 1 }, { id: 3, rol_id: 3, sucursal_id: 1 }]);
   await new Promise((listo) => {
     servidor = app.listen(0, listo); // puerto efímero: no choca con el backend de desarrollo
   });

@@ -74,6 +74,14 @@ function sesionesValidasDesde() {
 }
 
 /** Middleware: exige un JWT válido, y adjunta req.usuarioToken con lo que trae el token */
+/**
+ * Comprobación de que la cuenta SIGUE existiendo y activa. La inyecta server.js
+ * al arrancar, porque auth.js no conoce el DB y las 142 rutas ya llaman a
+ * `requiereLogin` sin parámetros.
+ */
+let revisarCuenta = null;
+function configurarRevisionDeCuenta(fn) { revisarCuenta = fn; }
+
 function requiereLogin(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
@@ -86,6 +94,31 @@ function requiereLogin(req, res, next) {
       return res.status(401).json({
         error: "Se restauró un respaldo del sistema. Vuelve a iniciar sesión.",
       });
+    }
+    /**
+     * El token dura 12 horas, así que hasta aquí desactivar a una persona NO la
+     * sacaba del sistema: comprobado, su sesión seguía abriendo productos,
+     * ventas y clientes. Se corre a alguien enojado a las 9 de la mañana y
+     * hasta las 9 de la noche podía seguir entrando desde su casa.
+     *
+     * Se consulta el estado VIVO en cada petición. Es una búsqueda en un
+     * arreglo de unas decenas de usuarios que ya está en memoria: no se nota.
+     *
+     * Y de paso se refrescan `rol_id` y `sucursal_id` desde el DB. El token los
+     * lleva congelados, así que cambiarle el rol a alguien no surtía efecto
+     * hasta que volviera a entrar — y como los ids de rol se reciclan, podía
+     * despertar con los permisos de otro rol. Es el mismo defecto que ya se
+     * había visto al restaurar un respaldo.
+     */
+    if (revisarCuenta) {
+      const cuenta = revisarCuenta(datos.id);
+      if (!cuenta) {
+        return res.status(401).json({ error: "Tu cuenta ya no está activa. Habla con quien administra el sistema." });
+      }
+      // Se refresca SOLO el rol. La sucursal NO: el login firma el registro del
+      // usuario, así que la del token ya es la de la base — sobrescribirla no
+      // aportaría nada y sí abriría la puerta a romper el alcance por sorpresa.
+      datos.rol_id = cuenta.rol_id;
     }
     req.usuarioToken = datos;
     next();
@@ -316,6 +349,7 @@ function mensajePorMotivoUbicacion(motivo) {
 module.exports = {
   hashearPassword, verificarPassword, firmarToken, verificarToken, requiereLogin, requierePermiso,
   requiereAlcanceGlobal, invalidarSesionesAnterioresA, sesionesValidasDesde,
+  configurarRevisionDeCuenta,
   alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
   sucursalDeEscritura, sucursalDelFormulario,
   distanciaMetros, validarUbicacionLogin, mensajePorMotivoUbicacion,
