@@ -112,17 +112,38 @@ async function crearUsuario(DB, datos) {
   if (!datos.nombre || !datos.nombre.trim()) throw new Error("El nombre es obligatorio");
   if (!datos.usuario || !datos.usuario.trim()) throw new Error("El usuario (para iniciar sesión) es obligatorio");
   if (!datos.password || datos.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres");
-  // Se compara normalizado: dos cuentas que solo difieren en mayúsculas o
-  // espacios serían indistinguibles al entrar (el login busca normalizado y
-  // se quedaría siempre con la primera).
-  if (DB.admin.usuarios.some((u) => normalizarUsuario(u.usuario) === normalizarUsuario(datos.usuario))) throw new Error("Ese nombre de usuario ya existe");
   if (!datos.rol_id) throw new Error("Debes asignar un rol");
+
+  /**
+   * El hash se calcula ANTES de mirar el DB, y no en medio del registro.
+   *
+   * bcrypt tarda ~100 ms A PROPÓSITO, y ese `await` cedía el hilo justo entre
+   * la comprobación de "ese usuario ya existe" y el `push`. Dos altas
+   * simultáneas —un doble clic en "Guardar" basta— pasaban las DOS el chequeo,
+   * calculaban el MISMO `siguienteId`, y quedaban dos cuentas con el mismo id y
+   * el mismo nombre de usuario.
+   *
+   * Y la segunda era un fantasma: el login se queda siempre con la primera, así
+   * que nunca podía entrar; y como el token lleva el `id`, todo lo que resuelve
+   * por id —editar, desactivar, eliminar— tocaba solo la primera. Indesactivable
+   * e inborrable desde la interfaz.
+   *
+   * De aquí al `push` NO PUEDE HABER NINGÚN `await`. Es la misma lección que
+   * dejó `reservarSiguienteId` en gerenteVentas.js, por el bug de folios
+   * duplicados de Gastos.
+   */
+  const hash = await hashearPassword(datos.password);
+
+  // ---- Sección crítica: síncrona de aquí hasta el push ----
+  // Se compara normalizado: dos cuentas que solo difieren en mayúsculas o
+  // espacios serían indistinguibles al entrar.
+  if (DB.admin.usuarios.some((u) => normalizarUsuario(u.usuario) === normalizarUsuario(datos.usuario))) throw new Error("Ese nombre de usuario ya existe");
 
   const nuevo = {
     id: siguienteId(DB.admin.usuarios),
     nombre: datos.nombre.trim(),
     usuario: datos.usuario.trim(),
-    password_hash: await hashearPassword(datos.password),
+    password_hash: hash,
     rol_id: Number(datos.rol_id),
     sucursal_id: Number(datos.sucursal_id) || 1,
     // Liga con el catálogo DB.pos.vendedores (Gerencia de Ventas). null = esta

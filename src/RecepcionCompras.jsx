@@ -79,6 +79,11 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const [confirmadosXml, setConfirmadosXml] = useState({}); // { [indiceConcepto]: true } — confirmación explícita del usuario
   const [sugeridosXml, setSugeridosXml] = useState({}); // { [indiceConcepto]: true } — el match ORIGINAL fue auto-sugerido por clave SAT
   const [cargandoXml, setCargandoXml] = useState(false);
+  const [registrando, setRegistrando] = useState(false);
+  /** Candado síncrono contra el doble clic: en ref y no en estado porque React
+   *  agrupa las actualizaciones y dos clics simultáneos leerían ambos `false`.
+   *  Duplicar una recepción mete la mercancía dos veces al inventario. */
+  const recepcionEnCurso = useRef(false);
   const [uuidCfdiActual, setUuidCfdiActual] = useState(null);
   const [productoIdsDeXml, setProductoIdsDeXml] = useState([]); // producto_ids que vinieron de la última importación XML confirmada
   const [iaParseado, setIaParseado] = useState(null); // resultado de importar-ia: { conceptos: [...] }
@@ -331,6 +336,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     if (usuario?.ver_todas && !sucursalOrigenId) return mostrarAviso("Selecciona la sucursal que recibe");
     if (!proveedorId) return mostrarAviso("Selecciona un proveedor");
     if (renglones.length === 0) return mostrarAviso("Agrega al menos un producto");
+    if (recepcionEnCurso.current) return;
+    recepcionEnCurso.current = true;
+    setRegistrando(true);
     try {
       const payload = {
         proveedor_id: proveedorId,
@@ -354,6 +362,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       setTab("historial");
     } catch (e) {
       mostrarAviso("❌ " + e.message);
+    } finally {
+      recepcionEnCurso.current = false;
+      setRegistrando(false);
     }
   };
 
@@ -395,7 +406,11 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       else if (e.key === "F8" && !dentroDeModal) { e.preventDefault(); setModal("importarXml"); }
       else if (e.key === "F9" && !dentroDeModal) { e.preventDefault(); setModal("importarIa"); }
       else if (e.key === "F10") { e.preventDefault(); mostrarAviso("Pedido — próximamente"); }
-      else if (e.key === "Escape") { if (dentroDeModal) setModal(null); else registrarRecepcion(); }
+      // ESC NO registra la recepción. Es la tecla universal de "sácame de
+      // aquí": quien la presiona para salirse de la pantalla estaba dando
+      // entrada a la mercancía y creando la compra, sin ninguna confirmación.
+      // Fuera de un modal, ahora limpia la selección y ya.
+      else if (e.key === "Escape") { if (dentroDeModal) setModal(null); else setFilaSeleccionada(null); }
       else if (e.altKey && !dentroDeModal) {
         const k = e.key.toLowerCase();
         if (k === "d") { e.preventDefault(); mostrarAviso("Tipo de documento — próximamente"); }
@@ -487,7 +502,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
           <div className="flex flex-1 min-h-0">
             <div className="w-24 bg-white border-r border-slate-300 flex flex-col shrink-0 overflow-y-auto">
-              <button onClick={registrarRecepcion} className="flex flex-col items-center gap-1 py-4 border-b border-slate-200 hover:bg-emerald-50">
+              <button onClick={registrarRecepcion} disabled={registrando} className="flex flex-col items-center gap-1 py-4 border-b border-slate-200 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <div className="bg-emerald-600 text-white rounded-full w-9 h-9 flex items-center justify-center font-bold text-xs">OK</div>
                 <span className="text-[10px] text-slate-600">Cerrar<br />(ESC)</span>
               </button>

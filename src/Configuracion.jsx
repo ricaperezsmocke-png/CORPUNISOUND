@@ -54,7 +54,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
     setCargando(true);
     try {
       const [rConf, rCond] = await Promise.all([
-        apiFetch("/configuracion"), apiFetch("/condiciones-pago?sucursal_id=1"),
+        apiFetch("/configuracion"), apiFetch("/condiciones-pago"),
       ]);
       if (rConf.ok) setConfig(await rConf.json());
       if (rCond.ok) setCondicionesPago(await rCond.json());

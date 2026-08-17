@@ -86,4 +86,35 @@ function construirDBPrueba() {
   return DB;
 }
 
-module.exports = { construirDBPrueba };
+/**
+ * Siembra cuentas reales que respalden los tokens que una prueba firma a mano.
+ *
+ * Hace falta desde que `requiereLogin` comprueba que la cuenta siga existiendo
+ * y activa (ver auth.js): un token de un usuario que no está en la base ya no
+ * sirve, y eso es exactamente lo que se buscaba — desactivar a alguien tiene
+ * que cortarle la sesión. El efecto colateral es que las pruebas de ruta ya no
+ * pueden inventarse usuarios.
+ *
+ * @param {object} app  lo que devuelve require("./server") (trae `app.DB`)
+ * @param {Array}  cuentas  [{ id, nombre, rol_id, sucursal_id, activo }]
+ */
+function sembrarCuentas(app, cuentas) {
+  const usuarios = app.DB.admin.usuarios;
+  for (const c of cuentas) {
+    const yaEsta = usuarios.findIndex((u) => u.id === c.id);
+    const cuenta = {
+      id: c.id,
+      nombre: c.nombre || `Prueba ${c.id}`,
+      usuario: c.usuario || `prueba${c.id}`,
+      password_hash: "$2b$10$hashDePruebaQueNadieVaAUsarJamasParaEntrar",
+      rol_id: c.rol_id,
+      sucursal_id: c.sucursal_id,
+      vendedor_id: c.vendedor_id ?? null,
+      activo: c.activo !== false,
+    };
+    if (yaEsta >= 0) usuarios[yaEsta] = cuenta;
+    else usuarios.push(cuenta);
+  }
+}
+
+module.exports = { construirDBPrueba, sembrarCuentas };

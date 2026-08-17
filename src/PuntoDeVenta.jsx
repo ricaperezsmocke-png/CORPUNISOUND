@@ -103,6 +103,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [vista, setVista] = useState("venta"); // "venta" | "consultas" | "configuracion"
   const [config, setConfig] = useState(null);
   const [vendedorConfirmado, setVendedorConfirmado] = useState(false);
+  const [cobrando, setCobrando] = useState(false);
   const [productos, setProductos] = useState([]);
   const [cargandoProductos, setCargandoProductos] = useState(true);
   const [errorProductos, setErrorProductos] = useState(null);
@@ -150,6 +151,21 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [rapidoMotivo, setRapidoMotivo] = useState("");
 
   const inputCodigoRef = useRef(null);
+  /**
+   * Candado contra el doble clic al cobrar.
+   *
+   * Va en un `useRef` y NO en un `useState` porque React agrupa las
+   * actualizaciones de estado: dos clics en el mismo instante leerían ambos
+   * `cobrando === false` y las dos ventas saldrían igual. El ref se actualiza
+   * de forma síncrona, así que el segundo clic ya lo ve cerrado.
+   *
+   * Lo que evita, medido: un doble clic registraba DOS ventas, cobraba el
+   * doble y descontaba el inventario dos veces. Con el internet lento de una
+   * tienda no es hipotético — la cajera no ve respuesta y vuelve a apretar.
+   *
+   * `cobrando` (estado) existe solo para apagar el botón y decirlo en pantalla.
+   */
+  const cobroEnCurso = useRef(false);
 
   const mostrarAviso = (texto) => {
     setAviso(texto);
@@ -237,7 +253,11 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   const cargarCondicionesPago = useCallback(async () => {
     try {
-      const r = await apiFetch(`/condiciones-pago?sucursal_id=1`);
+      // Sin `?sucursal_id=1` clavado: el backend resuelve la sucursal del
+      // token, y apiFetch ya manda la del encabezado para quien puede ver
+      // todas. Con el 1 fijo, las otras cinco tiendas cobraban con los
+      // descuentos de Ocosingo y no había forma de configurar los suyos.
+      const r = await apiFetch(`/condiciones-pago`);
       if (r.ok) {
         const data = await r.json();
         setCondicionesPago(data);
@@ -435,47 +455,61 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       return mostrarAviso("El efectivo recibido es menor al total");
     }
 
-    let folioReal = folio;
+    // El candado se toma DESPUÉS de las validaciones: si faltaba el vendedor o
+    // el efectivo, el botón debe seguir vivo para el siguiente intento.
+    if (cobroEnCurso.current) return;
+    cobroEnCurso.current = true;
+    setCobrando(true);
 
-    if (!esCotizacion) {
-      try {
-        const r = await apiFetch("/ventas", {
-          method: "POST",
-          body: JSON.stringify({
-            cliente_id: cliente.id,
-            vendedor_id: vendedor.id,
-            // Sin sucursal_id: la venta se registra en la sucursal del
-            // encabezado (o en la del usuario si está amarrado). Antes iba un
-            // 1 fijo aquí y toda venta caía en Ocosingo.
-            tipo_documento: tipoDoc,
-            metodo_pago: condicionSeleccionada?.nombre || "EFECTIVO",
-            subtotal,
-            descuento: descuentoTotal,
-            total: totalConCondicion,
-            lineas: carrito.map((f) => ({
-              producto_id: f.esRapido ? null : f.producto_id,
-              descripcion: f.esRapido ? f.descripcion : undefined,
-              cantidad: f.cantidad,
-              precio_unitario: f.precioUnitario,
-              descuento_pct: f.descuentoPct,
-            })),
-          }),
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || "No se pudo registrar la venta");
-        folioReal = data.id;
-        cargarProductos();
-      } catch (e) {
-        mostrarAviso("❌ No se pudo cerrar la venta: " + e.message);
-        return;
+    try {
+      let folioReal = folio;
+
+      if (!esCotizacion) {
+        try {
+          const r = await apiFetch("/ventas", {
+            method: "POST",
+            body: JSON.stringify({
+              cliente_id: cliente.id,
+              vendedor_id: vendedor.id,
+              // Sin sucursal_id: la venta se registra en la sucursal del
+              // encabezado (o en la del usuario si está amarrado). Antes iba un
+              // 1 fijo aquí y toda venta caía en Ocosingo.
+              tipo_documento: tipoDoc,
+              metodo_pago: condicionSeleccionada?.nombre || "EFECTIVO",
+              subtotal,
+              descuento: descuentoTotal,
+              total: totalConCondicion,
+              lineas: carrito.map((f) => ({
+                producto_id: f.esRapido ? null : f.producto_id,
+                descripcion: f.esRapido ? f.descripcion : undefined,
+                cantidad: f.cantidad,
+                precio_unitario: f.precioUnitario,
+                descuento_pct: f.descuentoPct,
+              })),
+            }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || "No se pudo registrar la venta");
+          folioReal = data.id;
+          cargarProductos();
+        } catch (e) {
+          mostrarAviso("❌ No se pudo cerrar la venta: " + e.message);
+          return;
+        }
       }
-    }
 
-    mostrarAviso(`${esCotizacion ? "Cotización guardada" : "Venta cerrada — ticket enviado a impresión"} — Folio ${folioReal}`);
-    setFolio(folioReal + 1);
-    limpiarTicket();
-    setModal(null);
-    setEfectivoRecibido("");
+      mostrarAviso(`${esCotizacion ? "Cotización guardada" : "Venta cerrada — ticket enviado a impresión"} — Folio ${folioReal}`);
+      setFolio(folioReal + 1);
+      limpiarTicket();
+      setModal(null);
+      setEfectivoRecibido("");
+    } finally {
+      // En `finally` y no al final del camino feliz: el `return` del catch de
+      // arriba también tiene que soltar el candado, o un fallo de red dejaría
+      // la caja sin poder cobrar hasta recargar la página.
+      cobroEnCurso.current = false;
+      setCobrando(false);
+    }
   };
 
   // ---------- Clientes ----------
@@ -1103,7 +1137,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           ) : (
             <>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-400">Sucursal Centro — descuentos configurables por forma de pago</span>
+                <span className="text-xs text-slate-400">Descuentos configurables por forma de pago, para esta sucursal</span>
                 {puede("editar_configuracion_pos") && (
                   <button onClick={() => { setModal(null); setVista("configuracion"); }} className="text-xs text-blue-700 flex items-center gap-1 hover:underline">
                     <SlidersHorizontal size={12} /> Editar en Configuración
@@ -1164,8 +1198,12 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                     )}
                   </div>
                 )}
-                <button onClick={confirmarCobro} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded font-semibold">
-                  Confirmar cobro
+                <button
+                  onClick={confirmarCobro}
+                  disabled={cobrando}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {cobrando ? "Cobrando…" : "Confirmar cobro"}
                 </button>
               </>
             </>

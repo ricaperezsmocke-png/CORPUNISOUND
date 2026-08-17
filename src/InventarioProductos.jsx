@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus, Edit3, RefreshCw, Trash2, SlidersHorizontal, Copy, Printer,
   Search, ChevronLeft, ChevronRight, Camera, MapPin, X, Tag, Info
@@ -85,6 +85,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   const [ajusteCantidad, setAjusteCantidad] = useState("");
   const [ajusteMotivo, setAjusteMotivo] = useState("");
   const [cargandoImagen, setCargandoImagen] = useState(false);
+  const [ajustando, setAjustando] = useState(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2200); };
 
@@ -252,9 +253,22 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     setModal("ajustar");
   };
 
+  /**
+   * Candado contra el doble clic. En `useRef` y no en `useState` porque React
+   * agrupa las actualizaciones de estado: dos clics simultáneos leerían ambos
+   * `false` y la operación saldría dos veces. El ref cambia de inmediato.
+   * El estado de al lado solo apaga el botón y lo dice en pantalla.
+   */
+  const ajusteEnCurso = useRef(false);
+
   const confirmarAjuste = async () => {
     const cantidad = Number(ajusteCantidad);
     if (!cantidad) return mostrarAviso("Escribe una cantidad distinta de cero");
+    // Aplicado dos veces, el ajuste mueve la existencia al doble y deja el
+    // inventario mintiendo sin que nada lo delate.
+    if (ajusteEnCurso.current) return;
+    ajusteEnCurso.current = true;
+    setAjustando(true);
     try {
       const r = await apiFetch(`/productos/${seleccionado.id}/ajustar`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -265,6 +279,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       setModal(null);
       cargarTodo();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { ajusteEnCurso.current = false; setAjustando(false); }
   };
 
   const crearCategoriaRapida = async () => {
@@ -454,7 +469,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                   <div className="font-semibold">${Number(seleccionado.costo).toFixed(2)}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-xs text-slate-400"><MapPin size={12} /> Sucursal Centro</div>
+              <div className="flex items-center gap-1 text-xs text-slate-400"><MapPin size={12} /> Ubicación en tienda</div>
               <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
                 <span className="text-sm text-slate-500">Cantidad Disponible</span>
                 <span className={`text-xl font-bold ${seleccionado.existencia < seleccionado.existencia_minima ? "text-red-600" : "text-emerald-700"}`}>
@@ -645,7 +660,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               <Campo label="Motivo">
                 <input className={inputCls} value={ajusteMotivo} onChange={(e) => setAjusteMotivo(e.target.value)} placeholder="Recepción de mercancía, merma, conteo físico..." />
               </Campo>
-              <button type="button" onClick={confirmarAjuste} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Aplicar ajuste</button>
+              <button type="button" onClick={confirmarAjuste} disabled={ajustando} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold disabled:opacity-60 disabled:cursor-not-allowed">{ajustando ? "Aplicando…" : "Aplicar ajuste"}</button>
             </div>
           </div>
         </div>

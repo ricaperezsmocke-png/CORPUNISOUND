@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { X, DollarSign, Ban } from "lucide-react";
 import { apiFetch, sinSucursalElegida } from "./api";
 
@@ -28,6 +28,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   const [anticipoMonto, setAnticipoMonto] = useState("");
   const [anticipoForma, setAnticipoForma] = useState("EFECTIVO");
   const [guardando, setGuardando] = useState(false);
+  const [abonando, setAbonando] = useState(false);
 
   const [abonoActivoId, setAbonoActivoId] = useState(null);
   const [abonoMonto, setAbonoMonto] = useState("");
@@ -95,9 +96,22 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
     setAbonoForma("EFECTIVO");
   };
 
+  /**
+   * Candado contra el doble clic. En `useRef` y no en `useState` porque React
+   * agrupa las actualizaciones de estado: dos clics simultáneos leerían ambos
+   * `false` y la operación saldría dos veces. El ref cambia de inmediato.
+   * El estado de al lado solo apaga el botón y lo dice en pantalla.
+   */
+  const abonoEnCurso = useRef(false);
+
   const confirmarAbono = async (apartado) => {
     const monto = Number(abonoMonto);
     if (!monto || monto <= 0) return mostrarAviso("Captura un monto mayor a $0");
+    // Un abono duplicado acredita al cliente el doble de lo que pagó, y el
+    // corte del turno espera en el cajón un dinero que nunca entró.
+    if (abonoEnCurso.current) return;
+    abonoEnCurso.current = true;
+    setAbonando(true);
     try {
       // sucursal_id explícito (el del propio apartado): si se omite, apiFetch
       // inyecta la sucursal_activa del encabezado global (ver src/api.js) y el
@@ -116,6 +130,9 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
       cargarApartados();
     } catch (e) {
       mostrarAviso("❌ " + e.message);
+    } finally {
+      abonoEnCurso.current = false;
+      setAbonando(false);
     }
   };
 
@@ -243,7 +260,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
                                 {formasPago.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                               </select>
                             </div>
-                            <button type="button" onClick={() => confirmarAbono(a)} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded text-sm font-medium">Confirmar</button>
+                            <button type="button" onClick={() => confirmarAbono(a)} disabled={abonando} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed">{abonando ? "Registrando…" : "Confirmar"}</button>
                             <button type="button" onClick={() => setAbonoActivoId(null)} className="text-slate-500 text-sm px-2">Cancelar</button>
                           </div>
                         </td>

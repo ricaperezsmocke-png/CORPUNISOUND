@@ -25,6 +25,7 @@ export default function Login({ onIngreso }) {
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
+  const [errorSucursales, setErrorSucursales] = useState(null);
   const [cargando, setCargando] = useState(false);
 
   useEffect(() => {
@@ -32,10 +33,23 @@ export default function Login({ onIngreso }) {
       .then((r) => r.json())
       .then((d) => setNecesitaSetup(d.necesitaSetup))
       .catch(() => setError("No se pudo conectar con el backend"));
+    // El `.catch(() => {})` de antes se tragaba el fallo: el desplegable salía
+    // VACÍO, la cajera no podía elegir su tienda, y la pantalla no decía nada.
+    // Alguien parado frente a un login mudo, sin saber si es su culpa. Es la
+    // pantalla donde menos se puede permitir.
     fetch(`${API}/sucursales`)
-      .then((r) => r.json())
-      .then((d) => setSucursales(d.filter((s) => s.ciudad !== "Online")))
-      .catch(() => {});
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
+      .then((d) => {
+        if (!Array.isArray(d)) throw new Error();
+        setSucursales(d.filter((s) => s.ciudad !== "Online"));
+        setErrorSucursales(null);
+      })
+      .catch(() => setErrorSucursales(
+        "No se pudo cargar la lista de sucursales. Revisa tu internet y recarga la página."
+      ));
   }, []);
 
   const enviarSetup = async (e) => {
@@ -126,10 +140,15 @@ export default function Login({ onIngreso }) {
                   onChange={(e) => setSucursalSeleccionada(e.target.value)}
                   className="w-full h-10 pl-9 pr-3 rounded-md border border-input bg-background text-sm"
                 >
-                  <option value="">Selecciona tu sucursal</option>
+                  <option value="">
+                    {errorSucursales ? "No se pudieron cargar las sucursales" : "Selecciona tu sucursal"}
+                  </option>
                   {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
+              {errorSucursales && (
+                <p className="text-destructive text-xs text-center">{errorSucursales}</p>
+              )}
               {error && <p className="text-destructive text-xs text-center">{error}</p>}
               <Button type="submit" disabled={cargando} className="w-full mt-1" style={{ backgroundColor: "#1a7fe8" }}>
                 {cargando ? "Entrando..." : "Iniciar sesión"}

@@ -66,6 +66,54 @@ const CAMPOS_OCULTOS_POR_TABLA = {
 };
 
 /**
+ * LISTA BLANCA de lo que el asistente puede leer. Todo lo demás está negado.
+ *
+ * Antes esto era una lista NEGRA, y esa es exactamente la forma equivocada para
+ * un límite de seguridad: cada tabla nueva nacía expuesta y había que acordarse
+ * de taparla. Ya falló una vez —las metas de las vendedoras se cerraron después
+ * de que se filtraran— y volvió a fallar en la auditoría: una cajera pedía
+ * `admin.usuarios` y recibía los HASHES DE CONTRASEÑA de sus compañeras y del
+ * dueño, junto con los enlaces de Drive a los expedientes del personal.
+ *
+ * Con lista blanca, una tabla nueva nace NEGADA. Si algún día hace falta abrir
+ * una, se abre a propósito y con su razón escrita aquí.
+ *
+ * Lo que queda fuera, y por qué:
+ *  - `admin` completo: contraseñas, el mapa de permisos y los expedientes.
+ *  - `drive.cuenta` y `ml.cuenta`: tokens de acceso a cuentas externas. Hoy no
+ *    salían por accidente (son objetos y no arreglos, y el código reventaba
+ *    antes de devolverlos), pero eso era suerte, no un candado.
+ *  - `respaldos`: el índice interno de copias.
+ *  - `tareas_venta` y los `ultimo_id`: no son arreglos de filas.
+ */
+const TABLAS_PERMITIDAS = {
+  pos: ["ventas", "venta_detalle", "vendedores", "sucursales", "cortes_caja", "condiciones_pago", "apartado_abonos"],
+  crm: ["clientes", "contactos_cliente"],
+  inventario: ["existencias", "movimientos_inventario", "compras", "compra_detalle", "traspasos", "garantias", "garantia_movimientos", "garantia_gastos"],
+  "catalogo-productos": ["productos", "categorias", "proveedores", "departamentos", "producto_proveedor"],
+  gastos: ["gastos", "categorias", "gasto_movimientos"],
+  cuenta_comun: ["depositos", "deposito_movimientos"],
+  ml: ["publicaciones", "ordenes_importadas"],
+};
+
+/** Permiso que habilita ver costos y márgenes. Es el mismo que abre Reportes,
+ *  donde ya se muestra la utilidad: quien puede ver el reporte de utilidad
+ *  puede preguntarle lo mismo al asistente. Quien no, no. */
+const PERMISO_PARA_COSTOS = "ver_reportes";
+
+/** ¿Qué tablas se le pueden ANUNCIAR al modelo? Si se le anuncian tablas que
+ *  no puede leer, las intenta una y otra vez y gasta turnos en errores. */
+function tablasConsultables(DB) {
+  return Object.entries(TABLAS_PERMITIDAS)
+    .filter(([modulo]) => DB && DB[modulo])
+    .map(([modulo, tablas]) => ({
+      id: modulo,
+      tablas: tablas.filter((t) => DB[modulo][t] !== undefined),
+    }))
+    .filter((m) => m.tablas.length > 0);
+}
+
+/**
  * Tablas que esta herramienta no puede leer porque no son arreglos de filas.
  * `tareas_venta` es `{tareas, ultimo_id}`: al iterarla reventaba con
  * "datos is not iterable". El try/catch de la ruta lo contenía, pero la tabla
@@ -74,21 +122,45 @@ const CAMPOS_OCULTOS_POR_TABLA = {
  */
 const TABLAS_NO_CONSULTABLES = new Set(["tareas_venta"]);
 
-function ocultarCamposSensibles(filas, tabla) {
-  const ocultos = CAMPOS_OCULTOS_POR_TABLA[tabla];
-  if (!ocultos || !Array.isArray(filas)) return filas;
+function ocultarCamposSensibles(filas, tabla, permisos = []) {
+  if (!Array.isArray(filas)) return filas;
+
+  const ocultos = [...(CAMPOS_OCULTOS_POR_TABLA[tabla] || [])];
+  // El costo de compra y el margen son de negocio, no de operación: con ellos
+  // se sabe lo que Victor paga por cada cosa. Se recortan salvo para quien ya
+  // puede ver el reporte de utilidad, donde ese dato se muestra igual.
+  const puedeVerCostos = Array.isArray(permisos) && permisos.includes(PERMISO_PARA_COSTOS);
+  const recortarCostos = tabla === "productos" && !puedeVerCostos;
+  if (recortarCostos) ocultos.push("costo");
+
+  if (!ocultos.length && !recortarCostos) return filas;
+
   return filas.map((fila) => {
     if (!fila || typeof fila !== "object") return fila;
     const copia = { ...fila };
     for (const campo of ocultos) delete copia[campo];
+    // `precios` es un arreglo de niveles, cada uno con su `utilidad`: recortar
+    // solo `costo` dejaría el margen a la vista igual.
+    if (recortarCostos && Array.isArray(copia.precios)) {
+      copia.precios = copia.precios.map(({ utilidad, ...resto }) => resto);
+    }
     return copia;
   });
 }
 
-function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB) {
-  if (!DB[modulo]) throw new Error(`Módulo "${modulo}" no existe. Disponibles: ${Object.keys(DB).join(", ")}`);
-  const tablasVisibles = Object.keys(DB[modulo]).filter((t) => !TABLAS_NO_CONSULTABLES.has(t));
-  if (TABLAS_NO_CONSULTABLES.has(tabla) || !DB[modulo][tabla]) {
+function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB, permisos = []) {
+  const permitidasDelModulo = TABLAS_PERMITIDAS[modulo];
+  if (!DB[modulo] || !permitidasDelModulo) {
+    throw new Error(
+      `Módulo "${modulo}" no está disponible para consulta. Disponibles: ${Object.keys(TABLAS_PERMITIDAS).join(", ")}`
+    );
+  }
+  // Existir en el DB no basta: tiene que estar en la lista blanca. Y se
+  // comprueban las dos cosas, para no anunciar tablas que el DB aún no tiene.
+  const tablasVisibles = permitidasDelModulo.filter(
+    (t) => DB[modulo][t] !== undefined && !TABLAS_NO_CONSULTABLES.has(t)
+  );
+  if (!tablasVisibles.includes(tabla)) {
     throw new Error(`Tabla "${tabla}" no existe en "${modulo}". Disponibles: ${tablasVisibles.join(", ")}`);
   }
 
@@ -115,7 +187,7 @@ function consultarModulo({ modulo, tabla, filtros, agrupar_por }, alcance, DB) {
   if (agrupar_por) resultado = agruparYSumar(resultado, agrupar_por, CAMPO_SUMA[tabla] || "total");
   // El recorte va al final, después de filtrar y agrupar: agrupar por un campo
   // oculto no devuelve nada de todos modos, y así ninguna salida lo lleva.
-  return ocultarCamposSensibles(resultado, tabla);
+  return ocultarCamposSensibles(resultado, tabla, permisos);
 }
 
-module.exports = { consultarModulo, CAMPOS_OCULTOS_POR_TABLA, TABLAS_NO_CONSULTABLES };
+module.exports = { consultarModulo, tablasConsultables, TABLAS_PERMITIDAS, PERMISO_PARA_COSTOS, CAMPOS_OCULTOS_POR_TABLA, TABLAS_NO_CONSULTABLES };
