@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus, Edit3, RefreshCw, Trash2, Copy, Share2, Download,
   Search, ShieldCheck, UserPlus, X, Check, MapPin, ShieldAlert,
@@ -212,6 +212,10 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   const [tabPersonaEditando, setTabPersonaEditando] = useState("datos"); // "datos" | "documentos"
   const [documentosPersona, setDocumentosPersona] = useState([]);
   const [cargandoDocumentos, setCargandoDocumentos] = useState(false);
+  const [guardandoPersonal, setGuardandoPersonal] = useState(false);
+  /** Candado síncrono contra el doble clic. En ref y no en estado porque React
+   *  agrupa las actualizaciones y dos clics simultáneos leerían ambos `false`. */
+  const altaEnCurso = useRef(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2200); };
 
@@ -355,6 +359,14 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     if (!formPersonal.nombre || !formPersonal.usuario || !formPersonal.password || !formPersonal.rol_id || !formPersonal.sucursal_id) {
       return mostrarAviso("Completa nombre, usuario, contraseña, rol y sucursal");
     }
+    // Un alta duplicada dejaba DOS cuentas con el mismo id y el mismo nombre de
+    // usuario. La segunda nunca podía entrar y no se podía desactivar ni borrar
+    // desde ninguna pantalla, porque todo resuelve por id y encontraba la
+    // primera. El candado del servidor ya lo impide; este evita además el
+    // segundo intento y el mensaje de error confuso.
+    if (altaEnCurso.current) return;
+    altaEnCurso.current = true;
+    setGuardandoPersonal(true);
     try {
       const r = await apiFetch("/usuarios", { method: "POST", body: JSON.stringify(formPersonal) });
       const data = await r.json();
@@ -364,6 +376,7 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       setFormPersonal({ nombre: "", usuario: "", password: "", rol_id: "", sucursal_id: "", vendedor_id: "" });
       cargarTodo();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { altaEnCurso.current = false; setGuardandoPersonal(false); }
   };
 
   const abrirEditarPersonal = (u) => {
@@ -754,8 +767,8 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
                     : "Elige primero la sucursal para ver sus vendedores."}
                 </p>
               </div>
-              <button onClick={guardarPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
-                <Check size={15} /> Guardar
+              <button onClick={guardarPersonal} disabled={guardandoPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                <Check size={15} /> {guardandoPersonal ? "Guardando…" : "Guardar"}
               </button>
             </div>
           </div>
