@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   LayoutGrid, Search, Settings, FileBarChart, PieChart, Wrench,
   Scissors, CircleDollarSign, X, Package, Cloud, Info, UserCircle2,
@@ -130,6 +130,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const [enCurso, setEnCurso] = useState(null);
   const [cortes, setCortes] = useState([]);
   const [ultimoCorteGuardado, setUltimoCorteGuardado] = useState(null);
+  const [guardandoCorte, setGuardandoCorte] = useState(false);
   const [modal, setModal] = useState(null); // "corte" | "historial"
   const [contado, setContado] = useState({ EFECTIVO: "", CHEQUE: "", VALES: "", TARJETA: "" });
   const [retiro, setRetiro] = useState({ EFECTIVO: "", CHEQUE: "", VALES: "", TARJETA: "" });
@@ -189,8 +190,21 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const totalDif = puedeVerMontos ? totalContado - totalCalculado : 0;
   const totalRetiro = FORMAS.reduce((a, f) => a + (Number(retiro[f]) || 0), 0);
 
+  /**
+   * Candado contra el doble clic. En `useRef` y no en `useState` porque React
+   * agrupa las actualizaciones de estado: dos clics simultáneos leerían ambos
+   * `false` y la operación saldría dos veces. El ref cambia de inmediato.
+   * El estado de al lado solo apaga el botón y lo dice en pantalla.
+   */
+  const corteEnCurso = useRef(false);
+
   const guardarCorte = async () => {
     if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para guardar el corte");
+    // Un corte duplicado deja un turno fantasma cuyo "sobrante" es todo lo
+    // contado, y ese faltante aparece a nombre de quien cerró la caja.
+    if (corteEnCurso.current) return;
+    corteEnCurso.current = true;
+    setGuardandoCorte(true);
     try {
       // Sin sucursal_id en el cuerpo: manda la del encabezado, que es la misma
       // con la que se leyó el turno en curso de arriba. Antes iba un 1 fijo.
@@ -208,6 +222,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       cargar();
       mostrarAviso(`Corte #${data.id} guardado — el siguiente turno empieza de cero`);
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { corteEnCurso.current = false; setGuardandoCorte(false); }
   };
 
   const verTicketDeCorte = (c) => { setUltimoCorteGuardado(c); setModal("ticket"); };
@@ -417,8 +432,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               <p className="text-[11px] text-slate-400 text-center max-w-md">
                 Si sacaste dinero de la caja y todavía no lo capturas en Gastos, hazlo antes de guardar el corte.
               </p>
-              <button type="button" onClick={guardarCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors">
-                💾 Guardar
+              <button type="button" onClick={guardarCorte} disabled={guardandoCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                💾 {guardandoCorte ? "Guardando…" : "Guardar"}
               </button>
             </div>
           </div>
