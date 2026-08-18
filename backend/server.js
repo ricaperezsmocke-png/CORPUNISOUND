@@ -89,13 +89,27 @@ const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
 const mantenimiento = require("./mantenimiento");
 
+// Si la persistencia no carga, en producción se ABORTA el arranque en vez de
+// fingir que el sistema funciona. El porqué del criterio está documentado en
+// arranquePersistencia.js — resumido: `guardar` quedaba como función vacía y
+// cada venta del día se escribía en el vacío, con un console.warn que nadie lee.
+const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
+
 let cargar = () => null, guardar = () => {};
 try {
   const p = require("./persistencia");
   cargar = p.cargar; guardar = p.guardar;
   console.log("✅ Módulo de persistencia SQLite cargado");
 } catch (e) {
-  console.warn("⚠️  Persistencia SQLite no disponible — los datos solo vivirán en memoria:", e.message);
+  const abortar = debeAbortarSinPersistencia();
+  const mensaje = mensajeSinPersistencia(e, abortar);
+  if (abortar) {
+    console.error(mensaje);
+    // `throw` y no `process.exit`: deja el stack de la causa real en el log de
+    // Render y no se traga el error si alguien requiere este archivo.
+    throw new Error("Arranque cancelado: el sistema no puede guardar nada (persistencia SQLite no disponible)");
+  }
+  console.warn(mensaje);
 }
 
 const app = express();
