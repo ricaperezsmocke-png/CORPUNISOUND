@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
 import { apiFetch, sucursalActiva } from "./api";
+import { pedirLista } from "./cargaSegura";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 
@@ -89,6 +90,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [tab, setTab] = useState("gastos");
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
+  const [errorGastos, setErrorGastos] = useState(null);
   const [proveedores, setProveedores] = useState([]);
   const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(30));
   const [fechaFinal, setFechaFinal] = useState(hoyLocal());
@@ -117,23 +119,27 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
 
   const cargarCategorias = useCallback(async () => {
-    const r = await apiFetch("/gastos/categorias?solo_activas=1");
-    if (r.ok) setCategorias(await r.json());
+    const { datos } = await pedirLista(() => apiFetch("/gastos/categorias?solo_activas=1"), "las categorías de gasto");
+    setCategorias(datos);
   }, []);
 
+  // El listado de gastos es DINERO: si la consulta falla y la pantalla se
+  // queda con `[]`, dice "No hay gastos" con la misma cara que cuando de
+  // verdad no hubo ninguno, y así se cierra un mes creyendo que no se gastó.
   const cargarGastos = useCallback(async () => {
     const params = new URLSearchParams();
     if (fechaInicial) params.set("fecha_inicio", fechaInicial);
     if (fechaFinal) params.set("fecha_fin", fechaFinal);
     if (filtroEstatus) params.set("estatus", filtroEstatus);
-    const r = await apiFetch(`/gastos?${params.toString()}`);
-    if (r.ok) setGastos(await r.json());
+    const { datos, error } = await pedirLista(() => apiFetch(`/gastos?${params.toString()}`), "los gastos");
+    setGastos(datos);
+    setErrorGastos(error);
   }, [fechaInicial, fechaFinal, filtroEstatus]);
 
   useEffect(() => { cargarCategorias(); }, [cargarCategorias]);
   useEffect(() => { cargarGastos(); }, [cargarGastos]);
   useEffect(() => {
-    apiFetch("/proveedores").then((r) => r.ok && r.json()).then((d) => d && setProveedores(d));
+    pedirLista(() => apiFetch("/proveedores"), "los proveedores").then(({ datos }) => setProveedores(datos));
   }, []);
 
   /** Grupos con sus subcategorías — lo consume el select y la chuleta "?". */
@@ -300,7 +306,11 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 </tr>
               </thead>
               <tbody>
-                {gastos.length === 0 && <tr><td colSpan={10} className="text-center text-slate-400 py-16">Sin gastos en el periodo</td></tr>}
+                {gastos.length === 0 && (
+                  <tr><td colSpan={10} className={`text-center py-16 ${errorGastos ? "text-red-700" : "text-slate-400"}`}>
+                    {errorGastos ? `⚠ ${errorGastos}` : "Sin gastos en el periodo"}
+                  </td></tr>
+                )}
                 {gastos.map((g) => (
                   <tr key={g.id} className="border-b border-slate-100">
                     <td className="py-2 px-3 font-medium">

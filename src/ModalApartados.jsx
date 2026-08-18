@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { X, DollarSign, Ban } from "lucide-react";
 import { apiFetch, sinSucursalElegida } from "./api";
+import { pedirLista } from "./cargaSegura";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
@@ -22,6 +23,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   const sinSucursal = sinSucursalElegida();
   const [tab, setTab] = useState("nuevo");
   const [apartados, setApartados] = useState([]);
+  const [errorApartados, setErrorApartados] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [aviso, setAviso] = useState(null);
 
@@ -39,11 +41,16 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   const total = carrito.reduce((acc, f) => acc + f.cantidad * f.precioUnitario * (1 - (f.descuentoPct || 0) / 100), 0);
   const formasPago = condicionesPago.filter((c) => c.nombre !== "CRÉDITO");
 
+  // Un apartado es mercancía ya separada y dinero ya cobrado a medias. Si la
+  // lista no carga y se queda vacía, la pantalla dice "No hay apartados" y la
+  // cajera le contesta al cliente que no tiene nada apartado — con su anticipo
+  // ya pagado.
   const cargarApartados = useCallback(async () => {
     setCargando(true);
     try {
-      const r = await apiFetch("/apartados");
-      if (r.ok) setApartados(await r.json());
+      const { datos, error } = await pedirLista(() => apiFetch("/apartados"), "los apartados");
+      setApartados(datos);
+      setErrorApartados(error);
     } finally {
       setCargando(false);
     }
@@ -215,7 +222,14 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
           ) : cargando ? (
             <p className="text-center text-slate-400 py-16">Consultando...</p>
           ) : apartados.length === 0 ? (
-            <p className="text-center text-slate-400 py-16">No hay apartados vigentes</p>
+            errorApartados ? (
+              <p className="text-center text-red-700 py-16 px-4">
+                ⚠ {errorApartados}<br />
+                <b>No le digas al cliente que no tiene nada apartado sin volver a intentar.</b>
+              </p>
+            ) : (
+              <p className="text-center text-slate-400 py-16">No hay apartados vigentes</p>
+            )
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-[#1a7fe8] text-white sticky top-0">

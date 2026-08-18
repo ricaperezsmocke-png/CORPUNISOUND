@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { FileSpreadsheet, Download, Upload } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirLista } from "./cargaSegura";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const TIPOS = [
@@ -34,7 +35,18 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
   const tipoActual = TIPOS.find((t) => t.id === tab);
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 3000); };
 
-  useEffect(() => { apiFetch("/sucursales").then((r) => r.json()).then(setSucursales).catch(() => {}); }, []);
+  // Sin revisar `r.ok` el `{error}` de un 403 entraba al estado y el `.map` del
+  // selector tumbaba la pantalla; y al fallar en silencio, el selector de
+  // sucursal se quedaba vacío y no había forma de importar ni de saber por qué.
+  useEffect(() => {
+    let vigente = true;
+    pedirLista(() => apiFetch("/sucursales"), "las sucursales").then(({ datos, error }) => {
+      if (!vigente) return;
+      setSucursales(datos);
+      if (error) mostrarAviso("❌ " + error);
+    });
+    return () => { vigente = false; };
+  }, []);
   useEffect(() => { setPrevisualizacion(null); setConfirmados({}); setResumen(null); setSucursalId(""); }, [tab]);
 
   const subirArchivo = async (archivo) => {

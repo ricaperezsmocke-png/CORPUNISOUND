@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { ShieldAlert, Search, X, ChevronLeft, ChevronRight, Send, MapPin, ClipboardCheck, PackageCheck, UserCheck, History, DollarSign, Upload, Trash2, FileText } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirLista } from "./cargaSegura";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const RESULTADOS_POR_PAGINA = 8;
@@ -74,6 +75,8 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
 
   const [garantias, setGarantias] = useState([]);
+  const [errorGarantias, setErrorGarantias] = useState(null);
+  const [errorCatalogos, setErrorCatalogos] = useState(null);
   const [productos, setProductos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [proveedores, setProveedores] = useState([]);
@@ -109,21 +112,30 @@ export default function Garantias({ onVolver, permisos, usuario }) {
 
   const cargarGarantias = useCallback(async () => {
     try {
-      const r = await apiFetch("/garantias");
-      setGarantias(await r.json());
+      // Antes se hacía `setGarantias(await r.json())` sin mirar `r.ok`: el
+      // `{error}` de un 403 entraba al estado y el `.filter` de la lista
+      // tumbaba la pantalla. Y el aviso se iba solo, dejando una lista vacía
+      // que se lee como "no hay garantías" — con equipos de clientes adentro.
+      const { datos, error } = await pedirLista(() => apiFetch("/garantias"), "las garantías");
+      setGarantias(datos);
+      setErrorGarantias(error);
     } catch { mostrarAviso("❌ No se pudieron cargar las garantías"); }
   }, []);
 
   const cargarTodo = useCallback(async () => {
     setCargando(true);
     try {
-      const [rProd, rCli, rProv, rSuc] = await Promise.all([
-        apiFetch("/productos?sucursal_id=todas"), apiFetch("/clientes"), apiFetch("/proveedores"), apiFetch("/sucursales"),
+      const [prod, cli, prov, suc] = await Promise.all([
+        pedirLista(() => apiFetch("/productos?sucursal_id=todas"), "el catálogo de productos"),
+        pedirLista(() => apiFetch("/clientes"), "los clientes"),
+        pedirLista(() => apiFetch("/proveedores"), "los proveedores"),
+        pedirLista(() => apiFetch("/sucursales"), "las sucursales"),
       ]);
-      setProductos(await rProd.json());
-      setClientes(await rCli.json());
-      setProveedores(await rProv.json());
-      setSucursales(await rSuc.json());
+      setProductos(prod.datos);
+      setClientes(cli.datos);
+      setProveedores(prov.datos);
+      setSucursales(suc.datos);
+      setErrorCatalogos(prod.error || cli.error || prov.error || suc.error);
       await cargarGarantias();
     } catch {
       mostrarAviso("❌ No se pudo conectar con el backend");
@@ -362,7 +374,11 @@ export default function Garantias({ onVolver, permisos, usuario }) {
             </thead>
             <tbody>
               {garantiasFiltradas.length === 0 && (
-                <tr><td colSpan={8} className="text-center text-slate-400 py-10">Sin garantías</td></tr>
+                <tr><td colSpan={8} className={`text-center py-10 ${errorGarantias ? "text-red-700" : "text-slate-400"}`}>
+                  {errorGarantias
+                    ? <>⚠ {errorGarantias} <b>No le digas a un cliente que su equipo no está registrado sin volver a intentar.</b></>
+                    : "Sin garantías"}
+                </td></tr>
               )}
               {garantiasFiltradas.map((g) => (
                 <tr key={g.id} className="border-b border-slate-100">
