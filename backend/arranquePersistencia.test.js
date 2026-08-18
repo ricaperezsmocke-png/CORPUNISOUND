@@ -81,7 +81,12 @@ function backendConPersistenciaRota() {
     // `datos.sqlite` SÍ se copia: server.js consulta el catálogo del SAT al
     // arrancar (clavesSat.js) y sin ese archivo el proceso se muere por un
     // motivo que no es el que esta prueba está midiendo.
-    if (archivo === "node_modules") continue;
+    //
+    // `.env` NO se copia, por dos razones: trae credenciales reales (las de
+    // MercadoLibre) y no tienen por qué acabar en una carpeta temporal; y
+    // dotenv las cargaría, haciendo que el resultado de la prueba dependa de
+    // qué tenga configurado la computadora donde corre.
+    if (archivo === "node_modules" || archivo === ".env") continue;
     const origen = path.join(__dirname, archivo);
     if (fs.statSync(origen).isDirectory()) {
       fs.cpSync(origen, path.join(carpeta, archivo), { recursive: true });
@@ -110,12 +115,28 @@ function backendConPersistenciaRota() {
  * también deja de responder a este proceso (se queda escuchando), así que
  * mirar el texto de salida no alcanza para distinguirlas. Hay que mirar si el
  * proceso se murió solo o si tuvimos que matarlo.
+ *
+ * EL PLAZO NO ES DECORATIVO. Se distingue "se murió" de "sigue vivo" por si
+ * hubo que matarlo, así que un plazo corto convierte una máquina ocupada en un
+ * fallo falso: `node --test` corre los archivos en PARALELO, y con la suite
+ * completa encima el proceso que iba a abortar puede no alcanzar ni a arrancar
+ * antes de que se le acabe el tiempo. Ya pasó: esta prueba pasaba sola y
+ * fallaba dentro de la suite.
+ *
+ * Por eso son dos plazos distintos, y cada uno se equivoca del lado seguro:
+ *  - ABORTAR (PLAZO_MUERTE): generoso. Abortar toma ~2 s; si en 90 s no murió,
+ *    es que de verdad se quedó escuchando, no que la máquina iba lenta.
+ *  - SEGUIR VIVO (PLAZO_VIDA): corto. Solo hay que confirmar que NO se murió,
+ *    y para eso basta con que aguante unos segundos.
  */
-function arrancar(carpeta, env) {
+const PLAZO_MUERTE = 90000;
+const PLAZO_VIDA = 10000;
+
+function arrancar(carpeta, env, plazo) {
   const r = spawnSync(process.execPath, [path.join(carpeta, "server.js")], {
     env: { ...process.env, ...env },
     encoding: "utf8",
-    timeout: 15000,
+    timeout: plazo,
   });
   const salida = String(r.stdout || "") + String(r.stderr || "");
   // Si hubo que matarlo (signal), siguió vivo: arrancó.
@@ -126,7 +147,7 @@ function arrancar(carpeta, env) {
 test("ARRANQUE REAL: con la persistencia rota y sin NODE_ENV, el proceso se muere solo", () => {
   const carpeta = backendConPersistenciaRota();
   try {
-    const r = arrancar(carpeta, { NODE_ENV: undefined, DB_PATH: undefined });
+    const r = arrancar(carpeta, { NODE_ENV: undefined, DB_PATH: undefined }, PLAZO_MUERTE);
     assert.strictEqual(
       r.seQuedoVivo, false,
       "el servidor se quedó escuchando: eso es cobrar todo el día en el vacío, justo el defecto original"
@@ -141,7 +162,7 @@ test("ARRANQUE REAL: con la persistencia rota y sin NODE_ENV, el proceso se muer
 test("ARRANQUE REAL: con NODE_ENV=production el proceso se muere solo", () => {
   const carpeta = backendConPersistenciaRota();
   try {
-    const r = arrancar(carpeta, { NODE_ENV: "production", DB_PATH: undefined });
+    const r = arrancar(carpeta, { NODE_ENV: "production", DB_PATH: undefined }, PLAZO_MUERTE);
     assert.strictEqual(r.seQuedoVivo, false, "en producción no puede quedarse escuchando sin poder guardar");
     assert.strictEqual(r.murio, true);
     assert.match(r.salida, /ARRANQUE CANCELADO/);
@@ -153,7 +174,7 @@ test("ARRANQUE REAL: con NODE_ENV=production el proceso se muere solo", () => {
 test("ARRANQUE REAL: en desarrollo SÍ se tolera — se queda vivo, avisando", () => {
   const carpeta = backendConPersistenciaRota();
   try {
-    const r = arrancar(carpeta, { NODE_ENV: "development", DB_PATH: undefined });
+    const r = arrancar(carpeta, { NODE_ENV: "development", DB_PATH: undefined }, PLAZO_VIDA);
     assert.strictEqual(
       r.seQuedoVivo, true,
       "probar sin compilar el módulo nativo tiene que seguir siendo posible"
