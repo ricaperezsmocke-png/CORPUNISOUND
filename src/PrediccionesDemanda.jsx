@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { apiFetch } from "./api";
+import { pedirLista } from "./cargaSegura";
 
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
@@ -56,6 +57,7 @@ const CONFIANZA_ESTILO = {
 export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
   const [modo, setModo] = useState("producto"); // "producto" | "categoria"
   const [productos, setProductos] = useState([]);
+  const [errorCatalogos, setErrorCatalogos] = useState(null);
   const [categorias, setCategorias] = useState([]);
   const [productoId, setProductoId] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
@@ -78,12 +80,26 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 3000); };
 
+  // Estos tres llenan los selectores con los que se pide una predicción. Antes
+  // no revisaban `r.ok`: el `{error}` de un 403 entraba tal cual al estado y el
+  // `productos.filter(...)` de abajo tumbaba la pantalla entera. Y con el
+  // `.catch(() => {})` un fallo dejaba los selectores vacíos, que se lee como
+  // "no hay productos que predecir".
   useEffect(() => {
-    apiFetch("/productos").then((r) => r.json()).then(setProductos).catch(() => {});
-    apiFetch("/categorias").then((r) => r.json()).then(setCategorias).catch(() => {});
+    let vigente = true;
+    Promise.all([
+      pedirLista(() => apiFetch("/productos"), "el catálogo de productos"),
+      pedirLista(() => apiFetch("/categorias"), "las categorías"),
+      pedirLista(() => apiFetch("/sucursales"), "las sucursales"),
+    ]).then(([prod, cat, suc]) => {
+      if (!vigente) return;
+      setProductos(prod.datos);
+      setCategorias(cat.datos);
+      setSucursales(suc.datos);
+      setErrorCatalogos(prod.error || cat.error || suc.error);
+    });
+    return () => { vigente = false; };
   }, []);
-
-  useEffect(() => { apiFetch("/sucursales").then((r) => r.json()).then(setSucursales).catch(() => {}); }, []);
 
   useEffect(() => { setResultado(null); }, [modo, productoId, categoriaId]);
 
@@ -202,6 +218,11 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
       <div className="p-5 flex flex-col gap-4 flex-1 overflow-y-auto">
+        {errorCatalogos && (
+          <div className="bg-red-50 border border-red-300 text-red-700 text-xs rounded px-3 py-2 max-w-xl">
+            ⚠ {errorCatalogos} <b>Los selectores de abajo pueden estar incompletos.</b>
+          </div>
+        )}
         <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col gap-3 max-w-xl">
           <div className="flex gap-2">
             <button

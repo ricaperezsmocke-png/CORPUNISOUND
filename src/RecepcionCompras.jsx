@@ -5,6 +5,7 @@ import {
   History, ChevronLeft, ChevronRight, ScanLine
 } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirLista } from "./cargaSegura";
 import ArticuloCompra from "./ArticuloCompra";
 import { sugerirProducto } from "./sugerirProducto";
 
@@ -46,6 +47,8 @@ const RESULTADOS_POR_PAGINA = 8;
 export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [productos, setProductos] = useState([]);
+  const [errorProductos, setErrorProductos] = useState(null);
+  const [errorRecepciones, setErrorRecepciones] = useState(null);
   const [sucursales, setSucursales] = useState([]);
   const [proveedores, setProveedores] = useState([]);
   const [categorias, setCategorias] = useState([]);
@@ -101,24 +104,34 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
   const origenEfectivo = usuario?.ver_todas ? (sucursalOrigenId || "todas") : usuario?.sucursal_id;
 
+  // Mismo defecto que en Traspasos: sin revisar `r.ok`, el `{error}` de un 403
+  // entraba al estado y el `.find` de `productoDe` tumbaba la pantalla; y en
+  // silencio, la lista vacía parecía un catálogo sin productos que recibir.
   const cargarProductos = useCallback(async (origen) => {
-    try {
-      const r = await apiFetch(`/productos?sucursal_id=${origen || "todas"}`);
-      setProductos(await r.json());
-    } catch { /* silencioso */ }
+    const { datos, error } = await pedirLista(
+      () => apiFetch(`/productos?sucursal_id=${origen || "todas"}`),
+      "los productos"
+    );
+    setProductos(datos);
+    setErrorProductos(error);
   }, []);
 
   const cargarTodo = useCallback(async () => {
     setCargando(true);
     try {
-      const [rSuc, rProv, rCat, rDep, rComp] = await Promise.all([
-        apiFetch(`/sucursales`), apiFetch(`/proveedores`), apiFetch(`/categorias`), apiFetch(`/departamentos`), apiFetch(`/compras`)
+      const [suc, prov, cat, dep, comp] = await Promise.all([
+        pedirLista(() => apiFetch(`/sucursales`), "las sucursales"),
+        pedirLista(() => apiFetch(`/proveedores`), "los proveedores"),
+        pedirLista(() => apiFetch(`/categorias`), "las categorías"),
+        pedirLista(() => apiFetch(`/departamentos`), "los departamentos"),
+        pedirLista(() => apiFetch(`/compras`), "las recepciones de compra"),
       ]);
-      setSucursales(await rSuc.json());
-      setProveedores(await rProv.json());
-      setCategorias(await rCat.json());
-      setDepartamentos(await rDep.json());
-      setRecepciones(await rComp.json());
+      setSucursales(suc.datos);
+      setProveedores(prov.datos);
+      setCategorias(cat.datos);
+      setDepartamentos(dep.datos);
+      setRecepciones(comp.datos);
+      setErrorRecepciones(comp.error);
     } catch (e) {
       mostrarAviso("❌ No se pudo conectar con el backend");
     } finally {
@@ -629,7 +642,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                 <tr><td colSpan={5} className="text-center text-slate-400 py-10">Cargando...</td></tr>
               )}
               {!cargando && recepciones.length === 0 && (
-                <tr><td colSpan={5} className="text-center text-slate-400 py-10">Sin recepciones registradas</td></tr>
+                <tr><td colSpan={5} className={`text-center py-10 ${errorRecepciones ? "text-red-700" : "text-slate-400"}`}>
+                  {errorRecepciones ? `⚠ ${errorRecepciones}` : "Sin recepciones registradas"}
+                </td></tr>
               )}
               {recepciones.map((c) => (
                 <tr key={c.id} className="border-b border-slate-100">
@@ -678,7 +693,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               </thead>
               <tbody>
                 {productosPagina.length === 0 && (
-                  <tr><td colSpan={3} className="text-center text-slate-400 py-10">Sin resultados</td></tr>
+                  <tr><td colSpan={3} className={`text-center py-10 ${errorProductos ? "text-red-700" : "text-slate-400"}`}>
+                    {errorProductos ? `⚠ ${errorProductos}` : "Sin resultados"}
+                  </td></tr>
                 )}
                 {productosPagina.map((p) => (
                   <tr key={p.id} onClick={() => abrirArticuloParaProducto(p)} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">

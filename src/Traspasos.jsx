@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowRightLeft, Send, PackageCheck, X, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirLista } from "./cargaSegura";
 
 function Campo({ label, children }) {
   return (
@@ -35,6 +36,8 @@ const RESULTADOS_POR_PAGINA = 8;
 export default function Traspasos({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [productos, setProductos] = useState([]);
+  const [errorProductos, setErrorProductos] = useState(null);
+  const [errorTraspasos, setErrorTraspasos] = useState(null);
   const [sucursales, setSucursales] = useState([]);
   const [traspasos, setTraspasos] = useState([]);
   const [categorias, setCategorias] = useState([]);
@@ -64,24 +67,34 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
   // ser siempre la de ESTA sucursal, no una suma global.
   const origenEfectivo = usuario?.ver_todas ? (form.sucursal_origen_id || "todas") : usuario?.sucursal_id;
 
+  // Sin revisar `r.ok`, el `{error}` de un 403 entraba al estado y el `.find`
+  // de `nombreProducto` tumbaba la pantalla. Y en silencio, la lista vacía se
+  // lee como "esta tienda no tiene nada que traspasar".
   const cargarProductos = useCallback(async (origen) => {
-    try {
-      const r = await apiFetch(`/productos?sucursal_id=${origen || "todas"}`);
-      setProductos(await r.json());
-    } catch { /* silencioso */ }
+    const { datos, error } = await pedirLista(
+      () => apiFetch(`/productos?sucursal_id=${origen || "todas"}`),
+      "los productos de la sucursal origen"
+    );
+    setProductos(datos);
+    setErrorProductos(error);
   }, []);
 
   const cargarTodo = useCallback(async () => {
     setCargando(true);
     try {
-      const [rSuc, rTras, rCat, rDep, rProv] = await Promise.all([
-        apiFetch(`/sucursales`), apiFetch(`/traspasos`), apiFetch(`/categorias`), apiFetch(`/departamentos`), apiFetch(`/proveedores`)
+      const [suc, tras, cat, dep, prov] = await Promise.all([
+        pedirLista(() => apiFetch(`/sucursales`), "las sucursales"),
+        pedirLista(() => apiFetch(`/traspasos`), "los traspasos"),
+        pedirLista(() => apiFetch(`/categorias`), "las categorías"),
+        pedirLista(() => apiFetch(`/departamentos`), "los departamentos"),
+        pedirLista(() => apiFetch(`/proveedores`), "los proveedores"),
       ]);
-      setSucursales(await rSuc.json());
-      setTraspasos(await rTras.json());
-      setCategorias(await rCat.json());
-      setDepartamentos(await rDep.json());
-      setProveedores(await rProv.json());
+      setSucursales(suc.datos);
+      setTraspasos(tras.datos);
+      setCategorias(cat.datos);
+      setDepartamentos(dep.datos);
+      setProveedores(prov.datos);
+      setErrorTraspasos(tras.error);
     } catch (e) {
       mostrarAviso("❌ No se pudo conectar con el backend");
     } finally {
@@ -236,7 +249,11 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
             </thead>
             <tbody>
               {(tab === "pendientes" ? pendientes : historial).length === 0 && (
-                <tr><td colSpan={5} className="text-center text-slate-400 py-10">Sin traspasos {tab === "pendientes" ? "pendientes" : "en el historial"}</td></tr>
+                <tr><td colSpan={5} className={`text-center py-10 ${errorTraspasos ? "text-red-700" : "text-slate-400"}`}>
+                  {errorTraspasos
+                    ? <>⚠ {errorTraspasos} <b>Puede haber mercancía en camino que no se está mostrando.</b></>
+                    : <>Sin traspasos {tab === "pendientes" ? "pendientes" : "en el historial"}</>}
+                </td></tr>
               )}
               {(tab === "pendientes" ? pendientes : historial).map((t) => (
                 <tr key={t.id} className="border-b border-slate-100">
@@ -321,7 +338,9 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
               </thead>
               <tbody>
                 {productosPagina.length === 0 && (
-                  <tr><td colSpan={3} className="text-center text-slate-400 py-10">Sin resultados</td></tr>
+                  <tr><td colSpan={3} className={`text-center py-10 ${errorProductos ? "text-red-700" : "text-slate-400"}`}>
+                    {errorProductos ? `⚠ ${errorProductos}` : "Sin resultados"}
+                  </td></tr>
                 )}
                 {productosPagina.map((p) => (
                   <tr key={p.id} onClick={() => elegirProducto(p)} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">

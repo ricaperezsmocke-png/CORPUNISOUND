@@ -5,6 +5,7 @@ import {
   ShoppingCart, History
 } from "lucide-react";
 import { apiFetch, sinSucursalElegida } from "./api";
+import { pedirLista, pedirDato } from "./cargaSegura";
 
 const FORMAS = ["EFECTIVO", "CHEQUE", "VALES", "TARJETA"];
 const ETIQUETAS = { EFECTIVO: "Efectivo", CHEQUE: "* Cheque", VALES: "Vales", TARJETA: "* Tarjeta" };
@@ -129,6 +130,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
   const [enCurso, setEnCurso] = useState(null);
   const [cortes, setCortes] = useState([]);
+  const [errorCarga, setErrorCarga] = useState(null);
   const [ultimoCorteGuardado, setUltimoCorteGuardado] = useState(null);
   const [guardandoCorte, setGuardandoCorte] = useState(false);
   const [modal, setModal] = useState(null); // "corte" | "historial"
@@ -145,16 +147,21 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   // y con "Todas" no se muestra ni se guarda nada.
   const sinSucursal = sinSucursalElegida();
 
+  // El corte en curso es el dinero que debería haber en el cajón AHORITA. Si no
+  // carga, la pantalla se quedaba en blanco o con el corte anterior y el aviso
+  // se iba solo a los pocos segundos: se contaba el efectivo contra un número
+  // que no era el de esta caja.
   const cargar = useCallback(async () => {
-    if (sinSucursal) { setEnCurso(null); setCortes([]); return; }
-    try {
-      const r = await apiFetch("/cortes/en-curso");
-      if (r.ok) setEnCurso(await r.json());
-      if (puede("ver_historial_cortes")) {
-        const rh = await apiFetch("/cortes");
-        if (rh.ok) setCortes(await rh.json());
-      }
-    } catch { mostrarAviso("❌ No se pudo conectar con el backend"); }
+    if (sinSucursal) { setEnCurso(null); setCortes([]); setErrorCarga(null); return; }
+    const enCursoResp = await pedirDato(() => apiFetch("/cortes/en-curso"), "el corte en curso");
+    setEnCurso(enCursoResp.datos);
+    let errorHistorial = null;
+    if (puede("ver_historial_cortes")) {
+      const historial = await pedirLista(() => apiFetch("/cortes"), "el historial de cortes");
+      setCortes(historial.datos);
+      errorHistorial = historial.error;
+    }
+    setErrorCarga(enCursoResp.error || errorHistorial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sinSucursal]);
 
@@ -239,6 +246,17 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
           <span>
             <b>Estás viendo todas las sucursales.</b> Elige una sucursal arriba, en el selector del
             encabezado, para ver y hacer el corte: el corte cierra el turno de una sola caja.
+          </span>
+        </div>
+      )}
+
+      {errorCarga && (
+        // Persistente, no un aviso que se va solo: mientras esto se vea, los
+        // montos de abajo no son los de esta caja y no se debe cerrar el turno.
+        <div className="bg-red-50 border-b border-red-300 text-red-700 text-sm px-4 py-2 shrink-0 flex items-start gap-2">
+          <Info size={15} className="shrink-0 mt-0.5" />
+          <span>
+            {errorCarga} <b>No cuentes el efectivo contra estos números ni cierres el turno hasta que cargue bien.</b>
           </span>
         </div>
       )}

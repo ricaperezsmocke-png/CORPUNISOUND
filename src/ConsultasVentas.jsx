@@ -6,6 +6,7 @@ import {
   Package, X
 } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirLista } from "./cargaSegura";
 import { descargarCSV } from "./reportes/exportarCSV.js";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 
@@ -38,6 +39,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const [ventas, setVentas] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [vendedores, setVendedores] = useState([]);
+  const [errorCatalogos, setErrorCatalogos] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
@@ -57,12 +59,19 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
+  // Estos dos llenan los desplegables de filtro. Fallaban en silencio: los
+  // filtros se quedaban con la opción "Todas/Todos" y nada más, y quien los
+  // miraba concluía que la cadena tiene una sola tienda o ningún vendedor.
+  // La consulta de ventas de abajo sí sigue funcionando, por eso esto avisa
+  // junto a los filtros y no tumba la pantalla.
   const cargarCatalogos = useCallback(async () => {
-    try {
-      const [rSuc, rVen] = await Promise.all([apiFetch("/sucursales"), apiFetch("/vendedores")]);
-      if (rSuc.ok) setSucursales(await rSuc.json());
-      if (rVen.ok) setVendedores(await rVen.json());
-    } catch { /* silencioso */ }
+    const [suc, ven] = await Promise.all([
+      pedirLista(() => apiFetch("/sucursales"), "las sucursales"),
+      pedirLista(() => apiFetch("/vendedores"), "los vendedores"),
+    ]);
+    setSucursales(suc.datos);
+    setVendedores(ven.datos);
+    setErrorCatalogos(suc.error || ven.error);
   }, []);
 
   const consultar = useCallback(async () => {
@@ -198,6 +207,12 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           </div>
           <button type="button" onClick={consultar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">Consultar</button>
         </div>
+        {errorCatalogos && (
+          <div className="text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded px-2 py-1.5">
+            ⚠ {errorCatalogos} Los desplegables de Sucursal y Vendedor pueden verse incompletos;
+            la lista de ventas de abajo sí es la del periodo consultado.
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Search size={16} className="text-slate-400" />
           <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && consultar()} placeholder="Buscar por folio o cliente..." className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm max-w-md focus:outline-none focus:border-blue-500" />

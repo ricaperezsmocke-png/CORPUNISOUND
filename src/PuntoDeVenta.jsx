@@ -141,6 +141,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [efectivoRecibido, setEfectivoRecibido] = useState("");
 
   const [condicionesPago, setCondicionesPago] = useState([]);
+  const [errorCondiciones, setErrorCondiciones] = useState(null);
   const [condicionSeleccionada, setCondicionSeleccionada] = useState(null);
 
   const [formCliente, setFormCliente] = useState(CLIENTE_VACIO_FORM);
@@ -261,6 +262,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       if (r.ok) {
         const data = await r.json();
         setCondicionesPago(data);
+        setErrorCondiciones(null);
         // Se conserva CUÁL forma de pago estaba elegida, pero con los datos
         // frescos del backend (si el % cambió en Configuración, aquí se
         // actualiza — antes se quedaba con la copia vieja en memoria).
@@ -268,8 +270,20 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           const actualizada = prev ? data.find((c) => c.id === prev.id) : null;
           return actualizada ?? data.find((c) => c.nombre === "EFECTIVO") ?? data[0] ?? null;
         });
+        return;
       }
-    } catch { /* silencioso */ }
+      // Estas condiciones traen el % de descuento con el que se cobra. Cuando
+      // esto fallaba en silencio la caja se quedaba con la copia vieja en
+      // memoria y seguía aplicando un descuento que ya se había cambiado en
+      // Configuración — o sea, cobrando de menos sin que nadie lo notara.
+      setErrorCondiciones(
+        "No se pudieron actualizar las formas de pago. Los descuentos que ves pueden estar desactualizados."
+      );
+    } catch {
+      setErrorCondiciones(
+        "No se pudieron actualizar las formas de pago. Los descuentos que ves pueden estar desactualizados."
+      );
+    }
   }, []);
 
   const cargarConfiguracion = useCallback(async () => {
@@ -1144,6 +1158,11 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                   </button>
                 )}
               </div>
+              {errorCondiciones && (
+                <div className="bg-red-50 border border-red-300 text-red-700 text-xs rounded px-3 py-2 mb-3">
+                  ⚠ {errorCondiciones}
+                </div>
+              )}
               <div className="border border-slate-200 rounded-lg overflow-hidden mb-4">
                 <table className="w-full text-sm">
                   <thead className="bg-[#1a7fe8] text-white">

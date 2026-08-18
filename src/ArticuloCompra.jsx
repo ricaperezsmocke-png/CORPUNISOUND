@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { X, Search, Package } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirDato } from "./cargaSegura";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
@@ -41,20 +42,41 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
   const [resultadosSat, setResultadosSat] = useState([]);
   const [paginaSat, setPaginaSat] = useState(1);
   const [totalSat, setTotalSat] = useState(0);
+  const [errorHistorial, setErrorHistorial] = useState(null);
+  const [errorSat, setErrorSat] = useState(null);
 
+  // Esto es DINERO: el último precio de compra y el promedio son la referencia
+  // con la que se decide cuánto pagarle al proveedor. Si la consulta fallaba,
+  // el `.catch(() => {})` dejaba el historial vacío y la pantalla pintaba "—",
+  // que es EXACTAMENTE lo que pinta cuando el producto nunca se ha comprado.
+  // O sea: le decía al comprador "nunca lo has comprado" cuando la verdad era
+  // "no pude averiguarlo", y se cerraba la compra a ciegas.
   useEffect(() => {
-    apiFetch(`/productos/${producto.id}/historial-costo`)
-      .then((r) => r.json())
-      .then(setHistorial)
-      .catch(() => {});
+    let vigente = true;
+    pedirDato(
+      () => apiFetch(`/productos/${producto.id}/historial-costo`),
+      "el historial de precios de compra de este producto"
+    ).then(({ datos, error }) => {
+      if (!vigente) return;
+      setHistorial(datos || {});
+      setErrorHistorial(error);
+    });
+    return () => { vigente = false; };
   }, [producto.id]);
 
   useEffect(() => {
     if (!modalSat) return;
-    apiFetch(`/sat/claves?q=${encodeURIComponent(busquedaSat)}&pagina=${paginaSat}`)
-      .then((r) => r.json())
-      .then((d) => { setResultadosSat(d.resultados || []); setTotalSat(d.total || 0); })
-      .catch(() => {});
+    let vigente = true;
+    pedirDato(
+      () => apiFetch(`/sat/claves?q=${encodeURIComponent(busquedaSat)}&pagina=${paginaSat}`),
+      "las claves del SAT"
+    ).then(({ datos, error }) => {
+      if (!vigente) return;
+      setResultadosSat(datos?.resultados || []);
+      setTotalSat(datos?.total || 0);
+      setErrorSat(error);
+    });
+    return () => { vigente = false; };
   }, [modalSat, busquedaSat, paginaSat]);
 
   const costoNumero = Number(costo) || 0;
@@ -151,11 +173,18 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
 
           <div className="border-t border-slate-200 pt-3">
             <div className="text-xs font-semibold text-slate-500 mb-2">Precios (antes de esta compra)</div>
+            {errorHistorial && (
+              // Sin esto, un fallo se veía igual que "nunca se ha comprado", y
+              // el comprador negociaba el precio sin referencia creyendo tenerla.
+              <div className="text-xs bg-red-50 border border-red-300 text-red-700 rounded px-2 py-1.5 mb-2">
+                ⚠ {errorHistorial} <b>No tomes el "—" de abajo como que nunca se ha comprado.</b>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 text-sm mb-2">
-              <div>Último precio de compra: <b>{historial.ultimo ? `$${historial.ultimo.neto.toFixed(2)}` : "—"}</b>
+              <div>Último precio de compra: <b>{historial.ultimo ? `$${historial.ultimo.neto.toFixed(2)}` : (errorHistorial ? "no disponible" : "—")}</b>
                 {historial.ultimo && <span className="text-slate-400"> (${historial.ultimo.conIva.toFixed(2)} con IVA)</span>}
               </div>
-              <div>Promedio de compra: <b>{historial.promedio ? `$${historial.promedio.neto.toFixed(2)}` : "—"}</b>
+              <div>Promedio de compra: <b>{historial.promedio ? `$${historial.promedio.neto.toFixed(2)}` : (errorHistorial ? "no disponible" : "—")}</b>
                 {historial.promedio && <span className="text-slate-400"> (${historial.promedio.conIva.toFixed(2)} con IVA)</span>}
               </div>
             </div>
@@ -236,7 +265,11 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
                       <tr><th className="py-2 px-3 text-left font-medium w-28">Clave</th><th className="py-2 px-3 text-left font-medium">Descripción</th></tr>
                     </thead>
                     <tbody>
-                      {resultadosSat.length === 0 && <tr><td colSpan={2} className="text-center text-slate-400 py-8">Sin resultados</td></tr>}
+                      {resultadosSat.length === 0 && (
+                  <tr><td colSpan={2} className={`text-center py-8 ${errorSat ? "text-red-700" : "text-slate-400"}`}>
+                    {errorSat ? `⚠ ${errorSat}` : "Sin resultados"}
+                  </td></tr>
+                )}
                       {resultadosSat.map((r) => (
                         <tr key={r.clave} onClick={() => { setClaveSat(r.clave); setModalSat(false); }} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
                           <td className="py-2 px-3 font-mono text-xs">{r.clave}</td>

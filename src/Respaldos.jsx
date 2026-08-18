@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { RefreshCw, X, ShieldAlert } from "lucide-react";
 import { apiFetch } from "./api";
+import { pedirLista, pedirDato } from "./cargaSegura";
 
 const PALABRA_CONFIRMACION = "RESTAURAR";
 
@@ -24,6 +25,8 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
 
   const [estado, setEstado] = useState(null);
   const [copias, setCopias] = useState([]);
+  const [errorEstado, setErrorEstado] = useState(null);
+  const [errorCopias, setErrorCopias] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState(null);
   const [respaldando, setRespaldando] = useState(false);
@@ -39,14 +42,21 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
 
+  // Esta es la pantalla donde una mentira cuesta la empresa entera: si la
+  // consulta falla y la lista se queda vacía, la pantalla se ve igual que
+  // cuando de verdad no hay copias — y al revés, un estado que no cargó
+  // deja de mostrar que los respaldos llevan días fallando. Nadie mira esta
+  // pantalla todos los días; cuando la mira, tiene que poder creerle.
   const cargarEstado = useCallback(async () => {
-    const r = await apiFetch("/respaldos/estado");
-    if (r.ok) setEstado(await r.json());
+    const { datos, error } = await pedirDato(() => apiFetch("/respaldos/estado"), "el estado de los respaldos");
+    setEstado(datos);
+    setErrorEstado(error);
   }, []);
 
   const cargarCopias = useCallback(async () => {
-    const r = await apiFetch("/respaldos");
-    if (r.ok) setCopias(await r.json());
+    const { datos, error } = await pedirLista(() => apiFetch("/respaldos"), "la lista de respaldos");
+    setCopias(datos);
+    setErrorCopias(error);
   }, []);
 
   useEffect(() => {
@@ -209,7 +219,9 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
         </thead>
         <tbody>
           {lista.length === 0 && (
-            <tr><td colSpan={8} className="text-center text-slate-400 py-8">{vacio}</td></tr>
+            <tr><td colSpan={8} className={`text-center py-8 ${errorCopias ? "text-red-700" : "text-slate-400"}`}>
+              {errorCopias ? `⚠ ${errorCopias}` : vacio}
+            </td></tr>
           )}
           {lista.map((c) => (
             <tr key={c.id} className="border-b border-slate-100">
@@ -241,6 +253,19 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
+
+      {(errorEstado || errorCopias) && (
+        // Sin este aviso, no poder leer el estado se veía como "todo en orden":
+        // la pantalla simplemente dejaba de mostrar que algo va mal. Creer que
+        // hay respaldos y que no los haya es el peor final posible.
+        <div className="bg-red-50 border-b border-red-300 text-red-700 text-xs px-4 py-2 shrink-0 flex items-start gap-1.5">
+          <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+          <span>
+            {errorEstado || errorCopias}{" "}
+            <b>NO des por hecho que los respaldos están al día: esta pantalla no pudo comprobarlo.</b>
+          </span>
+        </div>
+      )}
 
       {enMantenimiento && (
         <div className="bg-amber-50 border-b border-amber-300 text-amber-800 text-xs px-4 py-2 shrink-0 flex items-center gap-1.5">

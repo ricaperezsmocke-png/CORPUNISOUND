@@ -5,6 +5,7 @@ import {
   ArrowUpDown, Banknote, Pencil, Pause, Play, Filter, X
 } from "lucide-react";
 import { apiFetch, API } from "./api";
+import { pedirLista, pedirDato } from "./cargaSegura";
 
 function Tab({ activo, onClick, children }) {
   return (
@@ -362,6 +363,8 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const [publicaciones, setPublicaciones] = useState([]);
   const [ordenes, setOrdenes]           = useState([]);
   const [productos, setProductos]       = useState([]);
+  const [errorPublicaciones, setErrorPublicaciones] = useState(null);
+  const [errorOrdenes, setErrorOrdenes] = useState(null);
   const [cargando, setCargando]         = useState(false);
   const [aviso, setAviso]               = useState(null);
   const [modalPublicar, setModalPublicar] = useState(false);
@@ -392,31 +395,34 @@ export default function MercadoLibre({ onVolver, permisos }) {
   }, []);
 
   const cargarEstado = useCallback(async () => {
-    const r = await apiFetch("/ml/estado");
-    if (r.ok) setEstado(await r.json());
+    const { datos } = await pedirDato(() => apiFetch("/ml/estado"), "el estado de la cuenta de MercadoLibre");
+    setEstado(datos);
   }, []);
 
+  // El aviso que había se iba solo a los pocos segundos y dejaba la lista
+  // vacía diciendo "No hay publicaciones activas": el error desaparecía y la
+  // mentira se quedaba. Ahora el motivo vive junto a la lista mientras dure.
   const cargarPublicaciones = useCallback(async () => {
     setCargando(true);
     try {
-      const r = await apiFetch("/ml/publicaciones");
-      if (r.ok) setPublicaciones(await r.json());
-      else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
+      const { datos, error } = await pedirLista(() => apiFetch("/ml/publicaciones"), "las publicaciones de MercadoLibre");
+      setPublicaciones(datos);
+      setErrorPublicaciones(error);
     } finally { setCargando(false); }
   }, []);
 
   const cargarOrdenes = useCallback(async () => {
     setCargando(true);
     try {
-      const r = await apiFetch("/ml/ordenes");
-      if (r.ok) setOrdenes(await r.json());
-      else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
+      const { datos, error } = await pedirLista(() => apiFetch("/ml/ordenes"), "las órdenes de MercadoLibre");
+      setOrdenes(datos);
+      setErrorOrdenes(error);
     } finally { setCargando(false); }
   }, []);
 
   const cargarProductos = useCallback(async () => {
-    const r = await apiFetch("/productos");
-    if (r.ok) setProductos(await r.json());
+    const { datos } = await pedirLista(() => apiFetch("/productos"), "el catálogo de productos");
+    setProductos(datos);
   }, []);
 
   useEffect(() => { cargarEstado(); cargarProductos(); }, [cargarEstado, cargarProductos]);
@@ -620,7 +626,12 @@ export default function MercadoLibre({ onVolver, permisos }) {
                   </div>
                 )}
 
-                {publicaciones.length === 0 ? (
+                {publicaciones.length === 0 && errorPublicaciones ? (
+                  <div className="text-center py-12 px-4 text-red-700">
+                    <Package size={36} className="mx-auto mb-3 opacity-40" />
+                    <p>⚠ {errorPublicaciones}</p>
+                  </div>
+                ) : publicaciones.length === 0 ? (
                   <div className="text-center py-12 text-slate-400">
                     <Package size={36} className="mx-auto mb-3 opacity-40" />
                     <p>No hay publicaciones activas o pausadas</p>
@@ -759,7 +770,12 @@ export default function MercadoLibre({ onVolver, permisos }) {
                   <span className="ml-auto text-xs text-slate-400">{ordenesFiltradas.length} de {ordenes.length}</span>
                 </div>
 
-                {ordenes.length === 0 ? (
+                {ordenes.length === 0 && errorOrdenes ? (
+                  <div className="text-center py-12 px-4 text-red-700">
+                    <ShoppingBag size={36} className="mx-auto mb-3 opacity-40" />
+                    <p>⚠ {errorOrdenes}</p>
+                  </div>
+                ) : ordenes.length === 0 ? (
                   <div className="text-center py-12 text-slate-400">
                     <ShoppingBag size={36} className="mx-auto mb-3 opacity-40" />
                     <p>No hay órdenes recientes</p>

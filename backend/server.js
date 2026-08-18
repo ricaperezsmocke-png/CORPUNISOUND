@@ -23,7 +23,7 @@ const { predecirDemanda } = require("./predicciones");
 const { parsearReporteVentasSicar, previsualizarHistorialVentas, aplicarHistorialVentas } = require("./historialVentas");
 const {
   listarProductos, crearProducto, actualizarProducto, eliminarProducto,
-  clonarProducto, ajustarExistencia, listarCategorias, crearCategoria,
+  reactivarProducto, clonarProducto, ajustarExistencia, listarCategorias, crearCategoria,
   listarDepartamentos, crearDepartamento, crearProveedor, generarClave
 } = require("./productos");
 const { listarClientes, obtenerCliente, crearCliente, actualizarCliente } = require("./clientes");
@@ -89,13 +89,27 @@ const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
 const mantenimiento = require("./mantenimiento");
 
+// Si la persistencia no carga, en producción se ABORTA el arranque en vez de
+// fingir que el sistema funciona. El porqué del criterio está documentado en
+// arranquePersistencia.js — resumido: `guardar` quedaba como función vacía y
+// cada venta del día se escribía en el vacío, con un console.warn que nadie lee.
+const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
+
 let cargar = () => null, guardar = () => {};
 try {
   const p = require("./persistencia");
   cargar = p.cargar; guardar = p.guardar;
   console.log("✅ Módulo de persistencia SQLite cargado");
 } catch (e) {
-  console.warn("⚠️  Persistencia SQLite no disponible — los datos solo vivirán en memoria:", e.message);
+  const abortar = debeAbortarSinPersistencia();
+  const mensaje = mensajeSinPersistencia(e, abortar);
+  if (abortar) {
+    console.error(mensaje);
+    // `throw` y no `process.exit`: deja el stack de la causa real en el log de
+    // Render y no se traga el error si alguien requiere este archivo.
+    throw new Error("Arranque cancelado: el sistema no puede guardar nada (persistencia SQLite no disponible)");
+  }
+  console.warn(mensaje);
 }
 
 const app = express();
@@ -642,7 +656,13 @@ app.get("/api/productos", requiereLogin, (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   // Amarrado o global-con-sucursal: existencia de esa sucursal. Global "todas": suma (null).
   const sucursalId = alcance.verTodas ? null : alcance.sucursalId;
-  res.json(listarProductos(DB, sucursalId));
+  // Los inactivos se piden a propósito y solo los usa el catálogo (su casilla
+  // "ver inactivos"). El default los esconde para TODAS las demás pantallas —
+  // caja, traspasos, garantías, recepción de compras, MercadoLibre y
+  // predicciones leen esta misma ruta, y ninguna debe ofrecer un producto que
+  // se dio de baja.
+  const incluirInactivos = req.query.incluir_inactivos === "1";
+  res.json(listarProductos(DB, sucursalId, { incluirInactivos }));
 });
 
 app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
@@ -680,8 +700,19 @@ app.put("/api/productos/:id", requiereLogin, requierePermiso("editar_producto", 
 // exige alcance global: un rol amarrado a una tienda al que alguien le
 // conceda "eliminar_producto" desde la pantalla de roles no puede arrasar el
 // inventario de sucursales que ni siquiera puede ver.
+//
+// La respuesta dice cuál de las dos cosas pasó (borrado real o desactivación)
+// porque no son lo mismo para quien lo pidió: si se desactivó, el producto
+// sigue en el catálogo y hay que decírselo, no dejarlo creer que desapareció.
 app.delete("/api/productos/:id", requiereLogin, requierePermiso("eliminar_producto", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
-  try { eliminarProducto(DB, req.params.id); res.json({ ok: true }); }
+  try { res.json({ ok: true, ...eliminarProducto(DB, req.params.id) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Reactivar pide el mismo permiso y el mismo alcance global que desactivar:
+// devolver un producto a la caja de las 6 tiendas es tan global como quitarlo.
+app.post("/api/productos/:id/reactivar", requiereLogin, requierePermiso("eliminar_producto", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+  try { res.json(reactivarProducto(DB, req.params.id)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

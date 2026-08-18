@@ -4,6 +4,10 @@ import { apiFetch, sucursalActiva } from "./api";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 import { descargarCSV } from "./reportes/exportarCSV.js";
+import { pedirLista, pedirDato } from "./cargaSegura";
+
+/** Forma que el render da por hecha cuando todavía no hay datos que pintar. */
+const RESUMEN_VACIO = { resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0 } };
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO_DEPOSITO = ["EFECTIVO", "TRANSFERENCIA"];
@@ -42,8 +46,13 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const [sucursalId, setSucursalId] = useState(veTodas ? "" : String(usuario?.sucursal_id || ""));
   const [filtroEstatus, setFiltroEstatus] = useState("activo");
 
-  const [resumen, setResumen] = useState({ resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0 } });
+  const [resumen, setResumen] = useState(RESUMEN_VACIO);
   const [depositos, setDepositos] = useState([]);
+  // "No se pudo cargar" tiene que poder distinguirse de "no hubo movimientos":
+  // los dos pintaban ceros, y en esta pantalla los ceros son dinero que se da
+  // por depositado.
+  const [errorResumen, setErrorResumen] = useState(null);
+  const [errorDepositos, setErrorDepositos] = useState(null);
 
   const [modal, setModal] = useState(null); // null | "nuevo" | "comprobante" | "cancelar"
   const [seleccionado, setSeleccionado] = useState(null);
@@ -87,8 +96,18 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     // inyectaría por su cuenta la sucursal_activa del encabezado global (ver
     // src/api.js), pisando en silencio el selector de esta pantalla.
     params.set("sucursal_id", sucursalId || "todas");
-    const r = await apiFetch(`/estado-cuenta?${params.toString()}`);
-    if (r.ok) setResumen(await r.json());
+    // Aquí se lee cuánto entró y cuánto falta por depositar. Un fallo dejaba el
+    // resumen anterior (o vacío) en pantalla, sin nada que lo delatara: se
+    // revisaba el corte contra números que no eran los del periodo pedido.
+    const { datos, error } = await pedirDato(
+      () => apiFetch(`/estado-cuenta?${params.toString()}`),
+      "el estado de cuenta del periodo"
+    );
+    // Se cae al resumen vacío —y NO a null— para no cambiar la forma que el
+    // render ya da por hecha; quien avisa de que esos ceros no son reales es
+    // `errorResumen`, no el dato.
+    setResumen(datos || RESUMEN_VACIO);
+    setErrorResumen(error);
   }, [fechaInicial, fechaFinal, sucursalId]);
 
   const cargarDepositos = useCallback(async () => {
@@ -99,8 +118,12 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     // Mismo motivo que en cargarResumen: sucursal_id explícito para que
     // apiFetch no la sustituya por la del selector global del encabezado.
     params.set("sucursal_id", sucursalId || "todas");
-    const r = await apiFetch(`/depositos?${params.toString()}`);
-    if (r.ok) setDepositos(await r.json());
+    const { datos, error } = await pedirLista(
+      () => apiFetch(`/depositos?${params.toString()}`),
+      "los depósitos"
+    );
+    setDepositos(datos);
+    setErrorDepositos(error);
   }, [fechaInicial, fechaFinal, filtroEstatus, sucursalId]);
 
   useEffect(() => { cargarResumen(); }, [cargarResumen]);
@@ -338,6 +361,13 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
       {tab === "resumen" ? (
         <div className="flex-1 overflow-auto p-4 space-y-4">
+          {errorResumen && (
+            // Los totales de abajo se quedan en ceros cuando esto falla, y unos
+            // ceros aquí se leen como "ya está todo depositado".
+            <div className="bg-red-50 border border-red-300 text-red-700 text-sm rounded px-3 py-2">
+              ⚠ {errorResumen} <b>Los totales de abajo NO son confiables.</b>
+            </div>
+          )}
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-[#1a7fe8] text-white">
@@ -430,7 +460,11 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               </tr>
             </thead>
             <tbody>
-              {depositos.length === 0 && <tr><td colSpan={8} className="text-center text-slate-400 py-16">Sin depósitos en el periodo</td></tr>}
+              {depositos.length === 0 && (
+                <tr><td colSpan={8} className={`text-center py-16 ${errorDepositos ? "text-red-700" : "text-slate-400"}`}>
+                  {errorDepositos ? `⚠ ${errorDepositos}` : "Sin depósitos en el periodo"}
+                </td></tr>
+              )}
               {depositos.map((d) => (
                 <tr key={d.id} className="border-b border-slate-100">
                   <td className="py-2 px-3 font-medium">
