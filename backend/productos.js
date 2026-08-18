@@ -8,6 +8,15 @@
  * Nota: los datos viven en memoria (se reinician si apagas el backend).
  * El siguiente paso natural es cambiar esto por una base de datos real
  * (Postgres/MySQL) sin tener que tocar las rutas ni el frontend.
+ *
+ * REGLA QUE NO SE NEGOCIA: un producto con historial NUNCA se borra, se
+ * DESACTIVA — la misma regla que vendedores.js, y por el mismo motivo.
+ * `eliminarProducto` borraba el renglón del catálogo de verdad, y el ticket de
+ * una venta vieja pasaba a decir literalmente "Producto": `obtenerVentaDetalle`
+ * (ventas.js) resuelve el nombre del renglón contra el catálogo, y el Punto de
+ * Venta manda `descripcion: undefined` en todo lo que sale del catálogo, así
+ * que el nombre no está guardado en ningún otro lado. Borrar una guitarra
+ * dejaba sin nombre, para siempre, cada ticket donde se vendió.
  */
 
 const TASA_IVA = 0.16;
@@ -16,8 +25,73 @@ function costoConIva(costoNeto) {
   return Math.round(Number(costoNeto) * (1 + TASA_IVA) * 100) / 100;
 }
 
-function listarProductos(DB, sucursalId) {
-  return DB["catalogo-productos"].productos.map((p) => {
+/**
+ * Un producto importado de SICAR no trae el campo `activo`. Ausente = activo,
+ * mismo criterio que vendedores.js.
+ *
+ * OJO: tiene que ser `!== false`, NUNCA `=== true`. Con `=== true` el catálogo
+ * entero de productos migrados desaparecería de la caja el día que esto se
+ * empezara a filtrar — que es justo lo que hace esta versión.
+ */
+function estaActivo(producto) {
+  return producto.activo !== false;
+}
+
+/**
+ * Documentos ya emitidos que nombran a este producto y que alguien va a volver
+ * a abrir: tickets, apartados, recepciones de compra, traspasos, garantías y
+ * publicaciones de MercadoLibre. Si hay aunque sea uno, el producto no se
+ * puede borrar sin romper ese documento.
+ *
+ * Devuelve el detalle contado, no un booleano, para poder decirle al usuario
+ * POR QUÉ no se borró: "tiene 3 ventas y 1 garantía" se entiende; "no se puede
+ * borrar" manda a alguien a llamar por teléfono.
+ *
+ * Ventas y apartados salen de la misma tabla (`venta_detalle`): apartados.js
+ * guarda el apartado como una venta con `tipo_documento: "Apartado"`, así que
+ * se separan por ahí y no por tabla.
+ */
+function rastroHistorico(DB, id) {
+  const productoId = Number(id);
+  const rastro = [];
+
+  const ventaPorId = new Map((DB.pos?.ventas || []).map((v) => [v.id, v]));
+  let ventas = 0, apartados = 0;
+  for (const d of DB.pos?.venta_detalle || []) {
+    if (d.producto_id !== productoId) continue;
+    const doc = ventaPorId.get(d.venta_id);
+    if (doc && String(doc.tipo_documento || "").toLowerCase() === "apartado") apartados++;
+    else ventas++;
+  }
+  if (ventas) rastro.push({ tipo: "ventas", cantidad: ventas });
+  if (apartados) rastro.push({ tipo: "apartados", cantidad: apartados });
+
+  const compras = (DB.inventario?.compra_detalle || []).filter((d) => d.producto_id === productoId).length;
+  if (compras) rastro.push({ tipo: "compras", cantidad: compras });
+
+  const traspasos = (DB.inventario?.traspasos || []).filter((t) => t.producto_id === productoId).length;
+  if (traspasos) rastro.push({ tipo: "traspasos", cantidad: traspasos });
+
+  const garantias = (DB.inventario?.garantias || []).filter((g) => g.producto_id === productoId).length;
+  if (garantias) rastro.push({ tipo: "garantías", cantidad: garantias });
+
+  // `DB.ml` no existe en el DB de pruebas (testHelpers.js) ni en bases viejas
+  // anteriores a MercadoLibre: se navega con `?.` en vez de asumirlo.
+  const publicaciones = (DB.ml?.publicaciones || []).filter((p) => p.producto_id === productoId).length;
+  if (publicaciones) rastro.push({ tipo: "publicaciones de MercadoLibre", cantidad: publicaciones });
+
+  return rastro;
+}
+
+/** "3 ventas, 1 garantía" — para el aviso que ve el usuario. */
+function describirRastro(rastro) {
+  return rastro.map((r) => `${r.cantidad} ${r.tipo}`).join(", ");
+}
+
+function listarProductos(DB, sucursalId, { incluirInactivos = false } = {}) {
+  return DB["catalogo-productos"].productos
+    .filter((p) => incluirInactivos || estaActivo(p))
+    .map((p) => {
     // Global "todas" (sucursalId null): suma la existencia de todas las sucursales.
     // Sucursal concreta (o default 1): existencia de esa sucursal.
     const existenciasProducto = DB.inventario.existencias.filter((e) => e.producto_id === p.id);
@@ -32,6 +106,10 @@ function listarProductos(DB, sucursalId) {
     const departamento = DB["catalogo-productos"].departamentos.find((d) => d.id === p.departamento_id);
     return {
       ...p,
+      // Normalizado a booleano de verdad: el catálogo pinta el renglón gris y
+      // el botón de reactivar con esto, y un `undefined` heredado de SICAR lo
+      // haría verse desactivado sin estarlo.
+      activo: estaActivo(p),
       codigo: p.clave_alterna || p.sku,
       ubicacion: p.ubicacion || "-",
       promocion: !!p.promocion,
@@ -167,11 +245,46 @@ function actualizarProducto(DB, id, datos, sucursalId) {
   return actual;
 }
 
+/**
+ * Saca un producto del catálogo. DESACTIVA si tiene historial, borra de verdad
+ * solo si no lo tiene.
+ *
+ * El borrado físico se quedó porque sirve para lo único que de verdad sirve:
+ * deshacer un alta recién capturada con la clave mal escrita, que no aparece en
+ * ningún documento. En cuanto el producto se vendió, se compró, se traspasó o
+ * se garantizó, borrarlo destruye el nombre en esos documentos (ver el
+ * encabezado de este archivo), así que se desactiva.
+ *
+ * Desactivar NO toca las existencias: la mercancía que quedó en el anaquel es
+ * real y tiene que seguir contando en el reporte de existencias. Lo que cambia
+ * es que el producto deja de ofrecerse para vender, comprar, traspasar,
+ * garantizar o publicar en ML — todas esas pantallas leen /api/productos, que
+ * ya filtra los inactivos.
+ */
 function eliminarProducto(DB, id) {
-  const existe = DB["catalogo-productos"].productos.some((p) => p.id === Number(id));
-  if (!existe) throw new Error("Producto no encontrado");
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(id));
+  if (!producto) throw new Error("Producto no encontrado");
+
+  const rastro = rastroHistorico(DB, producto.id);
+  if (rastro.length) {
+    producto.activo = false;
+    return { desactivado: true, rastro, detalle: describirRastro(rastro) };
+  }
+
   DB["catalogo-productos"].productos = DB["catalogo-productos"].productos.filter((p) => p.id !== Number(id));
   DB.inventario.existencias = DB.inventario.existencias.filter((e) => e.producto_id !== Number(id));
+  return { desactivado: false, rastro: [], detalle: "" };
+}
+
+/**
+ * Devuelve al catálogo un producto desactivado. Sin guard: reactivar siempre
+ * deja el sistema en un estado sano (mismo criterio que vendedores.js).
+ */
+function reactivarProducto(DB, id) {
+  const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(id));
+  if (!producto) throw new Error("Producto no encontrado");
+  producto.activo = true;
+  return producto;
 }
 
 function clonarProducto(DB, id, sucursalId) {
@@ -280,6 +393,10 @@ module.exports = {
   crearProducto,
   actualizarProducto,
   eliminarProducto,
+  reactivarProducto,
+  estaActivo,
+  rastroHistorico,
+  describirRastro,
   clonarProducto,
   ajustarExistencia,
   actualizarCostoDesdeCompra,

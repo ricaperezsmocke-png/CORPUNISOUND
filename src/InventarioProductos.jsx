@@ -74,6 +74,11 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   const [proveedores, setProveedores] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
   const [filtro, setFiltro] = useState("");
+  // Los productos dados de baja se esconden por default —igual que en el
+  // catálogo de vendedores— para que la lista de trabajo sea la de lo que sí
+  // se vende. La casilla existe porque sin ella un producto desactivado por
+  // error no tendría forma de recuperarse desde la pantalla.
+  const [verInactivos, setVerInactivos] = useState(false);
   const [seleccionadoId, setSeleccionadoId] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
@@ -94,7 +99,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     setError(null);
     try {
       const [rProd, rCat, rProv, rDep] = await Promise.all([
-        apiFetch(`/productos`), apiFetch(`/categorias`), apiFetch(`/proveedores`), apiFetch(`/departamentos`)
+        apiFetch(`/productos${verInactivos ? "?incluir_inactivos=1" : ""}`),
+        apiFetch(`/categorias`), apiFetch(`/proveedores`), apiFetch(`/departamentos`)
       ]);
       if (!rProd.ok || !rCat.ok || !rProv.ok || !rDep.ok) throw new Error("El backend respondió con error");
       setProductos(await rProd.json());
@@ -106,7 +112,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [verInactivos]);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
 
@@ -221,12 +227,36 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
   const eliminarSeleccionado = async () => {
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
-    if (!confirm(`¿Eliminar "${seleccionado.nombre}"? Esta acción no se puede deshacer.`)) return;
+    // El texto ya no promete un borrado que casi nunca ocurre: si el producto
+    // tiene historial el backend lo DESACTIVA, y prometer "no se puede
+    // deshacer" asustaba de más y describía mal lo que iba a pasar.
+    if (!confirm(
+      `¿Dar de baja "${seleccionado.nombre}"?\n\n` +
+      "Si ya aparece en ventas, compras, apartados, traspasos, garantías o MercadoLibre, " +
+      "se desactiva (deja de venderse, pero sus documentos conservan el nombre). " +
+      "Solo se borra de verdad si nunca se usó."
+    )) return;
     try {
       const r = await apiFetch(`/productos/${seleccionado.id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error((await r.json()).error);
-      mostrarAviso("Producto eliminado");
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso(
+        data.desactivado
+          ? `Producto desactivado — tiene ${data.detalle} y sus documentos conservan el nombre`
+          : "Producto eliminado"
+      );
       setSeleccionadoId(null);
+      cargarTodo();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+  };
+
+  const reactivarSeleccionado = async () => {
+    if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
+    try {
+      const r = await apiFetch(`/productos/${seleccionado.id}/reactivar`, { method: "POST" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Producto reactivado — ya vuelve a poder venderse");
       cargarTodo();
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
@@ -373,7 +403,11 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         {puede("crear_producto") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={abrirCrear} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         {puede("editar_producto") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={abrirEditar} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={() => { cargarTodo(); mostrarAviso("Lista recargada"); }} />
-        {puede("eliminar_producto") && <BotonBarra icono={Trash2} etiqueta="Eliminar" atajo="F6" tono="rojo" onClick={eliminarSeleccionado} />}
+        {puede("eliminar_producto") && (
+          seleccionado && seleccionado.activo === false
+            ? <BotonBarra icono={RefreshCw} etiqueta="Reactivar" tono="verde" onClick={reactivarSeleccionado} />
+            : <BotonBarra icono={Trash2} etiqueta="Dar de baja" atajo="F6" tono="rojo" onClick={eliminarSeleccionado} />
+        )}
         {puede("ajustar_existencia") && <BotonBarra icono={SlidersHorizontal} etiqueta="Ajustar" atajo="F8" onClick={abrirAjustar} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         {puede("clonar_producto") && <BotonBarra icono={Copy} etiqueta="Clonar" atajo="F9" onClick={clonarSeleccionado} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         <BotonBarra icono={Printer} etiqueta="Imp." atajo="Ctrl+P" onClick={() => mostrarAviso("Enviando listado a impresora...")} />
@@ -393,6 +427,10 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               placeholder="Buscar por clave o descripción..."
               className="flex-1 border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500"
             />
+            <label className="text-xs text-slate-500 flex items-center gap-1.5 whitespace-nowrap self-center">
+              <input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} />
+              Ver inactivos
+            </label>
           </div>
           <div className="flex-1 overflow-y-auto">
             {cargando ? (
@@ -416,11 +454,14 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                       <tr
                         key={p.id}
                         onClick={() => setSeleccionadoId(p.id)}
-                        className={`border-b border-slate-100 cursor-pointer ${seleccionadoId === p.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                        className={`border-b border-slate-100 cursor-pointer ${seleccionadoId === p.id ? "bg-blue-50" : p.activo === false ? "bg-slate-50 text-slate-400" : "hover:bg-slate-50"}`}
                       >
                         <td className="py-2 px-3">
                           <div className="text-[11px] text-slate-400">{p.sku}</div>
-                          <div className="font-medium">{p.nombre}</div>
+                          <div className="font-medium">
+                            {p.nombre}
+                            {p.activo === false && <span className="ml-2 text-[11px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">inactivo</span>}
+                          </div>
                         </td>
                         <td className={`py-2 px-3 text-center ${bajoStock ? "text-red-600 font-semibold" : "text-slate-600"}`}>{p.existencia}</td>
                         <td className="py-2 px-3 text-right font-medium">${Number(p.precio_venta).toFixed(2)}</td>
