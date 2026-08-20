@@ -24,17 +24,58 @@ async function leerRespuesta(respuesta, mensajeGenerico) {
 }
 
 export function mensajeErrorRadar(error, accion = "guardar") {
-  if (error?.status === 403) return accion === "ver"
-    ? "No tienes permiso para consultar demandas."
-    : "No tienes permiso para registrar demandas.";
+  if (error?.status === 403) return "No tienes permiso para realizar esta acción.";
+  if (error?.status === 404) return "La demanda ya no existe o pertenece a otra sucursal.";
+  if (error?.status === 409) return error.message || "Ese cambio de estado ya no está permitido.";
+  if (error?.status === 500) return "Ocurrió un error interno. Intenta nuevamente.";
   const texto = String(error?.message || "");
   if (/motivo/i.test(texto)) return "Selecciona el motivo por el que no se realizó la venta.";
   if (/producto|describe/i.test(texto)) return "Indica qué producto pidió el cliente.";
   if (/cantidad/i.test(texto)) return "La cantidad debe ser mayor que cero.";
-  if (/sucursal/i.test(texto)) return texto;
+  if (/obligatorio/i.test(texto)) return texto;
+  if (/sucursal|venta|estado|fecha|campo/i.test(texto)) return texto;
   return accion === "ver"
     ? "No fue posible cargar las demandas. Intenta nuevamente."
-    : "No fue posible registrar la demanda. Intenta nuevamente.";
+    : "No fue posible completar la acción. Intenta nuevamente.";
+}
+
+export async function cargarMetaRadar() {
+  return leerRespuesta(await apiFetch("/radar-demanda/meta"), "No fue posible cargar las acciones de Radar");
+}
+
+export async function obtenerDemanda(id) {
+  return leerRespuesta(await apiFetch(`/radar-demanda/${id}`), "No fue posible cargar la demanda");
+}
+
+export async function obtenerHistorialDemanda(id) {
+  return leerRespuesta(await apiFetch(`/radar-demanda/${id}/historial`), "No fue posible cargar el historial");
+}
+
+export async function registrarSeguimiento(id, comentario) {
+  return leerRespuesta(await apiFetch(`/radar-demanda/${id}/seguimientos`, {
+    method: "POST", body: JSON.stringify({ comentario }),
+  }), "No fue posible registrar el seguimiento");
+}
+
+export async function actualizarDemanda(id, cambios) {
+  return leerRespuesta(await apiFetch(`/radar-demanda/${id}`, {
+    method: "PATCH", body: JSON.stringify(cambios),
+  }), "No fue posible actualizar la demanda");
+}
+
+export async function cambiarEstadoDemanda(id, estado, comentario, ventaRecuperadaId) {
+  const body = { estado, comentario };
+  if (ventaRecuperadaId !== undefined) body.venta_recuperada_id = ventaRecuperadaId;
+  return leerRespuesta(await apiFetch(`/radar-demanda/${id}`, {
+    method: "PATCH", body: JSON.stringify(body),
+  }), "No fue posible cambiar el estado");
+}
+
+export async function listarVentasCandidatas(id, filtros = {}) {
+  const query = new URLSearchParams();
+  Object.entries(filtros).forEach(([clave, valor]) => { if (valor !== "" && valor != null) query.set(clave, valor); });
+  const sufijo = query.size ? `?${query}` : "";
+  return leerRespuesta(await apiFetch(`/radar-demanda/${id}/ventas-candidatas${sufijo}`), "No fue posible cargar las ventas candidatas");
 }
 
 export async function listarDemandas() {
@@ -56,4 +97,3 @@ export async function cargarCatalogosRadar() {
   const clientes = clientesRespuesta.ok ? await clientesRespuesta.json() : [];
   return { productos, clientes };
 }
-
