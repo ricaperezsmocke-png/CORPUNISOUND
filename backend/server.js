@@ -88,6 +88,11 @@ const {
 const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
 const mantenimiento = require("./mantenimiento");
+const {
+  normalizarRadarDemanda, crearDemanda: crearDemandaRadar,
+  listarDemandas, obtenerDemanda, actualizarDemanda,
+  agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen,
+} = require("./radarDemanda");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
 // fingir que el sistema funciona. El porqué del criterio está documentado en
@@ -273,6 +278,12 @@ const DB = {
     ultimo_intento: null,
     carpeta_drive_id: null,
   },
+  radar_demanda: {
+    registros: [],
+    seguimientos: [],
+    ultimo_id: 0,
+    ultimo_seguimiento_id: 0,
+  },
 };
 
 sembrarRolesIniciales(DB);
@@ -291,6 +302,11 @@ if (estadoGuardado) {
   }
   console.log("✅ Datos restaurados desde almacenamiento persistente");
 }
+
+// Una base anterior a Radar no trae este módulo; una copia intermedia puede
+// traer arreglos sin contadores o registros anteriores con campos faltantes.
+// Se preserva lo existente y solo se completan valores defensivos.
+normalizarRadarDemanda(DB);
 
 sembrarCategoriasGastos(DB);
 
@@ -599,6 +615,85 @@ app.use((req, res, next) => {
 // Sin la lista de módulos: esta ruta es PÚBLICA (la usa el monitor de Render)
 // y estaba entregándole a internet el mapa completo de tablas del sistema.
 app.get("/api/salud", (req, res) => res.json({ ok: true }));
+
+// ---------- Radar de Demanda ----------
+
+function responderErrorRadar(res, error) {
+  const mensaje = error && error.message ? error.message : "Error interno en Radar de Demanda";
+  if (mensaje === "Demanda no encontrada") return res.status(404).json({ error: mensaje });
+  if (mensaje.startsWith("No se permite cambiar")) return res.status(409).json({ error: mensaje });
+  const errorDeDominio = /no es válid|no puede modificarse|no se puede modificar|no encontrado|no encontrada|debe ser|Selecciona|El campo|mayor que cero/.test(mensaje);
+  if (errorDeDominio) return res.status(400).json({ error: mensaje });
+  Sentry.captureException(error);
+  console.error("Error inesperado en Radar de Demanda:", mensaje);
+  return res.status(500).json({ error: "Error interno en Radar de Demanda" });
+}
+
+function requierePermisoPatchRadar(req, res, next) {
+  const terminal = ["CONVERTIDA", "NO_CONVERTIDA", "CANCELADA"].includes(req.body?.estado);
+  const permiso = terminal ? "cerrar_demanda" : "dar_seguimiento_demanda";
+  return requierePermiso(permiso, resolverPermisosDeRol)(req, res, next);
+}
+
+app.get("/api/radar-demanda", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(listarDemandas(DB, resolverAlcance(req), req.query)); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    // La sucursal viene del alcance resuelto. body.sucursal_id nunca decide
+    // dónde guardar, ni siquiera para una cuenta global.
+    const sucursalId = sucursalDeEscritura(alcance, null);
+    if (!sucursalId) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de registrar la demanda." });
+    }
+    res.json(crearDemandaRadar(DB, req.body || {}, {
+      usuarioId: req.usuarioToken.id,
+      sucursalId,
+    }));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(obtenerResumen(DB, resolverAlcance(req))); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/:id", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(obtenerDemanda(DB, req.params.id, resolverAlcance(req))); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.patch("/api/radar-demanda/:id", requiereLogin, requierePermisoPatchRadar, (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, "estado")) {
+      const permitidos = new Set(["estado", "comentario", "venta_recuperada_id"]);
+      const inesperado = Object.keys(req.body).find((campo) => !permitidos.has(campo));
+      if (inesperado) return res.status(400).json({ error: `El campo ${inesperado} no corresponde a un cambio de estado` });
+      return res.json(cambiarEstado(DB, req.params.id, req.body.estado, {
+        comentario: req.body.comentario,
+        venta_recuperada_id: req.body.venta_recuperada_id,
+      }, alcance, req.usuarioToken.id));
+    }
+    res.json(actualizarDemanda(DB, req.params.id, req.body || {}, alcance));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.post("/api/radar-demanda/:id/seguimientos", requiereLogin, requierePermiso("dar_seguimiento_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json(agregarSeguimiento(
+      DB, req.params.id, req.body || {}, resolverAlcance(req), req.usuarioToken.id
+    ));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/:id/historial", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(obtenerHistorial(DB, req.params.id, resolverAlcance(req))); }
+  catch (e) { responderErrorRadar(res, e); }
+});
 
 app.get("/api/predicciones", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));

@@ -128,6 +128,13 @@ const PERMISOS = [
   // proyecto: cada botón con su permiso propio, nunca uno prestado.
   { clave: "crear_respaldo",     etiqueta: "Respaldar Ahora",     modulo: "respaldos", implementado: true },
   { clave: "restaurar_respaldo", etiqueta: "Restaurar Respaldo",  modulo: "respaldos", implementado: true },
+
+  // ---- Radar de Demanda ----
+  { clave: "ver_radar_demanda", etiqueta: "Ver Radar de Demanda", modulo: "radar_demanda", implementado: true },
+  { clave: "registrar_demanda", etiqueta: "Registrar Demanda", modulo: "radar_demanda", implementado: true },
+  { clave: "dar_seguimiento_demanda", etiqueta: "Dar Seguimiento a Demanda", modulo: "radar_demanda", implementado: true },
+  { clave: "cerrar_demanda", etiqueta: "Cerrar Demanda", modulo: "radar_demanda", implementado: true },
+  { clave: "ver_resumen_demanda", etiqueta: "Ver Resumen de Demanda", modulo: "radar_demanda", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [
@@ -141,6 +148,7 @@ const MODULOS_SISTEMA = [
   { id: "gastos",    nombre: "Gastos" },
   { id: "cuenta_comun", nombre: "Estado de Cuenta" },
   { id: "respaldos", nombre: "Respaldos" },
+  { id: "radar_demanda", nombre: "Radar de Demanda" },
 ];
 
 function listarPermisos() {
