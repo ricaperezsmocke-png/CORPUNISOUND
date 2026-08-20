@@ -360,11 +360,13 @@ function cambiarEstado(DB, demandaId, nuevoEstado, datos, alcance, usuarioId) {
   if (!TRANSICIONES_PERMITIDAS[demanda.estado].includes(nuevoEstado)) {
     throw new Error(`No se permite cambiar de ${demanda.estado} a ${nuevoEstado}`);
   }
+  const incluyeVenta = datos && Object.prototype.hasOwnProperty.call(datos, "venta_recuperada_id");
+  const ventaRecuperadaId = incluyeVenta
+    ? validarVenta(DB, datos.venta_recuperada_id, demanda.sucursal_id)
+    : demanda.venta_recuperada_id;
   const anterior = demanda.estado;
   demanda.estado = nuevoEstado;
-  if (datos && Object.prototype.hasOwnProperty.call(datos, "venta_recuperada_id")) {
-    demanda.venta_recuperada_id = validarVenta(DB, datos.venta_recuperada_id, demanda.sucursal_id);
-  }
+  if (incluyeVenta) demanda.venta_recuperada_id = ventaRecuperadaId;
   const entrada = agregarEntradaHistorial(DB, demanda, {
     tipo: "CAMBIO_ESTADO",
     comentario: datos?.comentario,
@@ -381,6 +383,77 @@ function obtenerHistorial(DB, demandaId, alcance) {
     .filter((item) => item.demanda_id === demanda.id)
     .sort((a, b) => a.fecha_hora.localeCompare(b.fecha_hora) || a.id - b.id);
   return copiar(historial);
+}
+
+/**
+ * Proyecciones de lectura para Radar. Se invocan únicamente después de que la
+ * ruta validó autenticación, permiso y alcance de la demanda; no enumeran
+ * catálogos ni agregan datos persistidos.
+ */
+function enriquecerDemanda(DB, demanda) {
+  const usuario = (DB.admin?.usuarios || []).find((item) => item.id === Number(demanda.usuario_id));
+  const vendedor = (DB.pos?.vendedores || []).find((item) => item.id === Number(demanda.vendedor_id));
+  const sucursal = (DB.pos?.sucursales || []).find((item) => item.id === Number(demanda.sucursal_id));
+  return {
+    ...copiar(demanda),
+    usuario_nombre: usuario?.nombre || null,
+    vendedor_nombre: vendedor?.nombre || null,
+    sucursal_nombre: sucursal?.nombre || null,
+  };
+}
+
+function enriquecerHistorial(DB, historial) {
+  return copiar(historial).map((entrada) => {
+    const usuario = (DB.admin?.usuarios || []).find((item) => item.id === Number(entrada.usuario_id));
+    return { ...entrada, usuario_nombre: usuario?.nombre || null };
+  });
+}
+
+function listarVentasCandidatas(DB, demanda, filtros = {}) {
+  const limiteSolicitado = Number(filtros.limite);
+  const limite = Number.isInteger(limiteSolicitado) && limiteSolicitado > 0
+    ? Math.min(limiteSolicitado, 100) : 50;
+  const textoBuscado = texto(filtros.texto).toLocaleLowerCase("es");
+
+  for (const campo of ["fecha_inicio", "fecha_fin"]) {
+    if (!filtros[campo]) continue;
+    const valor = texto(filtros[campo]);
+    const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
+    const fecha = partes && new Date(`${valor}T00:00:00.000Z`);
+    if (!partes || Number.isNaN(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== valor) {
+      throw new Error(`${campo} debe ser una fecha válida con formato YYYY-MM-DD`);
+    }
+  }
+
+  let ventas = (DB.pos?.ventas || []).filter(
+    (venta) => Number(venta.sucursal_id) === Number(demanda.sucursal_id)
+  );
+  if (filtros.fecha_inicio) ventas = ventas.filter((venta) => texto(venta.fecha) >= texto(filtros.fecha_inicio));
+  if (filtros.fecha_fin) ventas = ventas.filter((venta) => texto(venta.fecha) <= texto(filtros.fecha_fin));
+  if (textoBuscado) {
+    ventas = ventas.filter((venta) => {
+      const cliente = (DB.crm?.clientes || []).find((item) => item.id === Number(venta.cliente_id));
+      return String(venta.id).includes(textoBuscado)
+        || texto(cliente?.nombre).toLocaleLowerCase("es").includes(textoBuscado);
+    });
+  }
+
+  return ventas
+    .sort((a, b) => texto(b.fecha).localeCompare(texto(a.fecha)) || Number(b.id) - Number(a.id))
+    .slice(0, limite)
+    .map((venta) => {
+      const cliente = (DB.crm?.clientes || []).find((item) => item.id === Number(venta.cliente_id));
+      const vendedor = (DB.pos?.vendedores || []).find((item) => item.id === Number(venta.vendedor_id));
+      return {
+        id: venta.id,
+        fecha: venta.fecha || null,
+        total: Number(venta.total) || 0,
+        cliente_id: venta.cliente_id ?? null,
+        cliente_nombre: cliente?.nombre || "Público en General",
+        vendedor_id: venta.vendedor_id ?? null,
+        vendedor_nombre: vendedor?.nombre || null,
+      };
+    });
 }
 
 function obtenerResumen(DB, alcance) {
@@ -420,4 +493,7 @@ module.exports = {
   cambiarEstado,
   obtenerHistorial,
   obtenerResumen,
+  enriquecerDemanda,
+  enriquecerHistorial,
+  listarVentasCandidatas,
 };

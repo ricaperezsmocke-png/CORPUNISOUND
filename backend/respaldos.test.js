@@ -84,6 +84,12 @@ function nuevoDB() {
     drive: { cuenta: null },
     gastos: { gastos: [{ id: 1 }], categorias: [], gasto_movimientos: [], ultimo_id: 1 },
     cuenta_comun: { depositos: [{ id: 1 }], deposito_movimientos: [], ultimo_id: 1 },
+    radar_demanda: {
+      registros: [{ id: 7, producto_buscado: "Bajo de cinco cuerdas", estado: "CLIENTE_CONTACTADO" }],
+      seguimientos: [{ id: 11, demanda_id: 7, tipo: "SEGUIMIENTO", comentario: "Cliente localizado" }],
+      ultimo_id: 7,
+      ultimo_seguimiento_id: 11,
+    },
     respaldos: nuevoEstadoRespaldos(),
   };
 }
@@ -644,8 +650,13 @@ test("sin escribir RESTAURAR no restaura", async () => {
 
 test("restaurar deja la base exactamente igual a la foto", async () => {
   const { DB, drive, copia } = await conRespaldoListo();
+  const radarRespaldado = JSON.parse(JSON.stringify(DB.radar_demanda));
   DB.pos.ventas.push({ id: 3, total: 999, tipo_documento: "Ticket" });
   DB.crm.clientes.push({ id: 2, nombre: "Cliente nuevo" });
+  DB.radar_demanda.registros.push({ id: 8, producto_buscado: "Cambio posterior" });
+  DB.radar_demanda.seguimientos.length = 0;
+  DB.radar_demanda.ultimo_id = 99;
+  DB.radar_demanda.ultimo_seguimiento_id = 100;
 
   const r = await restaurar(DB, drive, {
     copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
@@ -656,6 +667,7 @@ test("restaurar deja la base exactamente igual a la foto", async () => {
   assert.strictEqual(DB.pos.ventas.length, 2);
   assert.strictEqual(DB.crm.clientes.length, 1);
   assert.strictEqual(DB.crm.clientes[0].nombre, "Ana");
+  assert.deepStrictEqual(DB.radar_demanda, radarRespaldado);
 });
 
 test("ANTES de tocar nada se crea el respaldo pre_restauracion", async () => {

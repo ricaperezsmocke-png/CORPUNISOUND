@@ -89,9 +89,11 @@ const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
 const mantenimiento = require("./mantenimiento");
 const {
+  MOTIVOS_DEMANDA, ESTADOS_DEMANDA, TRANSICIONES_PERMITIDAS,
   normalizarRadarDemanda, crearDemanda: crearDemandaRadar,
   listarDemandas, obtenerDemanda, actualizarDemanda,
   agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen,
+  enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
 } = require("./radarDemanda");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
@@ -640,6 +642,14 @@ app.get("/api/radar-demanda", requiereLogin, requierePermiso("ver_radar_demanda"
   catch (e) { responderErrorRadar(res, e); }
 });
 
+app.get("/api/radar-demanda/meta", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  res.json({
+    estados: ESTADOS_DEMANDA,
+    motivos: MOTIVOS_DEMANDA,
+    transiciones: TRANSICIONES_PERMITIDAS,
+  });
+});
+
 app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = resolverAlcance(req);
@@ -661,8 +671,18 @@ app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resume
   catch (e) { responderErrorRadar(res, e); }
 });
 
+app.get("/api/radar-demanda/:id/ventas-candidatas", requiereLogin, requierePermiso("cerrar_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcance(req));
+    res.json(listarVentasCandidatas(DB, demanda, req.query));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
 app.get("/api/radar-demanda/:id", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
-  try { res.json(obtenerDemanda(DB, req.params.id, resolverAlcance(req))); }
+  try {
+    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcance(req));
+    res.json(enriquecerDemanda(DB, demanda));
+  }
   catch (e) { responderErrorRadar(res, e); }
 });
 
@@ -691,7 +711,10 @@ app.post("/api/radar-demanda/:id/seguimientos", requiereLogin, requierePermiso("
 });
 
 app.get("/api/radar-demanda/:id/historial", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
-  try { res.json(obtenerHistorial(DB, req.params.id, resolverAlcance(req))); }
+  try {
+    const historial = obtenerHistorial(DB, req.params.id, resolverAlcance(req));
+    res.json(enriquecerHistorial(DB, historial));
+  }
   catch (e) { responderErrorRadar(res, e); }
 });
 

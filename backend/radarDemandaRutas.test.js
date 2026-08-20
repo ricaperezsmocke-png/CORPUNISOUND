@@ -12,7 +12,9 @@ process.env.NODE_ENV = "test";
 const app = require("./server");
 const { firmarToken } = require("./auth");
 const { cargar } = require("./persistencia");
-const { normalizarRadarDemanda } = require("./radarDemanda");
+const {
+  normalizarRadarDemanda, MOTIVOS_DEMANDA, ESTADOS_DEMANDA, TRANSICIONES_PERMITIDAS,
+} = require("./radarDemanda");
 
 const IDS = {
   rolCompleto: 901,
@@ -270,3 +272,226 @@ test("conversión solo guarda referencia y no modifica ventas", async () => {
   assert.equal(JSON.stringify(app.DB.pos.ventas), ventasAntes);
 });
 
+test("meta requiere login", async () => {
+  assert.equal((await pedir("/api/radar-demanda/meta")).status, 401);
+});
+
+test("meta requiere ver_radar_demanda", async () => {
+  assert.equal((await pedir("/api/radar-demanda/meta", { token: tokenSinPermiso })).status, 403);
+});
+
+test("meta expone exactamente estados, motivos y transiciones del dominio", async () => {
+  const r = await pedir("/api/radar-demanda/meta", { token: tokenS1 });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.cuerpo.estados, ESTADOS_DEMANDA);
+  assert.deepEqual(r.cuerpo.motivos, MOTIVOS_DEMANDA);
+  assert.deepEqual(r.cuerpo.transiciones, TRANSICIONES_PERMITIDAS);
+});
+
+test("meta mantiene estados terminales sin transiciones", async () => {
+  const r = await pedir("/api/radar-demanda/meta", { token: tokenS1 });
+  for (const estado of ["CONVERTIDA", "NO_CONVERTIDA", "CANCELADA"]) {
+    assert.deepEqual(r.cuerpo.transiciones[estado], []);
+  }
+});
+
+test("meta entrega una serialización que no puede mutar las constantes del dominio", async () => {
+  const r = await pedir("/api/radar-demanda/meta", { token: tokenS1 });
+  r.cuerpo.estados.push("ALTERADO");
+  r.cuerpo.motivos[0] = "ALTERADO";
+  r.cuerpo.transiciones.REGISTRADA.push("ALTERADO");
+
+  const siguiente = await pedir("/api/radar-demanda/meta", { token: tokenS1 });
+  assert.deepEqual(siguiente.cuerpo.estados, ESTADOS_DEMANDA);
+  assert.deepEqual(siguiente.cuerpo.motivos, MOTIVOS_DEMANDA);
+  assert.deepEqual(siguiente.cuerpo.transiciones, TRANSICIONES_PERMITIDAS);
+});
+
+test("detalle enriquece únicamente nombres relacionados", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, { token: tokenS1 });
+  assert.equal(r.status, 200);
+  assert.equal(r.cuerpo.usuario_nombre, "Vendedora S1");
+  assert.equal(r.cuerpo.vendedor_nombre, app.DB.pos.vendedores.find((v) => v.id === 1).nombre);
+  assert.equal(r.cuerpo.sucursal_nombre, app.DB.pos.sucursales.find((s) => s.id === 1).nombre);
+  const serializado = JSON.stringify(r.cuerpo);
+  for (const secreto of ["password_hash", "token", "permisos", "usuarios"]) {
+    assert.equal(serializado.includes(secreto), false);
+  }
+});
+
+test("detalle maneja vendedor null sin abrir catálogo de usuarios", async () => {
+  const creada = await pedir("/api/radar-demanda?sucursal_id=1", { token: tokenAdmin, method: "POST", body: demandaValida() });
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}?sucursal_id=1`, { token: tokenAdmin });
+  assert.equal(r.status, 200);
+  assert.equal(r.cuerpo.vendedor_nombre, null);
+  assert.equal(r.cuerpo.usuario_nombre, "Administrador Radar");
+  assert.equal(Object.prototype.hasOwnProperty.call(r.cuerpo, "usuario"), false);
+});
+
+test("historial incluye nombre legible del actor sin exponer su cuenta", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  await pedir(`/api/radar-demanda/${creada.cuerpo.id}/seguimientos`, {
+    token: tokenS1, method: "POST", body: { comentario: "Llamada de prueba" },
+  });
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/historial`, { token: tokenS1 });
+  assert.equal(r.status, 200);
+  assert.equal(r.cuerpo[0].usuario_nombre, "Vendedora S1");
+  assert.deepEqual(Object.keys(r.cuerpo[0]).sort(), [
+    "comentario", "demanda_id", "estado_anterior", "estado_nuevo", "fecha_hora",
+    "id", "tipo", "usuario_id", "usuario_nombre",
+  ].sort());
+});
+
+test("detalle enriquecido de otra sucursal sigue devolviendo 404", async () => {
+  const creada = await crearEnSucursal2();
+  assert.equal((await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, { token: tokenS1 })).status, 404);
+});
+
+test("ventas candidatas requiere login y cerrar_demanda", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  assert.equal((await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas`)).status, 401);
+  assert.equal((await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas`, { token: tokenSinPermiso })).status, 403);
+});
+
+test("ventas candidatas responde 404 para demanda inexistente o fuera de alcance", async () => {
+  assert.equal((await pedir("/api/radar-demanda/999999/ventas-candidatas", { token: tokenS1 })).status, 404);
+  const creada = await crearEnSucursal2();
+  assert.equal((await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas`, { token: tokenS1 })).status, 404);
+});
+
+test("ventas candidatas devuelve sólo proyección mínima de la misma sucursal", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas`, { token: tokenS1 });
+  assert.equal(r.status, 200);
+  assert.ok(r.cuerpo.length > 0);
+  const idsSucursal1 = new Set(app.DB.pos.ventas.filter((v) => v.sucursal_id === 1).map((v) => v.id));
+  assert.ok(r.cuerpo.every((venta) => idsSucursal1.has(venta.id)));
+  assert.ok(r.cuerpo.every((venta) => Object.keys(venta).sort().join(",") === [
+    "cliente_id", "cliente_nombre", "fecha", "id", "total", "vendedor_id", "vendedor_nombre",
+  ].sort().join(",")));
+});
+
+test("ventas candidatas no requiere ver_lista_ventas ni modifica ventas o inventario", async () => {
+  assert.equal(permisosCompletos.includes("ver_lista_ventas"), false);
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const ventasAntes = JSON.stringify(app.DB.pos.ventas);
+  const inventarioAntes = JSON.stringify(app.DB.inventario);
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas`, { token: tokenS1 });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.stringify(app.DB.pos.ventas), ventasAntes);
+  assert.equal(JSON.stringify(app.DB.inventario), inventarioAntes);
+});
+
+test("ventas candidatas aplica texto, fechas y límite máximo", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas?texto=1&fecha_inicio=2026-01-01&fecha_fin=2026-12-31&limite=1`, { token: tokenS1 });
+  assert.equal(r.status, 200);
+  assert.ok(r.cuerpo.length <= 1);
+  assert.ok(r.cuerpo.every((venta) => String(venta.id).includes("1") || venta.cliente_nombre.toLowerCase().includes("1")));
+});
+
+test("ventas candidatas normaliza límites no positivos y limita a cien", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const ventasOriginales = app.DB.pos.ventas;
+  try {
+    app.DB.pos.ventas = Array.from({ length: 120 }, (_, i) => ({
+      id: 10000 + i, sucursal_id: 1, fecha: "2026-08-20", total: i + 1,
+      cliente_id: null, vendedor_id: null,
+    }));
+    for (const limite of ["0", "-5"]) {
+      const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas?limite=${limite}`, { token: tokenS1 });
+      assert.equal(r.status, 200);
+      assert.equal(r.cuerpo.length, 50);
+    }
+    const maximo = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas?limite=999`, { token: tokenS1 });
+    assert.equal(maximo.status, 200);
+    assert.equal(maximo.cuerpo.length, 100);
+  } finally {
+    app.DB.pos.ventas = ventasOriginales;
+  }
+});
+
+test("ventas candidatas tolera texto vacío y nombres relacionados nulos", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const ventasOriginales = app.DB.pos.ventas;
+  try {
+    app.DB.pos.ventas = [{
+      id: 20001, sucursal_id: 1, fecha: "2026-08-20", total: 10,
+      cliente_id: null, vendedor_id: null,
+    }];
+    const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas?texto=`, { token: tokenS1 });
+    assert.equal(r.status, 200);
+    assert.equal(r.cuerpo.length, 1);
+    assert.equal(r.cuerpo[0].cliente_nombre, "Público en General");
+    assert.equal(r.cuerpo[0].vendedor_nombre, null);
+  } finally {
+    app.DB.pos.ventas = ventasOriginales;
+  }
+});
+
+test("ventas candidatas rechaza fechas inicial o final inválidas", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  for (const query of ["fecha_inicio=no-es-fecha", "fecha_fin=2026-02-30"]) {
+    const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}/ventas-candidatas?${query}`, { token: tokenS1 });
+    assert.equal(r.status, 400);
+    assert.match(r.cuerpo.error, /fecha válida.*YYYY-MM-DD/);
+  }
+});
+
+test("conversión vuelve a rechazar venta inexistente o de otra sucursal", async () => {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const ventaOtraSucursal = app.DB.pos.ventas.find((venta) => venta.sucursal_id === 2);
+  const otra = await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, {
+    token: tokenS1, method: "PATCH",
+    body: { estado: "CONVERTIDA", venta_recuperada_id: ventaOtraSucursal.id },
+  });
+  assert.equal(otra.status, 400);
+
+  const inexistente = await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, {
+    token: tokenS1, method: "PATCH",
+    body: { estado: "CONVERTIDA", venta_recuperada_id: 999999 },
+  });
+  assert.equal(inexistente.status, 400);
+  const detalle = await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, { token: tokenS1 });
+  assert.equal(detalle.cuerpo.estado, "REGISTRADA");
+  assert.equal(detalle.cuerpo.venta_recuperada_id, null);
+});
+
+async function demandaContactada() {
+  const creada = await pedir("/api/radar-demanda", { token: tokenS1, method: "POST", body: demandaValida() });
+  const contactada = await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, {
+    token: tokenS1, method: "PATCH", body: { estado: "CLIENTE_CONTACTADO" },
+  });
+  assert.equal(contactada.status, 200);
+  return creada.cuerpo.id;
+}
+
+async function comprobarConversionAtomica(ventaRecuperadaId) {
+  const demandaId = await demandaContactada();
+  const historialAntes = JSON.stringify(app.DB.radar_demanda.seguimientos);
+  const ultimoSeguimientoAntes = app.DB.radar_demanda.ultimo_seguimiento_id;
+  const r = await pedir(`/api/radar-demanda/${demandaId}`, {
+    token: tokenS1, method: "PATCH",
+    body: { estado: "CONVERTIDA", venta_recuperada_id: ventaRecuperadaId },
+  });
+  assert.equal(r.status, 400);
+  const demanda = app.DB.radar_demanda.registros.find((item) => item.id === demandaId);
+  assert.equal(demanda.estado, "CLIENTE_CONTACTADO");
+  assert.equal(demanda.venta_recuperada_id, null);
+  assert.equal(JSON.stringify(app.DB.radar_demanda.seguimientos), historialAntes);
+  assert.equal(app.DB.radar_demanda.ultimo_seguimiento_id, ultimoSeguimientoAntes);
+  assert.equal(app.DB.radar_demanda.seguimientos.some(
+    (item) => item.demanda_id === demandaId && item.estado_nuevo === "CONVERTIDA"
+  ), false);
+}
+
+test("conversión con venta inexistente es atómica desde CLIENTE_CONTACTADO", async () => {
+  await comprobarConversionAtomica(999999);
+});
+
+test("conversión con venta de otra sucursal es atómica desde CLIENTE_CONTACTADO", async () => {
+  const ventaOtraSucursal = app.DB.pos.ventas.find((venta) => venta.sucursal_id === 2);
+  assert.ok(ventaOtraSucursal);
+  await comprobarConversionAtomica(ventaOtraSucursal.id);
+});
