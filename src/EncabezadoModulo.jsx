@@ -18,6 +18,7 @@ const TITULOS = {
   reportes:   "Reportes",
   respaldos: "Respaldos",
   gerencia_ventas: "Mi Objetivo de Venta",
+  radar_demanda: "Radar de Demanda",
 };
 
 export default function EncabezadoModulo({ vista, usuario, onVolver, onSalir }) {

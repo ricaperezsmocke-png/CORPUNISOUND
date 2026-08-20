@@ -1,5 +1,5 @@
 import React from "react";
-import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft, FileBarChart, ShieldAlert, Wallet, Scale, DatabaseBackup, Target } from "lucide-react";
+import { ShoppingCart, Users, Boxes, Lock, ShieldCheck, LogOut, Landmark, Store, ArrowRightLeft, FileBarChart, ShieldAlert, Wallet, Scale, DatabaseBackup, Target, RadioTower } from "lucide-react";
 import AsistenteIA from "./AsistenteIA";
 import SelectorSucursal from "./SelectorSucursal.jsx";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ const MODULOS = [
   { id: "respaldos",  nombre: "Respaldos",              icono: DatabaseBackup, disponible: true, modulo: "respaldos", permiso: "ver_respaldos" },
   // Dos puertas: la vendedora entra a ver su objetivo, la jefatura a fijar metas.
   { id: "gerencia_ventas", nombre: "Mi Objetivo de Venta", icono: Target,     disponible: true, modulo: "pos", permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
+  { id: "radar_demanda", nombre: "Radar de Demanda", icono: RadioTower, disponible: true, modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda"] },
   { id: "crm",        nombre: "CRM",                     icono: Users,        disponible: true, modulo: "crm" },
   { id: "ml",         nombre: "MercadoLibre",             icono: Store,        disponible: true, modulo: "ml" },
   { id: "reportes",   nombre: "Reportes",                 icono: FileBarChart, disponible: true, modulo: "reportes", permiso: "ver_reportes" },
