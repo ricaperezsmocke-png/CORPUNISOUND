@@ -52,7 +52,7 @@ export default function RadarDemanda({ permisos = [] }) {
       {vista === "registrar" && <RegistrarDemanda productos={productos} clientes={clientes} puedeRegistrar={puedeRegistrar} sinSucursal={sinSucursalElegida()} onRegistrada={cargar} />}
       {vista === "demandas" && <MisDemandas demandas={demandas} clientes={clientes} meta={meta} cargando={cargando} error={error} onVer={setDemandaAbierta} />}
       {vista === "seguimientos" && <SeguimientosDemanda demandas={demandas} clientes={clientes} cargando={cargando} error={error} onVer={setDemandaAbierta} />}
-      {vista === "analisis" && <AnalisisDemanda />}
+      {vista === "analisis" && <AnalisisDemanda permisos={permisos || []} />}
     </div>
   </main>;
 }
