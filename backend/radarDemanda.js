@@ -62,6 +62,10 @@ const CAMPOS_EDITABLES = new Set([
   "venta_recuperada_id",
 ]);
 
+const ESTADOS_PENDIENTES = new Set([
+  "REGISTRADA", "EN_SEGUIMIENTO", "PRODUCTO_DISPONIBLE", "CLIENTE_CONTACTADO",
+]);
+
 function normalizarRadarDemanda(DB) {
   if (!DB.radar_demanda || typeof DB.radar_demanda !== "object") {
     DB.radar_demanda = {};
@@ -480,6 +484,176 @@ function obtenerResumen(DB, alcance) {
   };
 }
 
+function validarFechaAnalisis(valor, nombre) {
+  if (!valor) return null;
+  const fecha = texto(valor);
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  const instante = partes && new Date(`${fecha}T00:00:00.000Z`);
+  if (!partes || Number.isNaN(instante.getTime()) || instante.toISOString().slice(0, 10) !== fecha) {
+    throw new Error(`${nombre} debe ser una fecha válida con formato YYYY-MM-DD`);
+  }
+  return fecha;
+}
+
+function sumarDias(fecha, dias) {
+  const instante = new Date(`${fecha}T00:00:00.000Z`);
+  instante.setUTCDate(instante.getUTCDate() + dias);
+  return instante.toISOString().slice(0, 10);
+}
+
+function normalizarClave(valor) {
+  return texto(valor).replace(/\s+/g, " ").toLocaleLowerCase("es");
+}
+
+function porcentaje(numerador, denominador) {
+  return denominador ? Math.round((numerador / denominador) * 10000) / 100 : 0;
+}
+
+function identidadContacto(item) {
+  if (item.cliente_id != null && Number(item.cliente_id) !== 0) return `cliente:${Number(item.cliente_id)}`;
+  const telefono = normalizarClave(item.telefono_contacto);
+  if (telefono) return `telefono:${telefono}`;
+  const nombre = normalizarClave(item.nombre_contacto);
+  return nombre ? `nombre:${nombre}` : null;
+}
+
+function metricasRegistros(registros) {
+  let pendientes = 0, convertidas = 0, noConvertidas = 0, canceladas = 0, cantidad = 0;
+  for (const item of registros) {
+    cantidad += Number(item.cantidad) || 0;
+    if (ESTADOS_PENDIENTES.has(item.estado)) pendientes += 1;
+    else if (item.estado === "CONVERTIDA") convertidas += 1;
+    else if (item.estado === "NO_CONVERTIDA") noConvertidas += 1;
+    else if (item.estado === "CANCELADA") canceladas += 1;
+  }
+  return {
+    total: registros.length,
+    cantidad_solicitada: cantidad,
+    pendientes,
+    convertidas,
+    no_convertidas: noConvertidas,
+    canceladas,
+    tasa_conversion: porcentaje(convertidas, convertidas + noConvertidas),
+    tasa_recuperacion: porcentaje(convertidas, pendientes + convertidas + noConvertidas),
+  };
+}
+
+function obtenerAnalisis(DB, alcance, filtros = {}) {
+  const { fechaLocal } = require("./fechas");
+  const fechaInicio = validarFechaAnalisis(filtros.fecha_inicio, "fecha_inicio");
+  const fechaFin = validarFechaAnalisis(filtros.fecha_fin, "fecha_fin") || fechaLocal();
+  if (fechaInicio && fechaInicio > fechaFin) throw new Error("fecha_inicio debe ser anterior o igual a fecha_fin");
+
+  // Lectura pura: no se llama normalizarRadarDemanda porque ese helper repara
+  // estructuras antiguas in-place. El análisis jamás debe modificar DB.
+  const todosAlcance = (Array.isArray(DB.radar_demanda?.registros) ? DB.radar_demanda.registros : [])
+    .filter((item) => estaDentroDeAlcance(item, alcance));
+  const registros = todosAlcance.filter((item) => {
+    // fecha_registro es un instante ISO UTC; se convierte primero al día que
+    // vivió la tienda y luego se compara como YYYY-MM-DD (orden lexicográfico).
+    const fecha = fechaLocal(item.fecha_registro);
+    return (!fechaInicio || fecha >= fechaInicio) && fecha <= fechaFin;
+  });
+  const resumen = metricasRegistros(registros);
+  resumen.seguimientos_vencidos = registros.filter((item) =>
+    item.requiere_seguimiento && ESTADOS_PENDIENTES.has(item.estado)
+      && item.fecha_seguimiento && texto(item.fecha_seguimiento).slice(0, 10) < fechaLocal()
+  ).length;
+
+  const sucursalesPorId = new Map((DB.pos?.sucursales || []).map((item) => [Number(item.id), item]));
+  const productos = new Map(), noManejados = new Map(), sucursales = new Map();
+  const motivosConteo = new Map(MOTIVOS_DEMANDA.map((motivo) => [motivo, 0]));
+  const evolucionConteo = new Map();
+
+  for (const item of registros) {
+    motivosConteo.set(item.motivo_no_venta, (motivosConteo.get(item.motivo_no_venta) || 0) + 1);
+    const fecha = fechaLocal(item.fecha_registro);
+    const dia = evolucionConteo.get(fecha) || { fecha, demandas: 0, cantidad_solicitada: 0, convertidas: 0 };
+    dia.demandas += 1; dia.cantidad_solicitada += Number(item.cantidad) || 0;
+    if (item.estado === "CONVERTIDA") dia.convertidas += 1;
+    evolucionConteo.set(fecha, dia);
+
+    const sucursalId = Number(item.sucursal_id);
+    if (!sucursales.has(sucursalId)) sucursales.set(sucursalId, []);
+    sucursales.get(sucursalId).push(item);
+
+    const catalogado = item.producto_id != null;
+    const clave = catalogado
+      ? `producto:${Number(item.producto_id)}`
+      : `libre:${[item.producto_buscado, item.marca_solicitada, item.modelo_solicitado, item.variante_solicitada, item.categoria_solicitada].map(normalizarClave).join("|")}`;
+    if (!productos.has(clave)) productos.set(clave, {
+      producto: catalogado ? texto(item.producto_nombre_registrado) : texto(item.producto_buscado),
+      sku: catalogado ? texto(item.producto_sku_registrado) : "",
+      catalogado, solicitudes: 0, cantidad_solicitada: 0, contactos: new Set(),
+      sucursales: new Set(), convertidas: 0, no_convertidas: 0,
+    });
+    const grupo = productos.get(clave);
+    grupo.solicitudes += 1;
+    grupo.cantidad_solicitada += Number(item.cantidad) || 0;
+    grupo.sucursales.add(sucursalId);
+    const contacto = identidadContacto(item); if (contacto) grupo.contactos.add(contacto);
+    if (item.estado === "CONVERTIDA") grupo.convertidas += 1;
+    if (item.estado === "NO_CONVERTIDA") grupo.no_convertidas += 1;
+
+    if (item.motivo_no_venta === "NO_MANEJAMOS") {
+      const claveNo = [item.producto_buscado || item.producto_nombre_registrado, item.marca_solicitada, item.modelo_solicitado, item.categoria_solicitada].map(normalizarClave).join("|");
+      if (!noManejados.has(claveNo)) noManejados.set(claveNo, {
+        producto: texto(item.producto_buscado || item.producto_nombre_registrado), marca: texto(item.marca_solicitada),
+        modelo: texto(item.modelo_solicitado), categoria: texto(item.categoria_solicitada), solicitudes: 0,
+        cantidad_solicitada: 0, sucursales: new Set(), contactos: new Set(), ultima_solicitud: fecha,
+      });
+      const grupoNo = noManejados.get(claveNo);
+      grupoNo.solicitudes += 1; grupoNo.cantidad_solicitada += Number(item.cantidad) || 0;
+      grupoNo.sucursales.add(sucursalId); if (contacto) grupoNo.contactos.add(contacto);
+      if (fecha > grupoNo.ultima_solicitud) grupoNo.ultima_solicitud = fecha;
+    }
+  }
+
+  const ventasPorId = new Map((DB.pos?.ventas || []).map((venta) => [Number(venta.id), venta]));
+  const ventasRecuperadas = new Map();
+  for (const item of registros) {
+    if (item.estado !== "CONVERTIDA" || item.venta_recuperada_id == null) continue;
+    const venta = ventasPorId.get(Number(item.venta_recuperada_id));
+    if (venta && Number(venta.sucursal_id) === Number(item.sucursal_id) && estaDentroDeAlcance(venta, alcance)) {
+      ventasRecuperadas.set(Number(venta.id), venta);
+    }
+  }
+
+  let evolucion = [...evolucionConteo].sort(([a], [b]) => a.localeCompare(b)).map(([, dia]) => dia);
+  if (fechaInicio) {
+    const dias = Math.round((new Date(`${fechaFin}T00:00:00Z`) - new Date(`${fechaInicio}T00:00:00Z`)) / 86400000) + 1;
+    if (dias <= 366) evolucion = Array.from({ length: dias }, (_, i) => {
+      const fecha = sumarDias(fechaInicio, i);
+      return evolucionConteo.get(fecha) || { fecha, demandas: 0, cantidad_solicitada: 0, convertidas: 0 };
+    });
+  }
+
+  function comparar(dias) {
+    const inicioActual = sumarDias(fechaFin, -(dias - 1));
+    const finAnterior = sumarDias(inicioActual, -1);
+    const inicioAnterior = sumarDias(finAnterior, -(dias - 1));
+    const actuales = todosAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioActual && fechaLocal(item.fecha_registro) <= fechaFin).length;
+    const anteriores = todosAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioAnterior && fechaLocal(item.fecha_registro) <= finAnterior).length;
+    const muestraSuficiente = actuales + anteriores >= 5;
+    const variacion = anteriores ? Math.round(((actuales - anteriores) / anteriores) * 10000) / 100 : null;
+    return {
+      dias, muestra_suficiente: muestraSuficiente, actual: actuales, anterior: anteriores,
+      variacion_porcentual: variacion,
+      clasificacion: actuales > anteriores ? "crecimiento" : actuales < anteriores ? "disminucion" : "estable",
+    };
+  }
+
+  return copiar({
+    periodo: { fecha_inicio: fechaInicio, fecha_fin: fechaFin }, resumen,
+    productos: [...productos.values()].map(({ contactos, sucursales: ids, ...item }) => ({ ...item, contactos_identificados: contactos.size, sucursales: ids.size })).sort((a, b) => b.solicitudes - a.solicitudes),
+    productos_no_manejados: [...noManejados.values()].map(({ contactos, sucursales: ids, ...item }) => ({ ...item, contactos_interesados: contactos.size, sucursales: ids.size })).sort((a, b) => b.solicitudes - a.solicitudes),
+    sucursales: [...sucursales].map(([id, items]) => { const m = metricasRegistros(items); return { sucursal_id: id, sucursal_nombre: sucursalesPorId.get(id)?.nombre || `Sucursal ${id}`, demandas: m.total, cantidad_solicitada: m.cantidad_solicitada, pendientes: m.pendientes, convertidas: m.convertidas, no_convertidas: m.no_convertidas, tasa_recuperacion: m.tasa_recuperacion }; }).sort((a, b) => b.demandas - a.demandas),
+    motivos: MOTIVOS_DEMANDA.map((motivo) => ({ motivo, cantidad: motivosConteo.get(motivo) || 0, porcentaje: porcentaje(motivosConteo.get(motivo) || 0, registros.length) })),
+    recuperacion: { demandas_convertidas: resumen.convertidas, demandas_no_convertidas: resumen.no_convertidas, pendientes: resumen.pendientes, tasa_recuperacion: resumen.tasa_recuperacion, ventas_recuperadas: ventasRecuperadas.size, valor_recuperado: [...ventasRecuperadas.values()].reduce((total, venta) => total + (Number(venta.total) || 0), 0) },
+    evolucion, comparaciones: { ultimos_7_dias: comparar(7), ultimos_30_dias: comparar(30) },
+  });
+}
+
 module.exports = {
   MOTIVOS_DEMANDA,
   ESTADOS_DEMANDA,
@@ -493,6 +667,7 @@ module.exports = {
   cambiarEstado,
   obtenerHistorial,
   obtenerResumen,
+  obtenerAnalisis,
   enriquecerDemanda,
   enriquecerHistorial,
   listarVentasCandidatas,

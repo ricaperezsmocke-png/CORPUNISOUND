@@ -92,7 +92,7 @@ const {
   MOTIVOS_DEMANDA, ESTADOS_DEMANDA, TRANSICIONES_PERMITIDAS,
   normalizarRadarDemanda, crearDemanda: crearDemandaRadar,
   listarDemandas, obtenerDemanda, actualizarDemanda,
-  agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen,
+  agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen, obtenerAnalisis,
   enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
 } = require("./radarDemanda");
 
@@ -668,6 +668,11 @@ app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda
 
 app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
   try { res.json(obtenerResumen(DB, resolverAlcance(req))); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/analisis", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(obtenerAnalisis(DB, resolverAlcance(req), req.query)); }
   catch (e) { responderErrorRadar(res, e); }
 });
 
