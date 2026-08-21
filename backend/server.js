@@ -95,6 +95,8 @@ const {
   agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen, obtenerAnalisis,
   enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
 } = require("./radarDemanda");
+const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
+const { clasificarEvidenciaCompra, clasificarProductoNoManejado } = require("./radarDemandaReglas");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
 // fingir que el sistema funciona. El porqué del criterio está documentado en
@@ -674,6 +676,110 @@ app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resume
 app.get("/api/radar-demanda/analisis", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
   try { res.json(obtenerAnalisis(DB, resolverAlcance(req), req.query)); }
   catch (e) { responderErrorRadar(res, e); }
+});
+
+const ORDEN_INTELIGENCIA = Object.freeze({
+  REVISAR_TRASPASO: 0,
+  REVISAR_COMPRA: 1,
+  OBSERVAR: 2,
+  EVIDENCIA_INSUFICIENTE: 3,
+});
+
+function comprasHistoricasSeguras(comprasHistoricas, puedeVerCostos) {
+  if (puedeVerCostos) return { ...(comprasHistoricas || {}) };
+  const {
+    ultimo_costo: _ultimoCosto,
+    costo_promedio_historico_ponderado: _costoPromedio,
+    ...sinCostos
+  } = comprasHistoricas || {};
+  return sinCostos;
+}
+
+function compararOportunidadesInteligencia(a, b) {
+  const porClasificacion = (ORDEN_INTELIGENCIA[a.clasificacion] ?? 99)
+    - (ORDEN_INTELIGENCIA[b.clasificacion] ?? 99);
+  if (porClasificacion) return porClasificacion;
+  const ceroA = Number(a.inventario?.cantidad_actual) <= 0 ? 0 : 1;
+  const ceroB = Number(b.inventario?.cantidad_actual) <= 0 ? 0 : 1;
+  if (ceroA !== ceroB) return ceroA - ceroB;
+  const radarA = a.radar?.["30d"] || {};
+  const radarB = b.radar?.["30d"] || {};
+  if ((Number(radarA.solicitudes) || 0) !== (Number(radarB.solicitudes) || 0)) {
+    return (Number(radarB.solicitudes) || 0) - (Number(radarA.solicitudes) || 0);
+  }
+  if ((Number(radarA.contactos_distintos) || 0) !== (Number(radarB.contactos_distintos) || 0)) {
+    return (Number(radarB.contactos_distintos) || 0) - (Number(radarA.contactos_distintos) || 0);
+  }
+  if ((Number(a.ventas?.unidades_30d) || 0) !== (Number(b.ventas?.unidades_30d) || 0)) {
+    return (Number(b.ventas?.unidades_30d) || 0) - (Number(a.ventas?.unidades_30d) || 0);
+  }
+  return String(radarB.ultima_solicitud || "").localeCompare(String(radarA.ultima_solicitud || ""));
+}
+
+function proyectarInteligenciaCompras(evidencia, puedeVerCostos) {
+  const resumen = {
+    revisar_traspaso: 0,
+    revisar_compra: 0,
+    observar: 0,
+    evidencia_insuficiente: 0,
+    evaluar_incorporacion: 0,
+  };
+  const claveResumen = {
+    REVISAR_TRASPASO: "revisar_traspaso",
+    REVISAR_COMPRA: "revisar_compra",
+    OBSERVAR: "observar",
+    EVIDENCIA_INSUFICIENTE: "evidencia_insuficiente",
+  };
+
+  const oportunidades = evidencia.productos.map((expediente) => {
+    const decision = clasificarEvidenciaCompra(expediente);
+    resumen[claveResumen[decision.clasificacion]] += 1;
+    return {
+      producto: expediente.producto,
+      sucursal: expediente.sucursal,
+      clasificacion: decision.clasificacion,
+      razones: decision.razones,
+      advertencias: decision.advertencias,
+      radar: expediente.radar,
+      ventas: expediente.ventas,
+      inventario: expediente.inventario,
+      otras_sucursales: expediente.otras_sucursales,
+      traspasos: expediente.traspasos,
+      compras_historicas: comprasHistoricasSeguras(expediente.compras_historicas, puedeVerCostos),
+      proveedores: expediente.proveedores,
+      calidad_datos: decision.calidad_datos,
+    };
+  }).sort(compararOportunidadesInteligencia);
+
+  const productosNoManejados = evidencia.productos_no_manejados.map((producto) => {
+    const decision = clasificarProductoNoManejado(producto);
+    if (decision.estado === "EVALUAR_INCORPORACION") resumen.evaluar_incorporacion += 1;
+    else resumen.observar += 1;
+    return {
+      ...producto,
+      clasificacion: decision.estado,
+      razones: decision.razones,
+      advertencias: decision.advertencias,
+    };
+  });
+
+  return {
+    periodo: evidencia.periodo,
+    resumen,
+    oportunidades,
+    productos_no_manejados: productosNoManejados,
+    capacidades: evidencia.capacidades,
+  };
+}
+
+app.get("/api/radar-demanda/inteligencia", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const evidencia = obtenerEvidenciaCompras(DB, resolverAlcance(req), { fecha_fin: req.query.fecha_fin });
+    res.json(proyectarInteligenciaCompras(evidencia, permisos.includes("ver_reportes")));
+  } catch (e) {
+    responderErrorRadar(res, e);
+  }
 });
 
 app.get("/api/radar-demanda/:id/ventas-candidatas", requiereLogin, requierePermiso("cerrar_demanda", resolverPermisosDeRol), (req, res) => {
