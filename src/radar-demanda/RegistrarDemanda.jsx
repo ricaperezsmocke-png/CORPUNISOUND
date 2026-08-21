@@ -10,10 +10,16 @@ const VACIO = {
 };
 
 const input = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const RESULTADOS_POR_PAGINA = 8;
 
-export default function RegistrarDemanda({ productos, clientes, puedeRegistrar, sinSucursal, onRegistrada }) {
+export default function RegistrarDemanda({ productos, clientes, catalogosProducto = {}, puedeRegistrar, sinSucursal, onRegistrada }) {
   const [form, setForm] = useState(VACIO);
   const [busqueda, setBusqueda] = useState("");
+  const [buscadorProductoAbierto, setBuscadorProductoAbierto] = useState(false);
+  const [filtroDepartamento, setFiltroDepartamento] = useState("");
+  const [filtroCategoria, setFiltroCategoria] = useState("");
+  const [filtroProveedor, setFiltroProveedor] = useState("");
+  const [paginaBusqueda, setPaginaBusqueda] = useState(1);
   const [modoProducto, setModoProducto] = useState("catalogo");
   const [modoCliente, setModoCliente] = useState("anonimo");
   const [busquedaCliente, setBusquedaCliente] = useState("");
@@ -25,9 +31,14 @@ export default function RegistrarDemanda({ productos, clientes, puedeRegistrar, 
 
   const coincidencias = useMemo(() => {
     const q = busqueda.trim().toLocaleLowerCase("es");
-    if (!q || form.producto_id) return [];
-    return productos.filter((p) => `${p.sku || ""} ${p.nombre || ""}`.toLocaleLowerCase("es").includes(q)).slice(0, 6);
-  }, [busqueda, productos, form.producto_id]);
+    let lista = productos.filter((p) => !q || `${p.sku || ""} ${p.nombre || ""} ${p.codigo || ""}`.toLocaleLowerCase("es").includes(q));
+    if (filtroDepartamento) lista = lista.filter((p) => String(p.departamento_id) === filtroDepartamento);
+    if (filtroCategoria) lista = lista.filter((p) => String(p.categoria_id) === filtroCategoria);
+    if (filtroProveedor) lista = lista.filter((p) => String(p.proveedor_id) === filtroProveedor);
+    return lista;
+  }, [busqueda, productos, filtroDepartamento, filtroCategoria, filtroProveedor]);
+  const totalPaginas = Math.max(1, Math.ceil(coincidencias.length / RESULTADOS_POR_PAGINA));
+  const productosPagina = coincidencias.slice((paginaBusqueda - 1) * RESULTADOS_POR_PAGINA, paginaBusqueda * RESULTADOS_POR_PAGINA);
 
   const clientesFiltrados = useMemo(() => {
     const q = busquedaCliente.trim().toLocaleLowerCase("es");
@@ -44,6 +55,14 @@ export default function RegistrarDemanda({ productos, clientes, puedeRegistrar, 
   const elegirProducto = (producto) => {
     setForm((actual) => ({ ...actual, producto_id: producto.id, producto_buscado: "" }));
     setBusqueda(producto.nombre);
+    setBuscadorProductoAbierto(false);
+  };
+
+  const abrirCapturaLibre = () => {
+    setBuscadorProductoAbierto(false);
+    setModoProducto("libre");
+    setBusqueda("");
+    actualizar("producto_id", null);
   };
 
   const cambiarModoCliente = (modo) => {
@@ -90,18 +109,12 @@ export default function RegistrarDemanda({ productos, clientes, puedeRegistrar, 
       <section>
         <label className="mb-2 block font-semibold text-slate-800">1. ¿Qué pidió el cliente?</label>
         {modoProducto === "catalogo" ? <>
-          <div className="relative">
-            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-            <input className={`${input} pl-10 pr-10`} value={busqueda} onChange={(e) => { setBusqueda(e.target.value); actualizar("producto_id", null); }} placeholder="Buscar producto..." />
-            {form.producto_id && <button type="button" aria-label="Quitar producto" onClick={() => { setBusqueda(""); actualizar("producto_id", null); }} className="absolute right-3 top-3 text-slate-400"><X size={18} /></button>}
-          </div>
-          {coincidencias.length > 0 && <div className="mt-2 overflow-hidden rounded-xl border border-slate-200">
-            {coincidencias.map((p) => <button type="button" key={p.id} onClick={() => elegirProducto(p)} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 text-left last:border-0 hover:bg-blue-50">
-              <span><span className="block text-sm font-semibold text-slate-800">{p.nombre}</span><span className="text-xs text-slate-500">SKU: {p.sku || "—"}</span></span>
-              <span className={`shrink-0 text-xs font-semibold ${Number(p.existencia) <= 0 ? "text-red-600" : "text-emerald-700"}`}>Existencia: {p.existencia ?? 0}</span>
-            </button>)}
-          </div>}
-          <button type="button" onClick={() => { setModoProducto("libre"); setBusqueda(""); actualizar("producto_id", null); }} className="mt-3 flex min-h-11 items-center gap-2 rounded-xl border-2 border-dashed border-blue-300 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-50"><PackageSearch size={18} /> No encuentro el producto</button>
+          <button type="button" onClick={() => setBuscadorProductoAbierto(true)} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-left transition hover:border-blue-500 hover:bg-blue-50">
+            <Search className="shrink-0 text-blue-600" size={19} />
+            <span className="min-w-0 flex-1"><span className={`block truncate text-sm font-semibold ${form.producto_id ? "text-slate-800" : "text-slate-500"}`}>{form.producto_id ? busqueda : "Abrir buscador de productos"}</span>{form.producto_id && <span className="text-xs text-slate-500">Haz clic para cambiar el producto</span>}</span>
+            {form.producto_id && <span role="button" aria-label="Quitar producto" onClick={(e) => { e.stopPropagation(); setBusqueda(""); actualizar("producto_id", null); }} className="rounded-full p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X size={18} /></span>}
+          </button>
+          <button type="button" onClick={abrirCapturaLibre} className="mt-3 flex min-h-11 items-center gap-2 rounded-xl border-2 border-dashed border-blue-300 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-50"><PackageSearch size={18} /> No encuentro el producto</button>
         </> : <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
           <div className="flex items-start justify-between gap-3"><p className="text-xs font-medium text-amber-800">Este registro NO dará de alta el producto en inventario.</p><button type="button" onClick={() => { setModoProducto("catalogo"); setForm((actual) => ({ ...actual, producto_buscado: "", marca_solicitada: "", modelo_solicitado: "", variante_solicitada: "", categoria_solicitada: "" })); }} className="text-xs font-semibold text-blue-700">Buscar catálogo</button></div>
           <input className={input} value={form.producto_buscado} onChange={(e) => actualizar("producto_buscado", e.target.value)} placeholder="Producto solicitado *" autoFocus />
@@ -124,6 +137,28 @@ export default function RegistrarDemanda({ productos, clientes, puedeRegistrar, 
 
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>}
       <button type="submit" disabled={guardando || !puedeRegistrar || sinSucursal} className="min-h-12 w-full rounded-xl bg-blue-600 px-5 font-bold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{guardando ? "Registrando…" : "Registrar demanda"}</button>
+
+      {buscadorProductoAbierto && <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-buscador-productos" onMouseDown={(e) => { if (e.target === e.currentTarget) setBuscadorProductoAbierto(false); }}>
+        <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5"><h2 id="titulo-buscador-productos" className="text-lg font-bold text-slate-800">Buscar producto</h2><button type="button" aria-label="Cerrar buscador" onClick={() => setBuscadorProductoAbierto(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
+          <div className="p-4 sm:p-5">
+            <div className="relative"><Search className="absolute left-3 top-3 text-slate-400" size={18} /><input autoFocus className={`${input} pl-10`} value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPaginaBusqueda(1); }} placeholder="Clave, descripción o código de barras..." /></div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <select aria-label="Filtrar por departamento" className={input} value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }}><option value="">Todos los departamentos</option>{(catalogosProducto.departamentos || []).map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}</select>
+              <select aria-label="Filtrar por categoría" className={input} value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }}><option value="">Todas las categorías</option>{(catalogosProducto.categorias || []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select>
+              <select aria-label="Filtrar por proveedor" className={input} value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }}><option value="">Todos los proveedores</option>{(catalogosProducto.proveedores || []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
+            </div>
+            <div className="mt-4 max-h-[55vh] overflow-auto rounded-xl border border-slate-200">
+              <table className="w-full min-w-[650px] text-sm"><thead className="sticky top-0 bg-blue-600 text-white"><tr><th className="px-3 py-2 text-left font-semibold">Clave / Descripción</th><th className="w-32 px-3 py-2 text-left font-semibold">Localización</th><th className="w-24 px-3 py-2 text-center font-semibold">Exist.</th><th className="w-28 px-3 py-2 text-right font-semibold">Precio</th></tr></thead><tbody>
+                {productosPagina.map((p) => <tr key={p.id} onClick={() => elegirProducto(p)} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-blue-50"><td className="px-3 py-3"><span className="block text-xs text-slate-400">{p.sku || p.codigo || "Sin clave"}</span><span className="font-semibold text-slate-800">{p.nombre}</span></td><td className="px-3 py-3 text-slate-500">{p.ubicacion || "—"}</td><td className={`px-3 py-3 text-center font-semibold ${Number(p.existencia) <= 0 ? "text-red-600" : "text-emerald-700"}`}>{p.existencia ?? 0}</td><td className="px-3 py-3 text-right font-semibold text-blue-700">${Number(p.precio_venta || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td></tr>)}
+                {!productosPagina.length && <tr><td colSpan="4" className="px-4 py-10 text-center text-slate-400">Sin resultados</td></tr>}
+              </tbody></table>
+            </div>
+            <div className="mt-3 flex items-center justify-center gap-3"><button type="button" aria-label="Página anterior" disabled={paginaBusqueda <= 1} onClick={() => setPaginaBusqueda((p) => Math.max(1, p - 1))} className="rounded-lg border border-slate-300 px-3 py-2 text-slate-600 disabled:opacity-30">‹</button><span className="text-sm text-slate-500">Página {paginaBusqueda} de {totalPaginas}</span><button type="button" aria-label="Página siguiente" disabled={paginaBusqueda >= totalPaginas} onClick={() => setPaginaBusqueda((p) => Math.min(totalPaginas, p + 1))} className="rounded-lg border border-slate-300 px-3 py-2 text-slate-600 disabled:opacity-30">›</button></div>
+            <button type="button" onClick={abrirCapturaLibre} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 text-sm font-semibold text-blue-700 hover:bg-blue-50"><PackageSearch size={18} /> No encuentro el producto</button>
+          </div>
+        </div>
+      </div>}
     </form>
   );
 }

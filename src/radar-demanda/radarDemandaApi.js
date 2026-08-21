@@ -117,10 +117,13 @@ export async function registrarDemanda(datos) {
 }
 
 export async function cargarCatalogosRadar() {
-  const [productosRespuesta, clientesRespuesta] = await Promise.all([
-    apiFetch("/productos"), apiFetch("/clientes"),
+  const [productosRespuesta, clientesRespuesta, departamentosRespuesta, categoriasRespuesta, proveedoresRespuesta] = await Promise.all([
+    apiFetch("/productos"), apiFetch("/clientes"), apiFetch("/departamentos"), apiFetch("/categorias"), apiFetch("/proveedores"),
   ]);
   const productos = productosRespuesta.ok ? await productosRespuesta.json() : [];
   const clientes = clientesRespuesta.ok ? await clientesRespuesta.json() : [];
-  return { productos, clientes };
+  const departamentos = departamentosRespuesta.ok ? await departamentosRespuesta.json() : [];
+  const categorias = categoriasRespuesta.ok ? await categoriasRespuesta.json() : [];
+  const proveedores = proveedoresRespuesta.ok ? await proveedoresRespuesta.json() : [];
+  return { productos, clientes, departamentos, categorias, proveedores };
 }
