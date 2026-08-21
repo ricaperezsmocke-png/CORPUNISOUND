@@ -90,7 +90,7 @@ const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
 const mantenimiento = require("./mantenimiento");
 const {
   MOTIVOS_DEMANDA, ESTADOS_DEMANDA, TRANSICIONES_PERMITIDAS,
-  normalizarRadarDemanda, crearDemanda: crearDemandaRadar,
+  normalizarRadarDemanda, crearDemanda: crearDemandaRadar, crearDemandaConCRM,
   listarDemandas, obtenerDemanda, actualizarDemanda,
   agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen, obtenerAnalisis,
   enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
@@ -654,6 +654,9 @@ app.get("/api/radar-demanda/meta", requiereLogin, requierePermiso("ver_radar_dem
 
 app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda", resolverPermisosDeRol), (req, res) => {
   try {
+    if (req.body?.intencion_compra && !resolverPermisosDeRol(req.usuarioToken.rol_id).includes("crear_cliente")) {
+      return res.status(403).json({ error: "No tienes permiso para agregar prospectos al CRM." });
+    }
     const alcance = resolverAlcance(req);
     // La sucursal viene del alcance resuelto. body.sucursal_id nunca decide
     // dónde guardar, ni siquiera para una cuenta global.
@@ -661,7 +664,8 @@ app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda
     if (!sucursalId) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de registrar la demanda." });
     }
-    res.json(crearDemandaRadar(DB, req.body || {}, {
+    const registrar = req.body?.intencion_compra ? crearDemandaConCRM : crearDemandaRadar;
+    res.json(registrar(DB, req.body || {}, {
       usuarioId: req.usuarioToken.id,
       sucursalId,
     }));

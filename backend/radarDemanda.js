@@ -2,10 +2,14 @@
  * radarDemanda.js — Núcleo de negocio del Radar de Demanda.
  *
  * Una demanda registra algo que un cliente pidió y que no se pudo vender.
- * Este módulo no crea productos, clientes ni ventas y no modifica inventario.
+ * Este módulo no crea productos ni ventas y no modifica inventario. Cuando el
+ * vendedor confirma intención de compra, puede vincular o crear un interesado
+ * en la entidad existente de clientes del CRM.
  * Todas las funciones que reciben alcance fallan cerrado para registros de
  * otra sucursal. El historial es append-only y solo se expone mediante copias.
  */
+
+const { crearCliente } = require("./clientes");
 
 const MOTIVOS_DEMANDA = Object.freeze([
   "SIN_EXISTENCIA",
@@ -82,6 +86,7 @@ function normalizarRadarDemanda(DB) {
       producto_buscado: "", marca_solicitada: "", modelo_solicitado: "",
       variante_solicitada: "", categoria_solicitada: "", cantidad: 1,
       motivo_no_venta: "OTRO", notas: "", requiere_seguimiento: false,
+      intencion_compra: false, consentimiento_aviso: false, fecha_vinculacion_crm: null,
       nombre_contacto: "", telefono_contacto: "", estado: "REGISTRADA",
       fecha_seguimiento: null, fecha_registro: ahora,
       fecha_actualizacion: item.fecha_registro || ahora,
@@ -250,6 +255,9 @@ function crearDemanda(DB, datos, contexto) {
     motivo_no_venta: validarMotivo(datos.motivo_no_venta),
     notas: texto(datos.notas),
     requiere_seguimiento: !!datos.requiere_seguimiento,
+    intencion_compra: !!datos.intencion_compra,
+    consentimiento_aviso: !!datos.consentimiento_aviso,
+    fecha_vinculacion_crm: datos.fecha_vinculacion_crm ? texto(datos.fecha_vinculacion_crm) : null,
     nombre_contacto: texto(datos.nombre_contacto),
     telefono_contacto: texto(datos.telefono_contacto),
     estado: "REGISTRADA",
@@ -261,6 +269,66 @@ function crearDemanda(DB, datos, contexto) {
 
   radar.registros.push(demanda);
   return copiar(demanda);
+}
+
+function telefonoNormalizado(valor) {
+  const digitos = texto(valor).replace(/\D/g, "");
+  return digitos.length > 10 ? digitos.slice(-10) : digitos;
+}
+
+function crearDemandaConCRM(DB, datos, contexto) {
+  const radar = normalizarRadarDemanda(DB);
+  const registrosAntes = radar.registros.length;
+  const clientesAntes = (DB.crm?.clientes || []).length;
+  const ultimoIdAntes = radar.ultimo_id;
+  try {
+    if (!datos?.intencion_compra) return crearDemanda(DB, datos || {}, contexto);
+    if (!datos.consentimiento_aviso) throw new Error("Confirma el consentimiento del cliente para recibir el aviso");
+
+    const sucursalId = validarSucursal(DB, contexto?.sucursalId);
+    let clienteId = datos.cliente_id == null ? null : validarCliente(DB, datos.cliente_id, sucursalId);
+    let nombre = texto(datos.nombre_contacto);
+    let telefono = telefonoNormalizado(datos.telefono_contacto);
+
+    if (clienteId != null && clienteId !== 0) {
+      const existente = DB.crm.clientes.find((item) => item.id === clienteId);
+      nombre = nombre || texto(existente?.nombre);
+      telefono = telefono || telefonoNormalizado(existente?.celular || existente?.telefono);
+    }
+    if (!nombre) throw new Error("El nombre del cliente es obligatorio cuando existe intención de compra");
+    if (telefono.length !== 10) throw new Error("El teléfono del cliente debe tener 10 dígitos para enviarle el aviso");
+
+    if (clienteId == null || clienteId === 0) {
+      const coincidencia = DB.crm.clientes.find((item) =>
+        item.id !== 0 && Number(item.sucursal_id) === Number(sucursalId)
+        && [item.telefono, item.celular].some((valor) => telefonoNormalizado(valor) === telefono)
+      );
+      if (coincidencia) clienteId = coincidencia.id;
+      else {
+        const usuario = buscarUsuario(DB, contexto?.usuarioId);
+        clienteId = crearCliente(DB, {
+          nombre, representante: nombre, celular: telefono, sucursal_id: sucursalId,
+          vendedor_asignado_id: usuario.vendedor_id, estado: "interesado",
+        }).id;
+      }
+    }
+
+    return crearDemanda(DB, {
+      ...datos,
+      cliente_id: clienteId,
+      nombre_contacto: nombre,
+      telefono_contacto: telefono,
+      requiere_seguimiento: true,
+      intencion_compra: true,
+      consentimiento_aviso: true,
+      fecha_vinculacion_crm: new Date().toISOString(),
+    }, contexto);
+  } catch (error) {
+    radar.registros.splice(registrosAntes);
+    radar.ultimo_id = ultimoIdAntes;
+    if (DB.crm?.clientes) DB.crm.clientes.splice(clientesAntes);
+    throw error;
+  }
 }
 
 function listarDemandas(DB, alcance, filtros = {}) {
@@ -660,6 +728,7 @@ module.exports = {
   TRANSICIONES_PERMITIDAS,
   normalizarRadarDemanda,
   crearDemanda,
+  crearDemandaConCRM,
   listarDemandas,
   obtenerDemanda,
   actualizarDemanda,

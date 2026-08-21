@@ -33,6 +33,7 @@ export function mensajeErrorRadar(error, accion = "guardar") {
   if (/producto|describe/i.test(texto)) return "Indica qué producto pidió el cliente.";
   if (/cantidad/i.test(texto)) return "La cantidad debe ser mayor que cero.";
   if (/obligatorio/i.test(texto)) return texto;
+  if (/teléfono|consentimiento|autoriz/i.test(texto)) return texto;
   if (/sucursal|venta|estado|fecha|campo/i.test(texto)) return texto;
   return accion === "ver"
     ? "No fue posible cargar las demandas. Intenta nuevamente."

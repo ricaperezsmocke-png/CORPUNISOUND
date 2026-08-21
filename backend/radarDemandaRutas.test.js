@@ -34,7 +34,7 @@ let tokenAdmin;
 
 const permisosCompletos = [
   "ver_radar_demanda", "registrar_demanda", "dar_seguimiento_demanda",
-  "cerrar_demanda", "ver_resumen_demanda",
+  "cerrar_demanda", "ver_resumen_demanda", "crear_cliente",
 ];
 
 function agregarSiFalta(lista, item) {
@@ -129,6 +129,47 @@ test("crea demanda con usuario limitado en su sucursal", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.cuerpo.usuario_id, IDS.usuarioS1);
   assert.equal(r.cuerpo.sucursal_id, 1);
+});
+
+test("intención de compra crea y vincula un interesado del CRM", async () => {
+  const telefono = `961${String(Date.now()).slice(-7)}`;
+  const r = await pedir("/api/radar-demanda", {
+    token: tokenS1,
+    method: "POST",
+    body: demandaValida({
+      intencion_compra: true,
+      consentimiento_aviso: true,
+      nombre_contacto: "Prospecto Radar",
+      telefono_contacto: telefono,
+    }),
+  });
+  assert.equal(r.status, 200);
+  const cliente = app.DB.crm.clientes.find((item) => item.id === r.cuerpo.cliente_id);
+  assert.equal(cliente.nombre, "Prospecto Radar");
+  assert.equal(cliente.celular, telefono);
+  assert.equal(cliente.estado, "interesado");
+  assert.equal(cliente.sucursal_id, 1);
+  assert.equal(r.cuerpo.intencion_compra, true);
+});
+
+test("registrar demanda no permite crear prospecto sin crear_cliente", async () => {
+  const cuenta = app.DB.admin.usuarios.find((u) => u.id === IDS.usuarioS1);
+  const rolOriginal = cuenta.rol_id;
+  cuenta.rol_id = IDS.rolRegistro;
+  const tokenSoloRegistro = firmarToken({ id: IDS.usuarioS1, nombre: "Vendedora S1", rol_id: IDS.rolRegistro, sucursal_id: 1 });
+  const r = await pedir("/api/radar-demanda", {
+    token: tokenSoloRegistro,
+    method: "POST",
+    body: demandaValida({
+      intencion_compra: true,
+      consentimiento_aviso: true,
+      nombre_contacto: "Sin permiso",
+      telefono_contacto: "9615556677",
+    }),
+  });
+  cuenta.rol_id = rolOriginal;
+  assert.equal(r.status, 403);
+  assert.match(r.cuerpo.error, /CRM/);
 });
 
 test("vendedor se deriva de la cuenta viva", async () => {

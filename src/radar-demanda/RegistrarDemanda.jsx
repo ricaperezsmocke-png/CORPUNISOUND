@@ -6,13 +6,13 @@ const VACIO = {
   producto_id: null, producto_buscado: "", marca_solicitada: "", modelo_solicitado: "",
   variante_solicitada: "", categoria_solicitada: "", motivo_no_venta: "", cantidad: 1,
   cliente_id: null, nombre_contacto: "", telefono_contacto: "", requiere_seguimiento: false,
-  fecha_seguimiento: "", notas: "",
+  intencion_compra: false, consentimiento_aviso: false, fecha_seguimiento: "", notas: "",
 };
 
 const input = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 const RESULTADOS_POR_PAGINA = 8;
 
-export default function RegistrarDemanda({ productos, clientes, catalogosProducto = {}, puedeRegistrar, sinSucursal, onRegistrada }) {
+export default function RegistrarDemanda({ productos, clientes, catalogosProducto = {}, puedeRegistrar, puedeEnviarCRM, sinSucursal, onRegistrada }) {
   const [form, setForm] = useState(VACIO);
   const [busqueda, setBusqueda] = useState("");
   const [buscadorProductoAbierto, setBuscadorProductoAbierto] = useState(false);
@@ -70,6 +70,17 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
     setForm((actual) => ({ ...actual, cliente_id: null, nombre_contacto: "", telefono_contacto: "" }));
   };
 
+  const cambiarIntencion = (tieneIntencion) => {
+    setForm((actual) => ({
+      ...actual,
+      intencion_compra: tieneIntencion,
+      requiere_seguimiento: tieneIntencion,
+      consentimiento_aviso: tieneIntencion ? actual.consentimiento_aviso : false,
+      fecha_seguimiento: tieneIntencion ? actual.fecha_seguimiento : "",
+    }));
+    if (tieneIntencion && modoCliente === "anonimo") setModoCliente("rapido");
+  };
+
   const guardar = async (evento) => {
     evento.preventDefault();
     if (envioEnCurso.current) return;
@@ -80,6 +91,9 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
     if (!Number.isInteger(cantidad) || cantidad < 1) return setError("La cantidad debe ser mayor que cero.");
     if (!puedeRegistrar) return setError("No tienes permiso para registrar demandas.");
     if (sinSucursal) return setError("Elige una sucursal en el encabezado antes de registrar la demanda.");
+    if (form.intencion_compra && !form.consentimiento_aviso) return setError("Confirma que el cliente autorizó recibir el aviso.");
+    if (form.intencion_compra && !form.cliente_id && !form.nombre_contacto.trim()) return setError("Escribe el nombre del cliente interesado.");
+    if (form.intencion_compra && !form.cliente_id && form.telefono_contacto.replace(/\D/g, "").slice(-10).length !== 10) return setError("Escribe un teléfono de 10 dígitos para enviar el aviso.");
     envioEnCurso.current = true;
     setGuardando(true);
     try {
@@ -99,7 +113,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
     <div className="mx-auto max-w-xl rounded-2xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
       <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={28} /></div>
       <h2 className="text-xl font-bold text-slate-800">Demanda registrada</h2>
-      <p className="mt-2 text-sm text-slate-500">La solicitud quedó guardada para seguimiento.</p>
+      <p className="mt-2 text-sm text-slate-500">{form.intencion_compra ? "La solicitud quedó guardada y el cliente fue vinculado al CRM como interesado." : "La solicitud quedó guardada en Radar sin agregar al cliente al CRM."}</p>
       <button onClick={reiniciar} className="mt-6 min-h-11 rounded-xl bg-blue-600 px-6 font-semibold text-white hover:bg-blue-700">Registrar otra</button>
     </div>
   );
@@ -131,7 +145,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
         {modoCliente === "rapido" && <div className="mt-3 grid gap-3 sm:grid-cols-2"><input className={input} value={form.nombre_contacto} onChange={(e) => actualizar("nombre_contacto", e.target.value)} placeholder="Nombre" /><input className={input} value={form.telefono_contacto} onChange={(e) => actualizar("telefono_contacto", e.target.value)} placeholder="Teléfono / WhatsApp" /></div>}
       </section>
 
-      <section><label className="mb-2 block font-semibold text-slate-800">5. ¿Debemos avisarle si conseguimos el producto?</label><div className="flex gap-2"><button type="button" onClick={() => actualizar("requiere_seguimiento", true)} className={`min-h-11 rounded-xl border px-6 font-semibold ${form.requiere_seguimiento ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"}`}>Sí</button><button type="button" onClick={() => actualizar("requiere_seguimiento", false)} className={`min-h-11 rounded-xl border px-6 font-semibold ${!form.requiere_seguimiento ? "border-slate-600 bg-slate-700 text-white" : "border-slate-300"}`}>No</button></div>{form.requiere_seguimiento && <div className="mt-3"><label className="text-xs text-slate-500">Fecha de seguimiento (opcional)</label><input type="date" className={`${input} mt-1 max-w-xs`} value={form.fecha_seguimiento} onChange={(e) => actualizar("fecha_seguimiento", e.target.value)} />{modoCliente === "anonimo" && <p className="mt-2 text-xs text-amber-700">Necesitamos un contacto para poder darle seguimiento.</p>}</div>}</section>
+      <section><label className="mb-1 block font-semibold text-slate-800">5. ¿Existe intención real de compra?</label><p className="mb-2 text-xs text-slate-500">Solo enviaremos al CRM a quien quiera comprar el producto cuando esté disponible.</p><div className="flex flex-wrap gap-2"><button type="button" disabled={!puedeEnviarCRM} onClick={() => cambiarIntencion(true)} className={`min-h-11 rounded-xl border px-5 font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${form.intencion_compra ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"}`}>Sí, quiere comprarlo</button><button type="button" onClick={() => cambiarIntencion(false)} className={`min-h-11 rounded-xl border px-5 font-semibold ${!form.intencion_compra ? "border-slate-600 bg-slate-700 text-white" : "border-slate-300"}`}>No, solo consultó</button></div>{!puedeEnviarCRM && <p className="mt-2 text-xs text-amber-700">Tu rol puede registrar la demanda, pero no crear prospectos en CRM.</p>}{form.intencion_compra && <div className="mt-3 space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4"><p className="text-sm font-semibold text-blue-900">Este contacto se vinculará al CRM como interesado, sin duplicarlo si ya existe su teléfono.</p><label className="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" className="mt-1" checked={form.consentimiento_aviso} onChange={(e) => actualizar("consentimiento_aviso", e.target.checked)} /><span>El cliente autorizó que lo contactemos para avisarle cuando el producto esté disponible.</span></label><label className="block text-xs text-slate-500">Fecha de seguimiento (opcional)<input type="date" className={`${input} mt-1 max-w-xs`} value={form.fecha_seguimiento} onChange={(e) => actualizar("fecha_seguimiento", e.target.value)} /></label></div>}</section>
 
       <section><button type="button" onClick={() => setObservacionAbierta((v) => !v)} className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-700">{observacionAbierta ? <ChevronUp size={16} /> : <ChevronDown size={16} />} 6. {observacionAbierta ? "Ocultar observación" : "Agregar observación"}</button>{observacionAbierta && <textarea className={`${input} mt-2 min-h-20 resize-y`} value={form.notas} onChange={(e) => actualizar("notas", e.target.value)} placeholder="Observaciones opcionales..." />}</section>
 
