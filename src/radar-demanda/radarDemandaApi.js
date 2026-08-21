@@ -93,6 +93,18 @@ export async function consultarAnalisisDemanda(filtros = {}) {
   );
 }
 
+export async function consultarInteligenciaCompras(filtros = {}) {
+  const query = new URLSearchParams();
+  Object.entries(filtros).forEach(([clave, valor]) => {
+    if (valor !== "" && valor != null) query.set(clave, valor);
+  });
+  const sufijo = query.size ? `?${query.toString()}` : "";
+  return leerRespuesta(
+    await apiFetch(`/radar-demanda/inteligencia${sufijo}`),
+    "No fue posible cargar la inteligencia para compras"
+  );
+}
+
 export async function cargarSucursalesRadar() {
   return leerRespuesta(await apiFetch("/sucursales"), "No fue posible cargar las sucursales");
 }

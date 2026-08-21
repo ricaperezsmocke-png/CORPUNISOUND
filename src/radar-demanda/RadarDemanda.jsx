@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, ClipboardList, Plus, RadioTower, RefreshCw, UserRoundCheck } from "lucide-react";
+import { BarChart3, BrainCircuit, ClipboardList, Plus, RadioTower, RefreshCw, UserRoundCheck } from "lucide-react";
 import { sinSucursalElegida } from "../api";
 import RegistrarDemanda from "./RegistrarDemanda";
 import MisDemandas from "./MisDemandas";
 import SeguimientosDemanda from "./SeguimientosDemanda";
 import DetalleDemanda from "./DetalleDemanda";
 import AnalisisDemanda from "./AnalisisDemanda";
+import InteligenciaCompras from "./InteligenciaCompras";
 import { cargarCatalogosRadar, cargarMetaRadar, listarDemandas, mensajeErrorRadar } from "./radarDemandaApi";
 
 const vistas = [
   ["registrar", "Registrar demanda", Plus], ["demandas", "Mis demandas", ClipboardList], ["seguimientos", "Seguimientos pendientes", UserRoundCheck],
   ["analisis", "Análisis", BarChart3],
+  ["inteligencia", "Inteligencia", BrainCircuit],
 ];
 
 export default function RadarDemanda({ permisos = [] }) {
@@ -48,11 +50,12 @@ export default function RadarDemanda({ permisos = [] }) {
   return <main className="min-h-full bg-slate-50 px-3 py-5 sm:px-6 sm:py-7">
     <div className="mx-auto max-w-6xl">
       <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="mb-1 flex items-center gap-2 text-blue-700"><RadioTower size={26} /><h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Radar de Demanda</h1></div><p className="max-w-xl text-sm text-slate-600">Registra lo que tus clientes están buscando y hoy no pudimos venderles.</p></div>{puedeRegistrar && vista !== "registrar" && <button onClick={() => setVista("registrar")} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 font-bold text-white hover:bg-blue-700"><Plus size={18} /> Registrar demanda</button>}</div>
-      <nav className="mb-5 flex flex-wrap gap-2 pb-1" aria-label="Secciones de Radar">{vistas.filter(([id]) => id === "registrar" ? puedeRegistrar : id === "analisis" ? puedeAnalizar : puedeVer).map(([id, etiqueta, Icono]) => <button key={id} onClick={() => setVista(id)} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-semibold ${vista === id ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}><Icono size={17} />{etiqueta}</button>)}{vista !== "analisis" && <button onClick={cargar} disabled={cargando} title="Actualizar" className="ml-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-blue-700"><RefreshCw size={17} className={cargando ? "animate-spin" : ""} /></button>}</nav>
+      <nav className="mb-5 flex flex-wrap gap-2 pb-1" aria-label="Secciones de Radar">{vistas.filter(([id]) => id === "registrar" ? puedeRegistrar : ["analisis", "inteligencia"].includes(id) ? puedeAnalizar : puedeVer).map(([id, etiqueta, Icono]) => <button key={id} onClick={() => setVista(id)} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-semibold ${vista === id ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}><Icono size={17} />{etiqueta}</button>)}{!["analisis", "inteligencia"].includes(vista) && <button onClick={cargar} disabled={cargando} title="Actualizar" className="ml-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-blue-700"><RefreshCw size={17} className={cargando ? "animate-spin" : ""} /></button>}</nav>
       {vista === "registrar" && <RegistrarDemanda productos={productos} clientes={clientes} puedeRegistrar={puedeRegistrar} sinSucursal={sinSucursalElegida()} onRegistrada={cargar} />}
       {vista === "demandas" && <MisDemandas demandas={demandas} clientes={clientes} meta={meta} cargando={cargando} error={error} onVer={setDemandaAbierta} />}
       {vista === "seguimientos" && <SeguimientosDemanda demandas={demandas} clientes={clientes} cargando={cargando} error={error} onVer={setDemandaAbierta} />}
       {vista === "analisis" && <AnalisisDemanda permisos={permisos || []} />}
+      {vista === "inteligencia" && <InteligenciaCompras permisos={permisos || []} />}
     </div>
   </main>;
 }
