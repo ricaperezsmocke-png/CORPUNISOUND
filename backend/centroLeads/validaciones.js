@@ -106,6 +106,38 @@ function instanteContexto(contexto = {}) {
   return normalizarFechaUtc(valor, "ahora");
 }
 
+const CLAVES_SENSIBLES = /(?:token|secret|password|passwd|api[_-]?key|oauth|authorization|cookie|credencial)/i;
+
+function textoRequerido(valor, campo) {
+  const texto = valor == null ? "" : String(valor).trim();
+  if (!texto) {
+    throw new ErrorDominioCentroLeads("CAMPO_REQUERIDO", `${campo} es obligatorio`);
+  }
+  return texto;
+}
+
+function validarMetadataNoSensible(metadata) {
+  if (metadata === undefined || metadata === null) return null;
+  if (typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new ErrorDominioCentroLeads("METADATA_INVALIDA", "metadata debe ser un objeto");
+  }
+  const revisar = (valor) => {
+    if (!valor || typeof valor !== "object") return;
+    for (const [clave, contenido] of Object.entries(valor)) {
+      if (CLAVES_SENSIBLES.test(clave)) {
+        throw new ErrorDominioCentroLeads("METADATA_SENSIBLE", `metadata contiene una clave sensible: ${clave}`);
+      }
+      revisar(contenido);
+    }
+  };
+  revisar(metadata);
+  const serializada = JSON.stringify(metadata);
+  if (Buffer.byteLength(serializada, "utf8") > 4096) {
+    throw new ErrorDominioCentroLeads("METADATA_EXCESIVA", "metadata no puede superar 4096 bytes");
+  }
+  return serializada;
+}
+
 module.exports = {
   ESTADOS_LEAD,
   ESTADOS_TERMINALES,
@@ -118,4 +150,6 @@ module.exports = {
   normalizarEmail,
   normalizarFechaUtc,
   instanteContexto,
+  textoRequerido,
+  validarMetadataNoSensible,
 };

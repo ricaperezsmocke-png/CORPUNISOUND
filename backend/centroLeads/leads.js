@@ -103,6 +103,7 @@ const CAMPOS_PROTEGIDOS = new Set([
   "vendedor_asignado_id",
   "sucursal_asignada_id",
   "historial",
+  "atribucion_origen_id",
 ]);
 
 function actualizarLead(sqlite, leadId, cambios = {}, contexto = {}) {

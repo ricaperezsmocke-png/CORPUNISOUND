@@ -50,6 +50,7 @@ const TABLAS_ESPERADAS = [
   "lead_atribuciones",
   "lead_contenidos",
   "lead_conversaciones",
+  "lead_enlaces_rastreados",
   "lead_eventos_externos",
   "lead_fuentes",
   "lead_fusiones",
@@ -69,11 +70,17 @@ const TABLAS_ESPERADAS = [
 
 const INDICES_ESPERADOS = [
   "idx_lead_asignaciones_actual",
+  "idx_lead_atribuciones_contenido_metodo",
   "idx_lead_atribuciones_lead",
+  "idx_lead_atribuciones_rol_estado",
   "idx_lead_contenidos_fuente_canal",
+  "idx_lead_contenidos_producto_activa",
+  "idx_lead_contenidos_vendedor_fecha",
   "idx_lead_conversaciones_externa",
+  "idx_lead_enlaces_contenido_activa",
   "idx_lead_eventos_fecha",
   "idx_lead_fuentes_canal",
+  "idx_lead_fuentes_plataforma_activa",
   "idx_lead_historial_lead_fecha",
   "idx_lead_interacciones_conversacion_fecha",
   "idx_lead_posibles_duplicados_estado",
@@ -81,6 +88,10 @@ const INDICES_ESPERADOS = [
   "idx_leads_estado_fecha",
   "idx_leads_sucursal_estado_fecha",
   "idx_leads_vendedor_estado_fecha",
+  "ux_lead_asignacion_activa",
+  "ux_lead_atribucion_origen_activa",
+  "ux_lead_atribuciones_clave_idempotencia",
+  "ux_lead_interaccion_evento_externo",
 ].sort();
 
 test("una base nueva obtiene la versión y las tablas estructurales de Centro de Leads", () => {

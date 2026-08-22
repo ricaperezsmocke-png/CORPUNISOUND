@@ -9,7 +9,7 @@
  * claves foráneas SQLite.
  */
 
-const VERSION_ESQUEMA = 2;
+const VERSION_ESQUEMA = 3;
 
 function aplicarVersion1(sqlite) {
   sqlite.exec(`
@@ -316,9 +316,86 @@ function aplicarVersion2(sqlite) {
   `);
 }
 
+function aplicarVersion3(sqlite) {
+  sqlite.exec(`
+    ALTER TABLE lead_fuentes ADD COLUMN plataforma TEXT;
+    ALTER TABLE lead_fuentes ADD COLUMN vendedor_responsable_id INTEGER;
+    ALTER TABLE lead_fuentes ADD COLUMN metadata_json TEXT;
+    ALTER TABLE lead_fuentes ADD COLUMN actualizada_en TEXT;
+
+    ALTER TABLE lead_contenidos ADD COLUMN producto_id INTEGER;
+    ALTER TABLE lead_contenidos ADD COLUMN activa INTEGER NOT NULL DEFAULT 1 CHECK (activa IN (0, 1));
+    ALTER TABLE lead_contenidos ADD COLUMN metadata_json TEXT;
+
+    ALTER TABLE lead_atribuciones ADD COLUMN evento_externo_id INTEGER REFERENCES lead_eventos_externos(id) ON DELETE RESTRICT;
+    ALTER TABLE lead_atribuciones ADD COLUMN rol TEXT NOT NULL DEFAULT 'ASISTIDA' CHECK (rol IN ('ORIGEN', 'ASISTIDA'));
+    ALTER TABLE lead_atribuciones ADD COLUMN estado TEXT NOT NULL DEFAULT 'ACTIVA' CHECK (estado IN ('ACTIVA', 'SUPERADA'));
+    ALTER TABLE lead_atribuciones ADD COLUMN clave_idempotencia TEXT;
+    ALTER TABLE lead_atribuciones ADD COLUMN correlacion_id TEXT;
+    ALTER TABLE lead_atribuciones ADD COLUMN confirmada_por_usuario_id INTEGER;
+    ALTER TABLE lead_atribuciones ADD COLUMN confirmada_en TEXT;
+    ALTER TABLE lead_atribuciones ADD COLUMN reemplaza_atribucion_id INTEGER REFERENCES lead_atribuciones(id) ON DELETE RESTRICT;
+    ALTER TABLE lead_atribuciones ADD COLUMN superada_por_atribucion_id INTEGER REFERENCES lead_atribuciones(id) ON DELETE RESTRICT;
+    ALTER TABLE lead_atribuciones ADD COLUMN superada_por_usuario_id INTEGER;
+    ALTER TABLE lead_atribuciones ADD COLUMN superada_en TEXT;
+    ALTER TABLE lead_atribuciones ADD COLUMN motivo_superacion TEXT;
+
+    ALTER TABLE leads ADD COLUMN atribucion_origen_id INTEGER REFERENCES lead_atribuciones(id) ON DELETE RESTRICT;
+
+    CREATE TABLE lead_enlaces_rastreados (
+      id INTEGER PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      contenido_id INTEGER NOT NULL,
+      campana_externa_id TEXT,
+      vendedor_origen_id INTEGER,
+      sucursal_origen_id INTEGER,
+      destino_tipo TEXT NOT NULL CHECK (destino_tipo IN ('WHATSAPP', 'MESSENGER', 'LANDING')),
+      destino_url TEXT NOT NULL,
+      activa INTEGER NOT NULL DEFAULT 1 CHECK (activa IN (0, 1)),
+      creado_por_usuario_id INTEGER,
+      creado_en TEXT NOT NULL,
+      expira_en TEXT,
+      archivado_en TEXT,
+      FOREIGN KEY (contenido_id) REFERENCES lead_contenidos(id) ON DELETE RESTRICT
+    );
+
+    UPDATE lead_atribuciones
+    SET rol = 'ORIGEN'
+    WHERE id IN (
+      SELECT MIN(id) FROM lead_atribuciones GROUP BY lead_id
+    );
+
+    CREATE UNIQUE INDEX ux_lead_atribuciones_clave_idempotencia
+      ON lead_atribuciones (clave_idempotencia)
+      WHERE clave_idempotencia IS NOT NULL;
+    CREATE UNIQUE INDEX ux_lead_atribucion_origen_activa
+      ON lead_atribuciones (lead_id)
+      WHERE rol = 'ORIGEN' AND estado = 'ACTIVA';
+    CREATE UNIQUE INDEX ux_lead_asignacion_activa
+      ON lead_asignaciones (lead_id)
+      WHERE finalizada_en IS NULL;
+    CREATE UNIQUE INDEX ux_lead_interaccion_evento_externo
+      ON lead_interacciones (evento_externo_id)
+      WHERE evento_externo_id IS NOT NULL;
+    CREATE INDEX idx_lead_fuentes_plataforma_activa
+      ON lead_fuentes (plataforma, activa);
+    CREATE INDEX idx_lead_contenidos_vendedor_fecha
+      ON lead_contenidos (vendedor_origen_id, publicado_en);
+    CREATE INDEX idx_lead_contenidos_producto_activa
+      ON lead_contenidos (producto_id, activa);
+    CREATE INDEX idx_lead_atribuciones_rol_estado
+      ON lead_atribuciones (lead_id, rol, estado, detectada_en);
+    CREATE INDEX idx_lead_atribuciones_contenido_metodo
+      ON lead_atribuciones (contenido_id, metodo, estado);
+    CREATE INDEX idx_lead_enlaces_contenido_activa
+      ON lead_enlaces_rastreados (contenido_id, activa);
+  `);
+}
+
 const MIGRACIONES = Object.freeze([
   Object.freeze({ version: 1, aplicar: aplicarVersion1 }),
   Object.freeze({ version: 2, aplicar: aplicarVersion2 }),
+  Object.freeze({ version: 3, aplicar: aplicarVersion3 }),
 ]);
 
 function inicializarPersistenciaCentroLeads(sqlite, { migraciones = MIGRACIONES } = {}) {
