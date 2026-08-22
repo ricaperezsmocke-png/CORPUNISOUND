@@ -10,6 +10,8 @@
  */
 
 const { crearCliente } = require("./clientes");
+const { booleanoEstricto } = require("./radar/entrada");
+const { ErrorRadar } = require("./radar/errores");
 
 const MOTIVOS_DEMANDA = Object.freeze([
   "SIN_EXISTENCIA",
@@ -255,8 +257,8 @@ function crearDemanda(DB, datos, contexto) {
     motivo_no_venta: validarMotivo(datos.motivo_no_venta),
     notas: texto(datos.notas),
     requiere_seguimiento: !!datos.requiere_seguimiento,
-    intencion_compra: !!datos.intencion_compra,
-    consentimiento_aviso: !!datos.consentimiento_aviso,
+    intencion_compra: booleanoEstricto(datos.intencion_compra, "intencion_compra"),
+    consentimiento_aviso: booleanoEstricto(datos.consentimiento_aviso, "consentimiento_aviso"),
     fecha_vinculacion_crm: datos.fecha_vinculacion_crm ? texto(datos.fecha_vinculacion_crm) : null,
     nombre_contacto: texto(datos.nombre_contacto),
     telefono_contacto: texto(datos.telefono_contacto),
@@ -282,8 +284,12 @@ function crearDemandaConCRM(DB, datos, contexto) {
   const clientesAntes = (DB.crm?.clientes || []).length;
   const ultimoIdAntes = radar.ultimo_id;
   try {
-    if (!datos?.intencion_compra) return crearDemanda(DB, datos || {}, contexto);
-    if (!datos.consentimiento_aviso) throw new Error("Confirma el consentimiento del cliente para recibir el aviso");
+    const intencion = booleanoEstricto(datos?.intencion_compra, "intencion_compra");
+    const consentimiento = booleanoEstricto(datos?.consentimiento_aviso, "consentimiento_aviso");
+    if (!intencion) return crearDemanda(DB, datos || {}, contexto);
+    if (!consentimiento) {
+      throw new ErrorRadar("Confirma el consentimiento del cliente para recibir el aviso", 400);
+    }
 
     const sucursalId = validarSucursal(DB, contexto?.sucursalId);
     let clienteId = datos.cliente_id == null ? null : validarCliente(DB, datos.cliente_id, sucursalId);

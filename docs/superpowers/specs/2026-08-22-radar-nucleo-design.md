@@ -201,7 +201,8 @@ explica por qué el comportamiento que fijaba estaba mal.
 
 Casos nuevos mínimos:
 
-- `"false"`, `"0"`, `1`, `null` en ambos booleanos → 400, y el CRM no cambia.
+- `"false"`, `"0"`, `1` en ambos booleanos → 400, y el CRM no cambia.
+- `null` y campo ausente → `false`, sin error: la captura normal no manda el campo.
 - CONVERTIDA sin `venta_recuperada_id` → se rechaza.
 - Misma venta en dos demandas → la segunda se rechaza.
 - `/resumen` y `/analisis` coinciden para el mismo alcance y periodo.

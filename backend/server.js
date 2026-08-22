@@ -95,6 +95,7 @@ const {
   agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen, obtenerAnalisis,
   enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
 } = require("./radarDemanda");
+const { booleanoEstricto } = require("./radar/entrada");
 const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
 const { clasificarEvidenciaCompra, clasificarProductoNoManejado } = require("./radarDemandaReglas");
 
@@ -623,6 +624,9 @@ app.get("/api/salud", (req, res) => res.json({ ok: true }));
 // ---------- Radar de Demanda ----------
 
 function responderErrorRadar(res, error) {
+  if (error && typeof error.estatus === "number") {
+    return res.status(error.estatus).json({ error: error.message });
+  }
   const mensaje = error && error.message ? error.message : "Error interno en Radar de Demanda";
   if (mensaje === "Demanda no encontrada") return res.status(404).json({ error: mensaje });
   if (mensaje.startsWith("No se permite cambiar")) return res.status(409).json({ error: mensaje });
@@ -654,7 +658,7 @@ app.get("/api/radar-demanda/meta", requiereLogin, requierePermiso("ver_radar_dem
 
 app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda", resolverPermisosDeRol), (req, res) => {
   try {
-    if (req.body?.intencion_compra && !resolverPermisosDeRol(req.usuarioToken.rol_id).includes("crear_cliente")) {
+    if (booleanoEstricto(req.body?.intencion_compra, "intencion_compra") && !resolverPermisosDeRol(req.usuarioToken.rol_id).includes("crear_cliente")) {
       return res.status(403).json({ error: "No tienes permiso para agregar prospectos al CRM." });
     }
     const alcance = resolverAlcance(req);

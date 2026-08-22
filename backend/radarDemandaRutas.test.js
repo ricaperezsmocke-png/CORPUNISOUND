@@ -536,3 +536,21 @@ test("conversión con venta de otra sucursal es atómica desde CLIENTE_CONTACTAD
   assert.ok(ventaOtraSucursal);
   await comprobarConversionAtomica(ventaOtraSucursal.id);
 });
+
+test('la cadena "false" no crea prospecto ni consentimiento', async () => {
+  const clientesAntes = (await pedir("/api/crm/clientes", { token: tokenAdmin })).cuerpo.length;
+  const r = await pedir("/api/radar-demanda", {
+    token: tokenS1,
+    method: "POST",
+    body: demandaValida({
+      intencion_compra: "false",
+      consentimiento_aviso: "false",
+      nombre_contacto: "Nadie",
+      telefono_contacto: "9615550000",
+    }),
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.cuerpo.error, /intencion_compra/);
+  const clientesDespues = (await pedir("/api/crm/clientes", { token: tokenAdmin })).cuerpo.length;
+  assert.equal(clientesDespues, clientesAntes, "el CRM no debió cambiar");
+});
