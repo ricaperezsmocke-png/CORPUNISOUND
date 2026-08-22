@@ -12,6 +12,7 @@
 const { crearCliente } = require("./clientes");
 const { booleanoEstricto } = require("./radar/entrada");
 const { ErrorRadar } = require("./radar/errores");
+const { calcularMetricas, porcentaje, ESTADOS_PENDIENTES } = require("./radar/metricas");
 
 const MOTIVOS_DEMANDA = Object.freeze([
   "SIN_EXISTENCIA",
@@ -66,10 +67,6 @@ const CAMPOS_EDITABLES = new Set([
   "cantidad", "motivo_no_venta", "notas", "requiere_seguimiento",
   "nombre_contacto", "telefono_contacto", "fecha_seguimiento",
   "venta_recuperada_id",
-]);
-
-const ESTADOS_PENDIENTES = new Set([
-  "REGISTRADA", "EN_SEGUIMIENTO", "PRODUCTO_DISPONIBLE", "CLIENTE_CONTACTADO",
 ]);
 
 function normalizarRadarDemanda(DB) {
@@ -547,11 +544,15 @@ function obtenerResumen(DB, alcance) {
     cantidadSolicitada += Number(item.cantidad) || 0;
   }
   const convertidas = porEstado.CONVERTIDA || 0;
+  const metricas = calcularMetricas(registros);
   return {
     total: registros.length,
     cantidad_solicitada: cantidadSolicitada,
     convertidas,
-    tasa_conversion: registros.length ? Math.round((convertidas / registros.length) * 10000) / 100 : 0,
+    tasa_conversion: metricas.tasa_conversion,
+    conversion_detalle: metricas.conversion_detalle,
+    tasa_recuperacion: metricas.tasa_recuperacion,
+    recuperacion_detalle: metricas.recuperacion_detalle,
     por_estado: porEstado,
     por_motivo: porMotivo,
     por_sucursal: porSucursal,
@@ -579,10 +580,6 @@ function normalizarClave(valor) {
   return texto(valor).replace(/\s+/g, " ").toLocaleLowerCase("es");
 }
 
-function porcentaje(numerador, denominador) {
-  return denominador ? Math.round((numerador / denominador) * 10000) / 100 : 0;
-}
-
 function identidadContacto(item) {
   if (item.cliente_id != null && Number(item.cliente_id) !== 0) return `cliente:${Number(item.cliente_id)}`;
   const telefono = normalizarClave(item.telefono_contacto);
@@ -592,24 +589,7 @@ function identidadContacto(item) {
 }
 
 function metricasRegistros(registros) {
-  let pendientes = 0, convertidas = 0, noConvertidas = 0, canceladas = 0, cantidad = 0;
-  for (const item of registros) {
-    cantidad += Number(item.cantidad) || 0;
-    if (ESTADOS_PENDIENTES.has(item.estado)) pendientes += 1;
-    else if (item.estado === "CONVERTIDA") convertidas += 1;
-    else if (item.estado === "NO_CONVERTIDA") noConvertidas += 1;
-    else if (item.estado === "CANCELADA") canceladas += 1;
-  }
-  return {
-    total: registros.length,
-    cantidad_solicitada: cantidad,
-    pendientes,
-    convertidas,
-    no_convertidas: noConvertidas,
-    canceladas,
-    tasa_conversion: porcentaje(convertidas, convertidas + noConvertidas),
-    tasa_recuperacion: porcentaje(convertidas, pendientes + convertidas + noConvertidas),
-  };
+  return calcularMetricas(registros);
 }
 
 function obtenerAnalisis(DB, alcance, filtros = {}) {

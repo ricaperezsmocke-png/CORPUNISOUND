@@ -444,6 +444,18 @@ Ese archivo lleva su propia copia de `obtenerResumen` y cuenta por `por_estado`,
 
 **No** tocar ninguna otra prueba: si otra falla, detenerse e informar.
 
+**Ampliación autorizada por Victor el 2026-08-22.** Al ejecutar la tarea, Codex
+se detuvo con la prueba `Radar mantiene aislamiento integral entre cinco
+sucursales` en rojo, y tenía razón: ese archivo compara con `assert.deepEqual`
+el objeto **completo** de `/resumen` contra uno que construye a mano en
+`resumenEsperado` (línea 50), así que las tres claves nuevas del contrato
+aprobado lo rompen. El plan original solo autorizaba la línea 66.
+
+Queda autorizado completar `resumenEsperado` con `conversion_detalle`,
+`tasa_recuperacion` y `recuperacion_detalle`, calculadas dentro de la propia
+prueba. **Ninguna aserción se modifica** y el propósito de la prueba no cambia:
+sigue comprobando que un usuario limitado ve solo su sucursal.
+
 - [ ] **Paso 7: Comprobar que los dos endpoints coinciden**
 
 Agregar al final de `backend/radarDemandaRutas.test.js`:

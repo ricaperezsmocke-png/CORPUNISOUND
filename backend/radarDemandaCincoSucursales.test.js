@@ -59,11 +59,24 @@ function resumenEsperado(registros) {
     cantidad_solicitada += Number(item.cantidad) || 0;
   }
   const convertidas = por_estado.CONVERTIDA || 0;
+  const no_convertidas = por_estado.NO_CONVERTIDA || 0;
+  const pendientes = ["REGISTRADA", "EN_SEGUIMIENTO", "PRODUCTO_DISPONIBLE", "CLIENTE_CONTACTADO"]
+    .reduce((total, estado) => total + (por_estado[estado] || 0), 0);
+  const denominador_conversion = convertidas + no_convertidas;
+  const denominador_recuperacion = pendientes + convertidas + no_convertidas;
   return {
     total: registros.length,
     cantidad_solicitada,
     convertidas,
-    tasa_conversion: registros.length ? Math.round((convertidas / registros.length) * 10000) / 100 : 0,
+    tasa_conversion: ((por_estado.CONVERTIDA || 0) + (por_estado.NO_CONVERTIDA || 0))
+      ? Math.round(((por_estado.CONVERTIDA || 0) /
+          ((por_estado.CONVERTIDA || 0) + (por_estado.NO_CONVERTIDA || 0))) * 10000) / 100
+      : 0,
+    conversion_detalle: { numerador: convertidas, denominador: denominador_conversion },
+    tasa_recuperacion: denominador_recuperacion
+      ? Math.round((convertidas / denominador_recuperacion) * 10000) / 100
+      : 0,
+    recuperacion_detalle: { numerador: convertidas, denominador: denominador_recuperacion },
     por_estado,
     por_motivo,
     por_sucursal,

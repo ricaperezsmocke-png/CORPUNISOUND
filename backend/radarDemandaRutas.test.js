@@ -554,3 +554,14 @@ test('la cadena "false" no crea prospecto ni consentimiento', async () => {
   const clientesDespues = (await pedir("/api/crm/clientes", { token: tokenAdmin })).cuerpo.length;
   assert.equal(clientesDespues, clientesAntes, "el CRM no debió cambiar");
 });
+
+test("/resumen usa la fórmula aprobada y lo demuestra con su denominador", async () => {
+  const r = await pedir("/api/radar-demanda/resumen", { token: tokenAdmin });
+  assert.equal(r.status, 200);
+  const esperado = (r.cuerpo.por_estado.CONVERTIDA || 0) + (r.cuerpo.por_estado.NO_CONVERTIDA || 0);
+  assert.equal(
+    r.cuerpo.conversion_detalle.denominador, esperado,
+    "el denominador son los cierres decididos, no todos los registros"
+  );
+  assert.equal(r.cuerpo.conversion_detalle.numerador, r.cuerpo.por_estado.CONVERTIDA || 0);
+});
