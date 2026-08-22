@@ -100,10 +100,15 @@ Inteligencia de Compras) no se tocan.
 
 ### Consentimiento
 
-`intencion_compra` y `consentimiento_aviso` deben ser **booleanos reales**.
-Cualquier otro valor — `"false"`, `"true"`, `"0"`, `1`, `null`, `undefined` —
-se rechaza con 400 **antes de tocar el CRM**. Prohibido `!!valor` sobre entrada
-externa.
+`intencion_compra` y `consentimiento_aviso` deben ser **booleanos reales**:
+
+- Campo **ausente** (`undefined`) o `null` significa **`false`**. El campo es
+  opcional y la mayoría de las capturas no lo mandan; exigirlo rompería la
+  captura normal.
+- Campo **presente con un valor que no es booleano** — `"false"`, `"true"`,
+  `"0"`, `0`, `1`, `""`, `[]` — se rechaza con **400 antes de tocar el CRM**.
+
+Prohibido `!!valor` sobre entrada externa.
 
 Sin `intencion_compra` no hay alta en CRM. Con intención, el consentimiento es
 obligatorio, el nombre es obligatorio y el teléfono debe traer 10 dígitos.
