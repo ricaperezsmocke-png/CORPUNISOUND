@@ -9,7 +9,7 @@
  * claves foráneas SQLite.
  */
 
-const VERSION_ESQUEMA = 1;
+const VERSION_ESQUEMA = 2;
 
 function aplicarVersion1(sqlite) {
   sqlite.exec(`
@@ -304,8 +304,21 @@ function aplicarVersion1(sqlite) {
   `);
 }
 
+function aplicarVersion2(sqlite) {
+  sqlite.exec(`
+    ALTER TABLE leads ADD COLUMN nombre TEXT;
+    ALTER TABLE leads ADD COLUMN telefono_normalizado TEXT;
+    ALTER TABLE leads ADD COLUMN email_normalizado TEXT;
+    ALTER TABLE leads ADD COLUMN interes TEXT;
+    ALTER TABLE leads ADD COLUMN ubicacion TEXT;
+    ALTER TABLE leads ADD COLUMN origen TEXT;
+    ALTER TABLE lead_seguimientos ADD COLUMN proxima_fecha TEXT;
+  `);
+}
+
 const MIGRACIONES = Object.freeze([
   Object.freeze({ version: 1, aplicar: aplicarVersion1 }),
+  Object.freeze({ version: 2, aplicar: aplicarVersion2 }),
 ]);
 
 function inicializarPersistenciaCentroLeads(sqlite, { migraciones = MIGRACIONES } = {}) {
