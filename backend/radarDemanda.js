@@ -13,6 +13,11 @@ const { crearCliente } = require("./clientes");
 const { booleanoEstricto } = require("./radar/entrada");
 const { ErrorRadar } = require("./radar/errores");
 const { calcularMetricas, porcentaje, ESTADOS_PENDIENTES } = require("./radar/metricas");
+const {
+  exigirVentaParaConvertir,
+  exigirVentaEnDemandaConvertida,
+  exigirVentaNoUsada,
+} = require("./radar/reglasEstado");
 
 const MOTIVOS_DEMANDA = Object.freeze([
   "SIN_EXISTENCIA",
@@ -178,13 +183,15 @@ function validarCliente(DB, clienteId, sucursalId) {
   return id;
 }
 
-function validarVenta(DB, ventaId, sucursalId) {
+function validarVenta(DB, ventaId, sucursalId, opciones = {}) {
   const id = enteroOpcional(ventaId, "La venta recuperada");
   if (id == null) return null;
   const venta = (DB.pos?.ventas || []).find((item) => item.id === id);
   if (!venta || Number(venta.sucursal_id) !== Number(sucursalId)) {
     throw new Error("Venta recuperada no encontrada");
   }
+  const radar = normalizarRadarDemanda(DB);
+  exigirVentaNoUsada(radar.registros, id, opciones.demandaId ?? null);
   return id;
 }
 
@@ -384,7 +391,10 @@ function actualizarDemanda(DB, id, cambios, alcance) {
   candidato.producto_sku_registrado = producto ? texto(producto.sku) : "";
   candidato.producto_buscado = productoBuscado;
   candidato.cliente_id = validarCliente(DB, candidato.cliente_id, demanda.sucursal_id);
-  candidato.venta_recuperada_id = validarVenta(DB, candidato.venta_recuperada_id, demanda.sucursal_id);
+  candidato.venta_recuperada_id = validarVenta(
+    DB, candidato.venta_recuperada_id, demanda.sucursal_id, { demandaId: demanda.id }
+  );
+  exigirVentaEnDemandaConvertida(candidato.estado, candidato.venta_recuperada_id);
   candidato.cantidad = validarCantidad(candidato.cantidad);
   candidato.motivo_no_venta = validarMotivo(candidato.motivo_no_venta);
 
@@ -437,8 +447,9 @@ function cambiarEstado(DB, demandaId, nuevoEstado, datos, alcance, usuarioId) {
   }
   const incluyeVenta = datos && Object.prototype.hasOwnProperty.call(datos, "venta_recuperada_id");
   const ventaRecuperadaId = incluyeVenta
-    ? validarVenta(DB, datos.venta_recuperada_id, demanda.sucursal_id)
+    ? validarVenta(DB, datos.venta_recuperada_id, demanda.sucursal_id, { demandaId: demanda.id })
     : demanda.venta_recuperada_id;
+  exigirVentaParaConvertir(nuevoEstado, ventaRecuperadaId);
   const anterior = demanda.estado;
   demanda.estado = nuevoEstado;
   if (incluyeVenta) demanda.venta_recuperada_id = ventaRecuperadaId;

@@ -565,3 +565,14 @@ test("/resumen usa la fórmula aprobada y lo demuestra con su denominador", asyn
   );
   assert.equal(r.cuerpo.conversion_detalle.numerador, r.cuerpo.por_estado.CONVERTIDA || 0);
 });
+
+test("la API rechaza cerrar como CONVERTIDA sin venta", async () => {
+  const creada = await pedir("/api/radar-demanda", {
+    token: tokenS1, method: "POST", body: demandaValida(),
+  });
+  const r = await pedir(`/api/radar-demanda/${creada.cuerpo.id}`, {
+    token: tokenS1, method: "PATCH", body: { estado: "CONVERTIDA" },
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.cuerpo.error, /venta/i);
+});

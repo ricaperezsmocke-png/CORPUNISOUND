@@ -123,6 +123,18 @@ Entrar a `CONVERTIDA` **exige una venta ligada y válida**:
 Si falta la venta, el estado no cambia. La demanda que no se recuperó tiene su
 propio estado: `NO_CONVERTIDA`.
 
+**Y una demanda ya cerrada como CONVERTIDA no puede quedarse sin su venta.**
+Regla aprobada por Victor el 2026-08-22, a raíz de un hueco que encontró Codex
+al implementar la Tarea 3 y que Claude reprodujo: no se podía *entrar* a
+CONVERTIDA sin venta, pero una vez dentro un `PATCH` normal con
+`venta_recuperada_id: null` se la quitaba, dejando una demanda convertida sin
+respaldo. El mismo defecto por la puerta de atrás, en dos pasos.
+
+Si alguien ligó la venta equivocada, se corrige poniendo **otra venta válida y
+libre**, nunca dejándola en blanco. La regla aplica **solo** a `CONVERTIDA`:
+cualquier otro estado puede tener la venta en nulo, y una demanda convertida
+sigue siendo editable en todo lo demás (notas, contacto, seguimiento).
+
 ### Métricas
 
 ```
