@@ -92,7 +92,7 @@ function listarClientesCRM(DB, alcance) {
       const score = calcularScore(compras);
       const segmento = calcularSegmento(compras);
       const alertas = calcularAlertas(c, segmento);
-      return { ...c, compras, score, segmento, alertas };
+      return { ...c, compras, ya_compro: compras.length > 0, origen: c.origen || "", score, segmento, alertas };
     });
 }
 
@@ -184,7 +184,7 @@ function resumenPorSucursal(DB, alcance) {
   return sucursales.map((s) => {
     const cs = clientes.filter((c) => c.sucursal_id === s.id);
     const ventas = cs.reduce((a, c) => a + c.compras.reduce((b, p) => b + p.monto, 0), 0);
-    return { sucursal_id: s.id, nombre: s.nombre, clientes: cs.length, ventas, convertidos: cs.filter((c) => c.estado === "compro").length };
+    return { sucursal_id: s.id, nombre: s.nombre, clientes: cs.length, ventas, convertidos: cs.filter((c) => c.compras.length > 0).length };
   });
 }
 
@@ -200,7 +200,7 @@ function rankingVendedores(DB, alcance) {
     return {
       vendedor_id: v.id, nombre: v.nombre, clientes: cs.length, ventas,
       activo: v.activo !== false,
-      convertidos: cs.filter((c) => c.estado === "compro").length,
+      convertidos: cs.filter((c) => c.compras.length > 0).length,
     };
   })
     // Un vendedor desactivado se cae del ranking SOLO si ya no tiene clientes

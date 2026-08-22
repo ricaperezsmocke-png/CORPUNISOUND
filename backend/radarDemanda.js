@@ -319,6 +319,7 @@ function crearDemandaConCRM(DB, datos, contexto) {
         clienteId = crearCliente(DB, {
           nombre, representante: nombre, celular: telefono, sucursal_id: sucursalId,
           vendedor_asignado_id: usuario.vendedor_id, estado: "interesado",
+          origen: "radar",
         }).id;
       }
     }

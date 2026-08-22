@@ -837,8 +837,13 @@ convertidos: cs.filter((c) => c.estado === "compro").length
 por:
 
 ```js
-convertidos: cs.filter((c) => comprasDeCliente(DB, c.id).length > 0).length
+convertidos: cs.filter((c) => c.compras.length > 0).length
 ```
+
+`cs` viene de `listarClientesCRM`, que **ya trae las compras de cada cliente**
+calculadas con `comprasDeCliente`. Derivar de `c.compras` en vez de volver a
+llamar a `comprasDeCliente(DB, c.id)` evita recorrer todas las ventas otra vez
+por cada cliente.
 
 - [ ] **Paso 7: Prueba de que el dato es crudo**
 
