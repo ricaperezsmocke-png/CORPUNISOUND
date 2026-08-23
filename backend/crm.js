@@ -103,9 +103,31 @@ function obtenerClienteCRM(DB, id) {
   return { ...c, compras, score: calcularScore(compras), segmento: calcularSegmento(compras), alertas: calcularAlertas(c, calcularSegmento(compras)) };
 }
 
+/**
+ * Estados del embudo que una PERSONA puede poner a mano.
+ *
+ * "compro" no está en la lista a propósito. El conteo de convertidos por
+ * sucursal y el ranking de vendedores se derivan de ventas cerradas reales,
+ * y una etiqueta que el propio vendedor puede mover no debe poder simular una
+ * venta: se subiría en el ranking sin haber vendido nada.
+ *
+ * MercadoLibre sí marca "compro", pero por otra vía (mercadolibre.js escribe
+ * el campo directo al procesar una compra real), no por aquí.
+ *
+ * Salir de "compro" sí se permite: la regla es sobre ponerlo, no sobre
+ * quitarlo. Un cliente que compró puede volver al embudo como cualquier otro.
+ */
+const ESTADOS_MANUALES = Object.freeze(["contactado", "interesado", "visito_tienda", "perdido"]);
+
 function cambiarEstadoCliente(DB, id, estado) {
   const cliente = DB.crm.clientes.find((c) => c.id === Number(id));
   if (!cliente) throw new Error("Cliente no encontrado");
+  if (estado === "compro") {
+    throw new Error("El estado Compró se gana con una venta cerrada, no se asigna a mano");
+  }
+  if (!ESTADOS_MANUALES.includes(estado)) {
+    throw new Error(`El estado ${estado} no es válido`);
+  }
   cliente.estado = estado;
   cliente.ultimo_contacto = hoy();
   return cliente;

@@ -623,12 +623,21 @@ function DetalleCli({ sel, ia, campType, setCampType, campMsg, waL, mlL, onEst, 
 
     <Sec title="Pipeline · Estado">
       <div style={{ padding: "10px 15px", display: "flex", gap: 5, flexWrap: "wrap" }}>
-        {ESTADOS.map((est) => (
+        {/* "Compró" no se pinta como botón: se gana con una venta cerrada, no
+            se asigna a mano. Cuando el cliente sí compró se muestra abajo como
+            insignia. La constante ESTADOS se deja completa porque el filtro y
+            la lista siguen necesitando "compro" para los clientes históricos. */}
+        {ESTADOS.filter((est) => est.id !== "compro").map((est) => (
           <button key={est.id} disabled={!puede("cambiar_estado_cliente")} onClick={() => onEst(sel.id, est.id)}
             style={{ padding: "5px 11px", borderRadius: 20, border: `1px solid ${sel.estado === est.id ? est.color : T.border}`, background: sel.estado === est.id ? est.color + "15" : "transparent", color: sel.estado === est.id ? est.color : T.sub, fontSize: 11, cursor: puede("cambiar_estado_cliente") ? "pointer" : "not-allowed", fontWeight: 600, opacity: puede("cambiar_estado_cliente") ? 1 : 0.5 }}>
             {est.label}
           </button>
         ))}
+        {(sel.ya_compro || sel.estado === "compro") && (
+          <span style={{ padding: "5px 11px", borderRadius: 20, border: `1px solid ${EST.compro.c}`, background: EST.compro.c + "15", color: EST.compro.c, fontSize: 11, fontWeight: 600 }}>
+            {sel.ya_compro ? "Compró" : "Compró (histórico)"}
+          </span>
+        )}
       </div>
       <div style={{ padding: "0 15px 10px", fontSize: 11, color: T.sub }}>
         Último contacto: <strong style={{ color: T.text }}>{sel.ultimo_contacto || "—"}</strong>
