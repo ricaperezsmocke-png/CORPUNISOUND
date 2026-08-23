@@ -499,8 +499,17 @@ test("leerRespaldo rechaza una foto a la que le falta una colección", async () 
   // La versión debe ser la VIGENTE: con una vieja, leerRespaldo rechazaría por
   // versión y esta prueba pasaría sin llegar nunca a la validación de
   // colecciones, que es justo lo que quiere probar.
+  //
+  // Y la foto tiene que DECLARAR sus colecciones (2026-08-23): desde el arreglo
+  // de los respaldos anteriores, un archivo que no declara nada se trata como
+  // una copia vieja y se le rellenan los módulos que aún no existían. La
+  // corrupción que esta prueba vigila es otra: prometió guardar estas
+  // colecciones y no las trae.
   drive.archivos.set(copia.drive_file_id, empaquetar(
-    { version_formato: VERSION_FORMATO, generado_en: "2026-08-11T22:00:00.000Z", conteos: {}, datos: { pos: { ventas: [] } } },
+    {
+      version_formato: VERSION_FORMATO, generado_en: "2026-08-11T22:00:00.000Z",
+      colecciones: [...COLECCIONES_RESPALDADAS], conteos: {}, datos: { pos: { ventas: [] } },
+    },
     LLAVE,
   ));
   await assert.rejects(() => leerRespaldo(DB, drive, copia.id, LLAVE), /incompleto|falta/i);
