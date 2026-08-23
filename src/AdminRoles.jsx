@@ -7,6 +7,7 @@ import {
 import { apiFetch } from "./api";
 import CatalogoVendedores from "./CatalogoVendedores.jsx";
 import ModalConfirmar from "./ModalConfirmar";
+import ModalPedirTexto from "./ModalPedirTexto";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
@@ -191,6 +192,9 @@ function IntentosBloqueados() {
 }
 
 export default function AdminRoles({ onVolver, permisos, usuario }) {
+  // Pedir un dato dentro de la app: { titulo, etiqueta, valorInicial, validar, alAceptar }
+  const [pedirTexto, setPedirTexto] = useState(null);
+
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [vistaAdmin, setVistaAdmin] = useState("roles"); // "roles" | "ubicaciones" | "bloqueados"
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
@@ -314,9 +318,15 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     guardarCambiosRol(rolActivo.id, { modulos: nuevos });
   };
 
-  const agregarRol = async () => {
-    const nombre = prompt("Nombre del nuevo rol:");
-    if (!nombre) return;
+  const agregarRol = () => setPedirTexto({
+    titulo: "Nuevo rol",
+    etiqueta: "Nombre del rol",
+    marcador: "ej: Encargado de piso",
+    textoConfirmar: "Crear rol",
+    alAceptar: agregarRolConfirmado,
+  });
+
+  const agregarRolConfirmado = async (nombre) => {
     try {
       const r = await apiFetch("/roles", { method: "POST", body: JSON.stringify({ nombre, permisos: [], modulos: [] }) });
       const nuevo = await r.json();
@@ -329,9 +339,13 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
 
   const editarNombreRol = async () => {
     if (!rolActivo) return mostrarAviso("Selecciona un rol primero");
-    const nombre = prompt("Nuevo nombre del rol:", rolActivo.nombre);
-    if (!nombre) return;
-    guardarCambiosRol(rolActivo.id, { nombre });
+    setPedirTexto({
+      titulo: "Renombrar rol",
+      etiqueta: "Nuevo nombre",
+      valorInicial: rolActivo.nombre,
+      textoConfirmar: "Renombrar",
+      alAceptar: (nombre) => guardarCambiosRol(rolActivo.id, { nombre }),
+    });
   };
 
   const eliminarRolActivo = () => {
@@ -947,6 +961,17 @@ Esta acción no se puede deshacer.`,
             const accion = confirmacion.alConfirmar;
             setConfirmacion(null);
             accion();
+          }}
+        />
+      )}
+      {pedirTexto && (
+        <ModalPedirTexto
+          {...pedirTexto}
+          onCancelar={() => setPedirTexto(null)}
+          onAceptar={(valor) => {
+            const accion = pedirTexto.alAceptar;
+            setPedirTexto(null);
+            accion(valor);
           }}
         />
       )}

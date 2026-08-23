@@ -7,6 +7,7 @@ import {
 import { apiFetch, API } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
 import ModalConfirmar from "./ModalConfirmar";
+import ModalPedirTexto from "./ModalPedirTexto";
 
 function Tab({ activo, onClick, children }) {
   return (
@@ -358,6 +359,9 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export default function MercadoLibre({ onVolver, permisos }) {
+  // Pedir un dato dentro de la app: { titulo, etiqueta, valorInicial, validar, alAceptar }
+  const [pedirTexto, setPedirTexto] = useState(null);
+
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
   const [confirmacion, setConfirmacion] = useState(null);
 
@@ -523,9 +527,26 @@ export default function MercadoLibre({ onVolver, permisos }) {
     } else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
   };
 
-  const actualizarStock = async (itemId, cantidadActual) => {
-    const val = prompt(`Nueva cantidad disponible (actual: ${cantidadActual}):`);
-    if (val === null || isNaN(Number(val))) return;
+  const actualizarStock = (itemId, cantidadActual) => setPedirTexto({
+    titulo: "Cambiar cantidad publicada",
+    etiqueta: "Nueva cantidad disponible",
+    ayuda: `Actualmente hay ${cantidadActual}. Esto cambia lo que ve el comprador en MercadoLibre.`,
+    valorInicial: String(cantidadActual),
+    tipo: "number",
+    textoConfirmar: "Actualizar",
+    // Antes esto era un prompt() sin validar: cualquier cosa que no fuera
+    // numero se descartaba en silencio, y un negativo pasaba derecho.
+    validar: (v) => {
+      const n = Number(v);
+      if (String(v).trim() === "" || isNaN(n)) return "Escribe un numero";
+      if (n < 0) return "No puede ser negativa";
+      if (!Number.isInteger(n)) return "Tiene que ser un numero entero";
+      return null;
+    },
+    alAceptar: (valor) => actualizarStockConfirmado(itemId, Number(valor)),
+  });
+
+  const actualizarStockConfirmado = async (itemId, cantidad) => {
     const r = await apiFetch(`/ml/publicaciones/${itemId}/stock`, {
       method: "PUT", body: JSON.stringify({ cantidad: Number(val) }),
     });
@@ -963,6 +984,17 @@ export default function MercadoLibre({ onVolver, permisos }) {
             const accion = confirmacion.alConfirmar;
             setConfirmacion(null);
             accion();
+          }}
+        />
+      )}
+      {pedirTexto && (
+        <ModalPedirTexto
+          {...pedirTexto}
+          onCancelar={() => setPedirTexto(null)}
+          onAceptar={(valor) => {
+            const accion = pedirTexto.alAceptar;
+            setPedirTexto(null);
+            accion(valor);
           }}
         />
       )}

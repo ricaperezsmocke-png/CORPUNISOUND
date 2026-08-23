@@ -5,6 +5,7 @@ import { pedirLista } from "./cargaSegura";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 import ModalConfirmar from "./ModalConfirmar";
+import ModalPedirTexto from "./ModalPedirTexto";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
@@ -505,6 +506,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 /** Pestaña de administración del catálogo. Se define aquí, junto a su único
  *  consumidor, en vez de en un archivo aparte. */
 function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
+  // Pedir un dato dentro de la app: { titulo, etiqueta, valorInicial, validar, alAceptar }
+  const [pedirTexto, setPedirTexto] = useState(null);
+
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
   const [confirmacion, setConfirmacion] = useState(null);
 
@@ -540,9 +544,15 @@ Los gastos que ya la usan la conservan.`,
     onCambio();
   };
 
-  const renombrar = async (id, actual) => {
-    const nombre = window.prompt("Nuevo nombre:", actual);
-    if (!nombre || nombre === actual) return;
+  const renombrar = (id, actual) => setPedirTexto({
+    titulo: "Renombrar categoría",
+    etiqueta: "Nuevo nombre",
+    valorInicial: actual,
+    textoConfirmar: "Renombrar",
+    alAceptar: (nombre) => { if (nombre !== actual) renombrarConfirmado(id, nombre); },
+  });
+
+  const renombrarConfirmado = async (id, nombre) => {
     const r = await apiFetch(`/gastos/categorias/${id}`, { method: "PUT", body: JSON.stringify({ nombre }) });
     const data = await r.json();
     if (!r.ok) return mostrarAviso("❌ " + data.error);
@@ -609,6 +619,17 @@ Los gastos que ya la usan la conservan.`,
             const accion = confirmacion.alConfirmar;
             setConfirmacion(null);
             accion();
+          }}
+        />
+      )}
+      {pedirTexto && (
+        <ModalPedirTexto
+          {...pedirTexto}
+          onCancelar={() => setPedirTexto(null)}
+          onAceptar={(valor) => {
+            const accion = pedirTexto.alAceptar;
+            setPedirTexto(null);
+            accion(valor);
           }}
         />
       )}

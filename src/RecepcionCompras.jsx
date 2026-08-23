@@ -51,6 +51,10 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   const [errorRecepciones, setErrorRecepciones] = useState(null);
   const [sucursales, setSucursales] = useState([]);
   const [proveedores, setProveedores] = useState([]);
+  // Alta rapida de proveedor, dentro de la app. Antes eran DOS prompt()
+  // encadenados (nombre y luego RFC): dos cajitas grises seguidas, sin ver
+  // la pantalla de atras y sin poder corregir la primera.
+  const [formProveedor, setFormProveedor] = useState(null); // { nombre, rfc } | null
   const [categorias, setCategorias] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
   const [recepciones, setRecepciones] = useState([]);
@@ -143,10 +147,13 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   useEffect(() => { cargarProductos(origenEfectivo); }, [origenEfectivo, cargarProductos]);
   useEffect(() => { codigoRef.current?.focus(); }, [modal]);
 
-  const crearProveedorRapido = async () => {
-    const nombre = prompt("Nombre del nuevo proveedor:");
-    if (!nombre || !nombre.trim()) return;
-    const rfc = prompt("RFC (opcional):") || "";
+  const crearProveedorRapido = () => setFormProveedor({ nombre: "", rfc: "" });
+
+  const guardarProveedorRapido = async () => {
+    const nombre = (formProveedor.nombre || "").trim();
+    const rfc = (formProveedor.rfc || "").trim();
+    if (!nombre) return;
+    setFormProveedor(null);
     try {
       const r = await apiFetch(`/proveedores`, { method: "POST", body: JSON.stringify({ nombre, rfc }) });
       const nuevo = await r.json();
@@ -929,6 +936,41 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+      {formProveedor && (
+        <Modal titulo="Nuevo proveedor" onCerrar={() => setFormProveedor(null)}>
+          <div className="flex flex-col gap-3">
+            <Campo label="Nombre *">
+              <input
+                autoFocus
+                className={inputCls}
+                value={formProveedor.nombre}
+                placeholder="ej: Distribuidora del Norte"
+                onChange={(e) => setFormProveedor((f) => ({ ...f, nombre: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter" && formProveedor.nombre.trim()) guardarProveedorRapido(); }}
+              />
+            </Campo>
+            <Campo label="RFC (opcional)">
+              <input
+                className={inputCls}
+                value={formProveedor.rfc}
+                placeholder="XAXX010101000"
+                onChange={(e) => setFormProveedor((f) => ({ ...f, rfc: e.target.value.toUpperCase() }))}
+                onKeyDown={(e) => { if (e.key === "Enter" && formProveedor.nombre.trim()) guardarProveedorRapido(); }}
+              />
+            </Campo>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setFormProveedor(null)} className="px-3 py-1.5 rounded text-sm border border-slate-300 text-slate-600 hover:bg-slate-50">Cancelar</button>
+              <button
+                onClick={guardarProveedorRapido}
+                disabled={!formProveedor.nombre.trim()}
+                className="px-3 py-1.5 rounded text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Crear proveedor
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

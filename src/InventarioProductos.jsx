@@ -8,6 +8,7 @@ import { apiFetch, sinSucursalElegida } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
 import MigracionDatos from "./MigracionDatos.jsx";
 import ModalConfirmar from "./ModalConfirmar";
+import ModalPedirTexto from "./ModalPedirTexto";
 // Carga diferida: recharts (usado solo aqui) es una dependencia pesada -
 // que no se descargue para todo el mundo, solo para quien abre esta pestaña.
 const PrediccionesDemanda = React.lazy(() => import("./PrediccionesDemanda.jsx"));
@@ -64,6 +65,8 @@ const TABS = [
 export default function InventarioProductos({ onVolver, permisos, usuario }) {
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
   const [confirmacion, setConfirmacion] = useState(null);
+  // Pedir un dato dentro de la app: { titulo, etiqueta, valorInicial, validar, alAceptar }
+  const [pedirTexto, setPedirTexto] = useState(null);
 
   const puede = (clave) => !permisos || permisos.includes(clave);
   // Con el encabezado en "Todas", la columna Exist. de la lista muestra la
@@ -174,9 +177,16 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     setModal("form");
   };
 
-  const jalarImagenML = async () => {
-    const itemId = prompt("Ingresa el ID del ítem de MercadoLibre (ej: MLM123456789):");
-    if (!itemId) return;
+  const jalarImagenML = () => setPedirTexto({
+    titulo: "Traer imagen de MercadoLibre",
+    etiqueta: "ID del ítem",
+    marcador: "MLM123456789",
+    ayuda: "Lo encuentras en la dirección de la publicación en MercadoLibre.",
+    textoConfirmar: "Traer imagen",
+    alAceptar: jalarImagenMLConfirmado,
+  });
+
+  const jalarImagenMLConfirmado = async (itemId) => {
     setCargandoImagen(true);
     try {
       const r = await apiFetch(`/ml/item-imagen/${itemId.trim()}`);
@@ -323,9 +333,14 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     finally { ajusteEnCurso.current = false; setAjustando(false); }
   };
 
-  const crearCategoriaRapida = async () => {
-    const nombre = prompt("Nombre de la nueva categoría:");
-    if (!nombre) return;
+  const crearCategoriaRapida = () => setPedirTexto({
+    titulo: "Nueva categoría",
+    etiqueta: "Nombre",
+    textoConfirmar: "Crear",
+    alAceptar: crearCategoriaRapidaConfirmado,
+  });
+
+  const crearCategoriaRapidaConfirmado = async (nombre) => {
     try {
       const r = await apiFetch(`/categorias`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) });
       const nueva = await r.json();
@@ -335,9 +350,14 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const crearProveedorRapido = async () => {
-    const nombre = prompt("Nombre del nuevo proveedor:");
-    if (!nombre) return;
+  const crearProveedorRapido = () => setPedirTexto({
+    titulo: "Nuevo proveedor",
+    etiqueta: "Nombre",
+    textoConfirmar: "Crear",
+    alAceptar: crearProveedorRapidoConfirmado,
+  });
+
+  const crearProveedorRapidoConfirmado = async (nombre) => {
     try {
       const r = await apiFetch(`/proveedores`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) });
       const nuevo = await r.json();
@@ -347,9 +367,14 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const crearDepartamentoRapido = async () => {
-    const nombre = prompt("Nombre del nuevo departamento:");
-    if (!nombre) return;
+  const crearDepartamentoRapido = () => setPedirTexto({
+    titulo: "Nuevo departamento",
+    etiqueta: "Nombre",
+    textoConfirmar: "Crear",
+    alAceptar: crearDepartamentoRapidoConfirmado,
+  });
+
+  const crearDepartamentoRapidoConfirmado = async (nombre) => {
     try {
       const r = await apiFetch(`/departamentos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) });
       const nuevo = await r.json();
@@ -739,6 +764,17 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
             const accion = confirmacion.alConfirmar;
             setConfirmacion(null);
             accion();
+          }}
+        />
+      )}
+      {pedirTexto && (
+        <ModalPedirTexto
+          {...pedirTexto}
+          onCancelar={() => setPedirTexto(null)}
+          onAceptar={(valor) => {
+            const accion = pedirTexto.alAceptar;
+            setPedirTexto(null);
+            accion(valor);
           }}
         />
       )}
