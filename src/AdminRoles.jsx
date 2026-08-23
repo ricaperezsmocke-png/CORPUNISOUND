@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "./api";
 import CatalogoVendedores from "./CatalogoVendedores.jsx";
+import ModalConfirmar from "./ModalConfirmar";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
@@ -192,6 +193,8 @@ function IntentosBloqueados() {
 export default function AdminRoles({ onVolver, permisos, usuario }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [vistaAdmin, setVistaAdmin] = useState("roles"); // "roles" | "ubicaciones" | "bloqueados"
+  // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
   const [roles, setRoles] = useState([]);
   const [rolActivoId, setRolActivoId] = useState(null);
   const [catalogo, setCatalogo] = useState({ permisos: [], modulos: [] });
@@ -331,9 +334,20 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     guardarCambiosRol(rolActivo.id, { nombre });
   };
 
-  const eliminarRolActivo = async () => {
+  const eliminarRolActivo = () => {
     if (!rolActivo) return mostrarAviso("Selecciona un rol primero");
-    if (!confirm(`¿Eliminar el rol "${rolActivo.nombre}"? Esto falla si hay personal asignado a él.`)) return;
+    setConfirmacion({
+      titulo: "Eliminar rol",
+      mensaje: `¿Eliminar el rol "${rolActivo.nombre}"?
+
+Esto falla si hay personal asignado a él.`,
+      textoConfirmar: "Sí, eliminar",
+      peligro: true,
+      alConfirmar: eliminarRolActivoConfirmado,
+    });
+  };
+
+  const eliminarRolActivoConfirmado = async () => {
     try {
       const r = await apiFetch(`/roles/${rolActivo.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json()).error);
@@ -416,8 +430,17 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const eliminarPersonal = async () => {
-    if (!confirm(`¿Eliminar a "${personaEditando.nombre}" del sistema? Esta acción no se puede deshacer.`)) return;
+  const eliminarPersonal = () => setConfirmacion({
+    titulo: "Eliminar personal",
+    mensaje: `¿Eliminar a "${personaEditando.nombre}" del sistema?
+
+Esta acción no se puede deshacer.`,
+    textoConfirmar: "Sí, eliminar",
+    peligro: true,
+    alConfirmar: eliminarPersonalConfirmado,
+  });
+
+  const eliminarPersonalConfirmado = async () => {
     try {
       const r = await apiFetch(`/usuarios/${personaEditando.id}`, { method: "DELETE" });
       const data = await r.json();
@@ -457,8 +480,15 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const eliminarDocumentoPersona = async (documentoId) => {
-    if (!confirm("¿Eliminar este documento? También se borra de Google Drive.")) return;
+  const eliminarDocumentoPersona = (documentoId) => setConfirmacion({
+    titulo: "Eliminar documento",
+    mensaje: "¿Eliminar este documento?\n\nTambién se borra de Google Drive.",
+    textoConfirmar: "Sí, eliminar",
+    peligro: true,
+    alConfirmar: () => eliminarDocumentoPersonaConfirmado(documentoId),
+  });
+
+  const eliminarDocumentoPersonaConfirmado = async (documentoId) => {
     try {
       const r = await apiFetch(`/usuarios/${personaEditando.id}/documentos/${documentoId}`, { method: "DELETE" });
       const data = await r.json();
@@ -905,6 +935,20 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
             </div>
           </div>
         </div>
+      )}
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
       )}
     </div>
   );
