@@ -18,120 +18,24 @@ const {
   exigirVentaEnDemandaConvertida,
   exigirVentaNoUsada,
 } = require("./radar/reglasEstado");
-
-const MOTIVOS_DEMANDA = Object.freeze([
-  "SIN_EXISTENCIA",
-  "NO_MANEJAMOS",
-  "OTRA_MARCA",
-  "OTRA_VARIANTE",
-  "PRECIO",
-  "TIEMPO_ENTREGA",
-  "OTRO",
-]);
-
-const ESTADOS_DEMANDA = Object.freeze([
-  "REGISTRADA",
-  "EN_SEGUIMIENTO",
-  "PRODUCTO_DISPONIBLE",
-  "CLIENTE_CONTACTADO",
-  "CONVERTIDA",
-  "NO_CONVERTIDA",
-  "CANCELADA",
-]);
-
-const TRANSICIONES_PERMITIDAS = Object.freeze({
-  REGISTRADA: Object.freeze([
-    "EN_SEGUIMIENTO", "PRODUCTO_DISPONIBLE", "CLIENTE_CONTACTADO",
-    "CONVERTIDA", "NO_CONVERTIDA", "CANCELADA",
-  ]),
-  EN_SEGUIMIENTO: Object.freeze([
-    "PRODUCTO_DISPONIBLE", "CLIENTE_CONTACTADO", "CONVERTIDA",
-    "NO_CONVERTIDA", "CANCELADA",
-  ]),
-  PRODUCTO_DISPONIBLE: Object.freeze([
-    "EN_SEGUIMIENTO", "CLIENTE_CONTACTADO", "CONVERTIDA",
-    "NO_CONVERTIDA", "CANCELADA",
-  ]),
-  CLIENTE_CONTACTADO: Object.freeze([
-    "EN_SEGUIMIENTO", "PRODUCTO_DISPONIBLE", "CONVERTIDA",
-    "NO_CONVERTIDA", "CANCELADA",
-  ]),
-  CONVERTIDA: Object.freeze([]),
-  NO_CONVERTIDA: Object.freeze([]),
-  CANCELADA: Object.freeze([]),
-});
-
-const CAMPOS_INMUTABLES = new Set([
-  "id", "usuario_id", "vendedor_id", "sucursal_id", "fecha_registro",
-  "producto_nombre_registrado", "producto_sku_registrado", "estado",
-]);
-
-const CAMPOS_EDITABLES = new Set([
-  "cliente_id", "producto_id", "producto_buscado", "marca_solicitada",
-  "modelo_solicitado", "variante_solicitada", "categoria_solicitada",
-  "cantidad", "motivo_no_venta", "notas", "requiere_seguimiento",
-  "nombre_contacto", "telefono_contacto", "fecha_seguimiento",
-  "venta_recuperada_id",
-]);
-
-function normalizarRadarDemanda(DB) {
-  if (!DB.radar_demanda || typeof DB.radar_demanda !== "object") {
-    DB.radar_demanda = {};
-  }
-  if (!Array.isArray(DB.radar_demanda.registros)) DB.radar_demanda.registros = [];
-  if (!Array.isArray(DB.radar_demanda.seguimientos)) DB.radar_demanda.seguimientos = [];
-  const ahora = new Date().toISOString();
-  DB.radar_demanda.registros = DB.radar_demanda.registros
-    .filter((item) => item && typeof item === "object");
-  DB.radar_demanda.registros.forEach((item) => {
-    Object.assign(item, {
-      cliente_id: null, producto_id: null,
-      producto_nombre_registrado: "", producto_sku_registrado: "",
-      producto_buscado: "", marca_solicitada: "", modelo_solicitado: "",
-      variante_solicitada: "", categoria_solicitada: "", cantidad: 1,
-      motivo_no_venta: "OTRO", notas: "", requiere_seguimiento: false,
-      intencion_compra: false, consentimiento_aviso: false, fecha_vinculacion_crm: null,
-      nombre_contacto: "", telefono_contacto: "", estado: "REGISTRADA",
-      fecha_seguimiento: null, fecha_registro: ahora,
-      fecha_actualizacion: item.fecha_registro || ahora,
-      venta_recuperada_id: null, vendedor_id: null,
-      ...item,
-    });
-  });
-  DB.radar_demanda.seguimientos = DB.radar_demanda.seguimientos
-    .filter((item) => item && typeof item === "object");
-  DB.radar_demanda.seguimientos.forEach((item) => {
-    Object.assign(item, {
-      usuario_id: null, fecha_hora: ahora, tipo: "SEGUIMIENTO", comentario: "",
-      estado_anterior: null, estado_nuevo: null, ...item,
-    });
-  });
-  const ultimoRegistro = DB.radar_demanda.registros.reduce(
-    (max, item) => Math.max(max, Number(item.id) || 0), 0
-  );
-  const ultimoSeguimiento = DB.radar_demanda.seguimientos.reduce(
-    (max, item) => Math.max(max, Number(item.id) || 0), 0
-  );
-  DB.radar_demanda.ultimo_id = Math.max(
-    Number.isInteger(DB.radar_demanda.ultimo_id) ? DB.radar_demanda.ultimo_id : 0,
-    ultimoRegistro
-  );
-  DB.radar_demanda.ultimo_seguimiento_id = Math.max(
-    Number.isInteger(DB.radar_demanda.ultimo_seguimiento_id)
-      ? DB.radar_demanda.ultimo_seguimiento_id : 0,
-    ultimoSeguimiento
-  );
-  return DB.radar_demanda;
-}
-
-function copiar(valor) {
-  if (valor === undefined) return undefined;
-  return JSON.parse(JSON.stringify(valor));
-}
-
-function texto(valor) {
-  return valor == null ? "" : String(valor).trim();
-}
+const {
+  MOTIVOS_DEMANDA,
+  ESTADOS_DEMANDA,
+  TRANSICIONES_PERMITIDAS,
+  CAMPOS_INMUTABLES,
+  CAMPOS_EDITABLES,
+  normalizarRadarDemanda,
+  copiar,
+  texto,
+  siguienteId,
+} = require("./radar/modelo");
+const {
+  estaDentroDeAlcance,
+  buscarRegistro,
+  listarDemandas,
+  obtenerDemanda,
+  listarVentasCandidatas,
+} = require("./radar/consultas");
 
 function enteroOpcional(valor, nombre) {
   if (valor === undefined || valor === null || valor === "") return null;
@@ -214,26 +118,6 @@ function validarProductoSolicitado(DB, datos) {
     throw new Error("Selecciona un producto del catálogo o describe el producto buscado");
   }
   return { productoId, producto, productoBuscado };
-}
-
-function estaDentroDeAlcance(registro, alcance) {
-  if (!alcance || alcance.verTodas === true) return true;
-  return Number(registro.sucursal_id) === Number(alcance.sucursalId);
-}
-
-function buscarRegistro(DB, id, alcance) {
-  const radar = normalizarRadarDemanda(DB);
-  const registro = radar.registros.find((item) => item.id === Number(id));
-  if (!registro || !estaDentroDeAlcance(registro, alcance)) {
-    throw new Error("Demanda no encontrada");
-  }
-  return registro;
-}
-
-function siguienteId(radar, campo, lista) {
-  const maximoReal = lista.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
-  radar[campo] = Math.max(Number(radar[campo]) || 0, maximoReal) + 1;
-  return radar[campo];
 }
 
 function crearDemanda(DB, datos, contexto) {
@@ -340,38 +224,6 @@ function crearDemandaConCRM(DB, datos, contexto) {
     if (DB.crm?.clientes) DB.crm.clientes.splice(clientesAntes);
     throw error;
   }
-}
-
-function listarDemandas(DB, alcance, filtros = {}) {
-  let lista = normalizarRadarDemanda(DB).registros.filter((item) => estaDentroDeAlcance(item, alcance));
-  if (filtros.estado) lista = lista.filter((item) => item.estado === filtros.estado);
-  if (filtros.motivo_no_venta) {
-    lista = lista.filter((item) => item.motivo_no_venta === filtros.motivo_no_venta);
-  }
-  if (filtros.vendedor_id != null && filtros.vendedor_id !== "") {
-    lista = lista.filter((item) => item.vendedor_id === Number(filtros.vendedor_id));
-  }
-  if (filtros.cliente_id != null && filtros.cliente_id !== "") {
-    lista = lista.filter((item) => item.cliente_id === Number(filtros.cliente_id));
-  }
-  if (filtros.producto_id != null && filtros.producto_id !== "") {
-    lista = lista.filter((item) => item.producto_id === Number(filtros.producto_id));
-  }
-  if (filtros.fecha_inicio) lista = lista.filter((item) => item.fecha_registro >= filtros.fecha_inicio);
-  if (filtros.fecha_fin) lista = lista.filter((item) => item.fecha_registro <= filtros.fecha_fin);
-  if (filtros.texto) {
-    const buscado = texto(filtros.texto).toLocaleLowerCase("es");
-    lista = lista.filter((item) => [
-      item.producto_nombre_registrado, item.producto_sku_registrado,
-      item.producto_buscado, item.marca_solicitada, item.modelo_solicitado,
-      item.variante_solicitada, item.nombre_contacto, item.telefono_contacto,
-    ].some((valor) => texto(valor).toLocaleLowerCase("es").includes(buscado)));
-  }
-  return copiar(lista.sort((a, b) => b.fecha_registro.localeCompare(a.fecha_registro) || b.id - a.id));
-}
-
-function obtenerDemanda(DB, id, alcance) {
-  return copiar(buscarRegistro(DB, id, alcance));
 }
 
 function actualizarDemanda(DB, id, cambios, alcance) {
@@ -494,53 +346,6 @@ function enriquecerHistorial(DB, historial) {
     const usuario = (DB.admin?.usuarios || []).find((item) => item.id === Number(entrada.usuario_id));
     return { ...entrada, usuario_nombre: usuario?.nombre || null };
   });
-}
-
-function listarVentasCandidatas(DB, demanda, filtros = {}) {
-  const limiteSolicitado = Number(filtros.limite);
-  const limite = Number.isInteger(limiteSolicitado) && limiteSolicitado > 0
-    ? Math.min(limiteSolicitado, 100) : 50;
-  const textoBuscado = texto(filtros.texto).toLocaleLowerCase("es");
-
-  for (const campo of ["fecha_inicio", "fecha_fin"]) {
-    if (!filtros[campo]) continue;
-    const valor = texto(filtros[campo]);
-    const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
-    const fecha = partes && new Date(`${valor}T00:00:00.000Z`);
-    if (!partes || Number.isNaN(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== valor) {
-      throw new Error(`${campo} debe ser una fecha válida con formato YYYY-MM-DD`);
-    }
-  }
-
-  let ventas = (DB.pos?.ventas || []).filter(
-    (venta) => Number(venta.sucursal_id) === Number(demanda.sucursal_id)
-  );
-  if (filtros.fecha_inicio) ventas = ventas.filter((venta) => texto(venta.fecha) >= texto(filtros.fecha_inicio));
-  if (filtros.fecha_fin) ventas = ventas.filter((venta) => texto(venta.fecha) <= texto(filtros.fecha_fin));
-  if (textoBuscado) {
-    ventas = ventas.filter((venta) => {
-      const cliente = (DB.crm?.clientes || []).find((item) => item.id === Number(venta.cliente_id));
-      return String(venta.id).includes(textoBuscado)
-        || texto(cliente?.nombre).toLocaleLowerCase("es").includes(textoBuscado);
-    });
-  }
-
-  return ventas
-    .sort((a, b) => texto(b.fecha).localeCompare(texto(a.fecha)) || Number(b.id) - Number(a.id))
-    .slice(0, limite)
-    .map((venta) => {
-      const cliente = (DB.crm?.clientes || []).find((item) => item.id === Number(venta.cliente_id));
-      const vendedor = (DB.pos?.vendedores || []).find((item) => item.id === Number(venta.vendedor_id));
-      return {
-        id: venta.id,
-        fecha: venta.fecha || null,
-        total: Number(venta.total) || 0,
-        cliente_id: venta.cliente_id ?? null,
-        cliente_nombre: cliente?.nombre || "Público en General",
-        vendedor_id: venta.vendedor_id ?? null,
-        vendedor_nombre: vendedor?.nombre || null,
-      };
-    });
 }
 
 function obtenerResumen(DB, alcance) {

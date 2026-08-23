@@ -233,6 +233,56 @@ Casos nuevos mínimos:
 - Cualquier cambio de pantallas.
 - `radarDemandaInteligencia.js` y `radarDemandaReglas.js`.
 
+## Frontera entre Radar y CRM — decisión congelada (2026-08-22)
+
+Victor lo detectó probando en staging: la pantalla "Mis demandas" de Radar se
+parecía demasiado al CRM. Su regla, textual: **"no quiero repetir
+información"**.
+
+### Cada dato tiene un solo dueño
+
+| Dato | Dueño único |
+|---|---|
+| El cliente, su teléfono, su historial de contacto y su estado comercial | **CRM** |
+| A quién hay que hablarle hoy y qué pasó cuando se le habló | **CRM** |
+| La demanda insatisfecha: qué producto pidió, por qué no se vendió, cuánto, si pidió aviso | **Radar** |
+| Si ya compró / si se recuperó | **Derivado de la venta**, ni etiqueta ni botón |
+
+La diferencia de fondo: **el CRM sigue a una persona; Radar registra un hueco**
+— este producto, este día, no se lo pudimos vender. Eso justifica que Radar
+capture la demanda y alimente a Compras. **No justifica que Radar tenga su
+propio flujo de contacto con el cliente.**
+
+### Por qué importa, con un caso concreto
+
+Un vendedor le marca al cliente desde Radar y pulsa "Marcar como contactado".
+La demanda queda al día, pero el CRM sigue diciendo "Sin contacto en 30+ días"
+y genera alerta, porque el contacto se registró del otro lado. Resultado: le
+vuelven a hablar al cliente, o el vendedor aprende a ignorar las alertas del
+CRM. Las dos salidas son malas.
+
+### Qué se retira de Radar (fase futura, NO en este núcleo)
+
+- La bandeja "Seguimientos pendientes" — ya existe como "Contactar hoy" en el CRM.
+- La acción "Marcar como contactado" — ya existe "Registrar contacto" en el CRM.
+- El estado `CLIENTE_CONTACTADO` — habla del cliente, y el cliente es del CRM.
+
+**`PRODUCTO_DISPONIBLE` sí se queda**: habla del producto, no del cliente, y ese
+dato es de Radar.
+
+### Qué NO se toca
+
+La captura (producto pedido, motivo de no venta, cantidad, consentimiento), el
+tablero de análisis y la inteligencia de compras. Es lo único que nadie más
+guarda, y es lo que se convierte en decisiones de compra.
+
+### Consecuencia para la Fase B
+
+Cuando entre existencia en la sucursal donde el cliente preguntó, **la tarea le
+aparece al vendedor en el CRM**. Radar no abre una segunda bandeja. Se evaluó
+borrar Radar entero y se descartó: sin saber qué producto pidió cada quien, el
+aviso automático no se puede construir.
+
 ## Git
 
 Rama `feature/radar-nucleo` sobre `5b0ef2f`. Sin merge a master, sin push y sin
