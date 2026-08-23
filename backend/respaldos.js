@@ -142,6 +142,10 @@ function armarFoto(DB, tipo) {
     generado_en: instante,
     fecha_local: fechaLocal(instante),
     tipo,
+    // Qué colecciones guardó ESTE archivo. Sin este dato, el sistema del futuro
+    // no puede distinguir "este respaldo perdió datos" de "este respaldo es
+    // anterior al módulo que preguntas". Ver leerRespaldo.
+    colecciones: [...COLECCIONES_RESPALDADAS],
     conteos: contarRegistros(DB),
     datos,
   };
@@ -326,9 +330,33 @@ async function leerRespaldo(DB, drive, copiaId, llave) {
   if (!foto.datos || typeof foto.datos !== "object") {
     throw new Error("El respaldo está incompleto: no trae datos");
   }
-  const faltantes = COLECCIONES_RESPALDADAS.filter((k) => foto.datos[k] === undefined);
-  if (faltantes.length) {
-    throw new Error(`El respaldo está incompleto: le falta ${faltantes.join(", ")}`);
+  // Un respaldo solo responde por lo que él mismo declaró guardar.
+  //
+  // Antes esto comparaba contra COLECCIONES_RESPALDADAS, o sea contra el
+  // catálogo de HOY, y eso tenía una consecuencia que solo aparecía el día de
+  // la emergencia: al agregar un módulo nuevo, TODOS los respaldos anteriores
+  // dejaban de poder abrirse de golpe, porque ninguno podía contener algo que
+  // aún no existía. Pasó de verdad el 2026-08-23 con radar_demanda: 30 días de
+  // puntos de restauración quedaron ilegibles en el mismo despliegue.
+  //
+  // Ahora: si el archivo declara sus colecciones, se le exigen ESAS — un dato
+  // que prometió y no trae sigue siendo corrupción y se rechaza entero. Lo que
+  // falte por ser más nuevo que el respaldo se rellena vacío, que es
+  // exactamente lo que había cuando esa copia se tomó.
+  const declaradas = Array.isArray(foto.colecciones) ? foto.colecciones : null;
+  if (declaradas) {
+    const faltantes = declaradas.filter((k) => foto.datos[k] === undefined);
+    if (faltantes.length) {
+      throw new Error(`El respaldo está incompleto: le falta ${faltantes.join(", ")}`);
+    }
+  }
+  const posteriores = COLECCIONES_RESPALDADAS.filter((k) => foto.datos[k] === undefined);
+  if (posteriores.length) {
+    for (const clave of posteriores) foto.datos[clave] = {};
+    console.warn(
+      `ℹ️  El respaldo ${copia.nombre_archivo} es anterior a ${posteriores.join(", ")}: ` +
+      "esos módulos se restaurarían vacíos, que es lo que había cuando se tomó."
+    );
   }
   return { copia, foto };
 }
