@@ -4,6 +4,7 @@ import { apiFetch, sucursalActiva } from "./api";
 import { pedirLista } from "./cargaSegura";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
+import ModalConfirmar from "./ModalConfirmar";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
@@ -504,6 +505,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 /** Pestaña de administración del catálogo. Se define aquí, junto a su único
  *  consumidor, en vez de en un archivo aparte. */
 function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
+  // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
+
   const [nuevoGrupo, setNuevoGrupo] = useState("");
   const [nuevaHija, setNuevaHija] = useState({});
 
@@ -518,8 +522,17 @@ function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
     onCambio();
   };
 
-  const desactivar = async (id, nombre) => {
-    if (!window.confirm(`¿Desactivar "${nombre}"? Los gastos que ya la usan la conservan.`)) return;
+  const desactivar = (id, nombre) => setConfirmacion({
+    titulo: "Desactivar categoría",
+    mensaje: `¿Desactivar "${nombre}"?
+
+Los gastos que ya la usan la conservan.`,
+    textoConfirmar: "Sí, desactivar",
+    peligro: true,
+    alConfirmar: () => desactivarConfirmado(id),
+  });
+
+  const desactivarConfirmado = async (id) => {
     const r = await apiFetch(`/gastos/categorias/${id}`, { method: "PUT", body: JSON.stringify({ activa: false }) });
     const data = await r.json();
     if (!r.ok) return mostrarAviso("❌ " + data.error);
@@ -585,6 +598,20 @@ function CategoriasGastos({ arbol, onCambio, mostrarAviso }) {
           </div>
         ))}
       </div>
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
+      )}
     </div>
   );
 }

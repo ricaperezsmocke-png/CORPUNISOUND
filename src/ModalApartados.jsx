@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { X, DollarSign, Ban } from "lucide-react";
 import { apiFetch, sinSucursalElegida } from "./api";
 import { pedirLista } from "./cargaSegura";
+import ModalConfirmar from "./ModalConfirmar";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
@@ -16,6 +17,9 @@ const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm f
 const qSucursal = (registro) => (registro && registro.sucursal_id != null ? `?sucursal_id=${registro.sucursal_id}` : "");
 
 export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, condicionesPago, permisos, onApartadoCreado }) {
+  // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
+
   const puede = (clave) => !permisos || permisos.includes(clave);
   // Con el encabezado en "Todas" no se puede apartar: el apartado reserva
   // producto de UNA tienda y el sistema no sabría de cuál descontarlo.
@@ -143,8 +147,16 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
     }
   };
 
-  const cancelar = async (apartado) => {
-    if (!confirm(`¿Cancelar el apartado #${apartado.id}? El producto regresa a existencia y lo ya pagado se abona al monedero del cliente.`)) return;
+  const cancelar = (apartado) => setConfirmacion({
+    titulo: `Cancelar apartado #${apartado.id}`,
+    mensaje: "El producto regresa a existencia y lo ya pagado se abona al monedero del cliente.",
+    textoConfirmar: "Sí, cancelar el apartado",
+    textoCancelar: "No, dejarlo",
+    peligro: true,
+    alConfirmar: () => cancelarConfirmado(apartado),
+  });
+
+  const cancelarConfirmado = async (apartado) => {
     try {
       // Mismo motivo que en confirmarAbono: sucursal_id del propio apartado
       // para que el guard no lo dé por inexistente.
@@ -291,6 +303,20 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[60] animate-toast-in">{aviso}</div>
         )}
       </div>
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
+      )}
     </div>
   );
 }

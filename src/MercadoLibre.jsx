@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { apiFetch, API } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
+import ModalConfirmar from "./ModalConfirmar";
 
 function Tab({ activo, onClick, children }) {
   return (
@@ -357,6 +358,9 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export default function MercadoLibre({ onVolver, permisos }) {
+  // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
+
   const puede = (clave) => !permisos || permisos.includes(clave);
   const [tab, setTab]                   = useState("publicaciones");
   const [estado, setEstado]             = useState(null);
@@ -466,8 +470,15 @@ export default function MercadoLibre({ onVolver, permisos }) {
     window.location.href = url;
   };
 
-  const desconectar = async () => {
-    if (!confirm("¿Desconectar la cuenta de MercadoLibre?")) return;
+  const desconectar = () => setConfirmacion({
+    titulo: "Desconectar MercadoLibre",
+    mensaje: "¿Desconectar la cuenta de MercadoLibre?\n\nDejas de sincronizar publicaciones y órdenes hasta que la vuelvas a conectar.",
+    textoConfirmar: "Sí, desconectar",
+    peligro: true,
+    alConfirmar: desconectarConfirmado,
+  });
+
+  const desconectarConfirmado = async () => {
     await apiFetch("/ml/desconectar", { method: "DELETE" });
     setEstado((e) => ({ ...e, conectado: false }));
     setPublicaciones([]); setOrdenes([]);
@@ -940,6 +951,20 @@ export default function MercadoLibre({ onVolver, permisos }) {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[60] animate-toast-in">
           {aviso}
         </div>
+      )}
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
       )}
     </div>
   );

@@ -12,6 +12,7 @@ import { apiFetch, sinSucursalElegida, sucursalActiva } from "./api";
 import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
+import ModalConfirmar from "./ModalConfirmar";
 
 /**
  * Vendedor de respaldo, SOLO para que la caja nunca se quede sin poder cobrar.
@@ -94,6 +95,9 @@ function Campo({ label, children, className = "" }) {
 // COMPONENTE PRINCIPAL
 // ============================================================
 export default function PuntoDeVenta({ onVolver, permisos }) {
+  // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
+
   const puede = (clave) => !permisos || permisos.includes(clave);
   // Con el encabezado en "Todas" no se puede cobrar: la venta descuenta el
   // inventario de UNA tienda y el sistema no sabría de cuál. Antes se mandaba
@@ -708,7 +712,16 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           )}
           {puede("cancelar_ticket") && (
             <button
-              onClick={() => (carrito.length ? (confirm("¿Cancelar este ticket? Se perderán los productos agregados.") && limpiarTicket()) : mostrarAviso("El ticket ya está vacío"))}
+              onClick={() => (carrito.length
+                ? setConfirmacion({
+                    titulo: "Cancelar ticket",
+                    mensaje: "Se perderán los productos que ya agregaste.",
+                    textoConfirmar: "Sí, cancelar",
+                    textoCancelar: "No, seguir cobrando",
+                    peligro: true,
+                    alConfirmar: limpiarTicket,
+                  })
+                : mostrarAviso("El ticket ya está vacío"))}
               className="flex flex-col items-center gap-1 py-3 border-b border-slate-200 hover:bg-red-50"
             >
               <X size={20} className="text-red-500" />
@@ -1230,6 +1243,21 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         </Modal>
       )}
 
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          textoCancelar={confirmacion.textoCancelar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
 import { apiFetch, sinSucursalElegida } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
 import MigracionDatos from "./MigracionDatos.jsx";
+import ModalConfirmar from "./ModalConfirmar";
 // Carga diferida: recharts (usado solo aqui) es una dependencia pesada -
 // que no se descargue para todo el mundo, solo para quien abre esta pestaña.
 const PrediccionesDemanda = React.lazy(() => import("./PrediccionesDemanda.jsx"));
@@ -61,6 +62,9 @@ const TABS = [
 ];
 
 export default function InventarioProductos({ onVolver, permisos, usuario }) {
+  // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
+
   const puede = (clave) => !permisos || permisos.includes(clave);
   // Con el encabezado en "Todas", la columna Exist. de la lista muestra la
   // SUMA de todas las tiendas — un número que no corresponde a ninguna. Ajustar
@@ -225,17 +229,24 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     }
   };
 
-  const eliminarSeleccionado = async () => {
+  const eliminarSeleccionado = () => {
     if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
     // El texto ya no promete un borrado que casi nunca ocurre: si el producto
     // tiene historial el backend lo DESACTIVA, y prometer "no se puede
     // deshacer" asustaba de más y describía mal lo que iba a pasar.
-    if (!confirm(
-      `¿Dar de baja "${seleccionado.nombre}"?\n\n` +
-      "Si ya aparece en ventas, compras, apartados, traspasos, garantías o MercadoLibre, " +
-      "se desactiva (deja de venderse, pero sus documentos conservan el nombre). " +
-      "Solo se borra de verdad si nunca se usó."
-    )) return;
+    setConfirmacion({
+      titulo: `Dar de baja "${seleccionado.nombre}"`,
+      mensaje:
+        "Si ya aparece en ventas, compras, apartados, traspasos, garantías o MercadoLibre, " +
+        "se desactiva (deja de venderse, pero sus documentos conservan el nombre).\n\n" +
+        "Solo se borra de verdad si nunca se usó.",
+      textoConfirmar: "Sí, dar de baja",
+      peligro: true,
+      alConfirmar: eliminarSeleccionadoConfirmado,
+    });
+  };
+
+  const eliminarSeleccionadoConfirmado = async () => {
     try {
       const r = await apiFetch(`/productos/${seleccionado.id}`, { method: "DELETE" });
       const data = await r.json();
@@ -715,6 +726,21 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         <React.Suspense fallback={<p className="text-center text-slate-400 py-16">Cargando...</p>}>
           <PrediccionesDemanda onVolver={onVolver} permisos={permisos} usuario={usuario} />
         </React.Suspense>
+      )}
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          textoCancelar={confirmacion.textoCancelar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
       )}
     </div>
   );
