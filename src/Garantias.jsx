@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { ShieldAlert, Search, X, ChevronLeft, ChevronRight, Send, MapPin, ClipboardCheck, PackageCheck, UserCheck, History, DollarSign, Upload, Trash2, FileText } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
+import ModalConfirmar from "./ModalConfirmar";
 
 const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const RESULTADOS_POR_PAGINA = 8;
@@ -105,6 +106,8 @@ export default function Garantias({ onVolver, permisos, usuario }) {
 
   // Buscador de producto (mismo patrón visual que Traspasos/POS)
   const [modalBuscarProd, setModalBuscarProd] = useState(false);
+  // Confirmación dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
+  const [confirmacion, setConfirmacion] = useState(null);
   const [busquedaProd, setBusquedaProd] = useState("");
   const [paginaProd, setPaginaProd] = useState(1);
 
@@ -281,8 +284,15 @@ export default function Garantias({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const eliminarGastoUI = async (gastoId) => {
-    if (!confirm(`¿Eliminar este gasto de ${modalGastos.folio}? Si tiene comprobante, también se borrará de Google Drive. Esto no se puede deshacer.`)) return;
+  const eliminarGastoUI = (gastoId) => setConfirmacion({
+    titulo: "Eliminar gasto",
+    mensaje: `¿Eliminar este gasto de ${modalGastos.folio}? Si tiene comprobante, también se borrará de Google Drive.\n\nEsto no se puede deshacer.`,
+    textoConfirmar: "Sí, eliminar",
+    peligro: true,
+    alConfirmar: () => eliminarGastoConfirmado(gastoId),
+  });
+
+  const eliminarGastoConfirmado = async (gastoId) => {
     try {
       const r = await apiFetch(`/garantias/${modalGastos.id}/gastos/${gastoId}?sucursal_id=todas`, { method: "DELETE" });
       const data = await r.json();
@@ -293,8 +303,14 @@ export default function Garantias({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const recibir = async (g) => {
-    if (!confirm(`¿Recibir en tienda la garantía ${g.folio}? El producto se reintegra a la existencia de ${g.sucursal_origen_nombre}.`)) return;
+  const recibir = (g) => setConfirmacion({
+    titulo: `Recibir en tienda — ${g.folio}`,
+    mensaje: `El producto se reintegra a la existencia de ${g.sucursal_origen_nombre}.`,
+    textoConfirmar: "Sí, recibir",
+    alConfirmar: () => recibirConfirmado(g),
+  });
+
+  const recibirConfirmado = async (g) => {
     try {
       const r = await apiFetch(`/garantias/${g.id}/recibir?sucursal_id=todas`, { method: "PUT", body: JSON.stringify({}) });
       const data = await r.json();
@@ -306,8 +322,14 @@ export default function Garantias({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
-  const entregar = async (g) => {
-    if (!confirm(`¿Entregar al cliente la garantía ${g.folio}? Esto la cierra.`)) return;
+  const entregar = (g) => setConfirmacion({
+    titulo: `Entregar al cliente — ${g.folio}`,
+    mensaje: "Se entrega el producto al cliente y la garantía queda cerrada.",
+    textoConfirmar: "Sí, entregar",
+    alConfirmar: () => entregarConfirmado(g),
+  });
+
+  const entregarConfirmado = async (g) => {
     try {
       const r = await apiFetch(`/garantias/${g.id}/entregar-cliente?sucursal_id=todas`, { method: "PUT", body: JSON.stringify({}) });
       const data = await r.json();
@@ -638,6 +660,23 @@ export default function Garantias({ onVolver, permisos, usuario }) {
             <button disabled={paginaProd >= totalPaginasProd} onClick={() => setPaginaProd((p) => p + 1)} className="p-1.5 rounded border border-slate-300 disabled:opacity-30"><ChevronRight size={16} /></button>
           </div>
         </Modal>
+      )}
+
+      {confirmacion && (
+        <ModalConfirmar
+          titulo={confirmacion.titulo}
+          mensaje={confirmacion.mensaje}
+          textoConfirmar={confirmacion.textoConfirmar}
+          peligro={confirmacion.peligro}
+          onCancelar={() => setConfirmacion(null)}
+          onConfirmar={() => {
+            // Se cierra ANTES de ejecutar: si la acción tarda o falla, la caja
+            // no se queda colgada encima ni se puede confirmar dos veces.
+            const accion = confirmacion.alConfirmar;
+            setConfirmacion(null);
+            accion();
+          }}
+        />
       )}
     </div>
   );
