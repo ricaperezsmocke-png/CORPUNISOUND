@@ -88,6 +88,16 @@ const {
 const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
 const mantenimiento = require("./mantenimiento");
+const {
+  MOTIVOS_DEMANDA, ESTADOS_DEMANDA, TRANSICIONES_PERMITIDAS,
+  normalizarRadarDemanda, crearDemanda: crearDemandaRadar, crearDemandaConCRM,
+  listarDemandas, obtenerDemanda, actualizarDemanda,
+  agregarSeguimiento, cambiarEstado, obtenerHistorial, obtenerResumen, obtenerAnalisis,
+  enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
+} = require("./radarDemanda");
+const { booleanoEstricto } = require("./radar/entrada");
+const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
+const { clasificarEvidenciaCompra, clasificarProductoNoManejado } = require("./radarDemandaReglas");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
 // fingir que el sistema funciona. El porqué del criterio está documentado en
@@ -273,6 +283,12 @@ const DB = {
     ultimo_intento: null,
     carpeta_drive_id: null,
   },
+  radar_demanda: {
+    registros: [],
+    seguimientos: [],
+    ultimo_id: 0,
+    ultimo_seguimiento_id: 0,
+  },
 };
 
 sembrarRolesIniciales(DB);
@@ -291,6 +307,11 @@ if (estadoGuardado) {
   }
   console.log("✅ Datos restaurados desde almacenamiento persistente");
 }
+
+// Una base anterior a Radar no trae este módulo; una copia intermedia puede
+// traer arreglos sin contadores o registros anteriores con campos faltantes.
+// Se preserva lo existente y solo se completan valores defensivos.
+normalizarRadarDemanda(DB);
 
 sembrarCategoriasGastos(DB);
 
@@ -599,6 +620,222 @@ app.use((req, res, next) => {
 // Sin la lista de módulos: esta ruta es PÚBLICA (la usa el monitor de Render)
 // y estaba entregándole a internet el mapa completo de tablas del sistema.
 app.get("/api/salud", (req, res) => res.json({ ok: true }));
+
+// ---------- Radar de Demanda ----------
+
+function responderErrorRadar(res, error) {
+  if (error && typeof error.estatus === "number") {
+    return res.status(error.estatus).json({ error: error.message });
+  }
+  const mensaje = error && error.message ? error.message : "Error interno en Radar de Demanda";
+  if (mensaje === "Demanda no encontrada") return res.status(404).json({ error: mensaje });
+  if (mensaje.startsWith("No se permite cambiar")) return res.status(409).json({ error: mensaje });
+  const errorDeDominio = /no es válid|no puede modificarse|no se puede modificar|no encontrado|no encontrada|debe ser|Selecciona|El campo|mayor que cero/.test(mensaje);
+  if (errorDeDominio) return res.status(400).json({ error: mensaje });
+  Sentry.captureException(error);
+  console.error("Error inesperado en Radar de Demanda:", mensaje);
+  return res.status(500).json({ error: "Error interno en Radar de Demanda" });
+}
+
+function requierePermisoPatchRadar(req, res, next) {
+  const terminal = ["CONVERTIDA", "NO_CONVERTIDA", "CANCELADA"].includes(req.body?.estado);
+  const permiso = terminal ? "cerrar_demanda" : "dar_seguimiento_demanda";
+  return requierePermiso(permiso, resolverPermisosDeRol)(req, res, next);
+}
+
+app.get("/api/radar-demanda", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(listarDemandas(DB, resolverAlcance(req), req.query)); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/meta", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  res.json({
+    estados: ESTADOS_DEMANDA,
+    motivos: MOTIVOS_DEMANDA,
+    transiciones: TRANSICIONES_PERMITIDAS,
+  });
+});
+
+app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    if (booleanoEstricto(req.body?.intencion_compra, "intencion_compra") && !resolverPermisosDeRol(req.usuarioToken.rol_id).includes("crear_cliente")) {
+      return res.status(403).json({ error: "No tienes permiso para agregar prospectos al CRM." });
+    }
+    const alcance = resolverAlcance(req);
+    // La sucursal viene del alcance resuelto. body.sucursal_id nunca decide
+    // dónde guardar, ni siquiera para una cuenta global.
+    const sucursalId = sucursalDeEscritura(alcance, null);
+    if (!sucursalId) {
+      return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de registrar la demanda." });
+    }
+    const registrar = req.body?.intencion_compra ? crearDemandaConCRM : crearDemandaRadar;
+    res.json(registrar(DB, req.body || {}, {
+      usuarioId: req.usuarioToken.id,
+      sucursalId,
+    }));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(obtenerResumen(DB, resolverAlcance(req))); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/analisis", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try { res.json(obtenerAnalisis(DB, resolverAlcance(req), req.query)); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+const ORDEN_INTELIGENCIA = Object.freeze({
+  REVISAR_TRASPASO: 0,
+  REVISAR_COMPRA: 1,
+  OBSERVAR: 2,
+  EVIDENCIA_INSUFICIENTE: 3,
+});
+
+function comprasHistoricasSeguras(comprasHistoricas, puedeVerCostos) {
+  if (puedeVerCostos) return { ...(comprasHistoricas || {}) };
+  const {
+    ultimo_costo: _ultimoCosto,
+    costo_promedio_historico_ponderado: _costoPromedio,
+    ...sinCostos
+  } = comprasHistoricas || {};
+  return sinCostos;
+}
+
+function compararOportunidadesInteligencia(a, b) {
+  const porClasificacion = (ORDEN_INTELIGENCIA[a.clasificacion] ?? 99)
+    - (ORDEN_INTELIGENCIA[b.clasificacion] ?? 99);
+  if (porClasificacion) return porClasificacion;
+  const ceroA = Number(a.inventario?.cantidad_actual) <= 0 ? 0 : 1;
+  const ceroB = Number(b.inventario?.cantidad_actual) <= 0 ? 0 : 1;
+  if (ceroA !== ceroB) return ceroA - ceroB;
+  const radarA = a.radar?.["30d"] || {};
+  const radarB = b.radar?.["30d"] || {};
+  if ((Number(radarA.solicitudes) || 0) !== (Number(radarB.solicitudes) || 0)) {
+    return (Number(radarB.solicitudes) || 0) - (Number(radarA.solicitudes) || 0);
+  }
+  if ((Number(radarA.contactos_distintos) || 0) !== (Number(radarB.contactos_distintos) || 0)) {
+    return (Number(radarB.contactos_distintos) || 0) - (Number(radarA.contactos_distintos) || 0);
+  }
+  if ((Number(a.ventas?.unidades_30d) || 0) !== (Number(b.ventas?.unidades_30d) || 0)) {
+    return (Number(b.ventas?.unidades_30d) || 0) - (Number(a.ventas?.unidades_30d) || 0);
+  }
+  return String(radarB.ultima_solicitud || "").localeCompare(String(radarA.ultima_solicitud || ""));
+}
+
+function proyectarInteligenciaCompras(evidencia, puedeVerCostos) {
+  const resumen = {
+    revisar_traspaso: 0,
+    revisar_compra: 0,
+    observar: 0,
+    evidencia_insuficiente: 0,
+    evaluar_incorporacion: 0,
+  };
+  const claveResumen = {
+    REVISAR_TRASPASO: "revisar_traspaso",
+    REVISAR_COMPRA: "revisar_compra",
+    OBSERVAR: "observar",
+    EVIDENCIA_INSUFICIENTE: "evidencia_insuficiente",
+  };
+
+  const oportunidades = evidencia.productos.map((expediente) => {
+    const decision = clasificarEvidenciaCompra(expediente);
+    resumen[claveResumen[decision.clasificacion]] += 1;
+    return {
+      producto: expediente.producto,
+      sucursal: expediente.sucursal,
+      clasificacion: decision.clasificacion,
+      razones: decision.razones,
+      advertencias: decision.advertencias,
+      radar: expediente.radar,
+      ventas: expediente.ventas,
+      inventario: expediente.inventario,
+      otras_sucursales: expediente.otras_sucursales,
+      traspasos: expediente.traspasos,
+      compras_historicas: comprasHistoricasSeguras(expediente.compras_historicas, puedeVerCostos),
+      proveedores: expediente.proveedores,
+      calidad_datos: decision.calidad_datos,
+    };
+  }).sort(compararOportunidadesInteligencia);
+
+  const productosNoManejados = evidencia.productos_no_manejados.map((producto) => {
+    const decision = clasificarProductoNoManejado(producto);
+    if (decision.estado === "EVALUAR_INCORPORACION") resumen.evaluar_incorporacion += 1;
+    else resumen.observar += 1;
+    return {
+      ...producto,
+      clasificacion: decision.estado,
+      razones: decision.razones,
+      advertencias: decision.advertencias,
+    };
+  });
+
+  return {
+    periodo: evidencia.periodo,
+    resumen,
+    oportunidades,
+    productos_no_manejados: productosNoManejados,
+    capacidades: evidencia.capacidades,
+  };
+}
+
+app.get("/api/radar-demanda/inteligencia", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const evidencia = obtenerEvidenciaCompras(DB, resolverAlcance(req), { fecha_fin: req.query.fecha_fin });
+    res.json(proyectarInteligenciaCompras(evidencia, permisos.includes("ver_reportes")));
+  } catch (e) {
+    responderErrorRadar(res, e);
+  }
+});
+
+app.get("/api/radar-demanda/:id/ventas-candidatas", requiereLogin, requierePermiso("cerrar_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcance(req));
+    res.json(listarVentasCandidatas(DB, demanda, req.query));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/:id", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcance(req));
+    res.json(enriquecerDemanda(DB, demanda));
+  }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
+app.patch("/api/radar-demanda/:id", requiereLogin, requierePermisoPatchRadar, (req, res) => {
+  try {
+    const alcance = resolverAlcance(req);
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, "estado")) {
+      const permitidos = new Set(["estado", "comentario", "venta_recuperada_id"]);
+      const inesperado = Object.keys(req.body).find((campo) => !permitidos.has(campo));
+      if (inesperado) return res.status(400).json({ error: `El campo ${inesperado} no corresponde a un cambio de estado` });
+      return res.json(cambiarEstado(DB, req.params.id, req.body.estado, {
+        comentario: req.body.comentario,
+        venta_recuperada_id: req.body.venta_recuperada_id,
+      }, alcance, req.usuarioToken.id));
+    }
+    res.json(actualizarDemanda(DB, req.params.id, req.body || {}, alcance));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.post("/api/radar-demanda/:id/seguimientos", requiereLogin, requierePermiso("dar_seguimiento_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json(agregarSeguimiento(
+      DB, req.params.id, req.body || {}, resolverAlcance(req), req.usuarioToken.id
+    ));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.get("/api/radar-demanda/:id/historial", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const historial = obtenerHistorial(DB, req.params.id, resolverAlcance(req));
+    res.json(enriquecerHistorial(DB, historial));
+  }
+  catch (e) { responderErrorRadar(res, e); }
+});
 
 app.get("/api/predicciones", requiereLogin, requierePermiso("ver_predicciones", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));

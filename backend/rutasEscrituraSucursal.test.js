@@ -11,7 +11,7 @@
  * le dice qué hacer ("Elige una sucursal en el encabezado...").
  *
  * Por eso aquí se levanta la app REAL en un puerto efímero y se le pega a las
- * doce rutas como administrador con el encabezado en "Todas", afirmando el 400
+ * trece rutas como administrador con el encabezado en "Todas", afirmando el 400
  * Y que el mensaje sea el de "Elige...". Y una prueba extra cuenta los usos de
  * sucursalDeEscritura en server.js para que una ruta nueva no pueda entrar sin
  * pasar por aquí.
@@ -63,7 +63,7 @@ after(async () => {
 });
 
 /**
- * Las doce rutas que resuelven a QUÉ sucursal escriben con sucursalDeEscritura.
+ * Las trece rutas que resuelven a QUÉ sucursal escriben con sucursalDeEscritura.
  * `pista` es un pedazo del mensaje propio de cada ruta: sirve para que un
  * copy/paste no deje dos rutas con el mensaje de la otra.
  */
@@ -80,6 +80,7 @@ const RUTAS = [
   { metodo: "POST", ruta: "/api/garantias",           body: { producto_id: 1 },                                      pista: /origen de la garantía/ },
   { metodo: "GET",  ruta: "/api/cortes/en-curso",     body: null,                                                    pista: /ver el corte/ },
   { metodo: "POST", ruta: "/api/cortes",              body: { contado: { EFECTIVO: 100 }, retiro: {} },              pista: /guardar el corte/ },
+  { metodo: "POST", ruta: "/api/radar-demanda",       body: { producto_buscado: "Bajo de prueba", cantidad: 1, motivo_no_venta: "NO_MANEJAMOS" }, pista: /registrar la demanda/ },
 ];
 
 /** Le pega a una ruta como administrador. `query` vacío = encabezado en "Todas". */
@@ -92,7 +93,7 @@ function pegar({ metodo, ruta, body }, query = "") {
   return fetch(`${base}${ruta}${query}`, opciones);
 }
 
-test("las doce rutas responden 400 (y con el mensaje de 'Elige...') cuando el administrador tiene el encabezado en 'Todas'", async () => {
+test("las trece rutas responden 400 (y con el mensaje de 'Elige...') cuando el administrador tiene el encabezado en 'Todas'", async () => {
   for (const caso of RUTAS) {
     const etiqueta = `${caso.metodo} ${caso.ruta}`;
     const respuesta = await pegar(caso);
@@ -113,8 +114,8 @@ test("las doce rutas responden 400 (y con el mensaje de 'Elige...') cuando el ad
   }
 });
 
-test("con una sucursal elegida en el encabezado, ninguna de las doce vuelve a pedir que se elija", async () => {
-  // Control: sin esto, las doce podrían estar respondiendo 400 por otro motivo
+test("con una sucursal elegida en el encabezado, ninguna de las trece vuelve a pedir que se elija", async () => {
+  // Control: sin esto, las trece podrían estar respondiendo 400 por otro motivo
   // (permiso faltante, ruta mal escrita) y la prueba de arriba pasaría igual.
   for (const caso of RUTAS) {
     const respuesta = await pegar(caso, "?sucursal_id=2");

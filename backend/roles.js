@@ -67,7 +67,16 @@ function sembrarRolesIniciales(DB) {
   crearRol(DB, { nombre: "Administrador", permisos: todasLasClaves, modulos: todosLosModulos });
   crearRol(DB, {
     nombre: "Gerente de sucursal",
-    permisos: todasLasClaves.filter((c) => c !== "eliminar_producto" && c !== "administrar_roles" && c !== "dar_alta_personal" && c !== "ver_todas_las_sucursales"),
+    // Los módulos nuevos no deben llegar al Gerente por el patrón histórico
+    // de "todos menos cuatro". Radar se concede después, explícitamente, desde
+    // Roles y Personal. El Administrador sí se reconcilia contra el catálogo.
+    permisos: todasLasClaves.filter((c) =>
+      c !== "eliminar_producto" &&
+      c !== "administrar_roles" &&
+      c !== "dar_alta_personal" &&
+      c !== "ver_todas_las_sucursales" &&
+      !["ver_radar_demanda", "registrar_demanda", "dar_seguimiento_demanda", "cerrar_demanda", "ver_resumen_demanda"].includes(c)
+    ),
     modulos: ["pos", "corte", "inventario", "crm"],
   });
   crearRol(DB, {

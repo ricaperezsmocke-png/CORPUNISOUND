@@ -12,6 +12,7 @@ require("dotenv").config();
 const Sentry = require("@sentry/node");
 
 const DSN_POR_DEFECTO = "https://34df60160c30cbcfd7b1387459880acd@o4511779628646400.ingest.us.sentry.io/4511779724460032";
+const sentryHabilitado = process.env.SENTRY_ENABLED !== "false";
 
 /**
  * Nombres (en minúsculas) que marcan una variable/campo como secreto. Se
@@ -132,28 +133,38 @@ function depurarSecretos(evento) {
   }
 }
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN || DSN_POR_DEFECTO,
+if (sentryHabilitado) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN || DSN_POR_DEFECTO,
 
-  // Entorno: aparece como etiqueta en cada evento de Sentry.
-  environment: process.env.NODE_ENV || "production",
+    // Entorno: aparece como etiqueta en cada evento de Sentry.
+    environment: process.env.NODE_ENV || "production",
 
-  // Trazas de rendimiento: 100% en desarrollo, 10% en producción
-  // (equilibrio entre visibilidad y costo/cuota del plan gratuito).
-  tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
+    // Trazas de rendimiento: 100% en desarrollo, 10% en producción
+    // (equilibrio entre visibilidad y costo/cuota del plan gratuito).
+    tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
 
-  // Incluye el valor de las variables locales en el stack trace de cada error
-  // — facilita entender qué pasó sin tener que reproducirlo. Sentry depura del
-  // lado del servidor los campos que parecen contraseñas/tokens por defecto,
-  // pero solo reconoce nombres en inglés — depurarSecretos() de arriba cubre
-  // lo que Sentry no conoce (RESPALDO_LLAVE, CLAVE_RESTAURACION, etc.).
-  includeLocalVariables: true,
+    // Incluye el valor de las variables locales en el stack trace de cada error
+    // — facilita entender qué pasó sin tener que reproducirlo. Sentry depura del
+    // lado del servidor los campos que parecen contraseñas/tokens por defecto,
+    // pero solo reconoce nombres en inglés — depurarSecretos() de arriba cubre
+    // lo que Sentry no conoce (RESPALDO_LLAVE, CLAVE_RESTAURACION, etc.).
+    includeLocalVariables: true,
 
-  // Compón, no pises: si algún día se agrega OTRO beforeSend, este debe seguir
-  // corriendo. Hoy es el único, así que se limita a llamar a depurarSecretos.
-  beforeSend(event) {
-    return depurarSecretos(event);
-  },
-});
+    // Compón, no pises: si algún día se agrega OTRO beforeSend, este debe seguir
+    // corriendo. Hoy es el único, así que se limita a llamar a depurarSecretos.
+    beforeSend(event) {
+      return depurarSecretos(event);
+    },
+  });
+} else {
+  // server.js consume estas operaciones directamente desde @sentry/node. El
+  // módulo es compartido por require(), así que estos no-op mantienen la misma
+  // interfaz sin crear cliente, transporte, middleware ni conexiones salientes.
+  Sentry.captureMessage = () => undefined;
+  Sentry.captureException = () => undefined;
+  Sentry.setupExpressErrorHandler = () => undefined;
+  Sentry.close = async () => true;
+}
 
-module.exports = { depurarSecretos };
+module.exports = { depurarSecretos, sentryHabilitado };

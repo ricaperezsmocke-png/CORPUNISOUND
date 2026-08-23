@@ -15,9 +15,10 @@ import Reportes from "./Reportes.jsx";
 import Respaldos from "./Respaldos.jsx";
 import GerenciaVentas from "./GerenciaVentas.jsx";
 import EncabezadoModulo from "./EncabezadoModulo.jsx";
+import RadarDemanda from "./radar-demanda/RadarDemanda.jsx";
 import { apiFetch } from "./api";
 
-const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas"];
+const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas", "radar_demanda"];
 
 function App() {
   const [usuario, setUsuario] = useState(null);
@@ -118,6 +119,9 @@ function App() {
         )}
         {vista === "gerencia_ventas" && (
           <GerenciaVentas onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
+        )}
+        {vista === "radar_demanda" && (
+          <RadarDemanda permisos={usuario.permisos} />
         )}
         {esDashboard && (
           <Dashboard onEntrarModulo={(id) => setVista(id)} usuario={usuario} onSalir={salir} />

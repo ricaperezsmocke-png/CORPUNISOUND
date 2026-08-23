@@ -201,7 +201,12 @@ export default function CRM({ onVolver, permisos }) {
   const alerts = useMemo(() => rich.filter((c) => c.al.length > 0), [rich]);
   const urgentes = useMemo(() => [...alerts].sort((a, b) => b.sc - a.sc), [alerts]);
   const totalV = rich.reduce((a, c) => a + (c.compras || []).reduce((b, p) => b + p.monto, 0), 0);
-  const compraron = rich.filter((c) => c.estado === "compro").length;
+  // "Compró" es un hecho, no una etiqueta: sale de tener al menos una venta
+  // cerrada. El backend ya lo calcula en ya_compro; si por lo que sea no
+  // viniera, se deriva de las mismas compras que ya usamos arriba para totalV.
+  // Antes esto contaba c.estado === "compro", así que mover la etiqueta a mano
+  // movía la conversión y el ticket promedio sin que existiera ninguna venta.
+  const compraron = rich.filter((c) => c.ya_compro ?? (c.compras || []).length > 0).length;
   const tasa = rich.length ? Math.round((compraron / rich.length) * 100) : 0;
 
   const cambiarEstado = async (id, estado) => {

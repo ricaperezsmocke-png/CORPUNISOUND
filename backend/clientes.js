@@ -56,6 +56,7 @@ function crearCliente(DB, datos) {
     vendedor_asignado_id: datos.vendedor_asignado_id ? Number(datos.vendedor_asignado_id) : null,
     sucursal_id: datos.sucursal_id ? Number(datos.sucursal_id) : 1,
     estado: datos.estado || "contactado",
+    origen: datos.origen || "",
     ultimo_contacto: null,
     ubicacion: datos.ubicacion || "",
   };
