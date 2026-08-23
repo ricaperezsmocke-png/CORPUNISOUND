@@ -1,17 +1,62 @@
+# Este archivo tiene que reflejar EXACTAMENTE lo que los servicios YA son.
+#
+# Render los administra ("Blueprint managed"): si el archivo dice algo distinto
+# a la realidad, una sincronización aplica lo que dice el archivo. Durante un
+# mes esto declaró `plan: free` y ningún disco, mientras el servicio real corría
+# en Starter con un disco de 1 GB en /data. Cualquier edición podía disparar una
+# resincronización que bajara el plan y BORRARA el disco con todos los datos.
+#
+# La sección del backend se generó desde el propio panel de Render el
+# 2026-08-23 (Blueprint > Options > Generate Blueprint), no se escribió a mano.
+#
+# OJO CON EL DISCO: el nombre tiene que coincidir con el que ya existe (`disk`).
+# Si no coincide, Render puede reemplazarlo, y ahí viven todos los datos del
+# negocio.
+#
+# Los valores de las variables NO están aquí: `sync: false` significa que se
+# declaran pero su valor vive solo en el panel de Render.
+version: "1"
 services:
   - type: web
     name: punto-de-venta-backend
     runtime: node
-    plan: free
-    buildCommand: npm install --prefix backend
-    startCommand: node backend/server.js
+    repo: https://github.com/ricaperezsmocke-png/CORPUNISOUND
+    plan: starter
     envVars:
+      - key: TOKEN_DESCARGA_RESPALDOS
+        sync: false
+      - key: CLAVE_RESTAURACION
+        sync: false
+      - key: RESPALDO_LLAVE
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: ML_REDIRECT_URI
+        sync: false
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DB_PATH
+        sync: false
+      - key: ML_CLIENT_SECRET
+        sync: false
+      - key: ML_CLIENT_ID
         sync: false
       - key: JWT_SECRET
         sync: false
       - key: FRONTEND_URL
-        value: https://punto-de-venta-frontend.onrender.com
+        sync: false
+    region: oregon
+    buildCommand: npm install --prefix backend
+    startCommand: node backend/server.js
+    disk:
+      name: disk
+      mountPath: /data
+      sizeGB: 1
+    autoDeployTrigger: commit
 
   - type: web
     name: punto-de-venta-frontend
