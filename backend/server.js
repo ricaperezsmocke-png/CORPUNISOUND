@@ -2224,7 +2224,11 @@ app.post("/api/chat", requiereLogin, requierePermiso("usar_asistente_ia", resolv
     }
 
     const { mensajes } = req.body; // [{ role: 'user'|'assistant', content: 'texto' }]
-    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    // Se guardan en una variable porque más abajo `consultarModulo` los necesita
+    // para filtrar lo que este usuario tiene permitido ver. Antes se calculaban
+    // en línea aquí y allá se leía una variable que no existía en este ámbito.
+    const permisosDeQuienPregunta = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const alcance = alcanceSucursal(req, permisosDeQuienPregunta);
     let historial = (mensajes || []).map((m) => ({ role: m.role, content: m.content }));
     const consultas = [];
     let respuestaFinal = null;
