@@ -103,6 +103,19 @@ function ajustarExistenciaOrigen(DB, garantia, cantidad, motivo) {
   }
 }
 
+/** El inventario de la tienda solo se mueve cuando la pieza es de la tienda.
+ *
+ *  Si la garantía tiene cliente, el producto es del cliente: nunca fue
+ *  existencia nuestra. Descontarlo al enviarlo hacía que el sistema reportara
+ *  una pieza menos de las que había durante todo el tiempo que la garantía
+ *  estuviera afuera — lo que ve Radar de Demanda y las predicciones, y puede
+ *  provocar una recompra por una escasez que no existe. Peor: si el proveedor
+ *  la rechazaba, el faltante se volvía permanente, porque `rechazada` y
+ *  `nota_credito` cierran directo sin pasar por `recibirEnTienda`. */
+function esStockPropio(garantia) {
+  return garantia.cliente_id == null;
+}
+
 /** Busca la garantía y aplica el guard de alcance. Lanza "Garantía no
  *  encontrada" tanto si no existe como si está fuera del alcance (no revela
  *  que existe en otra sucursal). */
@@ -166,7 +179,10 @@ function marcarEnviada(DB, id, datos, usuario, alcance) {
     garantia.proveedor_id = Number(datos.proveedor_id);
   }
 
-  const stockAjustado = ajustarExistenciaOrigen(DB, garantia, -1, `Garantía ${garantia.folio} — enviada`);
+  const esPropio = esStockPropio(garantia);
+  const stockAjustado = esPropio
+    ? ajustarExistenciaOrigen(DB, garantia, -1, `Garantía ${garantia.folio} — enviada`)
+    : false;
 
   garantia.estado = "enviada";
   garantia.ubicacion_actual = destino_nombre;
@@ -174,7 +190,9 @@ function marcarEnviada(DB, id, datos, usuario, alcance) {
   const destinoTipo = datos.destino_tipo === "cedis" ? "CEDIS" : "Proveedor directo";
   const notaStock = stockAjustado
     ? " — se descontó 1 pieza de existencia"
-    : " — sin ajuste de existencia (el producto no tenía stock en esta sucursal)";
+    : esPropio
+      ? " — sin ajuste de existencia (el producto no tenía stock en esta sucursal)"
+      : " — sin ajuste de existencia (el producto es del cliente, no es inventario de la tienda)";
   pushMovimiento(DB, garantia, "envio", `Enviada a ${destino_nombre} (${destinoTipo})${notaStock}`, usuario);
   return garantia;
 }
@@ -221,14 +239,19 @@ function recibirEnTienda(DB, id, usuario, alcance) {
     throw new Error("Solo se puede recibir una garantía 'resuelta'");
   }
 
-  const stockAjustado = ajustarExistenciaOrigen(DB, garantia, 1, `Garantía ${garantia.folio} — recibida`);
+  const esPropio = esStockPropio(garantia);
+  const stockAjustado = esPropio
+    ? ajustarExistenciaOrigen(DB, garantia, 1, `Garantía ${garantia.folio} — recibida`)
+    : false;
 
   const sucursal = nombreSucursal(DB, garantia.sucursal_origen_id);
   garantia.ubicacion_actual = sucursal;
   garantia.stock_ajustado = stockAjustado;
   const notaStock = stockAjustado
     ? " — reintegrada 1 pieza a inventario"
-    : " — sin ajuste de existencia (el producto no tenía stock en esta sucursal)";
+    : esPropio
+      ? " — sin ajuste de existencia (el producto no tenía stock en esta sucursal)"
+      : " — sin ajuste de existencia (el producto es del cliente, se le entrega a él)";
 
   if (garantia.cliente_id != null) {
     garantia.estado = "en_tienda_pendiente_entrega";

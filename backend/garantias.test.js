@@ -129,17 +129,17 @@ test("registrarResolucion: rechaza un tipo de resolución inválido", () => {
   );
 });
 
-test("recibirEnTienda (con cliente): reintegra 1 a existencia y pasa a 'en_tienda_pendiente_entrega'", () => {
+test("recibirEnTienda (con cliente): no reintegra existencia y pasa a 'en_tienda_pendiente_entrega'", () => {
   const DB = construirDBPrueba();
   const antes = existencia(DB);
   const g = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
-  marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS); // -1
+  marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
   registrarResolucion(DB, g.id, { tipo_resolucion: "reemplazo" }, USUARIO, ALCANCE_TODAS);
 
-  const r = recibirEnTienda(DB, g.id, USUARIO, ALCANCE_TODAS); // +1
+  const r = recibirEnTienda(DB, g.id, USUARIO, ALCANCE_TODAS);
 
   assert.strictEqual(r.estado, "en_tienda_pendiente_entrega");
-  assert.strictEqual(existencia(DB), antes, "neto 0: -1 al enviar, +1 al recibir");
+  assert.strictEqual(existencia(DB), antes, "la existencia nunca se movió: el producto es del cliente, no entra al inventario vendible");
   const movs = DB.inventario.garantia_movimientos.filter((m) => m.garantia_id === g.id);
   assert.strictEqual(movs[movs.length - 1].tipo, "recepcion");
 });
@@ -229,9 +229,10 @@ test("marcarEnviada: si el producto no tiene existencia en la sucursal, no lanza
   assert.match(movs[movs.length - 1].descripcion, /sin ajuste de existencia/i);
 });
 
-test("recibirEnTienda: en el caso normal marca stock_ajustado=true", () => {
+test("recibirEnTienda (stock propio): en el caso normal marca stock_ajustado=true", () => {
   const DB = construirDBPrueba();
-  const g = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
+  // Sin cliente: es una pieza de la tienda, así que sí hay ajuste de existencia.
+  const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
   marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
   registrarResolucion(DB, g.id, { tipo_resolucion: "reemplazo" }, USUARIO, ALCANCE_TODAS);
 
@@ -253,4 +254,56 @@ test("listarGarantias: calcula dias_sin_movimiento y atrasada contra el umbral c
   assert.ok(Array.isArray(fila.movimientos));
   assert.strictEqual(fila.producto_nombre, "Arroz 1kg");
   assert.strictEqual(fila.sucursal_origen_nombre, "Ocosingo");
+});
+
+/* ---------------------------------------------------------------------------
+ * El inventario solo se mueve cuando la pieza es de la tienda.
+ *
+ * Si la garantía tiene cliente, el producto es del cliente: nunca fue
+ * existencia nuestra. Descontarlo al enviarlo hacía que el sistema reportara
+ * una pieza menos de las que había durante todo el tiempo que la garantía
+ * estuviera afuera — y si el proveedor la rechazaba, el faltante se volvía
+ * permanente, porque 'rechazada' cierra directo sin pasar por recibirEnTienda.
+ * ------------------------------------------------------------------------- */
+
+test("marcarEnviada (con cliente): no toca la existencia, el producto es del cliente", () => {
+  const DB = construirDBPrueba();
+  const antes = existencia(DB);
+  const g = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
+
+  const enviada = marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
+
+  assert.strictEqual(existencia(DB), antes, "la existencia de la tienda no se mueve");
+  assert.strictEqual(enviada.stock_ajustado, false, "no hubo ajuste, y el campo lo dice");
+  const movs = DB.inventario.garantia_movimientos.filter((m) => m.garantia_id === g.id);
+  assert.match(movs[movs.length - 1].descripcion, /es del cliente/i, "la bitácora explica por qué no se ajustó");
+});
+
+test("ciclo completo con cliente: la existencia no se mueve en ningún momento", () => {
+  const DB = construirDBPrueba();
+  const antes = existencia(DB);
+  const g = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
+
+  marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
+  assert.strictEqual(existencia(DB), antes, "tras enviar sigue igual");
+
+  registrarResolucion(DB, g.id, { tipo_resolucion: "reparado" }, USUARIO, ALCANCE_TODAS);
+  const r = recibirEnTienda(DB, g.id, USUARIO, ALCANCE_TODAS);
+  assert.strictEqual(r.estado, "en_tienda_pendiente_entrega");
+  assert.strictEqual(existencia(DB), antes, "tras recibir sigue igual: no entra al inventario vendible");
+  assert.strictEqual(r.stock_ajustado, false);
+
+  const cerrada = entregarACliente(DB, g.id, USUARIO, ALCANCE_TODAS);
+  assert.strictEqual(cerrada.estado, "cerrada");
+  assert.strictEqual(existencia(DB), antes, "tras entregar sigue igual");
+});
+
+test("rechazada con cliente: no deja un faltante permanente en la existencia", () => {
+  const DB = construirDBPrueba();
+  const antes = existencia(DB);
+  const g = crearGarantia(DB, { producto_id: 1, cliente_id: 1 }, 1, USUARIO);
+  marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
+  registrarResolucion(DB, g.id, { tipo_resolucion: "rechazada" }, USUARIO, ALCANCE_TODAS);
+
+  assert.strictEqual(existencia(DB), antes, "nunca se descontó, así que no hay nada que reintegrar");
 });
