@@ -7,7 +7,6 @@ import {
 import { apiFetch, API } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
 import ModalConfirmar from "./ModalConfirmar";
-import ModalPedirTexto from "./ModalPedirTexto";
 
 function Tab({ activo, onClick, children }) {
   return (
@@ -359,9 +358,6 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export default function MercadoLibre({ onVolver, permisos }) {
-  // Pedir un dato dentro de la app: { titulo, etiqueta, valorInicial, validar, alAceptar }
-  const [pedirTexto, setPedirTexto] = useState(null);
-
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
   const [confirmacion, setConfirmacion] = useState(null);
 
@@ -527,32 +523,15 @@ export default function MercadoLibre({ onVolver, permisos }) {
     } else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
   };
 
-  const actualizarStock = (itemId, cantidadActual) => setPedirTexto({
-    titulo: "Cambiar cantidad publicada",
-    etiqueta: "Nueva cantidad disponible",
-    ayuda: `Actualmente hay ${cantidadActual}. Esto cambia lo que ve el comprador en MercadoLibre.`,
-    valorInicial: String(cantidadActual),
-    tipo: "number",
-    textoConfirmar: "Actualizar",
-    // Antes esto era un prompt() sin validar: cualquier cosa que no fuera
-    // numero se descartaba en silencio, y un negativo pasaba derecho.
-    validar: (v) => {
-      const n = Number(v);
-      if (String(v).trim() === "" || isNaN(n)) return "Escribe un numero";
-      if (n < 0) return "No puede ser negativa";
-      if (!Number.isInteger(n)) return "Tiene que ser un numero entero";
-      return null;
-    },
-    alAceptar: (valor) => actualizarStockConfirmado(itemId, Number(valor)),
-  });
-
-  const actualizarStockConfirmado = async (itemId, cantidad) => {
-    const r = await apiFetch(`/ml/publicaciones/${itemId}/stock`, {
-      method: "PUT", body: JSON.stringify({ cantidad }),
-    });
-    if (r.ok) { mostrarAviso("✅ Stock actualizado en ML"); cargarPublicaciones(); }
-    else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
-  };
+  // Aquí vivían `actualizarStock` y `actualizarStockConfirmado`: un camino
+  // aparte para cambiar solo la cantidad publicada. Nunca tuvieron botón —
+  // ninguna parte del archivo los llamaba, así que el empaquetador los borraba
+  // del paquete final. Los reemplazó `ModalEditar`, que ya edita
+  // `available_quantity` junto con precio, título y descripción.
+  //
+  // Se eliminan en vez de conectarlos para no dejar dos formas distintas de
+  // cambiar el mismo dato. La ruta `PUT /api/ml/publicaciones/:itemId/stock`
+  // del backend queda sin quien la llame.
 
   const fmt = (n) => new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n || 0);
   const fmtFecha = (s) => s ? new Date(s).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -942,7 +921,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
                 <li className="flex gap-2"><span className="text-[#1a7fe8] font-bold mt-0.5">→</span> <span><strong>MercadoLibre como sucursal:</strong> Las ventas de ML se registran como una sucursal virtual independiente (sucursal 5) con su propio inventario.</span></li>
                 <li className="flex gap-2"><span className="text-[#1a7fe8] font-bold mt-0.5">→</span> <span><strong>Publicar productos:</strong> Sube cualquier producto del catálogo a ML directamente desde el sistema, con precio y cantidad específicos para ML.</span></li>
                 <li className="flex gap-2"><span className="text-[#1a7fe8] font-bold mt-0.5">→</span> <span><strong>Importar órdenes:</strong> Convierte una venta de ML en una venta registrada en el POS para mantener el historial unificado.</span></li>
-                <li className="flex gap-2"><span className="text-[#1a7fe8] font-bold mt-0.5">→</span> <span><strong>Sincronizar stock:</strong> Actualiza la cantidad disponible de cualquier publicación directamente desde la lista de publicaciones.</span></li>
+                <li className="flex gap-2"><span className="text-[#1a7fe8] font-bold mt-0.5">→</span> <span><strong>Editar una publicación:</strong> Con el botón Editar de cada renglón cambias precio, título, descripción y la cantidad disponible que ve el comprador.</span></li>
               </ul>
             </div>
           </div>
@@ -984,17 +963,6 @@ export default function MercadoLibre({ onVolver, permisos }) {
             const accion = confirmacion.alConfirmar;
             setConfirmacion(null);
             accion();
-          }}
-        />
-      )}
-      {pedirTexto && (
-        <ModalPedirTexto
-          {...pedirTexto}
-          onCancelar={() => setPedirTexto(null)}
-          onAceptar={(valor) => {
-            const accion = pedirTexto.alAceptar;
-            setPedirTexto(null);
-            accion(valor);
           }}
         />
       )}
