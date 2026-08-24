@@ -548,7 +548,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
 
   const actualizarStockConfirmado = async (itemId, cantidad) => {
     const r = await apiFetch(`/ml/publicaciones/${itemId}/stock`, {
-      method: "PUT", body: JSON.stringify({ cantidad: Number(val) }),
+      method: "PUT", body: JSON.stringify({ cantidad }),
     });
     if (r.ok) { mostrarAviso("✅ Stock actualizado en ML"); cargarPublicaciones(); }
     else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
