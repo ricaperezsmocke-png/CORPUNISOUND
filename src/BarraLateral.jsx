@@ -60,7 +60,10 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo, onSalir }
   const [desplegado, setDesplegado] = useState({});
 
   return (
-    <nav className="neu shrink-0 w-60 h-full flex flex-col rounded-r-2xl overflow-y-auto">
+    // El scroll va en la lista de categorías, NO aquí: con overflow en el
+    // <nav>, el pie (tema, usuario, salir) dejaba de quedarse abajo y se
+    // encimaba con los módulos.
+    <nav className="neu shrink-0 w-64 h-full flex flex-col rounded-r-2xl overflow-hidden">
       <div className="shrink-0 px-4 py-4">
         <img
           src="/logo-unisound.jpg"
@@ -86,7 +89,7 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo, onSalir }
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 px-3 pb-3 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 space-y-4">
         {categorias.map((categoria) => (
           <div key={categoria.id}>
             <div className="px-2 pb-1.5 text-[10px] font-semibold tracking-wider text-muted-foreground">
@@ -156,7 +159,7 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo, onSalir }
         ))}
       </div>
 
-      <div className="shrink-0 px-3 py-3 space-y-2">
+      <div className="shrink-0 border-t border-border/50 px-3 py-3 space-y-2">
         <InterruptorTema />
         {usuario && (
           <div className="px-3">
