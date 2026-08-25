@@ -1,10 +1,11 @@
 import React from "react";
-import { ChevronLeft, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SelectorSucursal from "./SelectorSucursal.jsx";
 
 const TITULOS = {
+  dashboard:  "Inicio",
   pos:        "Punto de Venta",
   inventario: "Inventario y Productos",
   traspasos:  "Traspasos entre Sucursales",
@@ -19,30 +20,17 @@ const TITULOS = {
   respaldos: "Respaldos",
   gerencia_ventas: "Mi Objetivo de Venta",
   radar_demanda: "Radar de Demanda",
+  configuracion: "Configuración",
 };
 
-export default function EncabezadoModulo({ vista, usuario, onVolver, onSalir }) {
+export default function EncabezadoModulo({ vista, usuario, onSalir }) {
   return (
     <header
       className="shrink-0 shadow-md flex items-center justify-between px-4 py-2 gap-3"
-      style={{ background: "linear-gradient(90deg, #1a7fe8 0%, #1262b8 100%)" }}
+      style={{ background: "var(--encabezado-fondo)" }}
     >
-      {/* Izquierda: logo + volver + título */}
+      {/* Izquierda: el título. El logo y el botón de volver se mudaron a la barra. */}
       <div className="flex items-center gap-3 min-w-0">
-        <img
-          src="/logo-unisound.jpg"
-          alt="Unisound"
-          className="h-9 object-contain bg-white rounded-lg px-2 py-0.5 shrink-0"
-        />
-        <Button
-          onClick={onVolver}
-          size="sm"
-          variant="ghost"
-          className="text-white hover:bg-white/20 gap-1.5 shrink-0 px-2"
-        >
-          <ChevronLeft size={15} />
-          Inicio
-        </Button>
         <span className="text-white font-semibold text-sm truncate">
           {TITULOS[vista] || ""}
         </span>
