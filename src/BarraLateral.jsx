@@ -3,9 +3,8 @@ import {
   ShoppingCart, Landmark, Wallet, Boxes, ArrowRightLeft,
   Users, RadioTower, Store, Target,
   FileBarChart, Scale, ShieldAlert, ShieldCheck, DatabaseBackup, Settings,
-  ChevronRight, LogOut, Sun, Moon, Home,
+  ChevronRight, Home,
 } from "lucide-react";
-import { useTheme } from "next-themes";
 import { categoriasVisibles } from "./menuCategorias.js";
 
 /**
@@ -39,30 +38,13 @@ const ICONOS = {
   configuracion: Settings,
 };
 
-function InterruptorTema() {
-  const { theme, setTheme } = useTheme();
-  const oscuro = theme === "dark";
-  return (
-    <button
-      type="button"
-      onClick={() => setTheme(oscuro ? "light" : "dark")}
-      className="neu-boton w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-foreground/70 hover:text-foreground"
-      aria-label={oscuro ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
-    >
-      {oscuro ? <Sun size={14} /> : <Moon size={14} />}
-      {oscuro ? "Tema claro" : "Tema oscuro"}
-    </button>
-  );
-}
-
-export default function BarraLateral({ usuario, vista, onEntrarModulo, onSalir }) {
+export default function BarraLateral({ usuario, vista, onEntrarModulo }) {
   const categorias = categoriasVisibles(usuario);
   const [desplegado, setDesplegado] = useState({});
 
   return (
     // El scroll va en la lista de categorías, NO aquí: con overflow en el
-    // <nav>, el pie (tema, usuario, salir) dejaba de quedarse abajo y se
-    // encimaba con los módulos.
+    // <nav>, el logo y el botón Inicio se iban con el desplazamiento.
     <nav className="neu shrink-0 w-64 h-full flex flex-col rounded-r-2xl overflow-hidden">
       <div className="shrink-0 px-4 py-4">
         <img
@@ -157,23 +139,6 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo, onSalir }
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="shrink-0 border-t border-border/50 px-3 py-3 space-y-2">
-        <InterruptorTema />
-        {usuario && (
-          <div className="px-3">
-            <div className="text-xs font-semibold text-foreground truncate">{usuario.nombre}</div>
-            <div className="text-[11px] text-muted-foreground truncate">{usuario.rol}</div>
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={onSalir}
-          className="neu-boton w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-foreground/70 hover:text-destructive"
-        >
-          <LogOut size={14} /> Salir
-        </button>
       </div>
     </nav>
   );

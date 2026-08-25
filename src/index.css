@@ -54,50 +54,14 @@ html, body, #root {
    FUERA DE @layer A PROPÓSITO — no mover de vuelta.
 
    Tailwind solo conserva lo que está dentro de un `@layer` si encuentra esa
-   clase escrita en el código fuente. La clase `dark` NUNCA aparece escrita:
-   se la pone next-themes al <html> en tiempo de ejecución. Metido en
-   `@layer base`, este bloque entero se purgaba del build y el tema oscuro no
-   pintaba nada. Lo mismo les pasaba a las utilidades .neu antes de que algo
-   las usara.
+   clase escrita en el código fuente. Las utilidades .neu sí aparecen escritas
+   hoy, pero en cuanto una deje de usarse un rato se purga sin avisar y el
+   relieve desaparece de la pantalla sin que nada falle.
 
-   Verificado el 2026-08-25 leyendo el CSS compilado: dentro de @layer, cero
-   ocurrencias de `220 23% 15%` en dist/.
+   Aquí vivía también el bloque .dark del tema oscuro, quitado el 2026-08-25
+   porque Victor decidió que no les sirve. Si algún día se retoma, está en el
+   commit f38720e junto con el interruptor y el ThemeProvider.
    =========================================================================== */
-
-/* Los nombres son los mismos que en :root — ninguno se inventa ni se renombra,
-   solo cambian los valores. */
-.dark {
-  --background: 220 23% 15%;
-  --foreground: 210 30% 92%;
-  --card: 220 22% 19%;
-  --card-foreground: 210 30% 92%;
-  --popover: 220 22% 19%;
-  --popover-foreground: 210 30% 92%;
-  --primary: 211 85% 58%;
-  --primary-foreground: 220 25% 10%;
-  --secondary: 220 18% 24%;
-  --secondary-foreground: 210 30% 92%;
-  --muted: 220 18% 24%;
-  --muted-foreground: 215 15% 65%;
-  --accent: 220 18% 24%;
-  --accent-foreground: 210 30% 92%;
-  --destructive: 0 72% 55%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 220 16% 28%;
-  --input: 220 16% 28%;
-  --ring: 211 85% 58%;
-
-  --neu-luz: #262e3d;
-  --neu-sombra: #141922;
-  --encabezado-fondo: linear-gradient(90deg, #17529b 0%, #0f3f78 100%);
-}
-
-/* El <html> lleva la clase, pero quien pinta el fondo es el <body>. Sin esto,
-   cambiar a oscuro dejaba una franja clara detrás de la app. */
-.dark body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-}
 
 @layer utilities {
   :root {

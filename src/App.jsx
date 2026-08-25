@@ -73,7 +73,6 @@ function App() {
         usuario={usuario}
         vista={vista}
         onEntrarModulo={(id) => setVista(id)}
-        onSalir={salir}
       />
 
       {/* min-w-0 es obligatorio: sin él, una tabla ancha estira el flex y
