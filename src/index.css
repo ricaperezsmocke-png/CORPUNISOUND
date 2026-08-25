@@ -9,7 +9,9 @@ html, body, #root {
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    /* Gris muy claro, no blanco puro: el neumorfismo necesita un tono medio o
+       la sombra clara desaparece contra el fondo y el relieve se pierde. */
+    --background: 218 31% 93%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
@@ -29,6 +31,15 @@ html, body, #root {
     --input: 214 32% 91%;
     --ring: 211 85% 51%;
     --radius: 0.625rem;
+
+    /* Neumorfismo. El fondo sigue a --background para que el relieve se funda
+       con la pantalla; solo las dos luces cambian entre claro y oscuro. */
+    --neu-fondo: hsl(var(--background));
+    --neu-luz: #ffffff;
+    --neu-sombra: #c3ccd9;
+    --neu-distancia: 6px;
+    --neu-difuminado: 12px;
+    --encabezado-fondo: linear-gradient(90deg, #1a7fe8 0%, #1262b8 100%);
   }
 
   * {
@@ -37,6 +48,55 @@ html, body, #root {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ===========================================================================
+   FUERA DE @layer A PROPÓSITO — no mover de vuelta.
+
+   Tailwind solo conserva lo que está dentro de un `@layer` si encuentra esa
+   clase escrita en el código fuente. La clase `dark` NUNCA aparece escrita:
+   se la pone next-themes al <html> en tiempo de ejecución. Metido en
+   `@layer base`, este bloque entero se purgaba del build y el tema oscuro no
+   pintaba nada. Lo mismo les pasaba a las utilidades .neu antes de que algo
+   las usara.
+
+   Verificado el 2026-08-25 leyendo el CSS compilado: dentro de @layer, cero
+   ocurrencias de `220 23% 15%` en dist/.
+   =========================================================================== */
+
+/* Los nombres son los mismos que en :root — ninguno se inventa ni se renombra,
+   solo cambian los valores. */
+.dark {
+  --background: 220 23% 15%;
+  --foreground: 210 30% 92%;
+  --card: 220 22% 19%;
+  --card-foreground: 210 30% 92%;
+  --popover: 220 22% 19%;
+  --popover-foreground: 210 30% 92%;
+  --primary: 211 85% 58%;
+  --primary-foreground: 220 25% 10%;
+  --secondary: 220 18% 24%;
+  --secondary-foreground: 210 30% 92%;
+  --muted: 220 18% 24%;
+  --muted-foreground: 215 15% 65%;
+  --accent: 220 18% 24%;
+  --accent-foreground: 210 30% 92%;
+  --destructive: 0 72% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 16% 28%;
+  --input: 220 16% 28%;
+  --ring: 211 85% 58%;
+
+  --neu-luz: #262e3d;
+  --neu-sombra: #141922;
+  --encabezado-fondo: linear-gradient(90deg, #17529b 0%, #0f3f78 100%);
+}
+
+/* El <html> lleva la clase, pero quien pinta el fondo es el <body>. Sin esto,
+   cambiar a oscuro dejaba una franja clara detrás de la app. */
+.dark body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 @layer utilities {
@@ -84,5 +144,48 @@ html, body, #root {
     .no-imprimir {
       display: none !important;
     }
+  }
+}
+
+/* Neumorfismo: dos sombras opuestas, una luz arriba-izquierda y una sombra
+   abajo-derecha, sobre un fondo del mismo tono. Solo para el mobiliario
+   (barra, tarjetas, botones de navegación) — nunca para tablas ni cifras,
+   donde el relieve suave le quita contraste al dato.
+
+   Fuera de @layer por la misma razón que el bloque .dark de arriba. */
+.neu {
+  background: var(--neu-fondo);
+  box-shadow:
+    var(--neu-distancia) var(--neu-distancia) var(--neu-difuminado) var(--neu-sombra),
+    calc(var(--neu-distancia) * -1) calc(var(--neu-distancia) * -1) var(--neu-difuminado) var(--neu-luz);
+}
+
+/* Hundido: las mismas sombras hacia adentro. Es el estado del módulo activo. */
+.neu-hundido {
+  background: var(--neu-fondo);
+  box-shadow:
+    inset var(--neu-distancia) var(--neu-distancia) var(--neu-difuminado) var(--neu-sombra),
+    inset calc(var(--neu-distancia) * -1) calc(var(--neu-distancia) * -1) var(--neu-difuminado) var(--neu-luz);
+}
+
+/* Salido en reposo, hundido al presionar. Distancias más cortas que .neu
+   porque un botón con 6px de relieve se ve inflado. */
+.neu-boton {
+  background: var(--neu-fondo);
+  box-shadow:
+    3px 3px 6px var(--neu-sombra),
+    -3px -3px 6px var(--neu-luz);
+  transition: box-shadow 140ms var(--ease-out);
+}
+
+.neu-boton:active {
+  box-shadow:
+    inset 3px 3px 6px var(--neu-sombra),
+    inset -3px -3px 6px var(--neu-luz);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neu-boton {
+    transition-duration: 1ms;
   }
 }
