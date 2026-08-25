@@ -16,9 +16,11 @@ import Respaldos from "./Respaldos.jsx";
 import GerenciaVentas from "./GerenciaVentas.jsx";
 import EncabezadoModulo from "./EncabezadoModulo.jsx";
 import RadarDemanda from "./radar-demanda/RadarDemanda.jsx";
+import BarraLateral from "./BarraLateral.jsx";
+import Configuracion from "./Configuracion.jsx";
 import { apiFetch } from "./api";
 
-const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas", "radar_demanda"];
+const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas", "radar_demanda", "configuracion"];
 
 function App() {
   const [usuario, setUsuario] = useState(null);
@@ -66,17 +68,20 @@ function App() {
   const esDashboard = !MODULOS.includes(vista);
 
   return (
-    <div className="w-full h-screen flex flex-col">
-      {!esDashboard && (
-        <EncabezadoModulo
-          vista={vista}
-          usuario={usuario}
-          onVolver={() => setVista("dashboard")}
-          onSalir={salir}
-        />
-      )}
+    <div className="w-full h-screen flex bg-background">
+      <BarraLateral
+        usuario={usuario}
+        vista={vista}
+        onEntrarModulo={(id) => setVista(id)}
+        onSalir={salir}
+      />
 
-      <div className="flex-1 min-h-0 overflow-auto">
+      {/* min-w-0 es obligatorio: sin él, una tabla ancha estira el flex y
+          empuja la barra fuera de la pantalla. */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <EncabezadoModulo vista={vista} usuario={usuario} onSalir={salir} />
+
+        <div className="flex-1 min-h-0 overflow-auto">
         {vista === "pos" && (
           <PuntoDeVenta onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
         )}
@@ -123,9 +128,17 @@ function App() {
         {vista === "radar_demanda" && (
           <RadarDemanda permisos={usuario.permisos} />
         )}
-        {esDashboard && (
-          <Dashboard onEntrarModulo={(id) => setVista(id)} usuario={usuario} onSalir={salir} />
+        {vista === "configuracion" && (
+          <Configuracion
+            onVolverAVenta={() => setVista("pos")}
+            onVolverInicio={() => setVista("dashboard")}
+            permisos={usuario.permisos}
+          />
         )}
+        {esDashboard && (
+          <Dashboard usuario={usuario} />
+        )}
+        </div>
       </div>
     </div>
   );
