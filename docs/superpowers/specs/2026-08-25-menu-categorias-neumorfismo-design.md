@@ -221,9 +221,14 @@ restringido para roles sin `usar_asistente_ia`. Debería bajar de ~130 líneas a
 
 ### 4.4 `src/EncabezadoModulo.jsx`
 
-Pierde el botón "‹ Inicio" (ya no hace falta: la barra siempre está) y el mapa `TITULOS`
-con el nombre del módulo, que ahora se lee de la barra. Conserva el logo, el
-`SelectorSucursal`, el nombre/rol del usuario y el botón Salir.
+Pierde el botón "‹ Inicio": ya no hace falta, la barra siempre está.
+
+**Conserva el mapa `TITULOS` y el título del módulo**, que es lo que muestra el boceto que
+Victor aprobó. La barra marca el módulo activo, pero el título en el encabezado es la
+respuesta grande a "¿dónde estoy?" y no cuesta nada. Se le agrega la entrada
+`configuracion: "Configuración"`.
+
+También conserva el logo, el `SelectorSucursal`, el nombre/rol del usuario y el botón Salir.
 
 Su `background` en línea (`linear-gradient(90deg, #1a7fe8 0%, #1262b8 100%)`) pasa a
 variables CSS para que el bloque `.dark` lo pueda redefinir.
