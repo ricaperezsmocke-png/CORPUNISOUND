@@ -257,6 +257,31 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
 
+  /** Refresco angosto del catálogo de vendedores, para cuando la pestaña
+   *  Vendedores da de alta, edita, desactiva o reactiva a alguien.
+   *
+   *  Esa pestaña es otro componente con su propia copia de la lista y solo se
+   *  refrescaba a sí misma. Sin este aviso, el menú "Vendedor" del alta de
+   *  Personal seguía con la lista vieja hasta recargar la página: el recién
+   *  dado de alta no aparecía, y el desactivado se seguía ofreciendo para
+   *  luego fallar al guardar.
+   *
+   *  NO usa `cargarTodo`: esa pone `cargando` en true y vuelve a pedir seis
+   *  endpoints, parpadeando la pantalla entera cada vez que se guarda un
+   *  vendedor. Aquí solo interesa una lista.
+   *
+   *  Un refresco fallido no muestra error: el aviso de que se guardó ya salió,
+   *  y tapar la pantalla por no poder repintar un desplegable sería peor que
+   *  dejarlo viejo un momento. */
+  const recargarVendedores = useCallback(async () => {
+    try {
+      const r = await apiFetch("/vendedores");
+      if (r.ok) setVendedores(await r.json());
+    } catch {
+      // Silencio a propósito — ver comentario de arriba.
+    }
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("drive") === "conectado") {
@@ -620,7 +645,7 @@ Esta acción no se puede deshacer.`,
           </div>
 
           {vistaRoles === "vendedores" ? (
-            <CatalogoVendedores permisos={permisos} mostrarAviso={mostrarAviso} />
+            <CatalogoVendedores permisos={permisos} mostrarAviso={mostrarAviso} alCambiarVendedores={recargarVendedores} />
           ) : vistaRoles === "personal" ? (
             <div className="flex-1 overflow-y-auto p-4">
               <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">

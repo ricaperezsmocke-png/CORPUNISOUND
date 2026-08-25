@@ -17,8 +17,14 @@ const pesos = (n) =>
  * NO hay botón de borrar, y es a propósito: cada venta guarda el id de su
  * vendedor y los reportes resuelven el nombre por ahí. Borrar dejaría las
  * ventas históricas sin nombre para siempre. Se desactiva.
+ *
+ * `alCambiarVendedores` avisa al padre (Roles y Personal) de que su copia de
+ * la lista quedó vieja. Es un aviso, NO los datos: esta pantalla pide
+ * `/vendedores/catalogo`, que trae el registro completo con `cuenta_ligada` y
+ * la meta — datos que el padre no debe tener para un rol sin jefatura. Que
+ * los vuelva a pedir él por su cuenta, a la ruta recortada que ya usa.
  */
-export default function CatalogoVendedores({ permisos, mostrarAviso }) {
+export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVendedores }) {
   const puede = (clave) => !permisos || permisos.includes(clave);
 
   const [vendedores, setVendedores] = useState([]);
@@ -78,6 +84,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso }) {
       setModal(null);
       mostrarAviso(esNuevo ? "Vendedor dado de alta" : "Vendedor actualizado");
       cargar();
+      alCambiarVendedores?.();
     } catch (e) {
       setErrorModal(e.message);
     } finally {
@@ -91,6 +98,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso }) {
     if (!r.ok) return mostrarAviso("❌ " + (data.error || "No se pudo desactivar"));
     mostrarAviso(`${v.nombre} ya no aparece como vendedor activo`);
     cargar();
+    alCambiarVendedores?.();
   };
 
   const reactivar = async (v) => {
@@ -99,6 +107,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso }) {
     if (!r.ok) return mostrarAviso("❌ " + (data.error || "No se pudo reactivar"));
     mostrarAviso(`${v.nombre} vuelve a estar activo`);
     cargar();
+    alCambiarVendedores?.();
   };
 
   const nombreSucursal = (id) => sucursales.find((s) => s.id === Number(id))?.nombre || `Sucursal ${id}`;
