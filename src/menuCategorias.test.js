@@ -81,3 +81,46 @@ test("las subcategorías cuelgan de Punto de Venta y de Inventario", () => {
   assert.deepEqual(porId.pos.hijos.map((h) => h.id), ["consultas", "apartados"]);
   assert.deepEqual(porId.inventario.hijos.map((h) => h.id), ["recepcion"]);
 });
+
+/**
+ * Los 15 pares (módulo, permiso) congelados como dato literal.
+ *
+ * Los 14 primeros vienen del `Dashboard.jsx` anterior al 2026-08-25, cuando el
+ * menú se mudó a este archivo; `configuracion` se agregó ahí mismo. NO son
+ * decoración: cada par decide quién ve qué. Cambiar uno cambia a quién le
+ * aparece un módulo en la tienda.
+ *
+ * Sin esta prueba, cambiar el `modulo` de Garantías de "inventario" a "pos"
+ * pasaba con las otras ocho pruebas en verde, y a partir de ahí cualquier rol
+ * con el módulo pos y el permiso gestionar_garantias la veía sin deberlo.
+ *
+ * Si esta prueba falla, la pregunta NO es "cómo la arreglo" sino "¿de verdad
+ * quiero cambiar quién ve este módulo?". Si la respuesta es sí, se actualiza
+ * la tabla; si es no, el error está en menuCategorias.js.
+ */
+const PARES_CONGELADOS = {
+  pos:             { modulo: "pos",           permiso: undefined },
+  corte:           { modulo: "corte",         permiso: "realizar_corte_caja" },
+  gastos:          { modulo: "gastos",        permiso: "ver_gastos" },
+  inventario:      { modulo: "inventario",    permiso: undefined },
+  traspasos:       { modulo: "inventario",    permiso: "realizar_traspasos" },
+  crm:             { modulo: "crm",           permiso: undefined },
+  radar_demanda:   { modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },
+  ml:              { modulo: "ml",            permiso: undefined },
+  gerencia_ventas: { modulo: "pos",           permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
+  reportes:        { modulo: "reportes",      permiso: "ver_reportes" },
+  estado_cuenta:   { modulo: "cuenta_comun",  permiso: "ver_estado_cuenta" },
+  garantias:       { modulo: "inventario",    permiso: "gestionar_garantias" },
+  roles:           { modulo: "admin",         permiso: undefined },
+  respaldos:       { modulo: "respaldos",     permiso: "ver_respaldos" },
+  configuracion:   { modulo: "pos",           permiso: "editar_configuracion_pos" },
+};
+
+test("ningún módulo cambió de módulo ni de permiso", () => {
+  const actuales = Object.fromEntries(
+    CATEGORIAS.flatMap((c) => c.modulos).map((m) => [m.id, { modulo: m.modulo, permiso: m.permiso }])
+  );
+  // Comparar el objeto entero y no módulo por módulo: así el fallo también
+  // atrapa uno que se haya agregado o borrado, no solo uno que cambió.
+  assert.deepEqual(actuales, PARES_CONGELADOS);
+});
