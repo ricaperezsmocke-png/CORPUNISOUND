@@ -46,17 +46,9 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo }) {
     // El scroll va en la lista de categorías, NO aquí: con overflow en el
     // <nav>, el logo y el botón Inicio se iban con el desplazamiento.
     <nav className="neu shrink-0 w-64 h-full flex flex-col rounded-r-2xl overflow-hidden">
-      <div className="shrink-0 px-4 py-4">
-        <img
-          src="/logo-unisound.jpg"
-          alt="Unisound"
-          className="h-10 w-full object-contain bg-white rounded-lg px-2 py-1"
-        />
-      </div>
-
       {/* El inicio no es un módulo (no pasa por permisos), pero sí es un
           destino: es donde vive el Asistente de Negocio. */}
-      <div className="shrink-0 px-3 pb-3">
+      <div className="shrink-0 px-3 pt-4 pb-3">
         <button
           type="button"
           onClick={() => onEntrarModulo("dashboard")}

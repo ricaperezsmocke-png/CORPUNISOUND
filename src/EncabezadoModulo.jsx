@@ -29,8 +29,13 @@ export default function EncabezadoModulo({ vista, usuario, onSalir }) {
       className="shrink-0 shadow-md flex items-center justify-between px-4 py-2 gap-3"
       style={{ background: "var(--encabezado-fondo)" }}
     >
-      {/* Izquierda: el título. El logo y el botón de volver se mudaron a la barra. */}
+      {/* Izquierda: logo + título. El botón de volver se mudó a la barra. */}
       <div className="flex items-center gap-3 min-w-0">
+        <img
+          src="/logo-unisound.jpg"
+          alt="Unisound"
+          className="h-9 object-contain bg-white rounded-lg px-2 py-0.5 shrink-0"
+        />
         <span className="text-white font-semibold text-sm truncate">
           {TITULOS[vista] || ""}
         </span>
