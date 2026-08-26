@@ -153,3 +153,30 @@ html, body, #root {
     transition-duration: 1ms;
   }
 }
+
+/* Campos de formulario: hundido, pero mucho más sutil que .neu-hundido, que con
+   6px se ve inflado en un input de 32px de alto. Hundido = "aquí se escribe";
+   es el único idioma neumórfico que además comunica algo. */
+.neu-campo {
+  background: var(--neu-fondo);
+  border: none;
+  box-shadow:
+    inset 2px 2px 4px var(--neu-sombra),
+    inset -2px -2px 4px var(--neu-luz);
+}
+
+.neu-campo:focus {
+  outline: none;
+  box-shadow:
+    inset 2px 2px 4px var(--neu-sombra),
+    inset -2px -2px 4px var(--neu-luz),
+    0 0 0 2px hsl(var(--ring));
+}
+
+/* Superficie neumórfica para lo que ya recibe su elevación de otra parte: un
+   modal flota gracias al velo oscuro y a shadow-xl, así que aquí solo se le
+   iguala el tono. Si le pusiéramos .neu, su box-shadow pisaría al de Tailwind
+   y el modal perdería la sombra que lo despega del fondo. */
+.neu-panel {
+  background: var(--neu-fondo);
+}

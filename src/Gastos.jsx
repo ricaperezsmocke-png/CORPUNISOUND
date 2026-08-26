@@ -7,7 +7,7 @@ import { comprimirImagen } from "./comprimirImagen";
 import ModalConfirmar from "./ModalConfirmar";
 import ModalPedirTexto from "./ModalPedirTexto";
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "neu-campo w-full rounded-lg px-2.5 py-1.5 text-sm";
 const FORMAS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const MIME_OK = ["application/pdf", "image/jpeg", "image/png"];
 const TAM_MAX = 10 * 1024 * 1024;
@@ -39,10 +39,10 @@ function AyudaCategorias({ arbol, onElegir, onCerrar }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCerrar}>
       <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden"
+        className="neu-panel rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
           <h3 className="font-semibold text-slate-700">¿En qué categoría va cada gasto?</h3>
           <button type="button" onClick={onCerrar} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
         </div>
@@ -64,7 +64,7 @@ function AyudaCategorias({ arbol, onElegir, onCerrar }) {
             </div>
           ))}
         </div>
-        <div className="px-4 py-3 border-t border-slate-200 shrink-0 text-xs text-slate-500">
+        <div className="px-4 py-3 border-t border-black/5 shrink-0 text-xs text-slate-500">
           Haz clic en una subcategoría para elegirla.
         </div>
       </div>
@@ -243,7 +243,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
       {/* Explica el botón apagado: sin esto, "Registrar gasto" en gris parece
           una falla del sistema y no una condición que el usuario puede cambiar. */}
@@ -251,7 +251,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
         <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
       )}
 
-      <div className="bg-white border-b border-slate-200 flex shrink-0">
+      <div className="neu flex shrink-0 rounded-none">
         <button type="button" onClick={() => setTab("gastos")}
           className={`px-4 py-2 border-b-2 ${tab === "gastos" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Gastos
@@ -266,18 +266,18 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 
       {tab === "gastos" ? (
         <>
-          <div className="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap gap-3 items-end shrink-0">
+          <div className="neu rounded-none px-4 py-3 flex flex-wrap gap-3 items-end shrink-0">
             <div>
               <label className="text-xs text-slate-500 block mb-1">Del</label>
-              <input type="date" value={fechaInicial} onChange={(e) => setFechaInicial(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input type="date" value={fechaInicial} onChange={(e) => setFechaInicial(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm" />
             </div>
             <div>
               <label className="text-xs text-slate-500 block mb-1">Al</label>
-              <input type="date" value={fechaFinal} onChange={(e) => setFechaFinal(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input type="date" value={fechaFinal} onChange={(e) => setFechaFinal(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm" />
             </div>
             <div>
               <label className="text-xs text-slate-500 block mb-1">Estatus</label>
-              <select value={filtroEstatus} onChange={(e) => setFiltroEstatus(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+              <select value={filtroEstatus} onChange={(e) => setFiltroEstatus(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
                 <option value="activo">Activos</option>
                 <option value="cancelado">Cancelados</option>
                 <option value="">Todos</option>
@@ -359,8 +359,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 
       {modal === "nuevo" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Registrar gasto</h3>
               <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -440,7 +440,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               </div>
             </form>
 
-            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-black/5 flex items-center justify-end gap-2 shrink-0">
               {!archivo && <span className="text-xs text-slate-500 mr-auto">Adjunta el comprobante para poder guardar</span>}
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
               <button type="submit" form="form-gasto" disabled={!archivo || guardando || comprimiendo}
@@ -454,8 +454,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 
       {modal === "cancelar" && seleccionado && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 shrink-0">
               <h3 className="font-semibold text-slate-700">Cancelar gasto {seleccionado.folio}</h3>
             </div>
             <form id="form-cancelar-gasto" onSubmit={cancelar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
@@ -465,7 +465,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               <label className="text-xs text-slate-500 block">Motivo *</label>
               <textarea required rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} className={inputCls} />
             </form>
-            <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-black/5 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Volver</button>
               <button type="submit" form="form-cancelar-gasto" className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">Cancelar gasto</button>
             </div>
@@ -475,8 +475,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 
       {modal === "historial" && seleccionado && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Historial de {seleccionado.folio}</h3>
               <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -569,7 +569,7 @@ Los gastos que ya la usan la conservan.`,
 
       <div className="grid sm:grid-cols-2 gap-4">
         {arbol.map((g) => (
-          <div key={g.id} className="bg-white border border-slate-200 rounded-lg p-3">
+          <div key={g.id} className="neu rounded-xl p-3">
             <div className="flex items-center justify-between mb-2">
               <p className="font-medium text-slate-700">{g.nombre}</p>
               <div className="flex gap-2 text-xs">
@@ -600,7 +600,7 @@ Los gastos que ya la usan la conservan.`,
                   const nombre = (nuevaHija[g.id] || "").trim();
                   if (nombre) { crear(nombre, g.id); setNuevaHija({ ...nuevaHija, [g.id]: "" }); }
                 }}
-                className="bg-slate-100 text-slate-700 rounded px-2 text-sm whitespace-nowrap"
+                className="neu-boton rounded-lg px-2 text-sm text-slate-700 whitespace-nowrap"
               >
                 Agregar
               </button>
