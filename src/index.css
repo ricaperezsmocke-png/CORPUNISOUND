@@ -39,6 +39,13 @@ html, body, #root {
     --neu-sombra: #c3ccd9;
     --neu-distancia: 6px;
     --neu-difuminado: 12px;
+
+    /* Los botones NO son del tono de la superficie. Con el mismo tono, un botón
+       encima de una tarjeta (que ya tiene relieve) se lee como texto suelto y
+       nadie adivina que se puede presionar: solo lo separaban 3px de sombra.
+       Cuatro puntos de luminosidad de más bastan para que se despegue. */
+    --neu-boton-fondo: hsl(218 31% 97%);
+    --neu-boton-hover: hsl(218 31% 99%);
     --encabezado-fondo: linear-gradient(90deg, #1a7fe8 0%, #1262b8 100%);
   }
 
@@ -133,16 +140,28 @@ html, body, #root {
 }
 
 /* Salido en reposo, hundido al presionar. Distancias más cortas que .neu
-   porque un botón con 6px de relieve se ve inflado. */
+   porque un botón con 6px de relieve se ve inflado.
+   El tono propio, más claro que la superficie, es lo que lo hace legible como
+   botón: ver --neu-boton-fondo arriba. */
 .neu-boton {
-  background: var(--neu-fondo);
+  background: var(--neu-boton-fondo);
   box-shadow:
     3px 3px 6px var(--neu-sombra),
     -3px -3px 6px var(--neu-luz);
-  transition: box-shadow 140ms var(--ease-out);
+  /* transition-property explícito y no la forma corta: los botones del menú
+     llevan también `transition-colors` de Tailwind, y la forma corta la pisaba
+     entera dejando el cambio de color de golpe. */
+  transition-property: box-shadow, background-color, color;
+  transition-duration: 140ms;
+  transition-timing-function: var(--ease-out);
+}
+
+.neu-boton:hover {
+  background: var(--neu-boton-hover);
 }
 
 .neu-boton:active {
+  background: var(--neu-fondo);
   box-shadow:
     inset 3px 3px 6px var(--neu-sombra),
     inset -3px -3px 6px var(--neu-luz);
