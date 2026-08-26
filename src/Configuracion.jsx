@@ -125,7 +125,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
                   disabled={!puedeEditar}
                   value={config.documento_por_defecto}
                   onChange={(e) => guardarConfig({ documento_por_defecto: e.target.value })}
-                  className="neu-campo rounded-lg px-3 py-1.5 text-sm min-w-[180px] disabled:bg-slate-100"
+                  className="neu-campo rounded-lg px-3 py-1.5 text-sm min-w-[180px] disabled:shadow-none disabled:opacity-60"
                 >
                   {TIPOS_DOCUMENTO.map((d) => <option key={d}>{d}</option>)}
                 </select>
@@ -140,7 +140,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
                   type="number" min="0" disabled={!puedeEditar}
                   value={config.dias_seguimiento_postventa}
                   onChange={(e) => guardarConfig({ dias_seguimiento_postventa: Number(e.target.value) || 0 })}
-                  className="neu-campo rounded-lg px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
+                  className="neu-campo rounded-lg px-3 py-1.5 text-sm w-24 disabled:shadow-none disabled:opacity-60"
                 />
                 <span className="text-sm text-slate-500">días después de la compra (0 desactiva el seguimiento)</span>
               </div>
@@ -157,7 +157,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
                   type="number" min="0" disabled={!puedeEditar}
                   value={config.dias_alerta_garantias}
                   onChange={(e) => guardarConfig({ dias_alerta_garantias: Number(e.target.value) || 0 })}
-                  className="neu-campo rounded-lg px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
+                  className="neu-campo rounded-lg px-3 py-1.5 text-sm w-24 disabled:shadow-none disabled:opacity-60"
                 />
                 <span className="text-sm text-slate-500">días sin movimiento antes de marcarla como atrasada</span>
               </div>
@@ -233,7 +233,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
                         type="number" step="0.01" disabled={!puedeEditar}
                         value={c.descuento_pct}
                         onChange={(e) => actualizarDescuentoPago(c.id, Number(e.target.value) || 0)}
-                        className="neu-campo rounded-lg px-2 py-1 w-24 text-right disabled:bg-slate-100"
+                        className="neu-campo rounded-lg px-2 py-1 w-24 text-right disabled:shadow-none disabled:opacity-60"
                       />
                       <span className="text-slate-400">%</span>
                     </div>

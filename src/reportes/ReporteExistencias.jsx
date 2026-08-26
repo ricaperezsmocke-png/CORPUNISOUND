@@ -60,8 +60,8 @@ export default function ReporteExistencias({ onVolver }) {
   const filas = datos ? (tab === "existencias" ? datos.filas : datos.sinMovimiento) : [];
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
+      <div className="neu rounded-none px-4 py-2 flex items-center gap-2">
         <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
         </button>
@@ -72,23 +72,23 @@ export default function ReporteExistencias({ onVolver }) {
 
       <BarraAccionesReporte onConsultar={consultar} onExportarExcel={exportarExcel} />
 
-      <div className="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap gap-3 items-end no-imprimir">
+      <div className="neu rounded-none px-4 py-3 flex flex-wrap gap-3 items-end no-imprimir">
         <div>
           <label className="text-xs text-slate-500 block mb-1">Departamento</label>
-          <select value={departamentoId} onChange={(e) => setDepartamentoId(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+          <select value={departamentoId} onChange={(e) => setDepartamentoId(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
             <option value="">Todos</option>
             {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
           </select>
         </div>
         <div>
           <label className="text-xs text-slate-500 block mb-1">Estado</label>
-          <select value={estado} onChange={(e) => setEstado(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+          <select value={estado} onChange={(e) => setEstado(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
             {ESTADOS.map((e) => <option key={e.id} value={e.id}>{e.etiqueta}</option>)}
           </select>
         </div>
       </div>
 
-      <div className="bg-white border-b border-slate-200 flex no-imprimir">
+      <div className="neu rounded-none flex no-imprimir">
         <button onClick={() => setTab("existencias")}
           className={`px-4 py-2 text-sm border-b-2 ${tab === "existencias" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Existencias

@@ -80,8 +80,8 @@ export default function ReporteVentas({ onVolver }) {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
+      <div className="neu rounded-none px-4 py-2 flex items-center gap-2">
         <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
         </button>
@@ -100,13 +100,13 @@ export default function ReporteVentas({ onVolver }) {
           <>
             <div>
               <label className="text-xs text-slate-500 block mb-1">Documento</label>
-              <select value={documentoFiltro} onChange={(e) => setDocumentoFiltro(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+              <select value={documentoFiltro} onChange={(e) => setDocumentoFiltro(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
                 {TIPOS_DOCUMENTO.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs text-slate-500 block mb-1">Vendedor</label>
-              <select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+              <select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
                 <option value="">Todos</option>
                 {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
               </select>
@@ -115,7 +115,7 @@ export default function ReporteVentas({ onVolver }) {
         }
       />
 
-      <div className="bg-white border-b border-slate-200 flex no-imprimir">
+      <div className="neu rounded-none flex no-imprimir">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`px-4 py-2 text-sm border-b-2 ${tab === t.id ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>

@@ -32,7 +32,7 @@ export default function Reportes() {
   }
 
   return (
-    <div className="w-full h-full bg-slate-50 p-6 overflow-y-auto">
+    <div className="w-full h-full bg-background p-6 overflow-y-auto">
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-w-3xl">
         {REPORTES.map(({ id, nombre, icono: Icono }) => (
           <button

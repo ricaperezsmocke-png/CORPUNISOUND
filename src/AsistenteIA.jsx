@@ -60,7 +60,7 @@ export default function AsistenteIA() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-background">
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 max-w-2xl mx-auto w-full">
         {historial.map((m, i) => (
           <div key={i} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
@@ -120,7 +120,7 @@ export default function AsistenteIA() {
             onChange={(e) => setEntrada(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && enviar(entrada)}
             placeholder="Pregunta algo sobre tu negocio..."
-            className="flex-1 neu-campo rounded-lg-full px-4 py-2.5 text-sm focus:outline-none focus:border-[#1a7fe8]"
+            className="flex-1 neu-campo rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-[#1a7fe8]"
           />
           <button
             onClick={() => enviar(entrada)}

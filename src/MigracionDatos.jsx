@@ -133,7 +133,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
         <div className="flex gap-2 items-center">
           <input ref={inputArchivoRef} type="file" accept=".xls,.xlsx" disabled={cargando}
             onChange={(e) => e.target.files[0] && subirArchivo(e.target.files[0])} />
-          <button onClick={exportarRespaldo} className="ml-auto flex items-center gap-1.5 neu-campo rounded-lg px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+          <button onClick={exportarRespaldo} className="ml-auto flex items-center gap-1.5 neu-boton rounded-lg px-3 py-1.5 text-xs text-slate-600">
             <Download size={14} /> Exportar respaldo
           </button>
         </div>

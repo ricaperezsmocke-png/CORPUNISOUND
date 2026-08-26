@@ -23,7 +23,7 @@ const SEG = {
    `bg` y `card` son ahora el gris neumórfico; el borde se suaviza, porque sobre
    gris el slate-200 de antes se veía como una raya. */
 const T = {
-  bg: "#e8ecf3", surface: "#eef1f6", card: "#e8ecf3", border: "rgba(0,0,0,.07)",
+  bg: "#e8ecf3", surface: "#eef1f6", card: "#e8ecf3", border: "rgba(0,0,0,.07)", riel: "#d3d9e3",
   blue: "#2563eb", blueDark: "#1d4ed8", blueLight: "#eff6ff",
   text: "#0f172a", sub: "#64748b", muted: "#94a3b8", red: "#ef4444",
 };
@@ -75,7 +75,7 @@ function Tag({ color, children }) {
 function Bar({ score }) {
   const c = score >= 70 ? T.blue : score >= 40 ? "#60a5fa" : T.muted;
   return <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-    <div style={{ flex: 1, height: 3, background: T.border, borderRadius: 2 }}>
+    <div style={{ flex: 1, height: 3, background: T.riel, borderRadius: 2 }}>
       <div style={{ height: "100%", width: score + "%", background: c, borderRadius: 2, transition: "width .4s" }} />
     </div>
     <span style={{ fontSize: 10, color: c, fontWeight: 600, minWidth: 20 }}>{score}</span>
@@ -502,7 +502,7 @@ export default function CRM({ onVolver, permisos }) {
             {resumenSuc.map((x) => <div key={x.sucursal_id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", padding: "12px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>{x.nombre}</div>
-                <div style={{ height: 3, background: T.border, borderRadius: 2 }}><div style={{ height: "100%", width: Math.round((x.ventas / maxV) * 100) + "%", background: T.blue, borderRadius: 2 }} /></div>
+                <div style={{ height: 3, background: T.riel, borderRadius: 2 }}><div style={{ height: "100%", width: Math.round((x.ventas / maxV) * 100) + "%", background: T.blue, borderRadius: 2 }} /></div>
               </div>
               <span style={{ color: T.blue, fontWeight: 600 }}>{x.clientes}</span>
               <span style={{ fontWeight: 600 }}>{$(x.ventas)}</span>

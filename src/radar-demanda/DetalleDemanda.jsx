@@ -9,7 +9,7 @@ import {
 } from "./radarDemandaApi";
 import { fechaCorta, nombreProducto } from "./MisDemandas";
 
-const input = "w-full rounded-xl neu px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const input = "w-full rounded-xl neu-campo px-3 py-2.5 text-sm outline-none";
 const terminales = new Set(["CONVERTIDA", "NO_CONVERTIDA", "CANCELADA"]);
 const etiquetas = {
   REGISTRADA: "Registrada", EN_SEGUIMIENTO: "En seguimiento", PRODUCTO_DISPONIBLE: "Producto disponible",

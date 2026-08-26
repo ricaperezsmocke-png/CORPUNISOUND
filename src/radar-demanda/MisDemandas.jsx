@@ -13,7 +13,7 @@ export function nombreProducto(demanda) { return demanda.producto_nombre_registr
 export function nombreContacto(demanda, clientes) { return demanda.nombre_contacto || clientes.find((c) => Number(c.id) === Number(demanda.cliente_id))?.nombre || "Anónimo"; }
 export function fechaCorta(fecha) { if (!fecha) return "Sin fecha"; const valor = String(fecha); const d = /^\d{4}-\d{2}-\d{2}$/.test(valor) ? new Date(`${valor}T00:00:00`) : new Date(valor); return Number.isNaN(d.getTime()) ? valor : d.toLocaleDateString("es-MX"); }
 
-const input = "min-h-11 rounded-xl neu px-3 text-sm outline-none focus:border-blue-500";
+const input = "min-h-11 rounded-xl neu-campo px-3 text-sm outline-none";
 
 export default function MisDemandas({ demandas, clientes, meta, cargando, error, onVer }) {
   const [filtros, setFiltros] = useState({ texto: "", estado: "", motivo: "", seguimiento: "", fecha: "" });

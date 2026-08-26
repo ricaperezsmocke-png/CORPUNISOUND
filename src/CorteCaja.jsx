@@ -422,7 +422,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               </div>
 
               {/* Retiro por Corte */}
-              <div className="border-l border-slate-200 pl-5">
+              <div className="border-l border-black/15 pl-5">
                 <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Retiro por Corte</div>
                 {FORMAS.map((f) => (
                   <div key={f} className="mb-2.5">

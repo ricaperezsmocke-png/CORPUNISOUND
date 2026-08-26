@@ -347,7 +347,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           </div>
         )}
 
-        <button type="button" onClick={exportarCSV} className="flex items-center gap-1.5 neu-campo rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+        <button type="button" onClick={exportarCSV} className="flex items-center gap-1.5 neu-boton rounded-lg px-3 py-1.5 text-sm text-slate-600">
           <Download size={15} /> {tab === "resumen" ? "Exportar resumen" : "Exportar depósitos"}
         </button>
 

@@ -9,7 +9,7 @@ const VACIO = {
   intencion_compra: false, consentimiento_aviso: false, fecha_seguimiento: "", notas: "",
 };
 
-const input = "w-full rounded-xl neu px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const input = "w-full rounded-xl neu-campo px-3 py-2.5 text-sm outline-none transition";
 const RESULTADOS_POR_PAGINA = 8;
 
 export default function RegistrarDemanda({ productos, clientes, catalogosProducto = {}, puedeRegistrar, puedeEnviarCRM, sinSucursal, onRegistrada }) {

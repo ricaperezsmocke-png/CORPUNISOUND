@@ -16,7 +16,7 @@ function BotonBarra({ icono: Icono, etiqueta, onClick, tono = "slate" }) {
 
 export default function BarraAccionesReporte({ onConsultar, onExportarExcel }) {
   return (
-    <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0 no-imprimir">
+    <div className="neu rounded-none flex overflow-x-auto shrink-0 no-imprimir">
       <BotonBarra icono={Eye} etiqueta="Consultar" tono="verde" onClick={onConsultar} />
       <BotonBarra icono={Download} etiqueta="Excel" onClick={onExportarExcel} />
       <BotonBarra icono={Printer} etiqueta="Imprimir" onClick={() => window.print()} />

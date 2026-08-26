@@ -36,8 +36,8 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
+      <div className="neu rounded-none px-4 py-2 flex items-center gap-2">
         <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
         </button>
@@ -80,13 +80,13 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
         </div>
 
         {datos && datos.detalleCliente && (
-          <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-200 bg-white p-4 no-imprimir">
+          <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-slate-200 neu-panel p-4 no-imprimir">
             <h3 className="text-sm font-semibold text-slate-700 mb-2">Ventas a crédito</h3>
             {datos.detalleCliente.ventas_credito.length === 0 ? (
               <p className="text-xs text-slate-400">Sin ventas a crédito registradas</p>
             ) : (
               <table className="w-full text-xs">
-                <thead><tr className="text-slate-500 border-b border-slate-200"><th className="text-left py-1">Fecha</th><th className="text-left py-1">Folio</th><th className="text-right py-1">Total</th></tr></thead>
+                <thead><tr className="text-slate-500 border-b border-black/10"><th className="text-left py-1">Fecha</th><th className="text-left py-1">Folio</th><th className="text-right py-1">Total</th></tr></thead>
                 <tbody>
                   {datos.detalleCliente.ventas_credito.map((v) => (
                     <tr key={v.id} className="border-b border-slate-100">

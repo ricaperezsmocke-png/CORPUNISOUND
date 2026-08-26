@@ -419,7 +419,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       </div>
 
       {tab === "productos" && (
-      <div className="flex-1 min-h-0 w-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+      <div className="flex-1 min-h-0 w-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       {/* Aviso permanente mientras el encabezado diga "Todas": explica por qué
           los cuatro botones que escriben están apagados, antes de que se
           intente usarlos. Mismo banner que POS, Corte de caja y Gastos. */}
@@ -490,7 +490,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                       <tr
                         key={p.id}
                         onClick={() => setSeleccionadoId(p.id)}
-                        className={`border-b border-slate-100 cursor-pointer ${seleccionadoId === p.id ? "bg-blue-50" : p.activo === false ? "bg-slate-50 text-slate-400" : "hover:bg-slate-50"}`}
+                        className={`border-b border-slate-100 cursor-pointer ${seleccionadoId === p.id ? "bg-blue-50" : p.activo === false ? "bg-background text-slate-400" : "hover:bg-background"}`}
                       >
                         <td className="py-2 px-3">
                           <div className="text-[11px] text-slate-400">{p.sku}</div>
@@ -514,10 +514,10 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         <div className="w-80 neu-panel flex flex-col shrink-0">
           <div className="px-4 py-3 border-b border-black/5 font-semibold text-slate-600">Artículo Seleccionado</div>
           {!seleccionado ? (
-            <div className="flex-1 flex items-center justify-center text-slate-300 text-center px-6">Selecciona un producto de la lista</div>
+            <div className="flex-1 flex items-center justify-center text-slate-500 text-center px-6">Selecciona un producto de la lista</div>
           ) : (
             <div className="p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-center bg-slate-50 rounded-lg" style={{ minHeight: 80 }}>
+              <div className="flex items-center justify-center bg-background rounded-lg" style={{ minHeight: 80 }}>
                 {seleccionado.imagen_url ? (
                   <img
                     src={seleccionado.imagen_url} alt=""
@@ -537,11 +537,11 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                 <div className="text-xs text-slate-500 flex items-center gap-1 mt-1"><Tag size={12} /> {seleccionado.categoria_nombre}</div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="bg-slate-50 rounded p-2">
+                <div className="bg-background rounded p-2">
                   <div className="text-[11px] text-slate-400">Precio</div>
                   <div className="font-semibold">${Number(seleccionado.precio_venta).toFixed(2)}</div>
                 </div>
-                <div className="bg-slate-50 rounded p-2">
+                <div className="bg-background rounded p-2">
                   <div className="text-[11px] text-slate-400">Costo</div>
                   <div className="font-semibold">${Number(seleccionado.costo).toFixed(2)}</div>
                 </div>
@@ -713,7 +713,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={() => setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-background">Cancelar</button>
                 <button type="button" onClick={guardarProducto} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Guardar</button>
               </div>
             </div>

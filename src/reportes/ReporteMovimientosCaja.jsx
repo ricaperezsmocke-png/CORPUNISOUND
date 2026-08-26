@@ -50,8 +50,8 @@ export default function ReporteMovimientosCaja({ onVolver }) {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
-      <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
+      <div className="neu rounded-none px-4 py-2 flex items-center gap-2">
         <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
         </button>
@@ -71,7 +71,7 @@ export default function ReporteMovimientosCaja({ onVolver }) {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col md:flex-row gap-4">
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-slate-700 mb-2">Entradas (ventas por forma de pago)</h3>
-          <table className="w-full text-sm bg-white rounded border border-slate-200">
+          <table className="w-full text-sm neu-panel rounded border border-slate-200">
             <thead className="bg-emerald-600 text-white">
               <tr><th className="py-2 px-3 text-left font-medium">Forma de Pago</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
             </thead>
@@ -90,7 +90,7 @@ export default function ReporteMovimientosCaja({ onVolver }) {
 
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-slate-700 mb-2">Salidas (retiros de corte de caja)</h3>
-          <table className="w-full text-sm bg-white rounded border border-slate-200">
+          <table className="w-full text-sm neu-panel rounded border border-slate-200">
             <thead className="bg-red-500 text-white">
               <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Sucursal</th><th className="py-2 px-3 text-left font-medium">Usuario</th><th className="py-2 px-3 text-right font-medium">Retiro</th></tr>
             </thead>

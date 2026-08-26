@@ -123,7 +123,7 @@ function UbicacionesTiendas({ mostrarAviso }) {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => usarMiUbicacion(s.id)} className="text-xs neu-campo rounded-lg px-3 py-1.5 hover:bg-slate-50">
+                <button onClick={() => usarMiUbicacion(s.id)} className="text-xs neu-boton rounded-lg px-3 py-1.5">
                   Usar mi ubicación actual
                 </button>
                 <button onClick={() => guardar(s.id)} className="text-xs bg-blue-700 hover:bg-blue-800 text-white rounded px-3 py-1.5 font-semibold">
