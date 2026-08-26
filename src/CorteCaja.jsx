@@ -377,27 +377,27 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                               type="number" step="0.01" autoFocus={f === "EFECTIVO"}
                               value={contado[f]}
                               onChange={(e) => setContado({ ...contado, [f]: e.target.value })}
-                              className="w-full neu-campo rounded-lg px-2 py-1.5 text-right focus:outline-none focus:border-blue-500"
+                              className="w-full neu-campo rounded-lg px-2 py-1.5 text-right"
                               placeholder="0.00"
                             />
                           </td>
                           <td className="py-1.5 px-1">
-                            <div className="border border-slate-200 bg-slate-50 rounded px-2 py-1.5 text-right text-slate-600">{$fmt(enCurso.calculado?.[f])}</div>
+                            <div className="px-2 py-1.5 text-right text-slate-600">{$fmt(enCurso.calculado?.[f])}</div>
                           </td>
                           <td className="py-1.5 px-1">
-                            <div className={`border rounded px-2 py-1.5 text-right font-semibold ${d < 0 ? "border-red-200 text-red-600" : d > 0 ? "border-blue-200 text-blue-700" : "border-slate-200 text-slate-600"}`}>
+                            <div className={`px-2 py-1.5 text-right font-semibold ${d < 0 ? "text-red-600" : d > 0 ? "text-blue-700" : "text-slate-600"}`}>
                               {d < 0 ? `-$ ${Math.abs(d).toFixed(2)}` : $fmt(d)}
                             </div>
                           </td>
                         </tr>
                       );
                     })}
-                    <tr className="border-t border-slate-300">
+                    <tr className="border-t border-black/15">
                       <td className="py-2 pr-2 font-bold">Total</td>
                       <td className="py-2 px-1"><div className="neu-campo rounded-lg px-2 py-1.5 text-right font-bold">{$fmt(totalContado)}</div></td>
-                      <td className="py-2 px-1"><div className="border border-slate-200 bg-slate-50 rounded px-2 py-1.5 text-right font-bold">{$fmt(totalCalculado)}</div></td>
+                      <td className="py-2 px-1"><div className="px-2 py-1.5 text-right font-bold text-slate-700">{$fmt(totalCalculado)}</div></td>
                       <td className="py-2 px-1">
-                        <div className={`border rounded px-2 py-1.5 text-right font-bold ${totalDif < 0 ? "border-red-200 text-red-600" : totalDif > 0 ? "border-blue-200 text-blue-700" : "border-slate-200 text-slate-600"}`}>
+                        <div className={`px-2 py-1.5 text-right font-bold ${totalDif < 0 ? "text-red-600" : totalDif > 0 ? "text-blue-700" : "text-slate-600"}`}>
                           {totalDif < 0 ? `-$ ${Math.abs(totalDif).toFixed(2)}` : $fmt(totalDif)}
                         </div>
                       </td>
@@ -431,14 +431,14 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                       type="number" step="0.01"
                       value={retiro[f]}
                       onChange={(e) => setRetiro({ ...retiro, [f]: e.target.value })}
-                      className="w-full neu-campo rounded-lg px-2 py-1.5 text-right focus:outline-none focus:border-blue-500"
+                      className="w-full neu-campo rounded-lg px-2 py-1.5 text-right"
                       placeholder="0.00"
                     />
                   </div>
                 ))}
                 <div className="mt-3 pt-2 border-t border-black/5">
                   <label className="text-xs text-slate-500 block mb-0.5">Total:</label>
-                  <div className="border border-slate-300 bg-slate-50 rounded px-2 py-1.5 text-right font-bold">{$fmt(totalRetiro)}</div>
+                  <div className="px-2 py-1.5 text-right font-bold text-slate-700">{$fmt(totalRetiro)}</div>
                 </div>
                 <button onClick={() => setRetiro(Object.fromEntries(FORMAS.map((f) => [f, contado[f] || ""])))} className="mt-2 w-full text-xs text-blue-700 hover:underline">
                   Retirar todo lo contado

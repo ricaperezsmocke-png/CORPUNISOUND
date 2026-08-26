@@ -779,7 +779,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                   <button onClick={() => setModal("vendedor")} className="neu-campo rounded-lg px-3 py-1.5 text-blue-700 font-medium hover:bg-slate-50">
                     {vendedor.nombre}
                   </button>
-                  <span className="text-xs text-slate-500 neu-campo rounded-lg px-2 py-1.5 bg-slate-50">MXN</span>
+                  <span className="text-xs text-slate-500 px-2 py-1.5">MXN</span>
                 </div>
               </div>
             </div>

@@ -511,7 +511,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         </div>
 
         {/* Panel de artículo seleccionado */}
-        <div className="w-80 neu-panel flex flex-col shrink-0">
+        <div className="w-80 neu-panel border-l border-black/10 flex flex-col shrink-0">
           <div className="px-4 py-3 border-b border-black/5 font-semibold text-slate-600">Artículo Seleccionado</div>
           {!seleccionado ? (
             <div className="flex-1 flex items-center justify-center text-slate-500 text-center px-6">Selecciona un producto de la lista</div>

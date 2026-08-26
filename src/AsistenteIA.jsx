@@ -105,7 +105,7 @@ export default function AsistenteIA() {
             <button
               key={s}
               onClick={() => enviar(s)}
-              className="text-xs neu rounded-full px-3 py-1.5 hover:border-[#1a7fe8] hover:text-[#1a7fe8] transition-colors"
+              className="text-xs neu-boton rounded-full px-3 py-1.5 hover:text-[#1a7fe8] transition-colors"
             >
               {s}
             </button>
@@ -120,7 +120,7 @@ export default function AsistenteIA() {
             onChange={(e) => setEntrada(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && enviar(entrada)}
             placeholder="Pregunta algo sobre tu negocio..."
-            className="flex-1 neu-campo rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-[#1a7fe8]"
+            className="flex-1 neu-campo rounded-full px-4 py-2.5 text-sm"
           />
           <button
             onClick={() => enviar(entrada)}
