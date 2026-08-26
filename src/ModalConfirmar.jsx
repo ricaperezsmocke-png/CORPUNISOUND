@@ -60,7 +60,7 @@ export default function ModalConfirmar({
         role="alertdialog"
         aria-modal="true"
         aria-label={titulo}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-panel-in"
+        className="neu-panel rounded-2xl shadow-2xl w-full max-w-md animate-panel-in"
       >
         <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
           <h3 className="font-semibold text-sm text-slate-700 flex items-center gap-2">

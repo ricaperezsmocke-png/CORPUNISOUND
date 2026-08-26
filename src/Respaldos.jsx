@@ -203,7 +203,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
   };
 
   const renderTabla = (lista, vacio) => (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <div className="neu rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-[#1a7fe8] text-white">
           <tr>
@@ -251,7 +251,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
   const detallePorHora = copias.filter((c) => c.tipo === "hora");
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
 
       {(errorEstado || errorCopias) && (
@@ -274,7 +274,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
         </div>
       )}
 
-      <div className="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap gap-3 items-center shrink-0">
+      <div className="neu rounded-none px-4 py-3 flex flex-wrap gap-3 items-center shrink-0">
         {renderSemaforo()}
         {puedeRespaldar && (
           <button
@@ -307,8 +307,8 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
 
       {modal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Restaurar respaldo</h3>
               <button type="button" onClick={cerrarModal} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -354,7 +354,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
                   autoComplete="off"
                   value={clave}
                   onChange={(e) => setClave(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -364,7 +364,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
                   required
                   value={confirmacion}
                   onChange={(e) => setConfirmacion(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -373,7 +373,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
               )}
             </form>
 
-            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-black/5 flex items-center justify-end gap-2 shrink-0">
               <button type="button" onClick={cerrarModal} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
               <button
                 type="submit"

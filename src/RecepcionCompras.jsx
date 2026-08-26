@@ -20,7 +20,7 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick }) {
 
 function BotonLateral({ icono: Icono, etiqueta, atajo, onClick, color }) {
   return (
-    <button onClick={onClick} className="w-full flex flex-col items-center gap-1 py-3 hover:bg-slate-100 border-b border-slate-200 transition-colors">
+    <button onClick={onClick} className="w-full flex flex-col items-center gap-1 py-3 hover:bg-slate-100 border-b border-black/5 transition-colors">
       <Icono size={22} className={color || "text-slate-600"} />
       <span className="text-[10px] leading-tight text-slate-600 text-center">{etiqueta}<br />({atajo})</span>
     </button>
@@ -30,8 +30,8 @@ function BotonLateral({ icono: Icono, etiqueta, atajo, onClick, color }) {
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
-        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+      <div className={`neu-panel rounded-2xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel rounded-t-xl">
           <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors"><X size={16} /></button>
         </div>
@@ -41,7 +41,7 @@ function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   );
 }
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const RESULTADOS_POR_PAGINA = 8;
 
 export default function RecepcionCompras({ onVolver, permisos, usuario }) {
@@ -479,8 +479,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   }, 0);
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      <div className="bg-white border-b border-slate-100 flex items-center justify-between shrink-0 px-2">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+      <div className="neu rounded-none flex items-center justify-between shrink-0 px-2">
         <div className="flex">
           <button onClick={() => setTab("nueva")} className={`px-4 py-2.5 text-xs font-medium border-b-2 ${tab === "nueva" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}>
             <Truck size={14} className="inline mr-1.5 -mt-0.5" /> Compras (F1)
@@ -496,7 +496,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
           <p className="text-center text-slate-400 py-16">Cargando...</p>
         ) : (
         <>
-          <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+          <div className="neu rounded-none flex overflow-x-auto shrink-0">
             <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => { setBusquedaTexto(""); setModal("buscar"); }} />
             <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={() => {
               if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila primero");
@@ -521,8 +521,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
           </div>
 
           <div className="flex flex-1 min-h-0">
-            <div className="w-24 bg-white border-r border-slate-300 flex flex-col shrink-0 overflow-y-auto">
-              <button onClick={registrarRecepcion} disabled={registrando} className="flex flex-col items-center gap-1 py-4 border-b border-slate-200 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed">
+            <div className="w-24 neu rounded-none flex flex-col shrink-0 overflow-y-auto">
+              <button onClick={registrarRecepcion} disabled={registrando} className="flex flex-col items-center gap-1 py-4 border-b border-black/5 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <div className="bg-emerald-600 text-white rounded-full w-9 h-9 flex items-center justify-center font-bold text-xs">OK</div>
                 <span className="text-[10px] text-slate-600">Cerrar<br />(ESC)</span>
               </button>
@@ -534,17 +534,17 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
             </div>
 
             <div className="flex-1 flex flex-col min-w-0">
-              <div className="p-3 border-b border-slate-200 bg-white">
+              <div className="p-3 border-b border-black/5 neu-panel">
                 <div className="flex gap-2 items-center mb-2">
                   <Hash size={16} className="text-slate-400" />
                   <input
                     ref={codigoRef} value={codigoInput} onChange={(e) => setCodigoInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && buscarPorCodigo()}
                     placeholder="Escanea o escribe una clave y presiona Enter"
-                    className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                    className="flex-1 neu-campo rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                   />
-                  <label className="text-xs text-slate-500 flex items-center gap-1.5 border border-slate-300 rounded px-2 py-1.5">Neto <input type="checkbox" disabled className="opacity-50" /></label>
-                  <span className="text-xs text-slate-500 border border-slate-300 rounded px-2 py-1.5 bg-slate-50">MXN</span>
+                  <label className="text-xs text-slate-500 flex items-center gap-1.5 neu-campo rounded-lg px-2 py-1.5">Neto <input type="checkbox" disabled className="opacity-50" /></label>
+                  <span className="text-xs text-slate-500 neu-campo rounded-lg px-2 py-1.5 bg-slate-50">MXN</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Campo label="Proveedor">
@@ -634,7 +634,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         )
       ) : (
         <div className="flex-1 overflow-y-auto p-5">
-          <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Proveedor</th>
@@ -677,14 +677,14 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
             autoFocus value={busquedaTexto}
             onChange={(e) => { setBusquedaTexto(e.target.value); setPaginaBusqueda(1); }}
             placeholder="Clave, descripción o código de barras..."
-            className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
           />
           <div className="flex flex-wrap gap-4 mb-3 text-sm">
-            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todos los departamentos</option>
               {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </select>
-            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todas las categorías</option>
               {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
@@ -738,7 +738,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         <Modal titulo="Cambiar cantidad (F5)" onCerrar={() => setModal(null)}>
           <input
             autoFocus type="number" value={valorTemporal} onChange={(e) => setValorTemporal(e.target.value)}
-            className="w-full border border-slate-300 rounded px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
           />
           <button
             onClick={() => {
@@ -755,7 +755,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       {modal === "descuento" && filaSeleccionada !== null && (
         <Modal titulo="Cambiar descuento % (F7)" onCerrar={() => setModal(null)}>
           <div className="flex items-center gap-2 mb-4">
-            <input autoFocus type="number" value={valorTemporal} onChange={(e) => setValorTemporal(e.target.value)} className="flex-1 border border-slate-300 rounded px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500" />
+            <input autoFocus type="number" value={valorTemporal} onChange={(e) => setValorTemporal(e.target.value)} className="flex-1 neu-campo rounded-lg px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500" />
             <span className="text-lg text-slate-500">%</span>
           </div>
           <button
@@ -1021,7 +1021,7 @@ function BuscadorProductoFila({ productos, productoId, onSeleccionar }) {
         placeholder="Clave, código o nombre..."
       />
       {abierto && coincidencias.length > 0 && (
-        <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded shadow-lg">
+        <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto neu rounded shadow-lg">
           {coincidencias.map((p) => (
             <div
               key={p.id}

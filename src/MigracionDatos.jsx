@@ -3,7 +3,7 @@ import { FileSpreadsheet, Download, Upload } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const TIPOS = [
   { id: "articulos", etiqueta: "Artículos", pideSucursal: true },
   { id: "clientes", etiqueta: "Clientes", pideSucursal: true },
@@ -110,8 +110,8 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
   );
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
-      <div className="bg-white border-b border-slate-100 flex items-center px-2">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
+      <div className="neu rounded-none flex items-center px-2">
         {TIPOS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2.5 text-xs font-medium border-b-2 ${tab === t.id ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}>
             <FileSpreadsheet size={14} className="inline mr-1.5 -mt-0.5" /> {t.etiqueta}
@@ -133,7 +133,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
         <div className="flex gap-2 items-center">
           <input ref={inputArchivoRef} type="file" accept=".xls,.xlsx" disabled={cargando}
             onChange={(e) => e.target.files[0] && subirArchivo(e.target.files[0])} />
-          <button onClick={exportarRespaldo} className="ml-auto flex items-center gap-1.5 border border-slate-300 rounded px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+          <button onClick={exportarRespaldo} className="ml-auto flex items-center gap-1.5 neu-campo rounded-lg px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
             <Download size={14} /> Exportar respaldo
           </button>
         </div>
@@ -154,13 +154,13 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
               <span className="text-red-600">Inválidas: {previsualizacion.resumen.invalidas}</span>
               <button
                 onClick={() => setConfirmados(Object.fromEntries(previsualizacion.filas.filter((f) => f.valida).map((f) => [f.numero_fila, true])))}
-                className="ml-auto border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                className="ml-auto neu-campo rounded-lg px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
               >
                 Confirmar todas las válidas
               </button>
               <button
                 onClick={() => setConfirmados({})}
-                className="border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                className="neu-campo rounded-lg px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
               >
                 Quitar todas
               </button>
@@ -202,7 +202,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
             </div>
 
             {hayAltasSinDefaults && tab === "articulos" && (
-              <div className="mt-3 grid grid-cols-3 gap-2 bg-white border border-slate-200 rounded p-3">
+              <div className="mt-3 grid grid-cols-3 gap-2 neu rounded p-3">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Categoría por defecto</label>
                   <input className={inputCls} value={defaults.categoria} onChange={(e) => setDefaults((d) => ({ ...d, categoria: e.target.value }))} />
@@ -225,7 +225,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
         )}
 
         {resumen && (
-          <div className="bg-white border border-slate-200 rounded p-3 text-sm">
+          <div className="neu rounded p-3 text-sm">
             <p><b>{resumen.nuevos}</b> nuevos, <b>{resumen.actualizados}</b> actualizados, <b>{resumen.errores.length}</b> con error.</p>
             {resumen.errores.length > 0 && (
               <table className="w-full text-xs mt-2">

@@ -94,8 +94,8 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      <div className="bg-white border-b border-slate-100 flex items-center shrink-0">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+      <div className="neu rounded-none flex items-center shrink-0">
         <button onClick={cargarTodo} className="flex flex-col items-center justify-center gap-1 px-3 py-2 border-r border-slate-100 hover:bg-blue-50">
           <RefreshCw size={18} className="text-[#1a7fe8]" /><span className="text-[10px] font-medium text-slate-500">Recargar</span>
         </button>
@@ -109,7 +109,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
         )}
       </div>
 
-      <div className="bg-white border-b border-slate-200 flex overflow-x-auto shrink-0">
+      <div className="neu rounded-none flex overflow-x-auto shrink-0">
         <Tab activo={tab === "ventas"} onClick={() => setTab("ventas")}>Ventas</Tab>
         <Tab activo={tab === "formas_pago"} onClick={() => setTab("formas_pago")}>Formas de Pago</Tab>
       </div>
@@ -118,14 +118,14 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
         {tab === "ventas" && (
           <div className="max-w-3xl">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">General</h3>
-            <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6 flex items-center gap-6">
+            <div className="neu rounded-xl p-4 mb-6 flex items-center gap-6">
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Documento por defecto</label>
                 <select
                   disabled={!puedeEditar}
                   value={config.documento_por_defecto}
                   onChange={(e) => guardarConfig({ documento_por_defecto: e.target.value })}
-                  className="border border-slate-300 rounded px-3 py-1.5 text-sm min-w-[180px] disabled:bg-slate-100"
+                  className="neu-campo rounded-lg px-3 py-1.5 text-sm min-w-[180px] disabled:bg-slate-100"
                 >
                   {TIPOS_DOCUMENTO.map((d) => <option key={d}>{d}</option>)}
                 </select>
@@ -133,14 +133,14 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
             </div>
 
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">CRM / Postventa</h3>
-            <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
+            <div className="neu rounded-xl p-4 mb-6">
               <label className="text-xs text-slate-500 block mb-1">Días para seguimiento postventa</label>
               <div className="flex items-center gap-2">
                 <input
                   type="number" min="0" disabled={!puedeEditar}
                   value={config.dias_seguimiento_postventa}
                   onChange={(e) => guardarConfig({ dias_seguimiento_postventa: Number(e.target.value) || 0 })}
-                  className="border border-slate-300 rounded px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
+                  className="neu-campo rounded-lg px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
                 />
                 <span className="text-sm text-slate-500">días después de la compra (0 desactiva el seguimiento)</span>
               </div>
@@ -150,14 +150,14 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
             </div>
 
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Garantías</h3>
-            <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
+            <div className="neu rounded-xl p-4 mb-6">
               <label className="text-xs text-slate-500 block mb-1">Días de alerta por garantía sin movimiento</label>
               <div className="flex items-center gap-2">
                 <input
                   type="number" min="0" disabled={!puedeEditar}
                   value={config.dias_alerta_garantias}
                   onChange={(e) => guardarConfig({ dias_alerta_garantias: Number(e.target.value) || 0 })}
-                  className="border border-slate-300 rounded px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
+                  className="neu-campo rounded-lg px-3 py-1.5 text-sm w-24 disabled:bg-slate-100"
                 />
                 <span className="text-sm text-slate-500">días sin movimiento antes de marcarla como atrasada</span>
               </div>
@@ -166,7 +166,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
               </p>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100 mb-6">
+            <div className="neu rounded-xl divide-y divide-slate-100 mb-6">
               {[
                 { clave: "permitir_ventas_sin_existencia", etiqueta: "Permitir Ventas de Artículos Sin Existencia" },
                 { clave: "cerrar_venta_con_enter", etiqueta: "Cerrar Venta con Enter" },
@@ -219,7 +219,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
               </p>
             )}
 
-            <div className={`bg-white border border-slate-200 rounded-lg divide-y divide-slate-100 ${!config.descuentos_pago_habilitado ? "opacity-50 pointer-events-none" : ""}`}>
+            <div className={`neu rounded-xl divide-y divide-slate-100 ${!config.descuentos_pago_habilitado ? "opacity-50 pointer-events-none" : ""}`}>
               <div className="grid grid-cols-2 px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 <span>Formas de Pago</span><span>Descuento</span>
               </div>
@@ -233,7 +233,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
                         type="number" step="0.01" disabled={!puedeEditar}
                         value={c.descuento_pct}
                         onChange={(e) => actualizarDescuentoPago(c.id, Number(e.target.value) || 0)}
-                        className="border border-slate-300 rounded px-2 py-1 w-24 text-right disabled:bg-slate-100"
+                        className="neu-campo rounded-lg px-2 py-1 w-24 text-right disabled:bg-slate-100"
                       />
                       <span className="text-slate-400">%</span>
                     </div>

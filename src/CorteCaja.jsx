@@ -26,8 +26,8 @@ function TicketCorte({ corte, onCerrar }) {
   const hayDiferencia = Math.abs(corte.total_diferencia || 0) >= 0.01;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto animate-panel-in">
-        <div className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 bg-white">
+      <div className="neu-panel rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto animate-panel-in">
+        <div className="border-b border-black/5 px-4 py-2.5 flex items-center justify-between sticky top-0 neu-panel">
           <h3 className="font-semibold text-sm">Ticket de Corte de Caja #{corte.id}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded p-1"><X size={18} /></button>
         </div>
@@ -111,7 +111,7 @@ function TicketCorte({ corte, onCerrar }) {
               : "✅ Caja exacta — sin diferencias"}
           </div>
         </div>
-        <div className="border-t border-slate-200 p-3 flex justify-center gap-2">
+        <div className="border-t border-black/5 p-3 flex justify-center gap-2">
           <button onClick={() => window.print()} className="bg-slate-200 hover:bg-slate-300 px-4 py-2 rounded font-semibold text-sm flex items-center gap-2">
             🖨️ Imprimir
           </button>
@@ -237,7 +237,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const infoCorte = ultimoCorteGuardado;
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
       {/* Con "Todas" no se muestra ningún corte: un corte de la tienda
           equivocada le inventa un faltante a la cajera. */}
       {sinSucursal && (
@@ -262,7 +262,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       )}
 
       {/* Barra de herramientas */}
-      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+      <div className="neu rounded-none flex overflow-x-auto shrink-0">
         {puede("realizar_corte_caja") && (
           <button
             type="button"
@@ -297,7 +297,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
       {/* Información del corte */}
       <div className="flex-1 overflow-y-auto">
-        <div className="text-center border-b border-slate-200 py-2 font-semibold text-slate-600">Información del Corte de Caja</div>
+        <div className="text-center border-b border-black/5 py-2 font-semibold text-slate-600">Información del Corte de Caja</div>
         <div className="p-6 flex flex-col gap-4 max-w-md">
           {[
             ["Caja:", infoCorte ? `Caja 1 — Sucursal ${infoCorte.sucursal_id}` : "–"],
@@ -315,7 +315,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               entrega ventas_incluidas y total_calculado en 0 (corte a ciegas),
               así que esta sección siempre se renderiza igual para todos. */}
           {enCurso && (
-            <div className="mt-4 bg-white border border-slate-200 rounded-lg p-4">
+            <div className="mt-4 neu rounded-xl p-4">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Turno en curso</div>
               <div className="text-sm text-slate-600 mb-1">{enCurso.ventas_incluidas} venta(s) desde {enCurso.desde ? new Date(enCurso.desde).toLocaleString("es-MX") : "el inicio"}</div>
               <div className="text-2xl font-bold text-slate-800">{$fmt(enCurso.total_calculado)}</div>
@@ -342,8 +342,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       {/* ===== MODAL: CORTE DE CAJA (calcado de SICAR) ===== */}
       {modal === "corte" && enCurso && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
-            <div className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
+            <div className="border-b border-black/5 px-4 py-2.5 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Corte de Caja</h3>
               <button onClick={() => setModal(null)} className="hover:bg-slate-100 rounded p-1"><X size={18} /></button>
             </div>
@@ -356,7 +356,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   igualar la pantalla de SICAR); con el permiso traen el dato
                   real, sin él, ceros. */}
               <div>
-                <div className="text-center text-sm font-medium text-slate-600 border-b border-slate-200 pb-2 mb-3">Caja: Caja 1</div>
+                <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Caja: Caja 1</div>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-slate-500">
@@ -377,7 +377,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                               type="number" step="0.01" autoFocus={f === "EFECTIVO"}
                               value={contado[f]}
                               onChange={(e) => setContado({ ...contado, [f]: e.target.value })}
-                              className="w-full border border-slate-300 rounded px-2 py-1.5 text-right focus:outline-none focus:border-blue-500"
+                              className="w-full neu-campo rounded-lg px-2 py-1.5 text-right focus:outline-none focus:border-blue-500"
                               placeholder="0.00"
                             />
                           </td>
@@ -394,7 +394,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                     })}
                     <tr className="border-t border-slate-300">
                       <td className="py-2 pr-2 font-bold">Total</td>
-                      <td className="py-2 px-1"><div className="border border-slate-300 rounded px-2 py-1.5 text-right font-bold">{$fmt(totalContado)}</div></td>
+                      <td className="py-2 px-1"><div className="neu-campo rounded-lg px-2 py-1.5 text-right font-bold">{$fmt(totalContado)}</div></td>
                       <td className="py-2 px-1"><div className="border border-slate-200 bg-slate-50 rounded px-2 py-1.5 text-right font-bold">{$fmt(totalCalculado)}</div></td>
                       <td className="py-2 px-1">
                         <div className={`border rounded px-2 py-1.5 text-right font-bold ${totalDif < 0 ? "border-red-200 text-red-600" : totalDif > 0 ? "border-blue-200 text-blue-700" : "border-slate-200 text-slate-600"}`}>
@@ -407,7 +407,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
                 {/* Información adicional — mismos ceros que arriba cuando no
                     hay permiso; siempre visible, como en SICAR. */}
-                <div className="mt-4 border-t border-slate-200 pt-3">
+                <div className="mt-4 border-t border-black/5 pt-3">
                   <div className="text-center text-xs font-semibold text-blue-700 mb-2">Información Adicional</div>
                   <div className="flex justify-between text-xs text-slate-600 flex-wrap gap-2">
                     <span>Total Transferencias: <b>{$fmt(enCurso.transferencias)}</b></span>
@@ -423,7 +423,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
               {/* Retiro por Corte */}
               <div className="border-l border-slate-200 pl-5">
-                <div className="text-center text-sm font-medium text-slate-600 border-b border-slate-200 pb-2 mb-3">Retiro por Corte</div>
+                <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Retiro por Corte</div>
                 {FORMAS.map((f) => (
                   <div key={f} className="mb-2.5">
                     <label className="text-xs text-slate-500 block mb-0.5">{ETIQUETAS[f].replace("* ", "")}:</label>
@@ -431,12 +431,12 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                       type="number" step="0.01"
                       value={retiro[f]}
                       onChange={(e) => setRetiro({ ...retiro, [f]: e.target.value })}
-                      className="w-full border border-slate-300 rounded px-2 py-1.5 text-right focus:outline-none focus:border-blue-500"
+                      className="w-full neu-campo rounded-lg px-2 py-1.5 text-right focus:outline-none focus:border-blue-500"
                       placeholder="0.00"
                     />
                   </div>
                 ))}
-                <div className="mt-3 pt-2 border-t border-slate-200">
+                <div className="mt-3 pt-2 border-t border-black/5">
                   <label className="text-xs text-slate-500 block mb-0.5">Total:</label>
                   <div className="border border-slate-300 bg-slate-50 rounded px-2 py-1.5 text-right font-bold">{$fmt(totalRetiro)}</div>
                 </div>
@@ -446,7 +446,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               </div>
             </div>
 
-            <div className="border-t border-slate-200 p-3 flex flex-col items-center gap-2">
+            <div className="border-t border-black/5 p-3 flex flex-col items-center gap-2">
               <p className="text-[11px] text-slate-400 text-center max-w-md">
                 Si sacaste dinero de la caja y todavía no lo capturas en Gastos, hazlo antes de guardar el corte.
               </p>
@@ -461,15 +461,15 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       {/* ===== MODAL: HISTORIAL DE CORTES ===== */}
       {modal === "historial" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto animate-panel-in">
-            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto animate-panel-in">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel">
               <h3 className="font-semibold text-sm">Historial de Cortes</h3>
               <button onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>
             <div className="p-4">
               {cortes.length === 0 ? <p className="text-center text-slate-400 py-8">Sin cortes registrados todavía</p> : (
                 <table className="w-full text-sm">
-                  <thead className="text-slate-500 border-b border-slate-200">
+                  <thead className="text-slate-500 border-b border-black/5">
                     <tr>
                       <th className="text-left py-2 font-medium">#</th>
                       <th className="text-left py-2 font-medium">Fecha / Hora</th>

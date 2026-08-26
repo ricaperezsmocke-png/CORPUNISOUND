@@ -15,8 +15,8 @@ function Campo({ label, children }) {
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
-        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+      <div className={`neu-panel rounded-2xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel rounded-t-xl">
           <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
             <X size={16} />
@@ -28,7 +28,7 @@ function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   );
 }
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
 const FORM_VACIO = { producto_id: "", cantidad: "", sucursal_destino_id: "", sucursal_origen_id: "", comentario: "" };
 const RESULTADOS_POR_PAGINA = 8;
@@ -184,8 +184,8 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
-      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
+      <div className="neu rounded-none flex overflow-x-auto shrink-0">
         <button onClick={() => setTab("enviar")} className={`px-4 py-3 text-sm font-medium border-b-2 ${tab === "enviar" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}>
           <Send size={14} className="inline mr-1.5 -mt-0.5" /> Enviar traspaso
         </button>
@@ -201,9 +201,9 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Cargando...</p>
         ) : tab === "enviar" ? (
-          <div className="max-w-md bg-white border border-slate-200 rounded-lg p-5 flex flex-col gap-3">
+          <div className="max-w-md neu rounded-xl p-5 flex flex-col gap-3">
             <Campo label="Producto">
-              <button type="button" onClick={abrirBuscarProducto} className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
+              <button type="button" onClick={abrirBuscarProducto} className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
                 <span className={productoSeleccionado ? "text-slate-800" : "text-slate-400"}>
                   {productoSeleccionado ? productoSeleccionado.nombre : "Buscar producto..."}
                 </span>
@@ -236,7 +236,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
             <button onClick={enviarTraspaso} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold mt-2">Enviar traspaso</button>
           </div>
         ) : (
-          <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Producto</th>
@@ -284,7 +284,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
 
       {modalRecibir && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Confirmar recepción</h3>
               <button onClick={() => setModalRecibir(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
@@ -310,18 +310,18 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
             value={busquedaTexto}
             onChange={(e) => { setBusquedaTexto(e.target.value); setPaginaBusqueda(1); }}
             placeholder="Clave, descripción o código de barras..."
-            className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
           />
           <div className="flex flex-wrap gap-4 mb-3 text-sm">
-            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todos los departamentos</option>
               {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </select>
-            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todas las categorías</option>
               {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
-            <select value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todos los proveedores</option>
               {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>

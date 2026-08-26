@@ -4,7 +4,7 @@ import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
 import ModalConfirmar from "./ModalConfirmar";
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const RESULTADOS_POR_PAGINA = 8;
 
 const ESTADOS = {
@@ -54,8 +54,8 @@ function Campo({ label, children }) {
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
-        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+      <div className={`neu-panel rounded-2xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel rounded-t-xl">
           <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
             <X size={16} />
@@ -358,10 +358,10 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const elegirProducto = (p) => { setFormNueva((f) => ({ ...f, producto_id: p.id })); setModalBuscarProd(false); };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       {/* Barra de filtros + acción */}
-      <div className="bg-white border-b border-slate-100 px-5 py-3 flex flex-wrap items-center gap-3 shrink-0">
-        <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="border border-slate-300 rounded px-2 py-1 text-xs">
+      <div className="neu rounded-none px-5 py-3 flex flex-wrap items-center gap-3 shrink-0">
+        <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="neu-campo rounded-lg px-2 py-1 text-xs">
           <option value="">Todos los estados</option>
           {Object.entries(ESTADOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
@@ -381,7 +381,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Cargando...</p>
         ) : (
-          <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>
@@ -454,7 +454,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
         <Modal titulo="Nueva garantía" onCerrar={() => setModalNueva(false)} ancho="max-w-md">
           <div className="flex flex-col gap-3">
             <Campo label="Producto">
-              <button type="button" onClick={abrirBuscarProd} className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
+              <button type="button" onClick={abrirBuscarProd} className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
                 <span className={productoSeleccionado ? "text-slate-800" : "text-slate-400"}>
                   {productoSeleccionado ? productoSeleccionado.nombre : "Buscar producto..."}
                 </span>
@@ -609,7 +609,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                 <input className={inputCls} value={formGasto.descripcion} onChange={(e) => setFormGasto({ ...formGasto, descripcion: e.target.value })} placeholder="ej: flete de ida a Sensey" />
               </Campo>
               <Campo label="Comprobante (opcional — PDF/JPG/PNG, máx 10MB)">
-                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer border border-slate-300 rounded px-2.5 py-1.5 hover:bg-slate-50">
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer neu-campo rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
                   <Upload size={14} /> {archivoGasto ? archivoGasto.name : "Elegir archivo..."}
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setArchivoGasto(e.target.files?.[0] || null)} />
                 </label>
@@ -628,7 +628,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
             value={busquedaProd}
             onChange={(e) => { setBusquedaProd(e.target.value); setPaginaProd(1); }}
             placeholder="Clave o descripción..."
-            className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
           />
           <div className="max-h-96 overflow-y-auto border border-slate-200 rounded">
             <table className="w-full text-sm">

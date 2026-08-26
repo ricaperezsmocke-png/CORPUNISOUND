@@ -9,7 +9,7 @@ import { pedirLista, pedirDato } from "./cargaSegura";
 /** Forma que el render da por hecha cuando todavía no hay datos que pintar. */
 const RESUMEN_VACIO = { resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0 } };
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO_DEPOSITO = ["EFECTIVO", "TRANSFERENCIA"];
 const MIME_OK = ["application/pdf", "image/jpeg", "image/png"];
 const TAM_MAX = 10 * 1024 * 1024;
@@ -298,14 +298,14 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const exportarCSV = () => (tab === "resumen" ? exportarResumen() : exportarDepositos());
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
       {/* Explica el botón apagado: en gris y sin motivo parece una falla. */}
       {fueraDeSuSucursal && puede("registrar_depositos") && (
         <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
       )}
 
-      <div className="bg-white border-b border-slate-200 flex shrink-0">
+      <div className="neu rounded-none flex shrink-0">
         <button type="button" onClick={() => setTab("resumen")}
           className={`px-4 py-2 border-b-2 ${tab === "resumen" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
           Resumen
@@ -316,20 +316,20 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
         </button>
       </div>
 
-      <div className="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap gap-3 items-end shrink-0">
+      <div className="neu rounded-none px-4 py-3 flex flex-wrap gap-3 items-end shrink-0">
         <div>
           <label className="text-xs text-slate-500 block mb-1">Del</label>
-          <input type="date" value={fechaInicial} onChange={(e) => setFechaInicial(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+          <input type="date" value={fechaInicial} onChange={(e) => setFechaInicial(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm" />
         </div>
         <div>
           <label className="text-xs text-slate-500 block mb-1">Al</label>
-          <input type="date" value={fechaFinal} onChange={(e) => setFechaFinal(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+          <input type="date" value={fechaFinal} onChange={(e) => setFechaFinal(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm" />
         </div>
 
         {tab === "resumen" && veTodas && (
           <div>
             <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
-            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               <option value="">Todas (resumen general)</option>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
@@ -339,7 +339,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
         {tab === "depositos" && (
           <div>
             <label className="text-xs text-slate-500 block mb-1">Estatus</label>
-            <select value={filtroEstatus} onChange={(e) => setFiltroEstatus(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <select value={filtroEstatus} onChange={(e) => setFiltroEstatus(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               <option value="activo">Activos</option>
               <option value="cancelado">Cancelados</option>
               <option value="">Todos</option>
@@ -347,7 +347,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           </div>
         )}
 
-        <button type="button" onClick={exportarCSV} className="flex items-center gap-1.5 border border-slate-300 rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+        <button type="button" onClick={exportarCSV} className="flex items-center gap-1.5 neu-campo rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
           <Download size={15} /> {tab === "resumen" ? "Exportar resumen" : "Exportar depósitos"}
         </button>
 
@@ -368,7 +368,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               ⚠ {errorResumen} <b>Los totales de abajo NO son confiables.</b>
             </div>
           )}
-          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="neu rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-[#1a7fe8] text-white">
                 <tr>
@@ -409,8 +409,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           </div>
 
           {resumen.movimientos && (
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-200 font-medium text-slate-700">Detalle de movimientos</div>
+            <div className="neu rounded-xl overflow-hidden">
+              <div className="px-3 py-2 border-b border-black/5 font-medium text-slate-700">Detalle de movimientos</div>
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
@@ -521,8 +521,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
       {modal === "nuevo" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Registrar depósito</h3>
               <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -565,7 +565,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               </div>
             </form>
 
-            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-black/5 flex items-center justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
               <button type="submit" form="form-deposito" disabled={guardando || comprimiendo}
                 className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
@@ -578,8 +578,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
       {modal === "comprobante" && seleccionado && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-700">Adjuntar comprobante a {seleccionado.folio}</h3>
               <button type="button" onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -604,7 +604,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               </p>
             </form>
 
-            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-black/5 flex items-center justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Volver</button>
               <button type="submit" form="form-comprobante" disabled={guardando || comprimiendo || !archivo}
                 className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
@@ -617,8 +617,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
       {modal === "cancelar" && seleccionado && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 shrink-0">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 shrink-0">
               <h3 className="font-semibold text-slate-700">Cancelar depósito {seleccionado.folio}</h3>
             </div>
             <form id="form-cancelar-deposito" onSubmit={cancelar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
@@ -628,7 +628,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               <label className="text-xs text-slate-500 block">Motivo *</label>
               <textarea required rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} className={inputCls} />
             </form>
-            <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-black/5 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Volver</button>
               <button type="submit" form="form-cancelar-deposito" className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">Cancelar depósito</button>
             </div>

@@ -9,7 +9,7 @@ const VACIO = {
   intencion_compra: false, consentimiento_aviso: false, fecha_seguimiento: "", notas: "",
 };
 
-const input = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const input = "w-full rounded-xl neu px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 const RESULTADOS_POR_PAGINA = 8;
 
 export default function RegistrarDemanda({ productos, clientes, catalogosProducto = {}, puedeRegistrar, puedeEnviarCRM, sinSucursal, onRegistrada }) {
@@ -110,7 +110,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
   };
 
   if (exito) return (
-    <div className="mx-auto max-w-xl rounded-2xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
+    <div className="mx-auto max-w-xl rounded-2xl border border-emerald-200 neu-panel p-8 text-center shadow-sm">
       <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={28} /></div>
       <h2 className="text-xl font-bold text-slate-800">Demanda registrada</h2>
       <p className="mt-2 text-sm text-slate-500">{form.intencion_compra ? "La solicitud quedó guardada y el cliente fue vinculado al CRM como interesado." : "La solicitud quedó guardada en Radar sin agregar al cliente al CRM."}</p>
@@ -119,11 +119,11 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
   );
 
   return (
-    <form onSubmit={guardar} className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+    <form onSubmit={guardar} className="mx-auto max-w-3xl space-y-5 neu rounded-2xl p-4 sm:p-6">
       <section>
         <label className="mb-2 block font-semibold text-slate-800">1. ¿Qué pidió el cliente?</label>
         {modoProducto === "catalogo" ? <>
-          <button type="button" onClick={() => setBuscadorProductoAbierto(true)} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-left transition hover:border-blue-500 hover:bg-blue-50">
+          <button type="button" onClick={() => setBuscadorProductoAbierto(true)} className="flex min-h-12 w-full items-center gap-3 rounded-xl neu px-4 text-left transition hover:border-blue-500 hover:bg-blue-50">
             <Search className="shrink-0 text-blue-600" size={19} />
             <span className="min-w-0 flex-1"><span className={`block truncate text-sm font-semibold ${form.producto_id ? "text-slate-800" : "text-slate-500"}`}>{form.producto_id ? busqueda : "Abrir buscador de productos"}</span>{form.producto_id && <span className="text-xs text-slate-500">Haz clic para cambiar el producto</span>}</span>
             {form.producto_id && <span role="button" aria-label="Quitar producto" onClick={(e) => { e.stopPropagation(); setBusqueda(""); actualizar("producto_id", null); }} className="rounded-full p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X size={18} /></span>}
@@ -136,7 +136,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
         </div>}
       </section>
 
-      <section><label className="mb-2 block font-semibold text-slate-800">2. ¿Por qué no se vendió?</label><div className="flex flex-wrap gap-2">{MOTIVOS.map(([valor, etiqueta]) => <button type="button" key={valor} onClick={() => actualizar("motivo_no_venta", valor)} className={`min-h-11 rounded-xl border px-3 text-sm font-medium transition ${form.motivo_no_venta === valor ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-blue-400 hover:bg-blue-50"}`}>{etiqueta}</button>)}</div></section>
+      <section><label className="mb-2 block font-semibold text-slate-800">2. ¿Por qué no se vendió?</label><div className="flex flex-wrap gap-2">{MOTIVOS.map(([valor, etiqueta]) => <button type="button" key={valor} onClick={() => actualizar("motivo_no_venta", valor)} className={`min-h-11 rounded-xl border px-3 text-sm font-medium transition ${form.motivo_no_venta === valor ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 neu-panel text-slate-700 hover:border-blue-400 hover:bg-blue-50"}`}>{etiqueta}</button>)}</div></section>
 
       <section><label className="mb-2 block font-semibold text-slate-800">3. Cantidad</label><div className="flex w-fit items-center overflow-hidden rounded-xl border border-slate-300"><button type="button" aria-label="Restar cantidad" onClick={() => actualizar("cantidad", Math.max(1, Number(form.cantidad) - 1 || 1))} className="flex h-11 w-12 items-center justify-center bg-slate-50 hover:bg-slate-100"><Minus size={18} /></button><input aria-label="Cantidad" type="number" step="1" value={form.cantidad} onChange={(e) => actualizar("cantidad", e.target.value)} className="h-11 w-16 border-x border-slate-300 text-center font-bold outline-none" /><button type="button" aria-label="Sumar cantidad" onClick={() => actualizar("cantidad", Math.max(1, Number(form.cantidad) || 1) + 1)} className="flex h-11 w-12 items-center justify-center bg-slate-50 hover:bg-slate-100"><Plus size={18} /></button></div></section>
 
@@ -153,8 +153,8 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
       <button type="submit" disabled={guardando || !puedeRegistrar || sinSucursal} className="min-h-12 w-full rounded-xl bg-blue-600 px-5 font-bold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{guardando ? "Registrando…" : "Registrar demanda"}</button>
 
       {buscadorProductoAbierto && <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-buscador-productos" onMouseDown={(e) => { if (e.target === e.currentTarget) setBuscadorProductoAbierto(false); }}>
-        <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5"><h2 id="titulo-buscador-productos" className="text-lg font-bold text-slate-800">Buscar producto</h2><button type="button" aria-label="Cerrar buscador" onClick={() => setBuscadorProductoAbierto(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
+        <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl neu-panel shadow-2xl sm:rounded-2xl">
+          <div className="flex items-center justify-between border-b border-black/5 px-4 py-3 sm:px-5"><h2 id="titulo-buscador-productos" className="text-lg font-bold text-slate-800">Buscar producto</h2><button type="button" aria-label="Cerrar buscador" onClick={() => setBuscadorProductoAbierto(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
           <div className="p-4 sm:p-5">
             <div className="relative"><Search className="absolute left-3 top-3 text-slate-400" size={18} /><input autoFocus className={`${input} pl-10`} value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPaginaBusqueda(1); }} placeholder="Clave, descripción o código de barras..." /></div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">

@@ -144,7 +144,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVe
         </div>
       </div>
 
-      <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <table className="w-full text-sm neu rounded-xl overflow-hidden">
         <thead className="bg-[#1a7fe8] text-white">
           <tr>
             <th className="py-2 px-3 text-left font-medium">Nombre</th>
@@ -201,7 +201,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVe
 
       {modal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
+          <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-sm max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-sm text-slate-700 flex items-center gap-2">
                 <UserPlus size={16} className="text-blue-600" />
@@ -217,7 +217,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVe
                 <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
                 <input
                   autoFocus
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
                   value={form.nombre}
                   onChange={(e) => setForm({ ...form, nombre: e.target.value })}
                 />
@@ -225,7 +225,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVe
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Sucursal donde vende</label>
                 <select
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
                   value={form.sucursal_id}
                   onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}
                 >
@@ -244,7 +244,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVe
                 </label>
                 <input
                   type="number" min="0"
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
                   value={form.meta_mensual}
                   onChange={(e) => setForm({ ...form, meta_mensual: e.target.value })}
                   placeholder="Puedes dejarla en blanco y fijarla después"

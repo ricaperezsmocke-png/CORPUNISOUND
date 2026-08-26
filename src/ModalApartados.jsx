@@ -4,7 +4,7 @@ import { apiFetch, sinSucursalElegida } from "./api";
 import { pedirLista } from "./cargaSegura";
 import ModalConfirmar from "./ModalConfirmar";
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
 /**
  * Sufijo "?sucursal_id=" con la sucursal del PROPIO registro. Si el registro
@@ -174,7 +174,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
+      <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
         <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between shrink-0">
           <h3 className="font-semibold text-sm text-slate-700">Apartados</h3>
           <button type="button" onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
@@ -182,7 +182,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
           </button>
         </div>
 
-        <div className="border-b border-slate-200 flex shrink-0">
+        <div className="border-b border-black/5 flex shrink-0">
           <button type="button" onClick={() => setTab("nuevo")} className={`px-4 py-2 text-sm border-b-2 ${tab === "nuevo" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>Nuevo Apartado</button>
           <button type="button" onClick={() => setTab("lista")} className={`px-4 py-2 text-sm border-b-2 ${tab === "lista" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>Lista de Apartados</button>
         </div>

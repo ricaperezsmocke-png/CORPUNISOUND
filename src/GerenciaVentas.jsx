@@ -215,7 +215,7 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
 
       {/* ---------- Mi objetivo ---------- */}
       {tablero && (
-        <section className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+        <section className="neu rounded-xl p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-slate-700 flex items-center gap-2">
               <Target size={18} className="text-blue-600" />
@@ -262,7 +262,7 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
 
       {/* ---------- Tareas ---------- */}
       {tablero && (
-        <section className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+        <section className="neu rounded-xl p-4 shadow-sm">
           <h2 className="font-semibold text-slate-700 mb-3">Tareas para llegar a la meta</h2>
 
           {tablero.tareas.length === 0 ? (
@@ -314,7 +314,7 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
 
       {/* ---------- Equipo (solo jefatura) ---------- */}
       {esJefatura && (
-        <section className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+        <section className="neu rounded-xl p-4 shadow-sm">
           <h2 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
             <Users size={18} className="text-blue-600" />
             Objetivos del equipo
@@ -323,7 +323,7 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[560px]">
               <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200">
+                <tr className="text-left text-slate-500 border-b border-black/5">
                   <th className="py-2 font-medium">Vendedor</th>
                   <th className="py-2 font-medium text-right">Meta</th>
                   <th className="py-2 font-medium text-right">Vendido</th>
@@ -347,7 +347,7 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
                             if (e.key === "Enter") guardarMeta(v.vendedor_id, editandoMeta.valor);
                             if (e.key === "Escape") setEditandoMeta(null);
                           }}
-                          className="w-28 border border-slate-300 rounded px-2 py-1 text-right text-sm"
+                          className="w-28 neu-campo rounded-lg px-2 py-1 text-right text-sm"
                         />
                       ) : (
                         <span className={v.sin_meta ? "text-slate-400" : ""}>

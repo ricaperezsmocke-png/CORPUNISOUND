@@ -38,7 +38,7 @@ export default function Reportes() {
           <button
             key={id}
             onClick={() => setActivo(id)}
-            className="flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-xl p-4 hover:border-[#1a7fe8] hover:shadow-md transition-all"
+            className="flex flex-col items-center gap-2 neu rounded-xl p-4 hover:border-[#1a7fe8] hover:shadow-md transition-all"
           >
             <Icono size={28} className="text-[#1a7fe8]" />
             <span className="text-xs font-medium text-slate-700 text-center">{nombre}</span>

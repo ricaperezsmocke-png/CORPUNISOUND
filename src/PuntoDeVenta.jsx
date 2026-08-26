@@ -57,7 +57,7 @@ function BotonLateral({ icono: Icono, etiqueta, atajo, onClick, color }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex flex-col items-center gap-1 py-3 hover:bg-slate-100 border-b border-slate-200 transition-colors"
+      className="w-full flex flex-col items-center gap-1 py-3 hover:bg-slate-100 border-b border-black/5 transition-colors"
     >
       <Icono size={22} className={color || "text-slate-600"} />
       <span className="text-[10px] leading-tight text-slate-600 text-center">{etiqueta}<br />({atajo})</span>
@@ -68,8 +68,8 @@ function BotonLateral({ icono: Icono, etiqueta, atajo, onClick, color }) {
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
-        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+      <div className={`neu-panel rounded-2xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel rounded-t-xl">
           <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
             <X size={16} />
@@ -81,7 +81,7 @@ function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   );
 }
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 function Campo({ label, children, className = "" }) {
   return (
     <div className={className}>
@@ -618,9 +618,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
       {/* ===== TABS INTERNOS ===== */}
-      <div className="bg-white border-b border-slate-100 flex items-center justify-between shrink-0 px-2">
+      <div className="neu rounded-none flex items-center justify-between shrink-0 px-2">
         <div className="flex">
           {[
             { icono: LayoutGrid, texto: "Operaciones", accion: null },
@@ -663,7 +663,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       )}
 
       {/* ===== BARRA DE HERRAMIENTAS F2-F12 ===== */}
-      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+      <div className="neu rounded-none flex overflow-x-auto shrink-0">
         {puede("buscar_articulos") && <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => setModal("buscar")} />}
         {puede("cambiar_numero_precio") && <BotonBarra icono={Tag} etiqueta="Precio" atajo="F3" onClick={() => {
           if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila del ticket primero");
@@ -698,13 +698,13 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       {/* ===== CUERPO: SIDEBAR + CONTENIDO ===== */}
       <div className="flex flex-1 min-h-0">
         {/* -------- SIDEBAR IZQUIERDO -------- */}
-        <div className="w-24 bg-white border-r border-slate-300 flex flex-col shrink-0 overflow-y-auto">
+        <div className="w-24 neu rounded-none flex flex-col shrink-0 overflow-y-auto">
           {puede("cerrar_venta") && (
             <button
               type="button"
               onClick={() => abrirCobro()}
               title={sinSucursal && !esCotizacion ? AVISO_SIN_SUCURSAL : "Cerrar la venta (ESC)"}
-              className={`flex flex-col items-center gap-1 py-4 border-b border-slate-200 ${sinSucursal && !esCotizacion ? "opacity-40 cursor-not-allowed" : "hover:bg-emerald-50"}`}
+              className={`flex flex-col items-center gap-1 py-4 border-b border-black/5 ${sinSucursal && !esCotizacion ? "opacity-40 cursor-not-allowed" : "hover:bg-emerald-50"}`}
             >
               <div className="bg-emerald-600 text-white rounded-full w-9 h-9 flex items-center justify-center font-bold text-xs">OK</div>
               <span className="text-[10px] text-slate-600">Cerrar<br />(ESC)</span>
@@ -722,7 +722,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                     alConfirmar: limpiarTicket,
                   })
                 : mostrarAviso("El ticket ya está vacío"))}
-              className="flex flex-col items-center gap-1 py-3 border-b border-slate-200 hover:bg-red-50"
+              className="flex flex-col items-center gap-1 py-3 border-b border-black/5 hover:bg-red-50"
             >
               <X size={20} className="text-red-500" />
               <span className="text-[10px] text-slate-600">Cancelar<br />ticket</span>
@@ -743,7 +743,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         {/* -------- CONTENIDO CENTRAL -------- */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Encabezado del ticket */}
-          <div className="p-3 border-b border-slate-200 bg-white">
+          <div className="p-3 border-b border-black/5 neu-panel">
             <div className="flex gap-3">
               <div className="w-20 h-20 bg-slate-200 rounded flex items-center justify-center shrink-0">
                 <Package size={28} className="text-slate-400" />
@@ -757,7 +757,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                     onChange={(e) => setCodigoInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && buscarPorCodigo()}
                     placeholder="Escanea o escribe un código de barras / SKU y presiona Enter"
-                    className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                    className="flex-1 neu-campo rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                   />
                   <button onClick={buscarPorCodigo} className="bg-slate-200 hover:bg-slate-300 p-2 rounded"><Search size={16} /></button>
                   <button onClick={() => mostrarAviso("Enviando a impresora...")} className="bg-slate-200 hover:bg-slate-300 p-2 rounded"><Printer size={16} /></button>
@@ -772,14 +772,14 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                 </div>
                 <div className="flex gap-2 items-center">
                   <User size={16} className="text-slate-400" />
-                  <button onClick={() => setModal("cliente")} className="flex-1 text-left border border-slate-300 rounded px-3 py-1.5 text-blue-700 font-medium hover:bg-slate-50">
+                  <button onClick={() => setModal("cliente")} className="flex-1 text-left neu-campo rounded-lg px-3 py-1.5 text-blue-700 font-medium hover:bg-slate-50">
                     {cliente.nombre}
                   </button>
                   <Users size={16} className="text-slate-400" />
-                  <button onClick={() => setModal("vendedor")} className="border border-slate-300 rounded px-3 py-1.5 text-blue-700 font-medium hover:bg-slate-50">
+                  <button onClick={() => setModal("vendedor")} className="neu-campo rounded-lg px-3 py-1.5 text-blue-700 font-medium hover:bg-slate-50">
                     {vendedor.nombre}
                   </button>
-                  <span className="text-xs text-slate-500 border border-slate-300 rounded px-2 py-1.5 bg-slate-50">MXN</span>
+                  <span className="text-xs text-slate-500 neu-campo rounded-lg px-2 py-1.5 bg-slate-50">MXN</span>
                 </div>
               </div>
             </div>
@@ -890,7 +890,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             value={busquedaTexto}
             onChange={(e) => { setBusquedaTexto(e.target.value); setPaginaBusqueda(1); }}
             placeholder="Clave, descripción o código de barras..."
-            className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
           />
           <div className="flex flex-wrap gap-4 mb-3 text-sm">
             <label className="flex items-center gap-1.5">
@@ -899,15 +899,15 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             <label className="flex items-center gap-1.5">
               <input type="checkbox" checked={sinUtilidad} onChange={(e) => { setSinUtilidad(e.target.checked); setPaginaBusqueda(1); }} /> Sin Utilidad
             </label>
-            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroDepartamento} onChange={(e) => { setFiltroDepartamento(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todos los departamentos</option>
               {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </select>
-            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todas las categorías</option>
               {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
-            <select value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroProveedor} onChange={(e) => { setFiltroProveedor(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todos los proveedores</option>
               {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
@@ -988,7 +988,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           <input
             autoFocus type="number" value={valorTemporal}
             onChange={(e) => setValorTemporal(e.target.value)}
-            className="w-full border border-slate-300 rounded px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
           />
           <button
             onClick={() => { actualizarPrecio(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
@@ -1003,7 +1003,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           <input
             autoFocus type="number" value={valorTemporal}
             onChange={(e) => setValorTemporal(e.target.value)}
-            className="w-full border border-slate-300 rounded px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
           />
           <button
             onClick={() => { actualizarCantidad(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
@@ -1019,7 +1019,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             <input
               autoFocus type="number" value={valorTemporal}
               onChange={(e) => setValorTemporal(e.target.value)}
-              className="flex-1 border border-slate-300 rounded px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500"
+              className="flex-1 neu-campo rounded-lg px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500"
             />
             <span className="text-lg text-slate-500">%</span>
           </div>
@@ -1089,7 +1089,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           <Campo label="eMail" className="mb-3">
             <input className={inputCls} value={formCliente.email} onChange={(e) => setFormCliente({ ...formCliente, email: e.target.value })} />
           </Campo>
-          <div className="border-t border-slate-200 pt-3 mb-3">
+          <div className="border-t border-black/5 pt-3 mb-3">
             <label className="flex items-center gap-2 text-sm mb-3">
               <input type="checkbox" checked={formCliente.sujeto_credito} onChange={(e) => setFormCliente({ ...formCliente, sujeto_credito: e.target.checked })} />
               Es sujeto de crédito
@@ -1223,7 +1223,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                     <input
                       type="number" value={efectivoRecibido}
                       onChange={(e) => setEfectivoRecibido(e.target.value)}
-                      className="w-full border border-slate-300 rounded px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500"
+                      className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500"
                     />
                     {efectivoRecibido !== "" && (
                       <div className="text-right text-sm text-emerald-700 font-semibold mt-1">Cambio: ${cambio.toFixed(2)}</div>

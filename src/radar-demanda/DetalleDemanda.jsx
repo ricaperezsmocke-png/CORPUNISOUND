@@ -9,7 +9,7 @@ import {
 } from "./radarDemandaApi";
 import { fechaCorta, nombreProducto } from "./MisDemandas";
 
-const input = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const input = "w-full rounded-xl neu px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 const terminales = new Set(["CONVERTIDA", "NO_CONVERTIDA", "CANCELADA"]);
 const etiquetas = {
   REGISTRADA: "Registrada", EN_SEGUIMIENTO: "En seguimiento", PRODUCTO_DISPONIBLE: "Producto disponible",
@@ -41,7 +41,7 @@ function Campo({ etiqueta, valor }) {
 
 function Modal({ titulo, children, onClose }) {
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true">
-    <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-2xl sm:p-6">
+    <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-t-2xl neu-panel p-4 shadow-2xl sm:rounded-2xl sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">{titulo}</h2><button aria-label="Cerrar" onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
       {children}
     </div>
@@ -113,7 +113,7 @@ export default function DetalleDemanda({ id, clientes, meta, permisos, onVolver,
     <section className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-700 to-indigo-700 p-5 text-white shadow-sm">
       <p className="text-xs font-bold uppercase tracking-[.18em] text-blue-100">Siguiente acción</p><div className="mt-2 flex items-center gap-3"><Clock3 size={25} /><p className="text-xl font-extrabold">{proximaAccion(demanda)}</p></div>
     </section>
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+    <section className="neu rounded-2xl p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase text-blue-600">Demanda #{demanda.id}</p><h1 className="mt-1 text-2xl font-extrabold text-slate-900">{nombreProducto(demanda)}</h1><p className="mt-1 text-sm text-slate-500">SKU: {demanda.producto_sku_registrado || "Sin SKU"}</p></div><span className="w-fit rounded-full bg-blue-100 px-3 py-1.5 text-xs font-bold text-blue-800">{etiquetas[demanda.estado] || demanda.estado}</span></div>
       <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-4">
         <Campo etiqueta="Producto libre" valor={demanda.producto_buscado} /><Campo etiqueta="Marca" valor={demanda.marca_solicitada} /><Campo etiqueta="Modelo" valor={demanda.modelo_solicitado} /><Campo etiqueta="Variante" valor={demanda.variante_solicitada} />
@@ -122,13 +122,13 @@ export default function DetalleDemanda({ id, clientes, meta, permisos, onVolver,
         <Campo etiqueta="Seguimiento" valor={fechaCorta(demanda.fecha_seguimiento)} /><Campo etiqueta="Notas" valor={demanda.notas} /><Campo etiqueta="Venta recuperada" valor={demanda.venta_recuperada_id ? `Venta #${demanda.venta_recuperada_id}` : "—"} />
       </dl>
     </section>
-    {!terminales.has(demanda.estado) && (puedeSeguimiento || puedeCerrar) && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+    {!terminales.has(demanda.estado) && (puedeSeguimiento || puedeCerrar) && <section className="neu rounded-2xl p-4 sm:p-5">
       <h2 className="font-bold text-slate-900">Acciones</h2><div className="mt-3 flex flex-wrap gap-2">
         {puedeSeguimiento && <button onClick={() => { setFecha(demanda.fecha_seguimiento || ""); abrirModal("seguimiento"); }} className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Plus size={17} /> Registrar seguimiento</button>}
         {transicionesVisibles.map((estado) => <button key={estado} onClick={() => estado === "CONVERTIDA" ? abrirVenta() : abrirModal(estado)} className={`min-h-11 rounded-xl border px-4 text-sm font-bold ${estado === "CANCELADA" ? "border-red-200 text-red-700 hover:bg-red-50" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}>{acciones[estado] || etiquetas[estado]}</button>)}
       </div>
     </section>}
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="mb-4 flex items-center gap-2"><History size={19} className="text-blue-600" /><h2 className="font-bold text-slate-900">Historial</h2></div>{historial.length ? <ol className="space-y-4 border-l-2 border-slate-200 pl-4">{historial.map((item) => <li key={item.id}><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-bold text-slate-800">{item.tipo === "CAMBIO_ESTADO" ? `${etiquetas[item.estado_anterior]} → ${etiquetas[item.estado_nuevo]}` : "Seguimiento"}</span><span className="text-xs text-slate-400">{new Date(item.fecha_hora).toLocaleString("es-MX")}</span></div><p className="mt-1 text-sm text-slate-600">{item.comentario || "Sin comentario"}</p><p className="mt-1 text-xs text-slate-400">{item.usuario_nombre || "Usuario"}</p></li>)}</ol> : <p className="text-sm text-slate-500">Sin movimientos todavía.</p>}</section>
+    <section className="neu rounded-2xl p-4 sm:p-6"><div className="mb-4 flex items-center gap-2"><History size={19} className="text-blue-600" /><h2 className="font-bold text-slate-900">Historial</h2></div>{historial.length ? <ol className="space-y-4 border-l-2 border-slate-200 pl-4">{historial.map((item) => <li key={item.id}><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-bold text-slate-800">{item.tipo === "CAMBIO_ESTADO" ? `${etiquetas[item.estado_anterior]} → ${etiquetas[item.estado_nuevo]}` : "Seguimiento"}</span><span className="text-xs text-slate-400">{new Date(item.fecha_hora).toLocaleString("es-MX")}</span></div><p className="mt-1 text-sm text-slate-600">{item.comentario || "Sin comentario"}</p><p className="mt-1 text-xs text-slate-400">{item.usuario_nombre || "Usuario"}</p></li>)}</ol> : <p className="text-sm text-slate-500">Sin movimientos todavía.</p>}</section>
 
     {modal === "seguimiento" && <Modal titulo="Registrar seguimiento" onClose={() => setModal(null)}><div className="space-y-4"><label className="block text-sm font-semibold text-slate-700">Comentario *<textarea autoFocus className={`${input} mt-1 min-h-24`} value={comentario} onChange={(e) => setComentario(e.target.value)} /></label><label className="block text-sm font-semibold text-slate-700">Próxima fecha de seguimiento<input type="date" className={`${input} mt-1`} value={fecha} onInput={(e) => setFecha(e.currentTarget.value)} onChange={(e) => setFecha(e.target.value)} /></label>{transicionesSeguimiento.length > 0 && <label className="block text-sm font-semibold text-slate-700">Cambio de estado opcional<select className={`${input} mt-1`} value={estadoOpcional} onChange={(e) => setEstadoOpcional(e.target.value)}><option value="">Sin cambio</option>{transicionesSeguimiento.map((estado) => <option key={estado} value={estado}>{etiquetas[estado]}</option>)}</select></label>}<button disabled={guardando} onClick={guardarSeguimiento} className="min-h-11 w-full rounded-xl bg-blue-600 font-bold text-white disabled:opacity-50">Guardar seguimiento</button></div></Modal>}
     {modal === "PRODUCTO_DISPONIBLE" && <Modal titulo="Marcar producto disponible" onClose={() => setModal(null)}><p className="mb-4 text-sm text-slate-600">Esta acción es manual y no modifica inventario.</p><textarea className={`${input} min-h-20`} value={comentario} onChange={(e) => setComentario(e.target.value)} placeholder="Comentario opcional" /><button disabled={guardando} onClick={() => cambiarEstado("PRODUCTO_DISPONIBLE")} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-amber-500 font-bold text-white"><PackageCheck size={18} /> Confirmar disponibilidad</button></Modal>}

@@ -42,7 +42,7 @@ function Campo({ label, children, className = "" }) {
   );
 }
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
 const FORM_VACIO = {
   clave: "", clave_alterna: "", servicio: false, descripcion: "",
@@ -403,9 +403,9 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   }, [modal, seleccionado, productos, tab]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       {/* Pestañas del módulo */}
-      <div className="bg-white border-b border-slate-100 flex items-center px-2 shrink-0">
+      <div className="neu rounded-none flex items-center px-2 shrink-0">
         {TABS.filter((t) => !t.permiso || puede(t.permiso)).map((t) => (
           <button
             key={t.id}
@@ -435,7 +435,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       )}
 
       {/* Barra de herramientas */}
-      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+      <div className="neu rounded-none flex overflow-x-auto shrink-0">
         {puede("crear_producto") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={abrirCrear} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         {puede("editar_producto") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={abrirEditar} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={() => { cargarTodo(); mostrarAviso("Lista recargada"); }} />
@@ -456,12 +456,12 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       {/* Cuerpo: lista + panel de detalle */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0 border-r border-slate-300">
-          <div className="p-3 border-b border-slate-200 flex gap-2 bg-white">
+          <div className="p-3 border-b border-black/5 flex gap-2 neu-panel">
             <Search size={16} className="text-slate-400 mt-2" />
             <input
               value={filtro} onChange={(e) => setFiltro(e.target.value)}
               placeholder="Buscar por clave o descripción..."
-              className="flex-1 border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500"
+              className="flex-1 neu-campo rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
             />
             <label className="text-xs text-slate-500 flex items-center gap-1.5 whitespace-nowrap self-center">
               <input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} />
@@ -511,8 +511,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         </div>
 
         {/* Panel de artículo seleccionado */}
-        <div className="w-80 bg-white flex flex-col shrink-0">
-          <div className="px-4 py-3 border-b border-slate-200 font-semibold text-slate-600">Artículo Seleccionado</div>
+        <div className="w-80 neu-panel flex flex-col shrink-0">
+          <div className="px-4 py-3 border-b border-black/5 font-semibold text-slate-600">Artículo Seleccionado</div>
           {!seleccionado ? (
             <div className="flex-1 flex items-center justify-center text-slate-300 text-center px-6">Selecciona un producto de la lista</div>
           ) : (
@@ -575,8 +575,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       {/* ---------- Modal: Agregar / Editar artículo ---------- */}
       {modal === "form" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
-            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
+          <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel">
               <h3 className="font-semibold text-sm text-slate-700">{modoForm === "crear" ? "Agregar artículo" : "Editar artículo"}</h3>
               <button type="button" onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
@@ -637,7 +637,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                 </Campo>
               </div>
 
-              <div className="border-t border-slate-200 pt-3">
+              <div className="border-t border-black/5 pt-3">
                 <div className="text-xs font-semibold text-slate-500 mb-2">Precios de venta</div>
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   <Campo label="Precio de compra">
@@ -674,7 +674,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               </Campo>
 
               {modoForm === "crear" && (
-                <div className="border-t border-slate-200 pt-3">
+                <div className="border-t border-black/5 pt-3">
                   <div className="text-xs font-semibold text-slate-500 mb-2">Inventario inicial</div>
                   <div className="grid grid-cols-3 gap-3">
                     <Campo label="Existencia inicial"><input type="number" className={inputCls} value={form.existencia_inicial} onChange={(e) => setForm({ ...form, existencia_inicial: e.target.value })} /></Campo>
@@ -684,7 +684,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                 </div>
               )}
 
-              <div className="border-t border-slate-200 pt-3">
+              <div className="border-t border-black/5 pt-3">
                 <div className="text-xs font-semibold text-slate-500 mb-2">Imagen del producto</div>
                 <div className="flex gap-2">
                   <input
@@ -724,7 +724,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       {/* ---------- Modal: Ajustar existencia ---------- */}
       {modal === "ajustar" && seleccionado && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Ajustar existencia (F8)</h3>
               <button type="button" onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>

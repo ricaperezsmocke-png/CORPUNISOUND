@@ -62,11 +62,11 @@ function Insignia({ tipo }) {
 }
 
 function Tarjeta({ titulo, valor, color }) {
-  return <div className={`rounded-2xl border bg-white p-4 shadow-sm ${color}`}><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</p><p className="mt-2 text-3xl font-extrabold text-slate-900">{numero.format(valor || 0)}</p></div>;
+  return <div className={`rounded-2xl border neu-panel p-4 shadow-sm ${color}`}><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</p><p className="mt-2 text-3xl font-extrabold text-slate-900">{numero.format(valor || 0)}</p></div>;
 }
 
 function Seccion({ titulo, icono: Icono, descripcion, vacio, children, tieneDatos }) {
-  return <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" style={{ contain: "paint" }}>
+  return <section className="min-w-0 overflow-hidden rounded-2xl neu shadow-sm" style={{ contain: "paint" }}>
     <div className="border-b border-slate-100 p-4"><h2 className="flex items-center gap-2 font-extrabold text-slate-900"><Icono size={19} className="text-blue-700" />{titulo}</h2><p className="mt-1 text-xs text-slate-500">{descripcion}</p></div>
     {tieneDatos ? children : <p className="px-4 py-10 text-center text-sm text-slate-500">{vacio}</p>}
   </section>;
@@ -80,7 +80,7 @@ function Explicacion({ fila, onCerrar }) {
   if (!fila) return null;
   const calidad = (fila.calidad_datos || []).filter((x) => !(fila.advertencias || []).includes(x));
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-explicacion">
-    <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
+    <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-2xl neu-panel p-5 shadow-xl sm:rounded-2xl">
       <div className="flex items-start justify-between gap-4"><div><Insignia tipo={fila.clasificacion} /><h2 id="titulo-explicacion" className="mt-3 text-xl font-extrabold text-slate-900">{fila.producto?.nombre || fila.producto_solicitado || "Detalle de evidencia"}</h2><p className="mt-1 text-sm text-slate-600">{CLASIFICACIONES[fila.clasificacion]?.[1]}</p></div><button onClick={onCerrar} aria-label="Cerrar explicación" className="flex min-h-10 min-w-10 items-center justify-center rounded-xl border text-slate-500"><X size={18} /></button></div>
       <BloqueDetalle titulo="Razones" codigos={fila.razones} tono="blue" />
       <BloqueDetalle titulo="Advertencias" codigos={fila.advertencias} tono="amber" />
@@ -182,7 +182,7 @@ export default function InteligenciaCompras({ permisos = [] }) {
   ];
 
   return <div className="min-w-0 max-w-full space-y-5 overflow-x-hidden">
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col gap-3 lg:flex-row lg:items-end"><div className="flex-1"><div className="flex items-center gap-2"><BrainCircuit size={20} className="text-blue-700" /><h2 className="font-extrabold text-slate-900">Inteligencia para Compras</h2></div><p className="mt-1 max-w-2xl text-sm text-slate-500">Evidencia para revisar abastecimiento y movimiento interno. No genera compras ni traspasos.</p></div><label className="text-xs font-semibold text-slate-500">Fecha de corte<input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="mt-1 block min-h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-800" /></label>{global && <label className="text-xs font-semibold text-slate-500">Sucursal<select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="mt-1 block min-h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"><option value="todas">Todas</option>{sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}</select></label>}<button onClick={cargar} disabled={cargando} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 px-4 text-sm font-bold text-blue-700 hover:bg-blue-50"><RefreshCw size={16} className={cargando ? "animate-spin" : ""} />Actualizar</button></div></section>
+    <section className="neu rounded-2xl p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-end"><div className="flex-1"><div className="flex items-center gap-2"><BrainCircuit size={20} className="text-blue-700" /><h2 className="font-extrabold text-slate-900">Inteligencia para Compras</h2></div><p className="mt-1 max-w-2xl text-sm text-slate-500">Evidencia para revisar abastecimiento y movimiento interno. No genera compras ni traspasos.</p></div><label className="text-xs font-semibold text-slate-500">Fecha de corte<input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="mt-1 block min-h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-800" /></label>{global && <label className="text-xs font-semibold text-slate-500">Sucursal<select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="mt-1 block min-h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-800"><option value="todas">Todas</option>{sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}</select></label>}<button onClick={cargar} disabled={cargando} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 px-4 text-sm font-bold text-blue-700 hover:bg-blue-50"><RefreshCw size={16} className={cargando ? "animate-spin" : ""} />Actualizar</button></div></section>
 
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertTriangle size={18} />{error}</div>}
     {cargando && !datos ? <div className="py-16 text-center text-sm text-slate-500">Cargando inteligencia...</div> : datos && <>

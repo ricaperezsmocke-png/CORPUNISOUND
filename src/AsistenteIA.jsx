@@ -13,7 +13,7 @@ function Ticket({ input, resultado }) {
   const [abierto, setAbierto] = useState(false);
   const titulo = `${input.modulo}.${input.tabla}${input.agrupar_por ? ` (agrupado por ${input.agrupar_por})` : ""}`;
   return (
-    <div className="mt-2 border border-dashed border-slate-300 rounded-lg bg-white text-xs font-mono text-slate-500">
+    <div className="mt-2 border border-dashed border-slate-300 rounded-lg neu-panel text-xs font-mono text-slate-500">
       <button onClick={() => setAbierto((v) => !v)} className="w-full flex items-center justify-between px-3 py-2 text-[#1a7fe8] font-semibold">
         <span>🧾 consulta: {titulo}</span>
         {abierto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -71,7 +71,7 @@ export default function AsistenteIA() {
                 </div>
               )}
               <div className={`px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap ${
-                m.role === "user" ? "bg-[#1a7fe8] text-white rounded-br-sm" : "bg-white border border-slate-200 rounded-bl-sm"
+                m.role === "user" ? "bg-[#1a7fe8] text-white rounded-br-sm" : "neu rounded-bl-sm"
               }`}>
                 {m.content}
               </div>
@@ -84,7 +84,7 @@ export default function AsistenteIA() {
             <div className="w-7 h-7 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
               <Bot size={15} className="text-[#1a7fe8]" />
             </div>
-            <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1">
+            <div className="neu rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1">
               {[0, 1, 2].map((i) => (
                 <span key={i} className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
               ))}
@@ -105,7 +105,7 @@ export default function AsistenteIA() {
             <button
               key={s}
               onClick={() => enviar(s)}
-              className="text-xs bg-white border border-slate-200 rounded-full px-3 py-1.5 hover:border-[#1a7fe8] hover:text-[#1a7fe8] transition-colors"
+              className="text-xs neu rounded-full px-3 py-1.5 hover:border-[#1a7fe8] hover:text-[#1a7fe8] transition-colors"
             >
               {s}
             </button>
@@ -113,14 +113,14 @@ export default function AsistenteIA() {
         </div>
       )}
 
-      <div className="border-t border-slate-200 bg-white px-4 py-3">
+      <div className="border-t border-black/5 neu-panel px-4 py-3">
         <div className="max-w-2xl mx-auto flex gap-2">
           <input
             value={entrada}
             onChange={(e) => setEntrada(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && enviar(entrada)}
             placeholder="Pregunta algo sobre tu negocio..."
-            className="flex-1 border border-slate-300 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-[#1a7fe8]"
+            className="flex-1 neu-campo rounded-lg-full px-4 py-2.5 text-sm focus:outline-none focus:border-[#1a7fe8]"
           />
           <button
             onClick={() => enviar(entrada)}

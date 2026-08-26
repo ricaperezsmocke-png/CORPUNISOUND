@@ -153,8 +153,8 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const totalPeriodo = useMemo(() => ventas.filter((v) => v.estatus === "cerrada").reduce((a, v) => a + v.total, 0), [ventas]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm select-none">
-      <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+      <div className="neu rounded-none flex overflow-x-auto shrink-0">
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
         {puede("cancelar_ventas") && <BotonBarra icono={Ban} etiqueta="Cancelar" atajo="F6" tono="rojo" onClick={abrirCancelar} />}
@@ -169,38 +169,38 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
       {error && <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2 shrink-0">{error}</div>}
 
-      <div className="bg-white border-b border-slate-200 px-4 py-3 shrink-0">
+      <div className="neu rounded-none px-4 py-3 shrink-0">
         <div className="flex flex-wrap gap-3 items-end mb-2">
           <div>
             <label className="text-xs text-slate-500 block mb-1">Fecha Inicial</label>
-            <input type="date" value={fechaInicial} onChange={(e) => setFechaInicial(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+            <input type="date" value={fechaInicial} onChange={(e) => setFechaInicial(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm" />
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Fecha Final</label>
-            <input type="date" value={fechaFinal} onChange={(e) => setFechaFinal(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+            <input type="date" value={fechaFinal} onChange={(e) => setFechaFinal(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm" />
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Documento</label>
-            <select value={documento} onChange={(e) => setDocumento(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <select value={documento} onChange={(e) => setDocumento(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               {TIPOS_DOCUMENTO.map((d) => <option key={d}>{d}</option>)}
             </select>
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Estado</label>
-            <select value={estado} onChange={(e) => setEstado(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm capitalize">
+            <select value={estado} onChange={(e) => setEstado(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm capitalize">
               {ESTADOS.map((e) => <option key={e}>{e}</option>)}
             </select>
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1">Caja / Sucursal</label>
-            <select value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <select value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               <option value="">Todas</option>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
           </div>
           <div>
             <label className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Users size={11} /> Vendedor</label>
-            <select value={vendedorFiltro} onChange={(e) => setVendedorFiltro(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <select value={vendedorFiltro} onChange={(e) => setVendedorFiltro(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               <option value="">Todos</option>
               {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
             </select>
@@ -215,7 +215,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         )}
         <div className="flex items-center gap-2">
           <Search size={16} className="text-slate-400" />
-          <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && consultar()} placeholder="Buscar por folio o cliente..." className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm max-w-md focus:outline-none focus:border-blue-500" />
+          <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => e.key === "Enter" && consultar()} placeholder="Buscar por folio o cliente..." className="flex-1 neu-campo rounded-lg px-3 py-1.5 text-sm max-w-md focus:outline-none focus:border-blue-500" />
         </div>
       </div>
 
@@ -271,8 +271,8 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
       {modal === "detalle" && detalle && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto animate-panel-in">
-            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto animate-panel-in">
+            <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel">
               <h3 className="font-semibold text-sm">Detalle — Folio {detalle.id}</h3>
               <button type="button" onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>
@@ -286,7 +286,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <div><span className="text-slate-400">Forma de pago:</span> {detalle.metodo_pago}</div>
               </div>
               <table className="w-full text-xs mb-3">
-                <thead><tr className="border-b border-slate-200 text-slate-500"><th className="text-left py-1">Producto</th><th className="text-center py-1">Cant.</th><th className="text-right py-1">Precio</th><th className="text-right py-1">Importe</th></tr></thead>
+                <thead><tr className="border-b border-black/5 text-slate-500"><th className="text-left py-1">Producto</th><th className="text-center py-1">Cant.</th><th className="text-right py-1">Precio</th><th className="text-right py-1">Importe</th></tr></thead>
                 <tbody>
                   {detalle.lineas.map((l) => (
                     <tr key={l.id} className="border-b border-slate-100">
@@ -313,7 +313,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
       {modal === "cancelar" && seleccionada && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Cancelar venta — Folio {seleccionada.id}</h3>
               <button type="button" onClick={() => setModal(null)} className="hover:bg-red-700 rounded p-1"><X size={18} /></button>
@@ -322,7 +322,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
               <p className="text-xs text-slate-600">Esto reintegra al inventario los productos de esta venta. Esta acción no se puede deshacer.</p>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Motivo de la cancelación</label>
-                <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" />
+                <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
               </div>
               <button type="button" onClick={confirmarCancelacion} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">Confirmar cancelación</button>
             </div>

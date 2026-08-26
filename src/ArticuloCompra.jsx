@@ -3,7 +3,7 @@ import { X, Search, Package } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirDato } from "./cargaSegura";
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 
 function Campo({ label, children, className = "" }) {
   return (
@@ -141,8 +141,8 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
-        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
+      <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto animate-panel-in">
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel">
           <h3 className="font-semibold text-sm text-slate-700 flex items-center gap-2"><Package size={16} /> Artículo</h3>
           <button onClick={onCancelar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400"><X size={16} /></button>
         </div>
@@ -171,7 +171,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-3">
+          <div className="border-t border-black/5 pt-3">
             <div className="text-xs font-semibold text-slate-500 mb-2">Precios (antes de esta compra)</div>
             {errorHistorial && (
               // Sin esto, un fallo se veía igual que "nunca se ha comprado", y
@@ -198,7 +198,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-3">
+          <div className="border-t border-black/5 pt-3">
             <div className="text-xs font-semibold text-slate-500 mb-2">Detalle de la Compra</div>
             <label className="flex items-center gap-2 text-sm mb-3">
               <input type="checkbox" checked={aplicaIva} onChange={(e) => setAplicaIva(e.target.checked)} /> Aplica IVA (16%)
@@ -222,7 +222,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-3">
+          <div className="border-t border-black/5 pt-3">
             <div className="text-xs font-semibold text-slate-500 mb-2">Precios de Venta (después de esta compra)</div>
             <div className="grid grid-cols-4 gap-3">
               {precios.map((t, idx) => (
@@ -247,8 +247,8 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
 
         {modalSat && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4 animate-overlay-in" onClick={() => setModalSat(false)}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto animate-panel-in" onClick={(e) => e.stopPropagation()}>
-              <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white">
+            <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto animate-panel-in" onClick={(e) => e.stopPropagation()}>
+              <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel">
                 <h4 className="font-semibold text-sm text-slate-700">Buscar Clave SAT</h4>
                 <button onClick={() => setModalSat(false)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400"><X size={16} /></button>
               </div>
@@ -257,7 +257,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
                   autoFocus value={busquedaSat}
                   onChange={(e) => { setBusquedaSat(e.target.value); setPaginaSat(1); }}
                   placeholder="Escribe una palabra clave, ej: amplificador"
-                  className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+                  className="w-full neu-campo rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
                 />
                 <div className="max-h-80 overflow-y-auto border border-slate-200 rounded">
                   <table className="w-full text-sm">

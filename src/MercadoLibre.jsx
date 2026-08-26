@@ -89,7 +89,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 animate-overlay-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-panel-in">
+      <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-panel-in">
         <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-800 text-sm">Publicar en MercadoLibre</h2>
           <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
@@ -100,7 +100,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
             <select
               required name="producto_id" value={form.producto_id}
               onChange={handleProducto}
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
             >
               <option value="">— Seleccionar —</option>
               {productos.map((p) => (
@@ -113,7 +113,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
             <input
               required name="titulo" value={form.titulo} onChange={handleChange}
               placeholder="Ej: Guitarra Acústica Folk Natural con Funda"
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -122,7 +122,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
               <input
                 required name="categoria_ml" value={form.categoria_ml} onChange={handleChange}
                 placeholder="Ej: MLM1055"
-                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+                className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
               />
               <p className="text-[10px] text-slate-400 mt-0.5">Busca en ml.com tu categoría</p>
             </div>
@@ -130,7 +130,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
               <label className="text-xs text-slate-500 block mb-1">Tipo publicación</label>
               <select
                 name="tipo_publicacion" value={form.tipo_publicacion} onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+                className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
               >
                 <option value="gold_special">Clásica (gratis)</option>
                 <option value="gold_pro">Premium</option>
@@ -143,7 +143,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
               <input
                 required type="number" step="0.01" min="0" name="precio"
                 value={form.precio} onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+                className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
               />
             </div>
             <div>
@@ -151,7 +151,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
               <input
                 required type="number" min="1" name="cantidad"
                 value={form.cantidad} onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+                className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
               />
             </div>
           </div>
@@ -160,7 +160,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
             <input
               name="foto_url" value={form.foto_url} onChange={handleChange}
               placeholder="https://..."
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm"
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
             />
           </div>
           <div>
@@ -168,7 +168,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
             <textarea
               name="descripcion" value={form.descripcion} onChange={handleChange}
               rows={2} placeholder="Descripción del producto para los compradores..."
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm resize-none"
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm resize-none"
             />
           </div>
           {error && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
@@ -241,7 +241,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 animate-overlay-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
+      <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
         <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between shrink-0">
           <h2 className="font-semibold text-slate-800 text-sm">Editar publicación</h2>
           <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
@@ -265,7 +265,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
           <div>
             <label className="text-xs text-slate-500 block mb-1">Título *</label>
             <input required value={form.title} onChange={(e) => set("title", e.target.value)}
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm" />
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -273,20 +273,20 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
               <label className="text-xs text-slate-500 block mb-1">Precio (MXN) *</label>
               <input required type="number" step="0.01" min="0"
                 value={form.price} onChange={(e) => set("price", e.target.value)}
-                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm" />
+                className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm" />
             </div>
             <div>
               <label className="text-xs text-slate-500 block mb-1">Cantidad disponible *</label>
               <input required type="number" min="0"
                 value={form.available_quantity} onChange={(e) => set("available_quantity", e.target.value)}
-                className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm" />
+                className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm" />
             </div>
           </div>
 
           <div>
             <label className="text-xs text-slate-500 block mb-1">Estado</label>
             <select value={form.status} onChange={(e) => set("status", e.target.value)}
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm">
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm">
               <option value="active">Activa</option>
               <option value="paused">Pausada</option>
             </select>
@@ -298,7 +298,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
             </label>
             <textarea value={form.descripcion} onChange={(e) => set("descripcion", e.target.value)}
               rows={3} placeholder="Nueva descripción del producto..."
-              className="w-full border border-slate-300 rounded px-3 py-1.5 text-sm resize-none" />
+              className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm resize-none" />
           </div>
 
           {/* Imágenes */}
@@ -323,7 +323,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
                 onChange={(e) => setNuevaUrl(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarImagen())}
                 placeholder="URL de imagen (https://...)"
-                className="flex-1 border border-slate-300 rounded px-2.5 py-1.5 text-xs"
+                className="flex-1 neu-campo rounded-lg px-2.5 py-1.5 text-xs"
               />
               <button type="button" onClick={agregarImagen}
                 className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white text-xs px-3 rounded font-medium shrink-0">
@@ -537,10 +537,10 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const fmtFecha = (s) => s ? new Date(s).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm select-none">
 
       {/* Toolbar */}
-      <div className="bg-white border-b border-slate-100 flex items-center shrink-0">
+      <div className="neu rounded-none flex items-center shrink-0">
         <BotonBarra icono={RefreshCw} etiqueta="Recargar"
           onClick={() => tab === "publicaciones" ? cargarPublicaciones() : cargarOrdenes()} />
         {puede("conectar_cuenta_ml") && (!estado?.conectado ? (
@@ -569,7 +569,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b border-slate-200 flex shrink-0">
+      <div className="neu rounded-none flex shrink-0">
         <Tab activo={tab === "publicaciones"} onClick={() => setTab("publicaciones")}>
           <span className="flex items-center gap-1.5"><Package size={14} /> Publicaciones</span>
         </Tab>
@@ -588,7 +588,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
         {tab === "publicaciones" && (
           <div>
             {!estado?.conectado ? (
-              <div className="bg-white border border-slate-200 rounded-xl p-8 text-center max-w-md mx-auto">
+              <div className="neu rounded-xl p-8 text-center max-w-md mx-auto">
                 <Package size={40} className="text-slate-300 mx-auto mb-3" />
                 <h3 className="font-semibold text-slate-700 mb-1">Conecta tu cuenta de ML</h3>
                 <p className="text-xs text-slate-500 mb-4">
@@ -605,12 +605,12 @@ export default function MercadoLibre({ onVolver, permisos }) {
               <>
                 {/* Barra de filtros */}
                 {publicaciones.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-3 mb-4 bg-white border border-slate-200 rounded-xl px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-3 mb-4 neu rounded-xl px-4 py-3">
                     <Filter size={13} className="text-slate-400 shrink-0" />
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-slate-500">Estado</span>
                       <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}
-                        className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                        className="neu-campo rounded-lg px-2 py-1 text-xs text-slate-700">
                         <option value="">Todos</option>
                         <option value="active">Activas</option>
                         <option value="paused">Pausadas</option>
@@ -619,7 +619,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-slate-500">Ordenar</span>
                       <select value={ordenarPub} onChange={(e) => setOrdenarPub(e.target.value)}
-                        className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                        className="neu-campo rounded-lg px-2 py-1 text-xs text-slate-700">
                         <option value="">Sin orden</option>
                         <option value="precio_asc">Precio ↑ menor a mayor</option>
                         <option value="precio_desc">Precio ↓ mayor a menor</option>
@@ -660,7 +660,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
                       className="mt-2 text-[#1a7fe8] text-sm hover:underline">Limpiar filtros</button>
                   </div>
                 ) : (
-                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="neu rounded-xl overflow-hidden">
                     <table className="w-full text-sm">
                       <thead>
                         <tr style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }} className="text-white text-xs">
@@ -738,12 +738,12 @@ export default function MercadoLibre({ onVolver, permisos }) {
             ) : (
               <>
                 {/* Barra de filtros */}
-                <div className="flex flex-wrap items-center gap-3 mb-4 bg-white border border-slate-200 rounded-xl px-4 py-3">
+                <div className="flex flex-wrap items-center gap-3 mb-4 neu rounded-xl px-4 py-3">
                   <Filter size={13} className="text-slate-400 shrink-0" />
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-500">Estado</span>
                     <select value={filtroOrdenEstado} onChange={(e) => setFiltroOrdenEstado(e.target.value)}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                      className="neu-campo rounded-lg px-2 py-1 text-xs text-slate-700">
                       <option value="">Todos</option>
                       <option value="paid">Pagadas</option>
                       <option value="payment_required">Pago pendiente</option>
@@ -754,17 +754,17 @@ export default function MercadoLibre({ onVolver, permisos }) {
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-500">Desde</span>
                     <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700" />
+                      className="neu-campo rounded-lg px-2 py-1 text-xs text-slate-700" />
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-500">Hasta</span>
                     <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700" />
+                      className="neu-campo rounded-lg px-2 py-1 text-xs text-slate-700" />
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-500">Ordenar</span>
                     <select value={ordenarOrdenes} onChange={(e) => setOrdenarOrdenes(e.target.value)}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-700">
+                      className="neu-campo rounded-lg px-2 py-1 text-xs text-slate-700">
                       <option value="fecha_desc">Fecha ↓ reciente</option>
                       <option value="fecha_asc">Fecha ↑ antigua</option>
                       <option value="total_desc">Total ↓ mayor</option>
@@ -799,7 +799,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
                       className="mt-2 text-[#1a7fe8] text-sm hover:underline">Limpiar filtros</button>
                   </div>
                 ) : (
-                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="neu rounded-xl overflow-hidden">
                     <table className="w-full text-sm">
                       <thead>
                         <tr style={{ background: "linear-gradient(90deg,#1a7fe8,#1262b8)" }} className="text-white text-xs">
@@ -852,7 +852,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
         {tab === "configuracion" && (
           <div className="max-w-xl space-y-4">
             {/* Estado conexión */}
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
+            <div className="neu rounded-xl p-5">
               <h3 className="font-semibold text-slate-800 mb-3">Cuenta de MercadoLibre</h3>
               {!estado?.configurado ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-xs text-amber-800 space-y-2">
@@ -915,7 +915,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
             </div>
 
             {/* Cómo funciona */}
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
+            <div className="neu rounded-xl p-5">
               <h3 className="font-semibold text-slate-800 mb-3">¿Cómo funciona la integración?</h3>
               <ul className="space-y-2 text-xs text-slate-600">
                 <li className="flex gap-2"><span className="text-[#1a7fe8] font-bold mt-0.5">→</span> <span><strong>MercadoLibre como sucursal:</strong> Las ventas de ML se registran como una sucursal virtual independiente (sucursal 5) con su propio inventario.</span></li>

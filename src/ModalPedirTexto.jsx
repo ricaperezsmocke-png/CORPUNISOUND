@@ -61,7 +61,7 @@ export default function ModalPedirTexto({
       onMouseDown={(e) => { if (e.target === e.currentTarget) onCancelar(); }}
     >
       <div role="dialog" aria-modal="true" aria-label={titulo}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-panel-in">
+        className="neu-panel rounded-2xl shadow-2xl w-full max-w-md animate-panel-in">
         <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
           <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
           <button onClick={onCancelar} aria-label="Cerrar"
@@ -79,7 +79,7 @@ export default function ModalPedirTexto({
             placeholder={marcador}
             onChange={(e) => setValor(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); aceptar(); } }}
-            className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500"
           />
           {ayuda && !error && <p className="text-[11px] text-slate-400 mt-1">{ayuda}</p>}
           {error && <p className="text-[11px] text-red-600 mt-1">{error}</p>}

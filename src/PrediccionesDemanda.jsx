@@ -9,8 +9,8 @@ import { pedirLista } from "./cargaSegura";
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
-        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+      <div className={`neu-panel rounded-2xl shadow-2xl w-full ${ancho} max-h-[92vh] overflow-y-auto animate-panel-in`}>
+        <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 neu-panel rounded-t-xl">
           <h3 className="font-semibold text-sm text-slate-700">{titulo}</h3>
           <button onClick={onCerrar} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
             <X size={16} />
@@ -22,7 +22,7 @@ function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   );
 }
 
-const inputCls = "w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
+const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const RESULTADOS_POR_PAGINA = 8;
 
 function fechaMinima() {
@@ -216,14 +216,14 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
   }, [resultado]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       <div className="p-5 flex flex-col gap-4 flex-1 overflow-y-auto">
         {errorCatalogos && (
           <div className="bg-red-50 border border-red-300 text-red-700 text-xs rounded px-3 py-2 max-w-xl">
             ⚠ {errorCatalogos} <b>Los selectores de abajo pueden estar incompletos.</b>
           </div>
         )}
-        <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col gap-3 max-w-xl">
+        <div className="neu rounded-xl p-4 flex flex-col gap-3 max-w-xl">
           <div className="flex gap-2">
             <button
               onClick={() => setModo("producto")}
@@ -242,7 +242,7 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
           {modo === "producto" ? (
             <div>
               <label className="text-xs text-slate-500 block mb-1">Producto</label>
-              <button type="button" onClick={abrirBuscarProducto} className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
+              <button type="button" onClick={abrirBuscarProducto} className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm text-left hover:bg-slate-50 flex items-center justify-between">
                 <span className={productoSeleccionado ? "text-slate-800" : "text-slate-400"}>
                   {productoSeleccionado ? productoSeleccionado.nombre : "Buscar producto..."}
                 </span>
@@ -277,7 +277,7 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
         )}
 
         {resultado && !resultado.error && (
-          <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col gap-4">
+          <div className="neu rounded-xl p-4 flex flex-col gap-4">
             <div className="flex items-center gap-3 flex-wrap">
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${CONFIANZA_ESTILO[resultado.confianza] || "bg-slate-100 text-slate-600"}`}>
                 Confianza {resultado.confianza}
@@ -330,7 +330,7 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
           </div>
         )}
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4 max-w-xl">
+        <div className="neu rounded-xl p-4 max-w-xl">
           <button onClick={() => setMostrarImportar((v) => !v)} className="text-sm font-semibold text-blue-700 hover:text-blue-800">
             {mostrarImportar ? "▾" : "▸"} Importar historial de ventas (SICAR)
           </button>
@@ -380,10 +380,10 @@ export default function PrediccionesDemanda({ onVolver, permisos, usuario }) {
             value={busquedaTexto}
             onChange={(e) => { setBusquedaTexto(e.target.value); setPaginaBusqueda(1); }}
             placeholder="Clave o descripción..."
-            className="w-full border border-slate-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+            className="w-full neu-campo rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
           />
           <div className="flex flex-wrap gap-4 mb-3 text-sm">
-            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="border border-slate-300 rounded px-2 py-1 text-xs">
+            <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaBusqueda(1); }} className="neu-campo rounded-lg px-2 py-1 text-xs">
               <option value="">Todas las categorías</option>
               {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>

@@ -104,26 +104,26 @@ function UbicacionesTiendas({ mostrarAviso }) {
         {sucursales.map((s) => {
           const valores = valoresDe(s);
           return (
-            <div key={s.id} className="bg-white border border-slate-200 rounded-lg p-4">
+            <div key={s.id} className="neu rounded-xl p-4">
               <div className="font-semibold mb-2">{s.nombre}</div>
               <div className="grid grid-cols-2 gap-3 mb-2">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Latitud</label>
                   <input
-                    type="number" step="any" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
+                    type="number" step="any" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
                     value={valores.lat} onChange={(e) => actualizarCampo(s.id, valores, "lat", e.target.value)}
                   />
                 </div>
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Longitud</label>
                   <input
-                    type="number" step="any" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm"
+                    type="number" step="any" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
                     value={valores.lng} onChange={(e) => actualizarCampo(s.id, valores, "lng", e.target.value)}
                   />
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => usarMiUbicacion(s.id)} className="text-xs border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-50">
+                <button onClick={() => usarMiUbicacion(s.id)} className="text-xs neu-campo rounded-lg px-3 py-1.5 hover:bg-slate-50">
                   Usar mi ubicación actual
                 </button>
                 <button onClick={() => guardar(s.id)} className="text-xs bg-blue-700 hover:bg-blue-800 text-white rounded px-3 py-1.5 font-semibold">
@@ -162,7 +162,7 @@ function IntentosBloqueados() {
 
   return (
     <div className="flex-1 overflow-y-auto p-5">
-      <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <table className="w-full text-sm neu rounded-xl overflow-hidden">
         <thead className="bg-[#1a7fe8] text-white">
           <tr>
             <th className="py-2 px-3 text-left font-medium">Usuario</th>
@@ -551,8 +551,8 @@ Esta acción no se puede deshacer.`,
   }, [personaEditando, tabPersonaEditando, cargarDocumentosPersona]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50 text-slate-800 font-sans text-sm">
-      <div className="bg-white border-b border-slate-100 flex items-center overflow-x-auto shrink-0">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
+      <div className="neu rounded-none flex items-center overflow-x-auto shrink-0">
         <button
           onClick={() => setVistaAdmin("roles")}
           className={`px-4 py-3 text-sm font-medium border-b-2 ${vistaAdmin === "roles" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
@@ -579,7 +579,7 @@ Esta acción no se puede deshacer.`,
 
       {vistaAdmin === "roles" && (
         <>
-          <div className="bg-white border-b border-slate-100 flex overflow-x-auto shrink-0">
+          <div className="neu rounded-none flex overflow-x-auto shrink-0">
             {puede("administrar_roles") && <BotonBarra icono={Plus} etiqueta="Agregar" atajo="F3" tono="verde" onClick={agregarRol} />}
             {puede("administrar_roles") && <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={editarNombreRol} />}
             <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={cargarTodo} />
@@ -597,7 +597,7 @@ Esta acción no se puede deshacer.`,
           </div>
 
           {puede("conectar_cuenta_drive") && estadoDrive && (
-            <div className="bg-white border-b border-slate-100 flex items-center gap-2 px-4 py-2 shrink-0">
+            <div className="neu rounded-none flex items-center gap-2 px-4 py-2 shrink-0">
               <span className="text-xs text-slate-500">Google Drive (expedientes de personal):</span>
               {estadoDrive?.conectado ? (
                 <>
@@ -623,7 +623,7 @@ Esta acción no se puede deshacer.`,
 
           {error && <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2">{error}</div>}
 
-          <div className="bg-white border-b border-slate-100 flex items-center gap-1 px-4 shrink-0">
+          <div className="neu rounded-none flex items-center gap-1 px-4 shrink-0">
             <button
               onClick={() => setVistaRoles("roles")}
               className={`px-3 py-2 text-xs font-medium border-b-2 ${vistaRoles === "roles" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
@@ -648,7 +648,7 @@ Esta acción no se puede deshacer.`,
             <CatalogoVendedores permisos={permisos} mostrarAviso={mostrarAviso} alCambiarVendedores={recargarVendedores} />
           ) : vistaRoles === "personal" ? (
             <div className="flex-1 overflow-y-auto p-4">
-              <table className="w-full text-sm bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm neu rounded-xl overflow-hidden">
                 <thead className="bg-[#1a7fe8] text-white">
                   <tr>
                     <th className="py-2 px-3 text-left font-medium">Nombre</th>
@@ -682,13 +682,13 @@ Esta acción no se puede deshacer.`,
             </div>
           ) : (
             <>
-              <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 shrink-0">
+              <div className="neu rounded-none px-4 py-2.5 flex items-center gap-2 shrink-0">
                 <ShieldCheck size={16} className="text-blue-700" />
                 <span className="text-slate-500">Rol:</span>
                 <select
                   value={rolActivoId || ""}
                   onChange={(e) => setRolActivoId(Number(e.target.value))}
-                  className="border border-slate-300 rounded px-3 py-1.5 font-medium text-blue-700 min-w-[200px]"
+                  className="neu-campo rounded-lg px-3 py-1.5 font-medium text-blue-700 min-w-[200px]"
                 >
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
@@ -705,7 +705,7 @@ Esta acción no se puede deshacer.`,
                 <p className="text-center text-slate-400 py-16">No hay roles todavía — usa "Agregar" para crear el primero</p>
               ) : (
                 <div className="flex-1 overflow-y-auto">
-                  <div className="bg-white border-b border-slate-200 px-4 py-4">
+                  <div className="neu rounded-none px-4 py-4">
                     <div className="text-xs font-semibold text-slate-500 mb-3">Módulos habilitados para este rol</div>
                     <div className="flex flex-wrap gap-3">
                       {catalogo.modulos.map((m) => {
@@ -733,7 +733,7 @@ Esta acción no se puede deshacer.`,
                         value={busquedaPermiso}
                         onChange={(e) => setBusquedaPermiso(e.target.value)}
                         placeholder="Buscar permiso..."
-                        className="border border-slate-300 rounded px-3 py-1.5 text-sm flex-1 max-w-sm focus:outline-none focus:border-blue-500"
+                        className="neu-campo rounded-lg px-3 py-1.5 text-sm flex-1 max-w-sm focus:outline-none focus:border-blue-500"
                       />
                     </div>
 
@@ -784,7 +784,7 @@ Esta acción no se puede deshacer.`,
               campo (Vendedor) el boton Guardar quedaba fuera de la vista en una
               pantalla baja, con overflow-hidden y centrado vertical. Misma
               estructura que el modal de edicion de abajo. */}
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
+          <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-sm max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-sm text-slate-700">Dar de alta personal</h3>
               <button onClick={() => setModalPersonal(false)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
@@ -792,26 +792,26 @@ Esta acción no se puede deshacer.`,
             <div className="p-4 flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
-                <input className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.nombre} onChange={(e) => setFormPersonal({ ...formPersonal, nombre: e.target.value })} />
+                <input className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.nombre} onChange={(e) => setFormPersonal({ ...formPersonal, nombre: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Usuario (para iniciar sesión)</label>
-                <input className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.usuario} onChange={(e) => setFormPersonal({ ...formPersonal, usuario: e.target.value })} />
+                <input className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.usuario} onChange={(e) => setFormPersonal({ ...formPersonal, usuario: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Contraseña (mínimo 6 caracteres)</label>
-                <input type="password" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.password} onChange={(e) => setFormPersonal({ ...formPersonal, password: e.target.value })} />
+                <input type="password" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.password} onChange={(e) => setFormPersonal({ ...formPersonal, password: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Rol</label>
-                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.rol_id} onChange={(e) => setFormPersonal({ ...formPersonal, rol_id: e.target.value })}>
+                <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.rol_id} onChange={(e) => setFormPersonal({ ...formPersonal, rol_id: e.target.value })}>
                   <option value="">Selecciona un rol</option>
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
-                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.sucursal_id} onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
+                <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.sucursal_id} onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
                   <option value="">Selecciona una sucursal</option>
                   {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
@@ -820,7 +820,7 @@ Esta acción no se puede deshacer.`,
                 <label className="text-xs text-slate-500 block mb-1">
                   Vendedor <span className="text-slate-400">(opcional)</span>
                 </label>
-                <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formPersonal.vendedor_id} onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
+                <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.vendedor_id} onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
                   <option value="">No participa en objetivos de venta</option>
                   {vendedores
                     // Sin `activo` esto era error-al-guardar: el backend ya lo
@@ -846,7 +846,7 @@ Esta acción no se puede deshacer.`,
 
       {personaEditando && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
+          <div className="neu-panel rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
             <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-sm text-slate-700">Editar personal — {personaEditando.nombre}</h3>
               <button onClick={() => setPersonaEditando(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
@@ -874,17 +874,17 @@ Esta acción no se puede deshacer.`,
                 <div className="flex flex-col gap-3">
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
-                    <input className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.nombre} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
+                    <input className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.nombre} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Rol</label>
-                    <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
+                    <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
                       {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
-                    <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
+                    <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
                       {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                     </select>
                   </div>
@@ -892,7 +892,7 @@ Esta acción no se puede deshacer.`,
                     <label className="text-xs text-slate-500 block mb-1">
                       Vendedor <span className="text-slate-400">(opcional)</span>
                     </label>
-                    <select className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.vendedor_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
+                    <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.vendedor_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
                       <option value="">No participa en objetivos de venta</option>
                       {vendedores
                         // Igual que el de alta: no se ofrece a quien ya no
@@ -907,7 +907,7 @@ Esta acción no se puede deshacer.`,
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Nueva contraseña (opcional — déjalo en blanco para no cambiarla)</label>
-                    <input type="password" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm" value={formEditarPersonal.password} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
+                    <input type="password" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.password} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
                   </div>
                   <button onClick={guardarEdicionPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
                     <Check size={15} /> Guardar cambios

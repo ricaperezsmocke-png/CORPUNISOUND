@@ -15,8 +15,15 @@ const SEG = {
   inactivo:  { l: "Inactivo",  c: "#94a3b8" },
 };
 
+/* CRM se pinta con estilos en línea y su propio objeto de tema, no con clases
+   de Tailwind: por eso el barrido de estilo del resto del sistema no lo tocaba
+   y quedaba con tarjetas blancas sobre el fondo gris. Cambiar estos tres
+   valores lo alinea sin reescribir 161 estilos en línea.
+
+   `bg` y `card` son ahora el gris neumórfico; el borde se suaviza, porque sobre
+   gris el slate-200 de antes se veía como una raya. */
 const T = {
-  bg: "#f8fafc", surface: "#ffffff", card: "#ffffff", border: "#e2e8f0",
+  bg: "#e8ecf3", surface: "#eef1f6", card: "#e8ecf3", border: "rgba(0,0,0,.07)",
   blue: "#2563eb", blueDark: "#1d4ed8", blueLight: "#eff6ff",
   text: "#0f172a", sub: "#64748b", muted: "#94a3b8", red: "#ef4444",
 };
@@ -359,7 +366,7 @@ export default function CRM({ onVolver, permisos }) {
                   const mensaje = mensajeApartado(item);
                   const link = `https://wa.me/52${(item.telefono || "").replace(/\D/g, "")}?text=${encodeURIComponent(mensaje)}`;
                   return (
-                    <div key={item.venta_id} style={{ background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div key={item.venta_id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <Avatar nombre={item.cliente_nombre} size={28} />
                       <div style={{ flex: 1, minWidth: 160 }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{item.cliente_nombre}</div>
@@ -381,7 +388,7 @@ export default function CRM({ onVolver, permisos }) {
                   const mensaje = mensajePostventa(item);
                   const link = `https://wa.me/52${(item.telefono || "").replace(/\D/g, "")}?text=${encodeURIComponent(mensaje)}`;
                   return (
-                    <div key={item.venta_id} style={{ background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div key={item.venta_id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <Avatar nombre={item.cliente_nombre} size={28} />
                       <div style={{ flex: 1, minWidth: 160 }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{item.cliente_nombre}</div>
@@ -400,7 +407,7 @@ export default function CRM({ onVolver, permisos }) {
           {alerts.length > 0 && <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: T.blue, fontWeight: 600, marginBottom: 8 }}>⚡ Requieren atención hoy</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {alerts.slice(0, 6).map((c) => <button key={c.id} onClick={() => { setSelId(c.id); setTab("clientes"); }} style={{ background: "#fff", border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", color: T.text, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>{c.nombre}</button>)}
+              {alerts.slice(0, 6).map((c) => <button key={c.id} onClick={() => { setSelId(c.id); setTab("clientes"); }} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", color: T.text, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>{c.nombre}</button>)}
             </div>
           </div>}
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14, alignItems: "start" }}>
