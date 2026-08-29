@@ -84,43 +84,43 @@ function rastroHistorico(DB, id) {
     if (doc && String(doc.tipo_documento || "").toLowerCase() === "apartado") apartados++;
     else ventas++;
   }
-  if (ventas) rastro.push({ tipo: "ventas", cantidad: ventas });
-  if (apartados) rastro.push({ tipo: "apartados", cantidad: apartados });
+  if (ventas) rastro.push({ tipo: "ventas", singular: "venta", cantidad: ventas });
+  if (apartados) rastro.push({ tipo: "apartados", singular: "apartado", cantidad: apartados });
 
   const compras = (DB.inventario?.compra_detalle || []).filter(esDeEsteProducto).length;
-  if (compras) rastro.push({ tipo: "compras", cantidad: compras });
+  if (compras) rastro.push({ tipo: "compras", singular: "compra", cantidad: compras });
 
   const traspasos = (DB.inventario?.traspasos || []).filter(esDeEsteProducto).length;
-  if (traspasos) rastro.push({ tipo: "traspasos", cantidad: traspasos });
+  if (traspasos) rastro.push({ tipo: "traspasos", singular: "traspaso", cantidad: traspasos });
 
   const garantias = (DB.inventario?.garantias || []).filter(esDeEsteProducto).length;
-  if (garantias) rastro.push({ tipo: "garantías", cantidad: garantias });
+  if (garantias) rastro.push({ tipo: "garantías", singular: "garantía", cantidad: garantias });
 
   // `DB.ml` no existe en el DB de pruebas (testHelpers.js) ni en bases viejas
   // anteriores a MercadoLibre: se navega con `?.` en vez de asumirlo. Lo mismo
   // vale para `DB.radar_demanda`, que es de agosto de 2026.
   const publicaciones = (DB.ml?.publicaciones || []).filter(esDeEsteProducto).length;
-  if (publicaciones) rastro.push({ tipo: "publicaciones de MercadoLibre", cantidad: publicaciones });
+  if (publicaciones) rastro.push({ tipo: "publicaciones de MercadoLibre", singular: "publicación de MercadoLibre", cantidad: publicaciones });
 
   // Años de venta traídos de SICAR. No imprimen ticket, pero son el insumo de
   // las predicciones de demanda: borrarlos deja al producto sin pasado.
   const historial = (DB.pos?.historial_ventas_mensual || []).filter(esDeEsteProducto).length;
-  if (historial) rastro.push({ tipo: "meses de historial de ventas", cantidad: historial });
+  if (historial) rastro.push({ tipo: "meses de historial de ventas", singular: "mes de historial de ventas", cantidad: historial });
 
   // La bitácora de entradas y salidas: ajustes manuales, mermas, el descuento
   // de cada venta. Sin el producto, cada renglón queda sin nombre posible.
   const movimientos = (DB.inventario?.movimientos_inventario || []).filter(esDeEsteProducto).length;
-  if (movimientos) rastro.push({ tipo: "movimientos de inventario", cantidad: movimientos });
+  if (movimientos) rastro.push({ tipo: "movimientos de inventario", singular: "movimiento de inventario", cantidad: movimientos });
 
   const consultas = (DB.radar_demanda?.registros || []).filter(esDeEsteProducto).length;
-  if (consultas) rastro.push({ tipo: "consultas de clientes en el Radar", cantidad: consultas });
+  if (consultas) rastro.push({ tipo: "consultas de clientes en el Radar", singular: "consulta de un cliente en el Radar", cantidad: consultas });
 
   // Tareas del Gerente de Ventas ("empújale este producto a este cliente").
   // Hoy el motor solo las genera para productos que ya se vendieron —o sea,
   // que ya retienen por ventas—, pero el campo `origen` está puesto para que
   // existan tareas de otro origen, y ese día esto sería el único guard.
   const tareas = (DB.pos?.tareas_venta?.tareas || []).filter(esDeEsteProducto).length;
-  if (tareas) rastro.push({ tipo: "tareas de venta", cantidad: tareas });
+  if (tareas) rastro.push({ tipo: "tareas de venta", singular: "tarea de venta", cantidad: tareas });
 
   // Mercancía que sigue en el anaquel. `crearProducto` guarda la
   // `existencia_inicial` SIN generar movimiento, así que un producto capturado
@@ -129,14 +129,18 @@ function rastroHistorico(DB, id) {
   // descuadre hay que poder verlo, no desaparecerlo.
   const tiendasConExistencia = (DB.inventario?.existencias || [])
     .filter((e) => esDeEsteProducto(e) && Number(e.cantidad_actual || 0) !== 0).length;
-  if (tiendasConExistencia) rastro.push({ tipo: "tiendas con existencia", cantidad: tiendasConExistencia });
+  if (tiendasConExistencia) rastro.push({ tipo: "tiendas con existencia", singular: "tienda con existencia", cantidad: tiendasConExistencia });
 
   return rastro;
 }
 
-/** "3 ventas, 1 garantía" — para el aviso que ve el usuario. */
+/** "3 ventas, 1 garantía" — para el aviso que ve el usuario. Cada señal trae su
+ *  forma en singular porque el caso de uno solo es el más común de todos: una
+ *  tienda con existencia, un movimiento. "1 garantías" se lee a máquina. */
 function describirRastro(rastro) {
-  return rastro.map((r) => `${r.cantidad} ${r.tipo}`).join(", ");
+  return rastro
+    .map((r) => `${r.cantidad} ${r.cantidad === 1 && r.singular ? r.singular : r.tipo}`)
+    .join(", ");
 }
 
 function listarProductos(DB, sucursalId, { incluirInactivos = false } = {}) {

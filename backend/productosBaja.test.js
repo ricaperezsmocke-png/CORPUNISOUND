@@ -46,7 +46,7 @@ test("borrar un producto que ya se vendió NO borra el nombre del ticket: lo des
 test("el aviso dice POR QUÉ no se borró, con las cuentas", () => {
   const DB = construirDBPrueba();
   const resultado = eliminarProducto(DB, 1);
-  assert.match(resultado.detalle, /1 ventas/, "debe decirle al usuario qué historial lo está reteniendo");
+  assert.match(resultado.detalle, /1 venta,/, "debe decirle al usuario qué historial lo está reteniendo, y en singular cuando es uno");
 });
 
 test("un producto SIN historial sí se borra de verdad, junto con sus existencias", () => {
@@ -168,7 +168,7 @@ test("un APARTADO retiene el producto, y se nombra como apartado y no como venta
 
   const resultado = eliminarProducto(DB, id);
   assert.strictEqual(resultado.desactivado, true);
-  assert.match(resultado.detalle, /apartados/, "un apartado no es una venta: el aviso debe distinguirlos");
+  assert.match(resultado.detalle, /1 apartado/, "un apartado no es una venta: el aviso debe distinguirlos");
 });
 
 test("sin DB.ml (bases anteriores a MercadoLibre) no revienta", () => {
@@ -326,4 +326,17 @@ test("PERO el alta capturada CON piezas ya no se borra: esa mercancía es un con
   const resultado = eliminarProducto(DB, nuevo.id);
   assert.strictEqual(resultado.desactivado, true, "es la frontera exacta de la decisión: sin piezas se borra, con piezas se desactiva");
   assert.match(resultado.detalle, /existencia/);
+});
+
+test("el aviso escribe en singular cuando es uno solo, y en plural cuando son varios", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.inventario.garantias.push({ id: 1, producto_id: id, sucursal_id: 1, estatus: "en_tienda" });
+  DB.inventario.existencias.push({ producto_id: id, sucursal_id: 1, cantidad_actual: 4, cantidad_minima: 0, cantidad_maxima: 0 });
+  DB.inventario.existencias.push({ producto_id: id, sucursal_id: 2, cantidad_actual: 2, cantidad_minima: 0, cantidad_maxima: 0 });
+
+  const detalle = eliminarProducto(DB, id).detalle;
+
+  assert.match(detalle, /1 garantía\b/, "una sola garantía no son «1 garantías»");
+  assert.match(detalle, /2 tiendas con existencia/, "y dos tiendas sí van en plural");
 });
