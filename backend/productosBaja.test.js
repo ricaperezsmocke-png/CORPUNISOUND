@@ -304,3 +304,26 @@ test("al borrar de verdad se va también la existencia guardada con producto_id 
     "si no se limpia queda huérfana, y `siguienteId` reutiliza el id: se colgaría del próximo producto"
   );
 });
+
+test("el alta con el campo de existencia VACÍO también se puede borrar", () => {
+  const DB = construirDBPrueba();
+  // El formulario de Inventario es un <input>: cuando el usuario no escribe
+  // nada manda "", no 0. Si `Number("")` no se tratara como cero, ningún alta
+  // capturada sin existencia se podría corregir.
+  const nuevo = crearProducto(DB, { descripcion: "Sin existencia", existencia_inicial: "" }, 1);
+
+  assert.strictEqual(eliminarProducto(DB, nuevo.id).desactivado, false);
+  assert.ok(
+    !DB.inventario.existencias.some((e) => Number(e.producto_id) === nuevo.id),
+    "crearProducto siembra una fila por sucursal: el borrado tiene que llevárselas todas"
+  );
+});
+
+test("PERO el alta capturada CON piezas ya no se borra: esa mercancía es un conteo real", () => {
+  const DB = construirDBPrueba();
+  const nuevo = crearProducto(DB, { descripcion: "Guitarra recién llegada", existencia_inicial: 5 }, 1);
+
+  const resultado = eliminarProducto(DB, nuevo.id);
+  assert.strictEqual(resultado.desactivado, true, "es la frontera exacta de la decisión: sin piezas se borra, con piezas se desactiva");
+  assert.match(resultado.detalle, /existencia/);
+});
