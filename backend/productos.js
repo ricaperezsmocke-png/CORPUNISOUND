@@ -38,10 +38,24 @@ function estaActivo(producto) {
 }
 
 /**
- * Documentos ya emitidos que nombran a este producto y que alguien va a volver
- * a abrir: tickets, apartados, recepciones de compra, traspasos, garantías y
- * publicaciones de MercadoLibre. Si hay aunque sea uno, el producto no se
- * puede borrar sin romper ese documento.
+ * Todo lo que el sistema guarda a nombre de este producto. Si hay aunque sea
+ * un renglón, el producto NO se borra: se desactiva.
+ *
+ * Son dos familias:
+ *  - Documentos que alguien va a volver a abrir — tickets, apartados,
+ *    recepciones de compra, traspasos, garantías, publicaciones de ML. Borrar
+ *    el producto los deja diciendo "Producto" en vez del nombre real.
+ *  - Historial que nadie imprime pero que igual es un dato del negocio — el
+ *    reporte de ventas importado de SICAR (que además alimenta las
+ *    predicciones), la bitácora de movimientos de inventario, las consultas
+ *    del Radar de Demanda, las tareas del Gerente de Ventas y la mercancía que
+ *    sigue en el anaquel.
+ *
+ * REGLA PARA EL FUTURO: cada vez que se cree una colección que guarde
+ * `producto_id`, hay que agregarla AQUÍ. Esta lista es lo único que separa un
+ * producto descontinuado de un renglón huérfano, y no hay nada que avise
+ * cuando se queda corta — es la misma trampa de `COLECCIONES_RESPALDADAS`
+ * (respaldos.js), que en agosto de 2026 dejó ilegibles 30 días de respaldos.
  *
  * Devuelve el detalle contado, no un booleano, para poder decirle al usuario
  * POR QUÉ no se borró: "tiene 3 ventas y 1 garantía" se entiende; "no se puede
@@ -55,37 +69,78 @@ function rastroHistorico(DB, id) {
   const productoId = Number(id);
   const rastro = [];
 
+  // Comparar por `Number(...)`, nunca crudo. `ventas.js` y `apartados.js`
+  // guardan `producto_id` tal como viene del cuerpo HTTP: un cliente que mande
+  // "9" en vez de 9 deja un texto guardado para siempre, y con igualdad
+  // estricta ese renglón no contaba — el producto se borraba en duro con una
+  // venta encima. Este guard tiene que fallar cerrado, nunca de largo.
+  const esDeEsteProducto = (r) => Number(r.producto_id) === productoId;
+
   const ventaPorId = new Map((DB.pos?.ventas || []).map((v) => [v.id, v]));
   let ventas = 0, apartados = 0;
   for (const d of DB.pos?.venta_detalle || []) {
-    if (d.producto_id !== productoId) continue;
+    if (!esDeEsteProducto(d)) continue;
     const doc = ventaPorId.get(d.venta_id);
     if (doc && String(doc.tipo_documento || "").toLowerCase() === "apartado") apartados++;
     else ventas++;
   }
-  if (ventas) rastro.push({ tipo: "ventas", cantidad: ventas });
-  if (apartados) rastro.push({ tipo: "apartados", cantidad: apartados });
+  if (ventas) rastro.push({ tipo: "ventas", singular: "venta", cantidad: ventas });
+  if (apartados) rastro.push({ tipo: "apartados", singular: "apartado", cantidad: apartados });
 
-  const compras = (DB.inventario?.compra_detalle || []).filter((d) => d.producto_id === productoId).length;
-  if (compras) rastro.push({ tipo: "compras", cantidad: compras });
+  const compras = (DB.inventario?.compra_detalle || []).filter(esDeEsteProducto).length;
+  if (compras) rastro.push({ tipo: "compras", singular: "compra", cantidad: compras });
 
-  const traspasos = (DB.inventario?.traspasos || []).filter((t) => t.producto_id === productoId).length;
-  if (traspasos) rastro.push({ tipo: "traspasos", cantidad: traspasos });
+  const traspasos = (DB.inventario?.traspasos || []).filter(esDeEsteProducto).length;
+  if (traspasos) rastro.push({ tipo: "traspasos", singular: "traspaso", cantidad: traspasos });
 
-  const garantias = (DB.inventario?.garantias || []).filter((g) => g.producto_id === productoId).length;
-  if (garantias) rastro.push({ tipo: "garantías", cantidad: garantias });
+  const garantias = (DB.inventario?.garantias || []).filter(esDeEsteProducto).length;
+  if (garantias) rastro.push({ tipo: "garantías", singular: "garantía", cantidad: garantias });
 
   // `DB.ml` no existe en el DB de pruebas (testHelpers.js) ni en bases viejas
-  // anteriores a MercadoLibre: se navega con `?.` en vez de asumirlo.
-  const publicaciones = (DB.ml?.publicaciones || []).filter((p) => p.producto_id === productoId).length;
-  if (publicaciones) rastro.push({ tipo: "publicaciones de MercadoLibre", cantidad: publicaciones });
+  // anteriores a MercadoLibre: se navega con `?.` en vez de asumirlo. Lo mismo
+  // vale para `DB.radar_demanda`, que es de agosto de 2026.
+  const publicaciones = (DB.ml?.publicaciones || []).filter(esDeEsteProducto).length;
+  if (publicaciones) rastro.push({ tipo: "publicaciones de MercadoLibre", singular: "publicación de MercadoLibre", cantidad: publicaciones });
+
+  // Años de venta traídos de SICAR. No imprimen ticket, pero son el insumo de
+  // las predicciones de demanda: borrarlos deja al producto sin pasado.
+  const historial = (DB.pos?.historial_ventas_mensual || []).filter(esDeEsteProducto).length;
+  if (historial) rastro.push({ tipo: "meses de historial de ventas", singular: "mes de historial de ventas", cantidad: historial });
+
+  // La bitácora de entradas y salidas: ajustes manuales, mermas, el descuento
+  // de cada venta. Sin el producto, cada renglón queda sin nombre posible.
+  const movimientos = (DB.inventario?.movimientos_inventario || []).filter(esDeEsteProducto).length;
+  if (movimientos) rastro.push({ tipo: "movimientos de inventario", singular: "movimiento de inventario", cantidad: movimientos });
+
+  const consultas = (DB.radar_demanda?.registros || []).filter(esDeEsteProducto).length;
+  if (consultas) rastro.push({ tipo: "consultas de clientes en el Radar", singular: "consulta de un cliente en el Radar", cantidad: consultas });
+
+  // Tareas del Gerente de Ventas ("empújale este producto a este cliente").
+  // Hoy el motor solo las genera para productos que ya se vendieron —o sea,
+  // que ya retienen por ventas—, pero el campo `origen` está puesto para que
+  // existan tareas de otro origen, y ese día esto sería el único guard.
+  const tareas = (DB.pos?.tareas_venta?.tareas || []).filter(esDeEsteProducto).length;
+  if (tareas) rastro.push({ tipo: "tareas de venta", singular: "tarea de venta", cantidad: tareas });
+
+  // Mercancía que sigue en el anaquel. `crearProducto` guarda la
+  // `existencia_inicial` SIN generar movimiento, así que un producto capturado
+  // con piezas y nunca vendido no deja ninguna otra huella: borrarlo tiraría
+  // ese conteo en silencio. La existencia negativa también retiene — un
+  // descuadre hay que poder verlo, no desaparecerlo.
+  const tiendasConExistencia = (DB.inventario?.existencias || [])
+    .filter((e) => esDeEsteProducto(e) && Number(e.cantidad_actual || 0) !== 0).length;
+  if (tiendasConExistencia) rastro.push({ tipo: "tiendas con existencia", singular: "tienda con existencia", cantidad: tiendasConExistencia });
 
   return rastro;
 }
 
-/** "3 ventas, 1 garantía" — para el aviso que ve el usuario. */
+/** "3 ventas, 1 garantía" — para el aviso que ve el usuario. Cada señal trae su
+ *  forma en singular porque el caso de uno solo es el más común de todos: una
+ *  tienda con existencia, un movimiento. "1 garantías" se lee a máquina. */
 function describirRastro(rastro) {
-  return rastro.map((r) => `${r.cantidad} ${r.tipo}`).join(", ");
+  return rastro
+    .map((r) => `${r.cantidad} ${r.cantidad === 1 && r.singular ? r.singular : r.tipo}`)
+    .join(", ");
 }
 
 function listarProductos(DB, sucursalId, { incluirInactivos = false } = {}) {
@@ -271,8 +326,12 @@ function eliminarProducto(DB, id) {
     return { desactivado: true, rastro, detalle: describirRastro(rastro) };
   }
 
-  DB["catalogo-productos"].productos = DB["catalogo-productos"].productos.filter((p) => p.id !== Number(id));
-  DB.inventario.existencias = DB.inventario.existencias.filter((e) => e.producto_id !== Number(id));
+  // Mismo criterio de comparación que `rastroHistorico`: si un `producto_id`
+  // de texto se escapa aquí, la fila de existencia sobrevive huérfana — y como
+  // `siguienteId` reutiliza el id más alto, terminaría colgada del próximo
+  // producto que se dé de alta.
+  DB["catalogo-productos"].productos = DB["catalogo-productos"].productos.filter((p) => Number(p.id) !== Number(id));
+  DB.inventario.existencias = DB.inventario.existencias.filter((e) => Number(e.producto_id) !== Number(id));
   return { desactivado: false, rastro: [], detalle: "" };
 }
 

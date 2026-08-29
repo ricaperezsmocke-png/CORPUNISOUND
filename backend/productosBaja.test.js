@@ -14,7 +14,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
 const {
-  listarProductos, eliminarProducto, reactivarProducto, rastroHistorico,
+  listarProductos, crearProducto, eliminarProducto, reactivarProducto, rastroHistorico,
 } = require("./productos");
 const { obtenerVentaDetalle } = require("./ventas");
 
@@ -46,7 +46,7 @@ test("borrar un producto que ya se vendió NO borra el nombre del ticket: lo des
 test("el aviso dice POR QUÉ no se borró, con las cuentas", () => {
   const DB = construirDBPrueba();
   const resultado = eliminarProducto(DB, 1);
-  assert.match(resultado.detalle, /1 ventas/, "debe decirle al usuario qué historial lo está reteniendo");
+  assert.match(resultado.detalle, /1 venta,/, "debe decirle al usuario qué historial lo está reteniendo, y en singular cuando es uno");
 });
 
 test("un producto SIN historial sí se borra de verdad, junto con sus existencias", () => {
@@ -168,11 +168,175 @@ test("un APARTADO retiene el producto, y se nombra como apartado y no como venta
 
   const resultado = eliminarProducto(DB, id);
   assert.strictEqual(resultado.desactivado, true);
-  assert.match(resultado.detalle, /apartados/, "un apartado no es una venta: el aviso debe distinguirlos");
+  assert.match(resultado.detalle, /1 apartado/, "un apartado no es una venta: el aviso debe distinguirlos");
 });
 
 test("sin DB.ml (bases anteriores a MercadoLibre) no revienta", () => {
   const DB = construirDBPrueba();
   const id = conProductoLimpio(DB);
   assert.doesNotThrow(() => eliminarProducto(DB, id));
+});
+
+// ---------------------------------------------------------------------------
+// Rastro que NO son documentos con folio: historial importado, la bitácora de
+// inventario, el Radar y la mercancía que sigue en el anaquel. Ninguno de
+// éstos imprime un ticket, pero borrar el producto los deja huérfanos —
+// apuntando a un `producto_id` que ya no existe y sin manera de recuperar el
+// nombre.
+// ---------------------------------------------------------------------------
+
+test("el HISTORIAL DE VENTAS importado de SICAR retiene el producto", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.pos.historial_ventas_mensual.push({ producto_id: id, sucursal_id: 1, periodo: "2025-03", cantidad: 12 });
+
+  assert.strictEqual(
+    eliminarProducto(DB, id).desactivado, true,
+    "son años de venta real y además alimentan las predicciones de demanda"
+  );
+  assert.match(rastroHistorico(DB, id).map((r) => r.tipo).join(), /historial de ventas/);
+});
+
+test("un MOVIMIENTO DE INVENTARIO retiene el producto", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.inventario.movimientos_inventario.push({
+    id: 1, producto_id: id, sucursal_id: 1, fecha: "2026-08-01T10:00:00.000Z",
+    tipo: "salida", cantidad: -2, referencia_documento: "Merma",
+  });
+
+  assert.strictEqual(
+    eliminarProducto(DB, id).desactivado, true,
+    "la bitácora de entradas y salidas es historial: sin el producto queda un renglón sin nombre"
+  );
+});
+
+test("una consulta del RADAR DE DEMANDA retiene el producto", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  // testHelpers no arma `DB.radar_demanda`; se agrega como lo haría el server real.
+  DB.radar_demanda = { registros: [{ id: 1, producto_id: id, sucursal_id: 1, cliente_id: 1 }] };
+
+  assert.strictEqual(
+    eliminarProducto(DB, id).desactivado, true,
+    "es la constancia de que un cliente preguntó por ese producto"
+  );
+});
+
+test("EXISTENCIA en el anaquel retiene el producto aunque no tenga ningún documento", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  // `crearProducto` guarda la existencia_inicial SIN generar movimiento: un
+  // producto capturado con mercancía y nunca vendido no tiene otra huella.
+  DB.inventario.existencias.push({ producto_id: id, sucursal_id: 1, cantidad_actual: 12, cantidad_minima: 0, cantidad_maxima: 0 });
+
+  assert.strictEqual(
+    eliminarProducto(DB, id).desactivado, true,
+    "borrarlo tiraría 12 piezas reales del conteo de inventario"
+  );
+  assert.match(rastroHistorico(DB, id).map((r) => r.tipo).join(), /existencia/);
+});
+
+test("una existencia NEGATIVA también retiene: es un descuadre que hay que poder ver", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.inventario.existencias.push({ producto_id: id, sucursal_id: 2, cantidad_actual: -3, cantidad_minima: 0, cantidad_maxima: 0 });
+
+  assert.strictEqual(eliminarProducto(DB, id).desactivado, true);
+});
+
+test("sin DB.radar_demanda (bases anteriores al Radar) no revienta", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  assert.doesNotThrow(() => eliminarProducto(DB, id));
+});
+
+test("una TAREA del Gerente de Ventas retiene el producto", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.pos.tareas_venta = {
+    tareas: [{
+      id: 1, vendedor_id: 1, tipo: "empujar_producto", descripcion: "Empuja el Producto 9",
+      cliente_id: null, producto_id: id, estado: "pendiente", origen: "motor",
+    }],
+    ultimo_id: 1,
+  };
+
+  assert.strictEqual(eliminarProducto(DB, id).desactivado, true, "la tarea quedaría apuntando a un producto que ya no existe");
+});
+
+test("un producto_id guardado como TEXTO también retiene: el guard no puede fallar abriendo", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  // `ventas.js` y `apartados.js` guardan `producto_id` crudo del cuerpo HTTP:
+  // un cliente que mande "9" en vez de 9 deja un texto guardado para siempre.
+  DB.pos.ventas.push({ id: 60, fecha: "2026-08-01", sucursal_id: 1, cliente_id: 1, total: 100, tipo_documento: "Ticket" });
+  DB.pos.venta_detalle.push({ id: 60, venta_id: 60, producto_id: String(id), cantidad: 1, precio_unitario: 100, subtotal: 100 });
+
+  assert.strictEqual(
+    eliminarProducto(DB, id).desactivado, true,
+    "con comparación estricta ese renglón no contaba y el producto se borraba con una venta encima"
+  );
+});
+
+test("el alta recién capturada por el sistema real, con existencia 0, SÍ se puede borrar", () => {
+  const DB = construirDBPrueba();
+  // Pasa por `crearProducto` de verdad, que siembra una fila de existencia en
+  // TODAS las sucursales: si algún día sembrara también un movimiento de alta,
+  // ningún producto nuevo podría volver a borrarse y nadie se enteraría.
+  const nuevo = crearProducto(DB, { descripcion: "Alta con la clave mal escrita", existencia_inicial: 0 }, 1);
+
+  assert.strictEqual(
+    eliminarProducto(DB, nuevo.id).desactivado, false,
+    "corregir un alta mal capturada es justo el caso que justifica que el borrado duro exista"
+  );
+});
+
+test("al borrar de verdad se va también la existencia guardada con producto_id de texto", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.inventario.existencias.push({ producto_id: String(id), sucursal_id: 1, cantidad_actual: 0, cantidad_minima: 0, cantidad_maxima: 0 });
+
+  eliminarProducto(DB, id);
+
+  assert.ok(
+    !DB.inventario.existencias.some((e) => Number(e.producto_id) === id),
+    "si no se limpia queda huérfana, y `siguienteId` reutiliza el id: se colgaría del próximo producto"
+  );
+});
+
+test("el alta con el campo de existencia VACÍO también se puede borrar", () => {
+  const DB = construirDBPrueba();
+  // El formulario de Inventario es un <input>: cuando el usuario no escribe
+  // nada manda "", no 0. Si `Number("")` no se tratara como cero, ningún alta
+  // capturada sin existencia se podría corregir.
+  const nuevo = crearProducto(DB, { descripcion: "Sin existencia", existencia_inicial: "" }, 1);
+
+  assert.strictEqual(eliminarProducto(DB, nuevo.id).desactivado, false);
+  assert.ok(
+    !DB.inventario.existencias.some((e) => Number(e.producto_id) === nuevo.id),
+    "crearProducto siembra una fila por sucursal: el borrado tiene que llevárselas todas"
+  );
+});
+
+test("PERO el alta capturada CON piezas ya no se borra: esa mercancía es un conteo real", () => {
+  const DB = construirDBPrueba();
+  const nuevo = crearProducto(DB, { descripcion: "Guitarra recién llegada", existencia_inicial: 5 }, 1);
+
+  const resultado = eliminarProducto(DB, nuevo.id);
+  assert.strictEqual(resultado.desactivado, true, "es la frontera exacta de la decisión: sin piezas se borra, con piezas se desactiva");
+  assert.match(resultado.detalle, /existencia/);
+});
+
+test("el aviso escribe en singular cuando es uno solo, y en plural cuando son varios", () => {
+  const DB = construirDBPrueba();
+  const id = conProductoLimpio(DB);
+  DB.inventario.garantias.push({ id: 1, producto_id: id, sucursal_id: 1, estatus: "en_tienda" });
+  DB.inventario.existencias.push({ producto_id: id, sucursal_id: 1, cantidad_actual: 4, cantidad_minima: 0, cantidad_maxima: 0 });
+  DB.inventario.existencias.push({ producto_id: id, sucursal_id: 2, cantidad_actual: 2, cantidad_minima: 0, cantidad_maxima: 0 });
+
+  const detalle = eliminarProducto(DB, id).detalle;
+
+  assert.match(detalle, /1 garantía\b/, "una sola garantía no son «1 garantías»");
+  assert.match(detalle, /2 tiendas con existencia/, "y dos tiendas sí van en plural");
 });
