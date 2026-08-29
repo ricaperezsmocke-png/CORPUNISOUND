@@ -247,9 +247,10 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     setConfirmacion({
       titulo: `Dar de baja "${seleccionado.nombre}"`,
       mensaje:
-        "Si ya aparece en ventas, compras, apartados, traspasos, garantías o MercadoLibre, " +
-        "se desactiva (deja de venderse, pero sus documentos conservan el nombre).\n\n" +
-        "Solo se borra de verdad si nunca se usó.",
+        "Si tiene cualquier historial —ventas, compras, apartados, traspasos, garantías, " +
+        "MercadoLibre, historial importado, movimientos de inventario o mercancía en el anaquel— se desactiva: " +
+        "deja de venderse, pero se queda en el sistema y sus documentos conservan el nombre.\n\n" +
+        "Solo se borra de verdad si nunca se usó y no tiene existencia.",
       textoConfirmar: "Sí, dar de baja",
       peligro: true,
       alConfirmar: eliminarSeleccionadoConfirmado,
@@ -263,7 +264,10 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       if (!r.ok) throw new Error(data.error);
       mostrarAviso(
         data.desactivado
-          ? `Producto desactivado — tiene ${data.detalle} y sus documentos conservan el nombre`
+          // No se promete "sus documentos conservan el nombre": el rastro puede
+          // ser existencia en el anaquel o movimientos de inventario, y en ese
+          // caso no hay ningún documento del que hablar.
+          ? `Producto desactivado — tiene ${data.detalle}. Se queda en el historial; para verlo, activa "Ver inactivos"`
           : "Producto eliminado"
       );
       setSeleccionadoId(null);
