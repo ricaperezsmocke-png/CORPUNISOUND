@@ -87,6 +87,16 @@ test("deduplica cliente identificado por grupo", () => assert.equal(analizar([re
 test("deduplica teléfono cuando no hay cliente", () => assert.equal(analizar([registro(1,{telefono_contacto:"961 100"}),registro(2,{telefono_contacto:" 961 100 "})]).productos[0].contactos_identificados, 1));
 test("anónimo no cuenta como contacto", () => assert.equal(analizar([registro(1)]).productos[0].contactos_identificados, 0));
 test("NO_MANEJAMOS tiene bloque propio", () => assert.equal(analizar([registro(1,{motivo_no_venta:"NO_MANEJAMOS",producto_id:null,producto_buscado:"Consola"})]).productos_no_manejados[0].producto, "Consola"));
+test("muestra el producto buscado del lider en ambos bloques libres", () => {
+  const resultado = analizar([
+    registro(1, { producto_id: null, producto_buscado: "teclado yamaha", marca_solicitada: "yamaha", modelo_solicitado: "sx600", motivo_no_venta: "NO_MANEJAMOS" }),
+    registro(2, { producto_id: null, producto_buscado: "teclado yamaha", marca_solicitada: "yamaha", modelo_solicitado: "sx600", motivo_no_venta: "NO_MANEJAMOS" }),
+  ]);
+  assert.equal(resultado.productos.length, 1);
+  assert.equal(resultado.productos_no_manejados.length, 1);
+  assert.equal(resultado.productos[0].producto, "teclado yamaha");
+  assert.equal(resultado.productos_no_manejados[0].producto, "teclado yamaha");
+});
 test("análisis agrupa texto libre difuso y expone el lider con sus formas", () => {
   const resultado = analizar([
     registro(1, { producto_id: null, producto_buscado: "Bocina JBL EON615" }),

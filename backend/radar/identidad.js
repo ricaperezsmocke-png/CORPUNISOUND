@@ -167,6 +167,7 @@ function agruparRegistrosLibres(registros, umbral = UMBRAL_PARECIDO) {
     const lider = ordenadas[0];
     return {
       lider: lider.forma,
+      nombre_visible: texto(lider.reciente.producto_buscado) || lider.forma,
       registro_lider: lider.reciente,
       formas_distintas: ordenadas.length,
       formas: ordenadas.map((forma) => ({

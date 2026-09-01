@@ -109,6 +109,27 @@ test("desempata formas por la que tiene mas campos llenos antes de la fecha", ()
   assert.equal(grupos[0].lider, "bocina JBL EON615");
 });
 
+test("expone el producto buscado del lider sin cambiar la identidad del grupo", () => {
+  const grupos = agruparRegistrosLibres([
+    registro(1, "teclado yamaha", { marca_solicitada: "yamaha", modelo_solicitado: "sx600" }),
+    registro(2, "teclado yamaha", { marca_solicitada: "yamaha", modelo_solicitado: "sx600" }),
+  ]);
+
+  assert.equal(grupos.length, 1);
+  assert.equal(grupos[0].registros.length, 2);
+  assert.equal(grupos[0].lider, "teclado yamaha yamaha sx600");
+  assert.equal(grupos[0].nombre_visible, "teclado yamaha");
+  assert.equal(grupos[0].formas[0].forma, "teclado yamaha yamaha sx600");
+});
+
+test("usa la forma completa cuando el producto buscado del lider esta vacio", () => {
+  const grupos = agruparRegistrosLibres([
+    registro(1, "", { marca_solicitada: "yamaha", modelo_solicitado: "sx600" }),
+  ]);
+
+  assert.equal(grupos[0].nombre_visible, "yamaha sx600");
+});
+
 test("la similitud de las formas explica el lider fijo del agrupamiento", () => {
   const grupos = agruparRegistrosLibres([
     registro(1, "abcdefgh"),

@@ -249,6 +249,18 @@ test("inteligencia agrupa texto libre difuso y expone formas contra el lider", (
   ]);
 });
 
+test("inteligencia muestra el producto buscado del lider libre", () => {
+  const DB = base();
+  DB.radar_demanda.registros = [
+    demanda(1, { producto_id: null, producto_buscado: "teclado yamaha", marca_solicitada: "yamaha", modelo_solicitado: "sx600" }),
+    demanda(2, { producto_id: null, producto_buscado: "teclado yamaha", marca_solicitada: "yamaha", modelo_solicitado: "sx600" }),
+  ];
+  const libres = ejecutar(DB).productos_no_manejados;
+  assert.equal(libres.length, 1);
+  assert.equal(libres[0].producto_solicitado, "teclado yamaha");
+  assert.equal(libres[0].formas[0].forma, "teclado yamaha yamaha sx600");
+});
+
 test("aislamiento limita expedientes y productos libres a la sucursal autorizada", () => {
   const DB = base();
   DB.radar_demanda.registros.push(

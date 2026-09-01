@@ -518,7 +518,7 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
       ? `producto:${Number(item.producto_id)}`
       : `libre:${pertenenciaLibre.indice}`;
     if (!productos.has(clave)) productos.set(clave, {
-      producto: catalogado ? detalleCatalogado.lider : pertenenciaLibre.grupo.lider,
+      producto: catalogado ? detalleCatalogado.lider : pertenenciaLibre.grupo.nombre_visible,
       sku: catalogado ? texto(detalleCatalogado.registro_lider.producto_sku_registrado) : "",
       catalogado, solicitudes: 0, cantidad_solicitada: 0, contactos: new Set(),
       sucursales: new Set(), convertidas: 0, no_convertidas: 0,
@@ -539,7 +539,7 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
       const claveNo = catalogado ? `producto:${Number(item.producto_id)}` : `libre:${pertenenciaNo.indice}`;
       const liderNo = catalogado ? detalleCatalogadoNo.registro_lider : pertenenciaNo.grupo.registro_lider;
       if (!noManejados.has(claveNo)) noManejados.set(claveNo, {
-        producto: catalogado ? detalleCatalogadoNo.lider : pertenenciaNo.grupo.lider,
+        producto: catalogado ? detalleCatalogadoNo.lider : pertenenciaNo.grupo.nombre_visible,
         marca: texto(liderNo.marca_solicitada), modelo: texto(liderNo.modelo_solicitado),
         variante: texto(liderNo.variante_solicitada), categoria: texto(liderNo.categoria_solicitada), solicitudes: 0,
         cantidad_solicitada: 0, sucursales: new Set(), contactos: new Set(), ultima_solicitud: fecha,

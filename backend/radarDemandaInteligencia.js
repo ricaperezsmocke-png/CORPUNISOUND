@@ -144,7 +144,7 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     const lider = grupo.registro_lider;
     const libre = {
       identidad_textual: `libre:${indice}`,
-      producto_solicitado: grupo.lider,
+      producto_solicitado: grupo.nombre_visible,
       marca: texto(lider.marca_solicitada), modelo: texto(lider.modelo_solicitado),
       variante: texto(lider.variante_solicitada), categoria: texto(lider.categoria_solicitada),
       formas_distintas: grupo.formas_distintas, formas: grupo.formas,
