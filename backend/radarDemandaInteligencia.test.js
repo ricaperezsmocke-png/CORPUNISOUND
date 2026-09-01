@@ -219,7 +219,7 @@ test("sin ventas, compras ni proveedor emite calidad estructurada", () => {
   for (const codigo of ["SIN_HISTORIAL_VENTAS", "SIN_HISTORIAL_COMPRAS", "PROVEEDOR_NO_IDENTIFICADO", "PEDIDOS_PROVEEDOR_NO_DISPONIBLES"]) assert.ok(calidad.includes(codigo));
 });
 
-test("producto libre queda separado sin fuzzy matching ni evidencia inventada", () => {
+test("candado numerico separa producto libre sin inventar evidencia", () => {
   const DB = base();
   DB.radar_demanda.registros = [
     demanda(1, { producto_id: null, producto_buscado: " Shure  BLX24 ", marca_solicitada: "Shure", cliente_id: 5, sucursal_id: 1 }),
@@ -231,6 +231,22 @@ test("producto libre queda separado sin fuzzy matching ni evidencia inventada", 
   assert.equal(resultado.productos_no_manejados.length, 2);
   assert.deepEqual([resultado.productos_no_manejados[0].solicitudes, resultado.productos_no_manejados[0].cantidad_solicitada, resultado.productos_no_manejados[0].contactos_distintos, resultado.productos_no_manejados[0].sucursales], [2, 3, 1, 2]);
   assert.doesNotMatch(JSON.stringify(resultado.productos_no_manejados), /inventario|ventas|producto_id/);
+});
+
+test("inteligencia agrupa texto libre difuso y expone formas contra el lider", () => {
+  const DB = base();
+  DB.radar_demanda.registros = [
+    demanda(1, { producto_id: null, producto_buscado: "amplificador", cliente_id: 1 }),
+    demanda(2, { producto_id: null, producto_buscado: "amolificador", cliente_id: 2 }),
+    demanda(3, { producto_id: null, producto_buscado: "amplificador", cliente_id: 3 }),
+  ];
+  const libres = ejecutar(DB).productos_no_manejados;
+  assert.equal(libres.length, 1);
+  assert.deepEqual([libres[0].producto_solicitado, libres[0].solicitudes, libres[0].formas_distintas], ["amplificador", 3, 2]);
+  assert.deepEqual(libres[0].formas, [
+    { forma: "amplificador", apariciones: 2, similitud: 1 },
+    { forma: "amolificador", apariciones: 1, similitud: 1 },
+  ]);
 });
 
 test("aislamiento limita expedientes y productos libres a la sucursal autorizada", () => {

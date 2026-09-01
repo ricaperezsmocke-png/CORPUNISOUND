@@ -13,6 +13,7 @@ const { crearCliente } = require("./clientes");
 const { booleanoEstricto } = require("./radar/entrada");
 const { ErrorRadar } = require("./radar/errores");
 const { calcularMetricas, porcentaje, ESTADOS_PENDIENTES } = require("./radar/metricas");
+const { agruparRegistrosLibres, crearBolsaPalabras, calcularSimilitud } = require("./radar/identidad");
 const {
   exigirVentaParaConvertir,
   exigirVentaEnDemandaConvertida,
@@ -409,6 +410,58 @@ function metricasRegistros(registros) {
   return calcularMetricas(registros);
 }
 
+function contarCamposSolicitudLlenos(registro) {
+  return [
+    registro.producto_buscado,
+    registro.marca_solicitada,
+    registro.modelo_solicitado,
+    registro.variante_solicitada,
+  ].filter((valor) => texto(valor)).length;
+}
+
+function resumirFormasCatalogadas(registros) {
+  const porForma = new Map();
+  for (const registro of registros) {
+    const forma = texto(registro.producto_nombre_registrado);
+    const actual = porForma.get(forma) || { forma, apariciones: 0, campos_llenos: 0, registro };
+    actual.apariciones += 1;
+    actual.campos_llenos = Math.max(actual.campos_llenos, contarCamposSolicitudLlenos(registro));
+    if (texto(registro.fecha_registro) > texto(actual.registro.fecha_registro)
+      || (texto(registro.fecha_registro) === texto(actual.registro.fecha_registro) && Number(registro.id) > Number(actual.registro.id))) {
+      actual.registro = registro;
+    }
+    porForma.set(forma, actual);
+  }
+  const formas = [...porForma.values()].sort((a, b) =>
+    b.apariciones - a.apariciones
+    || b.campos_llenos - a.campos_llenos
+    || texto(b.registro.fecha_registro).localeCompare(texto(a.registro.fecha_registro))
+    || b.forma.localeCompare(a.forma, "es")
+  );
+  const lider = formas[0];
+  const bolsaLider = crearBolsaPalabras({ producto_buscado: lider.forma });
+  return {
+    lider: lider.forma,
+    registro_lider: lider.registro,
+    formas_distintas: formas.length,
+    formas: formas.map((forma) => ({
+      forma: forma.forma,
+      apariciones: forma.apariciones,
+      similitud: calcularSimilitud(crearBolsaPalabras({ producto_buscado: forma.forma }), bolsaLider),
+    })),
+  };
+}
+
+function agruparPor(registros, obtenerClave) {
+  const grupos = new Map();
+  for (const registro of registros) {
+    const clave = obtenerClave(registro);
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(registro);
+  }
+  return grupos;
+}
+
 function obtenerAnalisis(DB, alcance, filtros = {}) {
   const { fechaLocal } = require("./fechas");
   const fechaInicio = validarFechaAnalisis(filtros.fecha_inicio, "fecha_inicio");
@@ -433,6 +486,15 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
 
   const sucursalesPorId = new Map((DB.pos?.sucursales || []).map((item) => [Number(item.id), item]));
   const productos = new Map(), noManejados = new Map(), sucursales = new Map();
+  const gruposLibres = agruparRegistrosLibres(registros.filter((item) => item.producto_id == null));
+  const grupoLibrePorRegistro = new Map(gruposLibres.flatMap((grupo, indice) => grupo.registros.map((item) => [item, { grupo, indice }])));
+  const candidatosNoManejados = registros.filter((item) => item.motivo_no_venta === "NO_MANEJAMOS" && item.producto_id == null);
+  const gruposLibresNoManejados = agruparRegistrosLibres(candidatosNoManejados);
+  const grupoNoManejadoPorRegistro = new Map(gruposLibresNoManejados.flatMap((grupo, indice) => grupo.registros.map((item) => [item, { grupo, indice }])));
+  const catalogados = agruparPor(registros.filter((item) => item.producto_id != null), (item) => Number(item.producto_id));
+  const formasCatalogadas = new Map([...catalogados].map(([id, items]) => [id, resumirFormasCatalogadas(items)]));
+  const catalogadosNoManejados = agruparPor(registros.filter((item) => item.producto_id != null && item.motivo_no_venta === "NO_MANEJAMOS"), (item) => Number(item.producto_id));
+  const formasCatalogadasNoManejadas = new Map([...catalogadosNoManejados].map(([id, items]) => [id, resumirFormasCatalogadas(items)]));
   const motivosConteo = new Map(MOTIVOS_DEMANDA.map((motivo) => [motivo, 0]));
   const evolucionConteo = new Map();
 
@@ -449,14 +511,19 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     sucursales.get(sucursalId).push(item);
 
     const catalogado = item.producto_id != null;
+    const pertenenciaLibre = grupoLibrePorRegistro.get(item);
+    const detalleCatalogado = catalogado ? formasCatalogadas.get(Number(item.producto_id)) : null;
+    if (!catalogado && !pertenenciaLibre) continue;
     const clave = catalogado
       ? `producto:${Number(item.producto_id)}`
-      : `libre:${[item.producto_buscado, item.marca_solicitada, item.modelo_solicitado, item.variante_solicitada, item.categoria_solicitada].map(normalizarClave).join("|")}`;
+      : `libre:${pertenenciaLibre.indice}`;
     if (!productos.has(clave)) productos.set(clave, {
-      producto: catalogado ? texto(item.producto_nombre_registrado) : texto(item.producto_buscado),
-      sku: catalogado ? texto(item.producto_sku_registrado) : "",
+      producto: catalogado ? detalleCatalogado.lider : pertenenciaLibre.grupo.lider,
+      sku: catalogado ? texto(detalleCatalogado.registro_lider.producto_sku_registrado) : "",
       catalogado, solicitudes: 0, cantidad_solicitada: 0, contactos: new Set(),
       sucursales: new Set(), convertidas: 0, no_convertidas: 0,
+      formas_distintas: catalogado ? detalleCatalogado.formas_distintas : pertenenciaLibre.grupo.formas_distintas,
+      formas: catalogado ? detalleCatalogado.formas : pertenenciaLibre.grupo.formas,
     });
     const grupo = productos.get(clave);
     grupo.solicitudes += 1;
@@ -467,11 +534,17 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     if (item.estado === "NO_CONVERTIDA") grupo.no_convertidas += 1;
 
     if (item.motivo_no_venta === "NO_MANEJAMOS") {
-      const claveNo = [item.producto_buscado || item.producto_nombre_registrado, item.marca_solicitada, item.modelo_solicitado, item.categoria_solicitada].map(normalizarClave).join("|");
+      const pertenenciaNo = grupoNoManejadoPorRegistro.get(item);
+      const detalleCatalogadoNo = catalogado ? formasCatalogadasNoManejadas.get(Number(item.producto_id)) : null;
+      const claveNo = catalogado ? `producto:${Number(item.producto_id)}` : `libre:${pertenenciaNo.indice}`;
+      const liderNo = catalogado ? detalleCatalogadoNo.registro_lider : pertenenciaNo.grupo.registro_lider;
       if (!noManejados.has(claveNo)) noManejados.set(claveNo, {
-        producto: texto(item.producto_buscado || item.producto_nombre_registrado), marca: texto(item.marca_solicitada),
-        modelo: texto(item.modelo_solicitado), categoria: texto(item.categoria_solicitada), solicitudes: 0,
+        producto: catalogado ? detalleCatalogadoNo.lider : pertenenciaNo.grupo.lider,
+        marca: texto(liderNo.marca_solicitada), modelo: texto(liderNo.modelo_solicitado),
+        variante: texto(liderNo.variante_solicitada), categoria: texto(liderNo.categoria_solicitada), solicitudes: 0,
         cantidad_solicitada: 0, sucursales: new Set(), contactos: new Set(), ultima_solicitud: fecha,
+        catalogado, formas_distintas: catalogado ? detalleCatalogadoNo.formas_distintas : pertenenciaNo.grupo.formas_distintas,
+        formas: catalogado ? detalleCatalogadoNo.formas : pertenenciaNo.grupo.formas,
       });
       const grupoNo = noManejados.get(claveNo);
       grupoNo.solicitudes += 1; grupoNo.cantidad_solicitada += Number(item.cantidad) || 0;

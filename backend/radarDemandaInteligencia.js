@@ -7,6 +7,7 @@
  */
 
 const { fechaLocal } = require("./fechas");
+const { agruparRegistrosLibres } = require("./radar/identidad");
 
 const VENTANAS = Object.freeze([7, 30, 60, 90, 180]);
 
@@ -113,7 +114,7 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
   const proveedorPorId = new Map((DB["catalogo-productos"]?.proveedores || []).map((p) => [Number(p.id), p]));
 
   const radarPorClave = new Map();
-  const libresPorIdentidad = new Map();
+  const registrosLibres = [];
   for (const registro of DB.radar_demanda?.registros || []) {
     const sucursalId = Number(registro.sucursal_id);
     if (!autorizadas.has(sucursalId)) continue;
@@ -136,30 +137,35 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     }
 
     // Los productos libres nunca consultan catálogo, ventas ni inventario.
-    const partes = [registro.producto_buscado, registro.marca_solicitada, registro.modelo_solicitado, registro.variante_solicitada, registro.categoria_solicitada];
-    const identidad = partes.map(normalizarTexto).join("|");
-    if (!identidad.replaceAll("|", "")) continue;
-    if (!libresPorIdentidad.has(identidad)) {
-      libresPorIdentidad.set(identidad, {
-        identidad_textual: identidad,
-        producto_solicitado: texto(registro.producto_buscado), marca: texto(registro.marca_solicitada),
-        modelo: texto(registro.modelo_solicitado), variante: texto(registro.variante_solicitada), categoria: texto(registro.categoria_solicitada),
-        solicitudes: 0, cantidad_solicitada: 0, contactos: new Set(), sucursales: new Set(),
-        primera_solicitud: null, ultima_solicitud: null, motivos: new Map(),
-        radar30d: nuevaMetricaRadar(),
-      });
-    }
-    const libre = libresPorIdentidad.get(identidad);
-    libre.solicitudes += 1;
-    libre.cantidad_solicitada += Number(registro.cantidad) || 0;
-    const contacto = claveContacto(registro); if (contacto) libre.contactos.add(contacto);
-    libre.sucursales.add(sucursalId);
-    if (!libre.primera_solicitud || fecha < libre.primera_solicitud) libre.primera_solicitud = fecha;
-    if (!libre.ultima_solicitud || fecha > libre.ultima_solicitud) libre.ultima_solicitud = fecha;
-    const motivo = texto(registro.motivo_no_venta) || "OTRO";
-    libre.motivos.set(motivo, (libre.motivos.get(motivo) || 0) + 1);
-    if (estaEnVentana(fecha, fechaFin, 30)) agregarRadar(libre.radar30d, registro, fecha);
+    registrosLibres.push(registro);
   }
+
+  const libresPorIdentidad = agruparRegistrosLibres(registrosLibres).map((grupo, indice) => {
+    const lider = grupo.registro_lider;
+    const libre = {
+      identidad_textual: `libre:${indice}`,
+      producto_solicitado: grupo.lider,
+      marca: texto(lider.marca_solicitada), modelo: texto(lider.modelo_solicitado),
+      variante: texto(lider.variante_solicitada), categoria: texto(lider.categoria_solicitada),
+      formas_distintas: grupo.formas_distintas, formas: grupo.formas,
+      solicitudes: 0, cantidad_solicitada: 0, contactos: new Set(), sucursales: new Set(),
+      primera_solicitud: null, ultima_solicitud: null, motivos: new Map(),
+      radar30d: nuevaMetricaRadar(),
+    };
+    for (const registro of grupo.registros) {
+      const fecha = fechaDeRegistro(registro.fecha_registro);
+      libre.solicitudes += 1;
+      libre.cantidad_solicitada += Number(registro.cantidad) || 0;
+      const contacto = claveContacto(registro); if (contacto) libre.contactos.add(contacto);
+      libre.sucursales.add(Number(registro.sucursal_id));
+      if (!libre.primera_solicitud || fecha < libre.primera_solicitud) libre.primera_solicitud = fecha;
+      if (!libre.ultima_solicitud || fecha > libre.ultima_solicitud) libre.ultima_solicitud = fecha;
+      const motivo = texto(registro.motivo_no_venta) || "OTRO";
+      libre.motivos.set(motivo, (libre.motivos.get(motivo) || 0) + 1);
+      if (estaEnVentana(fecha, fechaFin, 30)) agregarRadar(libre.radar30d, registro, fecha);
+    }
+    return libre;
+  });
 
   const ventasPorId = new Map();
   for (const venta of DB.pos?.ventas || []) {
@@ -297,10 +303,11 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     });
   }
 
-  const productosNoManejados = [...libresPorIdentidad.values()].map((libre) => ({
+  const productosNoManejados = libresPorIdentidad.map((libre) => ({
     identidad_textual: libre.identidad_textual,
     producto_solicitado: libre.producto_solicitado, marca: libre.marca, modelo: libre.modelo,
     variante: libre.variante, categoria: libre.categoria, solicitudes: libre.solicitudes,
+    formas_distintas: libre.formas_distintas, formas: libre.formas,
     cantidad_solicitada: libre.cantidad_solicitada, contactos_distintos: libre.contactos.size,
     sucursales: libre.sucursales.size, sucursal_ids: [...libre.sucursales].sort((a, b) => a - b),
     primera_solicitud: libre.primera_solicitud, ultima_solicitud: libre.ultima_solicitud,
