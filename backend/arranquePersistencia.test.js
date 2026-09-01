@@ -132,16 +132,46 @@ function backendConPersistenciaRota() {
 const PLAZO_MUERTE = 90000;
 const PLAZO_VIDA = 10000;
 
+/**
+ * PORT=0 significa "que el sistema operativo elija un puerto libre".
+ *
+ * El hijo hereda `process.env`, y ahí viene `PORT`. Sin fijarlo, `server.js`
+ * cae a su default 4000 o al PORT de quien corra las pruebas, y entonces el
+ * resultado depende de qué más esté corriendo: un backend de desarrollo
+ * levantado, o dos corridas de la suite a la vez, y el hijo muere por
+ * EADDRINUSE. Eso se lee como "el servidor no sobrevivió sin persistencia",
+ * que es una mentira: murió por el puerto, no por lo que la prueba mide.
+ *
+ * Está comprobado: dos corridas de este archivo compartiendo PORT dan 12/12 en
+ * una y 11/12 en la otra. Un puerto FIJO no arregla eso — solo mueve el choque.
+ * Pedirle uno libre al sistema en cada arranque sí, y como la prueba nunca se
+ * conecta al servidor (solo mira si sigue vivo), no necesita saber cuál tocó.
+ */
+const PUERTO_PRUEBA = "0";
+
 function arrancar(carpeta, env, plazo) {
   const r = spawnSync(process.execPath, [path.join(carpeta, "server.js")], {
-    env: { ...process.env, ...env },
+    env: { ...process.env, PORT: PUERTO_PRUEBA, ...env },
     encoding: "utf8",
     timeout: plazo,
   });
   const salida = String(r.stdout || "") + String(r.stderr || "");
   // Si hubo que matarlo (signal), siguió vivo: arrancó.
   const seQuedoVivo = r.signal !== null || r.error?.code === "ETIMEDOUT";
-  return { murio: !seQuedoVivo && r.status !== 0, seQuedoVivo, status: r.status, salida };
+  return { murio: !seQuedoVivo && r.status !== 0, seQuedoVivo, status: r.status, signal: r.signal, salida };
+}
+
+/**
+ * Lo que el hijo dijo antes de morir, para el mensaje de la aserción.
+ *
+ * Sin esto, un fallo aquí se lee como "expected: true, actual: false" y punto:
+ * no se distingue un puerto ocupado de una excepción de arranque, y hay que
+ * reproducirlo a mano para enterarse. Ya pasó — costó una investigación
+ * completa averiguar que el proceso simplemente se moría, sin saber de qué.
+ * La salida del hijo es la evidencia; que viaje con el fallo.
+ */
+function detalle(r) {
+  return `\n--- estado: status=${r.status} signal=${r.signal} ---\n--- salida del hijo ---\n${r.salida || "(vacía)"}\n---`;
 }
 
 test("ARRANQUE REAL: con la persistencia rota y sin NODE_ENV, el proceso se muere solo", () => {
@@ -150,10 +180,10 @@ test("ARRANQUE REAL: con la persistencia rota y sin NODE_ENV, el proceso se muer
     const r = arrancar(carpeta, { NODE_ENV: undefined, DB_PATH: undefined }, PLAZO_MUERTE);
     assert.strictEqual(
       r.seQuedoVivo, false,
-      "el servidor se quedó escuchando: eso es cobrar todo el día en el vacío, justo el defecto original"
+      "el servidor se quedó escuchando: eso es cobrar todo el día en el vacío, justo el defecto original" + detalle(r)
     );
-    assert.strictEqual(r.murio, true, `debió salir con código distinto de cero (salió ${r.status})`);
-    assert.match(r.salida, /ARRANQUE CANCELADO/, "y tiene que decir por qué, a gritos");
+    assert.strictEqual(r.murio, true, `debió salir con código distinto de cero${detalle(r)}`);
+    assert.match(r.salida, /ARRANQUE CANCELADO/, "y tiene que decir por qué, a gritos" + detalle(r));
   } finally {
     fs.rmSync(carpeta, { recursive: true, force: true });
   }
@@ -163,9 +193,9 @@ test("ARRANQUE REAL: con NODE_ENV=production el proceso se muere solo", () => {
   const carpeta = backendConPersistenciaRota();
   try {
     const r = arrancar(carpeta, { NODE_ENV: "production", DB_PATH: undefined }, PLAZO_MUERTE);
-    assert.strictEqual(r.seQuedoVivo, false, "en producción no puede quedarse escuchando sin poder guardar");
-    assert.strictEqual(r.murio, true);
-    assert.match(r.salida, /ARRANQUE CANCELADO/);
+    assert.strictEqual(r.seQuedoVivo, false, "en producción no puede quedarse escuchando sin poder guardar" + detalle(r));
+    assert.strictEqual(r.murio, true, detalle(r));
+    assert.match(r.salida, /ARRANQUE CANCELADO/, detalle(r));
   } finally {
     fs.rmSync(carpeta, { recursive: true, force: true });
   }
@@ -177,9 +207,9 @@ test("ARRANQUE REAL: en desarrollo SÍ se tolera — se queda vivo, avisando", (
     const r = arrancar(carpeta, { NODE_ENV: "development", DB_PATH: undefined }, PLAZO_VIDA);
     assert.strictEqual(
       r.seQuedoVivo, true,
-      "probar sin compilar el módulo nativo tiene que seguir siendo posible"
+      "probar sin compilar el módulo nativo tiene que seguir siendo posible" + detalle(r)
     );
-    assert.match(r.salida, /NADA DE LO QUE HAGAS SE VA A GUARDAR/, "pero con un aviso imposible de ignorar");
+    assert.match(r.salida, /NADA DE LO QUE HAGAS SE VA A GUARDAR/, "pero con un aviso imposible de ignorar" + detalle(r));
   } finally {
     fs.rmSync(carpeta, { recursive: true, force: true });
   }
