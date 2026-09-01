@@ -58,12 +58,68 @@ test("recuperación incluye pendientes", () => assert.equal(analizar([registro(1
 test("canceladas no afectan tasas", () => assert.equal(analizar([registro(1,{estado:"CONVERTIDA"}),registro(2,{estado:"CANCELADA"})]).resumen.tasa_recuperacion, 100));
 test("aislamiento por sucursal", () => assert.equal(analizar([registro(1),registro(2,{sucursal_id:2})], undefined, sucursal1).resumen.total, 1));
 test("agrupa producto catalogado por id", () => assert.equal(analizar([registro(1),registro(2,{producto_nombre_registrado:"Snapshot nuevo"})]).productos.length, 1));
+test("producto catalogado cuenta sus formas reales sin cambiar identidad por id", () => {
+  const producto = analizar([
+    registro(1, { producto_nombre_registrado: "Bocina anterior" }),
+    registro(2, { producto_nombre_registrado: "Bocina anterior" }),
+    registro(3, { producto_nombre_registrado: "Bocina nueva" }),
+  ]).productos[0];
+  assert.deepEqual([producto.producto, producto.formas_distintas], ["Bocina anterior", 2]);
+  assert.deepEqual(producto.formas.map((forma) => [forma.forma, forma.apariciones]), [["Bocina anterior", 2], ["Bocina nueva", 1]]);
+});
+test("producto catalogado desempata el nombre por campos llenos antes de la fecha", () => {
+  const producto = analizar([
+    registro(1, { producto_nombre_registrado: "Nombre reciente", fecha_registro: "2026-08-20T12:00:00.000Z" }),
+    registro(2, {
+      producto_nombre_registrado: "Nombre completo",
+      producto_buscado: "Bocina",
+      marca_solicitada: "JBL",
+      modelo_solicitado: "EON615",
+      fecha_registro: "2026-08-19T12:00:00.000Z",
+    }),
+  ]).productos[0];
+
+  assert.equal(producto.producto, "Nombre completo");
+});
 test("agrupa producto libre conservador", () => assert.equal(analizar([registro(1,{producto_id:null,producto_buscado:"  Mezcladora  X ",marca_solicitada:"Marca"}),registro(2,{producto_id:null,producto_buscado:"mezcladora x",marca_solicitada:" marca "})]).productos.length, 1));
 test("no mezcla variantes libres", () => assert.equal(analizar([registro(1,{producto_id:null,producto_buscado:"Bocina",variante_solicitada:"Roja"}),registro(2,{producto_id:null,producto_buscado:"Bocina",variante_solicitada:"Azul"})]).productos.length, 2));
 test("deduplica cliente identificado por grupo", () => assert.equal(analizar([registro(1,{cliente_id:8}),registro(2,{cliente_id:8})]).productos[0].contactos_identificados, 1));
 test("deduplica teléfono cuando no hay cliente", () => assert.equal(analizar([registro(1,{telefono_contacto:"961 100"}),registro(2,{telefono_contacto:" 961 100 "})]).productos[0].contactos_identificados, 1));
 test("anónimo no cuenta como contacto", () => assert.equal(analizar([registro(1)]).productos[0].contactos_identificados, 0));
 test("NO_MANEJAMOS tiene bloque propio", () => assert.equal(analizar([registro(1,{motivo_no_venta:"NO_MANEJAMOS",producto_id:null,producto_buscado:"Consola"})]).productos_no_manejados[0].producto, "Consola"));
+test("muestra el producto buscado del lider en ambos bloques libres", () => {
+  const resultado = analizar([
+    registro(1, { producto_id: null, producto_buscado: "teclado yamaha", marca_solicitada: "yamaha", modelo_solicitado: "sx600", motivo_no_venta: "NO_MANEJAMOS" }),
+    registro(2, { producto_id: null, producto_buscado: "teclado yamaha", marca_solicitada: "yamaha", modelo_solicitado: "sx600", motivo_no_venta: "NO_MANEJAMOS" }),
+  ]);
+  assert.equal(resultado.productos.length, 1);
+  assert.equal(resultado.productos_no_manejados.length, 1);
+  assert.equal(resultado.productos[0].producto, "teclado yamaha");
+  assert.equal(resultado.productos_no_manejados[0].producto, "teclado yamaha");
+});
+test("análisis agrupa texto libre difuso y expone el lider con sus formas", () => {
+  const resultado = analizar([
+    registro(1, { producto_id: null, producto_buscado: "Bocina JBL EON615" }),
+    registro(2, { producto_id: null, producto_buscado: "bosina jbl eon615" }),
+    registro(3, { producto_id: null, producto_buscado: "bocina", marca_solicitada: "JBL", modelo_solicitado: "EON615" }),
+    registro(4, { producto_id: null, producto_buscado: "Bocina JBL EON615" }),
+  ]);
+  assert.equal(resultado.productos.length, 1);
+  assert.deepEqual(
+    [resultado.productos[0].producto, resultado.productos[0].solicitudes, resultado.productos[0].formas_distintas],
+    ["Bocina JBL EON615", 4, 3],
+  );
+  assert.deepEqual(resultado.productos[0].formas[0], { forma: "Bocina JBL EON615", apariciones: 2, similitud: 1 });
+});
+test("no manejados usa variante y no mezcla catalogados con libres", () => {
+  const resultado = analizar([
+    registro(1, { producto_id: 10, producto_nombre_registrado: "Consola", motivo_no_venta: "NO_MANEJAMOS" }),
+    registro(2, { producto_id: 11, producto_nombre_registrado: "Consola", motivo_no_venta: "NO_MANEJAMOS" }),
+    registro(3, { producto_id: null, producto_buscado: "Consola", variante_solicitada: "16 canales", motivo_no_venta: "NO_MANEJAMOS" }),
+    registro(4, { producto_id: null, producto_buscado: "Consola", variante_solicitada: "24 canales", motivo_no_venta: "NO_MANEJAMOS" }),
+  ]);
+  assert.equal(resultado.productos_no_manejados.length, 4);
+});
 test("todos los motivos aparecen incluso en cero", () => assert.deepEqual(analizar([]).motivos.map((x)=>x.motivo), MOTIVOS_DEMANDA));
 test("porcentaje de motivos usa total del rango", () => assert.equal(analizar([registro(1),registro(2,{motivo_no_venta:"PRECIO"})]).motivos.find((x)=>x.motivo==="PRECIO").porcentaje, 50));
 test("venta recuperada se deduplica y suma una vez", () => { const DB=base([registro(1,{estado:"CONVERTIDA",venta_recuperada_id:100}),registro(2,{estado:"CONVERTIDA",venta_recuperada_id:100})]); const r=obtenerAnalisis(DB,global,{fecha_inicio:"2026-08-01",fecha_fin:"2026-08-20"}).recuperacion; assert.deepEqual([r.ventas_recuperadas,r.valor_recuperado],[1,2500]); });

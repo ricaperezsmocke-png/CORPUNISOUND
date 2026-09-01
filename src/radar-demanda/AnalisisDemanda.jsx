@@ -24,6 +24,11 @@ function Tabla({ titulo, columnas, filas, vacio }) {
   return <section className="min-w-0 rounded-2xl neu shadow-sm"><h2 className="border-b border-slate-100 px-4 py-3 font-bold text-slate-800">{titulo}</h2><div className="overflow-x-auto">{filas.length ? <table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{columnas.map((c) => <th key={c.clave} className="px-4 py-3">{c.titulo}</th>)}</tr></thead><tbody>{filas.map((fila, i) => <tr key={`${titulo}-${i}`} className="border-t border-slate-100">{columnas.map((c) => <td key={c.clave} className="px-4 py-3 text-slate-700">{c.render ? c.render(fila[c.clave], fila) : fila[c.clave]}</td>)}</tr>)}</tbody></table> : <p className="px-4 py-10 text-center text-sm text-slate-500">{vacio}</p>}</div></section>;
 }
 
+function FormasEscritas({ total, formas = [] }) {
+  if (!formas.length) return numero.format(total || 0);
+  return <details className="min-w-48"><summary className="cursor-pointer font-semibold text-blue-700">{numero.format(total)} {total === 1 ? "forma" : "formas"}</summary><ul className="mt-2 space-y-1 text-xs text-slate-600">{formas.map((forma) => <li key={forma.forma}><span className="font-semibold text-slate-800">{forma.forma}</span><span className="block">{numero.format(forma.apariciones)} {forma.apariciones === 1 ? "aparición" : "apariciones"} · {numero.format(forma.similitud * 100)}% similar</span></li>)}</ul></details>;
+}
+
 export default function AnalisisDemanda({ permisos = [] }) {
   const puedeVerTodas = permisos.includes("ver_todas_las_sucursales");
   const [preset, setPreset] = useState("30");
@@ -55,11 +60,13 @@ export default function AnalisisDemanda({ permisos = [] }) {
   const r = datos?.resumen;
   const columnasProductos = [
     { clave: "producto", titulo: "Producto" }, { clave: "sku", titulo: "SKU" },
+    { clave: "formas_distintas", titulo: "Formas", render: (v, fila) => <FormasEscritas total={v} formas={fila.formas} /> },
     { clave: "solicitudes", titulo: "Solicitudes" }, { clave: "cantidad_solicitada", titulo: "Cantidad" },
     { clave: "contactos_identificados", titulo: "Contactos" }, { clave: "sucursales", titulo: "Sucursales" }, { clave: "convertidas", titulo: "Convertidas" }, { clave: "no_convertidas", titulo: "No convertidas" },
   ];
   const columnasNo = [
     { clave: "producto", titulo: "Producto" }, { clave: "marca", titulo: "Marca" }, { clave: "modelo", titulo: "Modelo" },
+    { clave: "formas_distintas", titulo: "Formas", render: (v, fila) => <FormasEscritas total={v} formas={fila.formas} /> },
     { clave: "solicitudes", titulo: "Solicitudes" }, { clave: "cantidad_solicitada", titulo: "Cantidad" }, { clave: "sucursales", titulo: "Sucursales" }, { clave: "contactos_interesados", titulo: "Interesados" }, { clave: "ultima_solicitud", titulo: "Última solicitud" },
   ];
   const columnasSucursal = [

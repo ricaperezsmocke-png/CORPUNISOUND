@@ -85,8 +85,14 @@ function Explicacion({ fila, onCerrar }) {
       <BloqueDetalle titulo="Razones" codigos={fila.razones} tono="blue" />
       <BloqueDetalle titulo="Advertencias" codigos={fila.advertencias} tono="amber" />
       <BloqueDetalle titulo="Calidad de datos" codigos={calidad} tono="slate" />
+      <DetalleFormas formas={fila.formas} />
     </div>
   </div>;
+}
+
+function DetalleFormas({ formas = [] }) {
+  if (!formas.length) return null;
+  return <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="text-sm font-extrabold text-slate-800">Formas escritas agrupadas</h3><ul className="mt-2 space-y-2 text-sm text-slate-700">{formas.map((forma) => <li key={forma.forma}><span className="font-semibold">{forma.forma}</span><span className="block text-xs text-slate-500">{numero.format(forma.apariciones)} {forma.apariciones === 1 ? "aparición" : "apariciones"} · {numero.format(forma.similitud * 100)}% similar al líder</span></li>)}</ul></section>;
 }
 
 function BloqueDetalle({ titulo, codigos = [], tono }) {
@@ -163,6 +169,7 @@ export default function InteligenciaCompras({ permisos = [] }) {
     ...(global ? [{ titulo: "Sucursales alternativas", render: (x) => <div className="space-y-1">{x.otras_sucursales.filter((s) => Number(s.excedente_matematico_sobre_minimo) > 0).map((s) => <div key={s.sucursal_id} className="whitespace-nowrap text-xs"><b>{s.sucursal_nombre}:</b> stock {valor(s.cantidad_actual)} · mínimo {valor(s.cantidad_minima)} · <span className="text-violet-700">excedente sobre mínimo {valor(s.excedente_matematico_sobre_minimo)}</span></div>)}</div> }] : []),
   ];
   const columnasLibres = [
+    { titulo: "Formas", render: (x) => valor(x.formas_distintas) },
     { titulo: "Producto solicitado", render: (x) => <><b className="text-slate-900">{x.producto_solicitado || "Sin descripción"}</b><span className="mt-1 block"><Insignia tipo={x.clasificacion} /></span></> },
     { titulo: "Marca / modelo", render: (x) => [x.marca, x.modelo].filter(Boolean).join(" · ") || "—" },
     { titulo: "Variante / categoría", render: (x) => [x.variante, x.categoria].filter(Boolean).join(" · ") || "—" },
