@@ -7,9 +7,9 @@
  * la Diferencia, se registra el Retiro (dinero que se guarda), y la
  * siguiente cajera empieza de cero.
  *
- * "El turno" se define solo: son las ventas cerradas desde el último corte
- * de esa caja hasta ahora. Guardar un corte "cierra" el turno — el
- * siguiente cálculo parte de ese momento.
+ * Antes de corte_epoca, "el turno" conserva la ventana histórica posterior
+ * al último corte. Después de corte_epoca, cada movimiento pendiente se
+ * reconoce por corte_id null y crearCorte registra el corte que lo contó.
  */
 
 const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gastos");
@@ -27,9 +27,11 @@ function fechaHoraDeVenta(v) {
   return v.fecha_hora || `${v.fecha}T00:00:00.000Z`;
 }
 
-/** Ventas del turno en curso: cerradas, de la caja, posteriores al último corte.
+/** Ventas del turno en curso: cerradas y de la caja.
  *  Excluye Apartados — su dinero se cuenta por abono real (ver abonosDelTurno),
- *  nunca por el total completo de la venta, para no duplicarlo al liquidarse. */
+ *  nunca por el total completo de la venta, para no duplicarlo al liquidarse.
+ *  La época mantiene intacta la ventana histórica y hace que las ventas nuevas
+ *  dependan solo del sello, nunca de una frontera móvil de tiempo. */
 function ventasDelTurno(DB, sucursal_id, caja) {
   // `caja` puede venir en null: es una base sin catálogo de cajas sembrado.
   // Ahí el concepto de caja no existe, así que no puede cambiar nada — el turno
@@ -45,6 +47,7 @@ function ventasDelTurno(DB, sucursal_id, caja) {
   );
   const ultimoCorte = cortes.length ? cortes.reduce((a, b) => (a.fecha_hora > b.fecha_hora ? a : b)) : null;
   const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
+  const epoca = DB.pos.corte_epoca || null;
 
   return {
     desde,
@@ -54,7 +57,11 @@ function ventasDelTurno(DB, sucursal_id, caja) {
         v.tipo_documento !== "Apartado" &&
         v.sucursal_id === Number(sucursal_id) &&
         esDeEstaCaja(v) &&
-        (!desde || fechaHoraDeVenta(v) > desde)
+        (() => {
+          const fechaHora = fechaHoraDeVenta(v);
+          if (epoca && fechaHora > epoca) return v.corte_id == null;
+          return v.corte_id == null && (!desde || fechaHora > desde);
+        })()
     ),
   };
 }
@@ -69,8 +76,13 @@ function ventasDelTurno(DB, sucursal_id, caja) {
  */
 function abonosDelTurno(DB, sucursal_id, desde, caja) {
   if (caja && !caja.predeterminada) return [];
+  const epoca = DB.pos.corte_epoca || null;
   return DB.pos.apartado_abonos.filter(
-    (a) => a.sucursal_id === Number(sucursal_id) && (!desde || a.fecha_hora > desde)
+    (a) =>
+      a.sucursal_id === Number(sucursal_id) &&
+      (epoca && a.fecha_hora > epoca
+        ? a.corte_id == null
+        : a.corte_id == null && (!desde || a.fecha_hora > desde))
   );
 }
 
@@ -90,7 +102,7 @@ function acumularPorFormaPago(calculado, forma, monto) {
 }
 
 /** Lo que el sistema calcula que debería haber en caja, por forma de pago */
-function calcularCorteEnCurso(DB, sucursal_id, caja_id) {
+function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = false) {
   const caja = resolverCajaDeSucursal(DB, sucursal_id, caja_id);
   const { desde, ventas } = ventasDelTurno(DB, sucursal_id, caja);
   const abonos = abonosDelTurno(DB, sucursal_id, desde, caja);
@@ -117,12 +129,12 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id) {
   // restan aquí, al contar el dinero aparecen como faltante y se ven igual
   // que un robo. Solo restan los activos, en EFECTIVO, de esta sucursal y de
   // este turno (ver gastosEfectivoDelTurno).
-  const gastosDelTurno = gastosEfectivoDelTurnoLista(DB, sucursal_id, desde);
-  const gastosEfectivo = gastosEfectivoDelTurno(DB, sucursal_id, desde);
+  const gastosDelTurno = gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja);
+  const gastosEfectivo = gastosEfectivoDelTurno(DB, sucursal_id, desde, caja);
   const gastosIncluidos = gastosDelTurno.length;
   calculado.EFECTIVO = redondear(calculado.EFECTIVO - gastosEfectivo);
 
-  return {
+  const resultado = {
     desde,
     ventas_incluidas: ventas.length,
     abonos_incluidos: abonos.length,
@@ -133,6 +145,8 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id) {
     gastos_efectivo: gastosEfectivo,
     gastos_incluidos: gastosIncluidos,
   };
+  if (incluirMovimientos) resultado.movimientos_incluidos = { ventas, abonos, gastos: gastosDelTurno };
+  return resultado;
 }
 
 /** Guarda el corte: congela el calculado del momento, registra contado/retiro/diferencias */
@@ -148,7 +162,7 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
   // exactamente lo que ya tienen los cortes históricos. Nunca se impide cortar
   // por un problema de catálogo: la caja es un dato del corte, no un permiso.
   const caja = resolverCajaDeSucursal(DB, sucursalDelCorte, caja_id);
-  const enCurso = calcularCorteEnCurso(DB, sucursalDelCorte, caja?.id ?? null);
+  const enCurso = calcularCorteEnCurso(DB, sucursalDelCorte, caja?.id ?? null, true);
 
   const redondear = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const contadoLimpio = {};
@@ -170,6 +184,7 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
     fecha_hora: new Date().toISOString(),
     desde: enCurso.desde,
     ventas_incluidas: enCurso.ventas_incluidas,
+    abonos_incluidos: enCurso.abonos_incluidos,
     calculado: enCurso.calculado,
     contado: contadoLimpio,
     diferencia,
@@ -184,6 +199,11 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
   };
   corte.total_diferencia = redondear(corte.total_contado - corte.total_calculado);
 
+  // No hay await entre el cálculo, estos sellos y el alta del corte. La ruta
+  // persiste después la fotografía completa de DB en una sola escritura.
+  enCurso.movimientos_incluidos.ventas.forEach((venta) => (venta.corte_id = corte.id));
+  enCurso.movimientos_incluidos.abonos.forEach((abono) => (abono.corte_id = corte.id));
+  enCurso.movimientos_incluidos.gastos.forEach((gasto) => (gasto.corte_id = corte.id));
   DB.pos.cortes_caja.push(corte);
   return corte;
 }

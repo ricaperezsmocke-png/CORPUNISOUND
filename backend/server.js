@@ -181,6 +181,7 @@ const DB = {
     configuracion: null,
     cajas: [],
     cortes_caja: [],
+    corte_epoca: null,
     apartado_abonos: [],
   },
   crm: {
@@ -321,6 +322,14 @@ sembrarCategoriasGastos(DB);
 // tanto si el DB viene del seed fresco como si viene de datos persistidos
 // anteriores a esta feature. Ver backend/sucursales.js.
 DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
+
+// Marca de agua de la transición a cortes sellados. Se fija y persiste una
+// sola vez: moverla en otro arranque convertiría movimientos nuevos en
+// históricos y volvería a abrir huecos en la contabilidad.
+if (!DB.pos.corte_epoca) {
+  DB.pos.corte_epoca = new Date().toISOString();
+  guardar(DB);
+}
 
 // Normaliza bases anteriores y garantiza las dos cajas fijas por sucursal.
 // sembrarCajas lanza si los datos no tienen exactamente una predeterminada.

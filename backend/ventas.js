@@ -86,6 +86,7 @@ function crearVenta(DB, datos) {
     total: Number(datos.total) || 0,
     estatus: "cerrada",
     motivo_cancelacion: null,
+    corte_id: null,
   };
   DB.pos.ventas.push(venta);
 
@@ -222,17 +223,22 @@ function cambiarCajaVenta(DB, id, cajaDestinoId, usuario) {
     throw new Error(`Esta venta ya pertenece a la caja ${cajaDestino?.nombre || "indicada"}`);
   }
 
-  if (!ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaOrigen)) {
+  const epoca = DB.pos.corte_epoca || null;
+  const esPosteriorAEpoca = epoca && (venta.fecha_hora || `${venta.fecha}T00:00:00.000Z`) > epoca;
+  const yaFueCortada = esPosteriorAEpoca
+    ? venta.corte_id != null
+    : !ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaOrigen);
+  if (yaFueCortada) {
     throw new Error(
       `No se puede cambiar la caja: esta venta ya forma parte de un corte cerrado de la caja ${cajaOrigen?.nombre || "actual"}. Ese corte conserva sus totales históricos.`
     );
   }
 
-  // La caja destino también debe tener abierto el periodo de la venta. Si su
-  // último corte fuera posterior, al moverla el origen dejaría de verla y el
-  // destino la descartaría por antigua: dinero cobrado que no aparecería en
-  // ningún corte futuro.
-  if (!ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaDestino)) {
+  // En la era sellada esta validación es redundante a propósito: una venta
+  // con corte_id null seguirá visible aunque la caja destino haya cortado
+  // después de su fecha. Se conserva para la transición histórica, donde los
+  // registros anteriores a corte_epoca todavía usan la ventana de tiempo.
+  if (!esPosteriorAEpoca && !ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaDestino)) {
     throw new Error(
       `No se puede cambiar la caja: la caja destino ${cajaDestino.nombre} ya cerró un corte posterior a esta venta. Si se moviera, la venta no aparecería en ningún corte.`
     );

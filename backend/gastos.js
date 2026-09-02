@@ -144,6 +144,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
     usuario: usuario?.nombre || "—",
     estatus: "activo",
     motivo_cancelacion: null,
+    corte_id: null,
   };
   DB.gastos.gastos.push(gasto);
 
@@ -214,28 +215,36 @@ function movimientosDeGasto(DB, id, alcance) {
  * para el conteo (gastos_incluidos en cortes.js), para que nunca puedan
  * desincronizarse.
  *
- * Las cuatro condiciones son deliberadas y cada una tiene prueba propia en
+ * Las condiciones son deliberadas y cada una tiene prueba propia en
  * gastos.test.js (bloque "gastosEfectivoDelTurno: ...") y en
  * gastosCorteCaja.test.js:
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
- *   - fecha_hora > desde : lo anterior al último corte pertenece a un turno YA cerrado
+ *   - transición histórica: hasta corte_epoca conserva fecha_hora > desde
+ *   - era sellada: después de corte_epoca solo entra corte_id null
+ *   - caja predeterminada: los gastos nuevos no tienen caja propia y deben
+ *     tener una sola dueña mientras esperan corte
  */
-function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde) {
+function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
+  const epoca = DB.pos.corte_epoca || null;
   return DB.gastos.gastos
     .filter((g) => g.estatus === "activo")
     .filter((g) => g.forma_pago === "EFECTIVO")
     .filter((g) => g.sucursal_id === Number(sucursal_id))
-    .filter((g) => !desde || g.fecha_hora > desde);
+    .filter((g) => {
+      const esPosteriorAEpoca = epoca && g.fecha_hora > epoca;
+      if (esPosteriorAEpoca) return (!caja || caja.predeterminada) && g.corte_id == null;
+      return g.corte_id == null && (!desde || g.fecha_hora > desde);
+    });
 }
 
 /** Suma de los gastos que SALIERON DE LA CAJA en el turno en curso. Es lo que
  *  el Corte de Caja resta del efectivo esperado. Deriva de
  *  gastosEfectivoDelTurnoLista — ver ahí las cuatro condiciones. */
-function gastosEfectivoDelTurno(DB, sucursal_id, desde) {
+function gastosEfectivoDelTurno(DB, sucursal_id, desde, caja) {
   return redondear(
-    gastosEfectivoDelTurnoLista(DB, sucursal_id, desde)
+    gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja)
       .reduce((suma, g) => suma + Number(g.monto || 0), 0)
   );
 }
