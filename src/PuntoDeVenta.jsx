@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Sparkles, SlidersHorizontal, Bookmark
 } from "lucide-react";
 
-import { apiFetch, sinSucursalElegida, sucursalActiva } from "./api";
+import { apiFetch, cajaActiva, sinSucursalElegida, sucursalActiva } from "./api";
 import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
@@ -489,6 +489,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             body: JSON.stringify({
               cliente_id: cliente.id,
               vendedor_id: vendedor.id,
+              caja_id: cajaActiva(),
               // Sin sucursal_id: la venta se registra en la sucursal del
               // encabezado (o en la del usuario si está amarrado). Antes iba un
               // 1 fijo aquí y toda venta caía en Ocosingo.

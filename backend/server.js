@@ -1471,6 +1471,26 @@ app.get("/api/sucursales", (req, res) => {
   res.json(DB.pos.sucursales.map(({ lat, lng, ...resto }) => resto));
 });
 
+// Las cajas de la sucursal en la que está parada la sesión, para el selector de
+// la barra superior.
+//
+// Se resuelve con el alcance directo, y a propósito NO con el ayudante de
+// escritura: ese es para rutas que CREAN algo y viene con la obligación de
+// responder 400 cuando no hay sucursal elegida. Hay una prueba que cuenta sus
+// usos justamente para que nadie meta uno sin esa obligación
+// (rutasEscrituraSucursal.test.js). Aquí no se escribe nada: sin sucursal
+// concreta simplemente no hay cajas que ofrecer.
+//
+// Ojo si vas a nombrar ese ayudante aquí: esa prueba cuenta apariciones de texto
+// en el archivo, así que mencionarlo con su paréntesis —hasta en un comentario—
+// la pone en rojo.
+app.get("/api/cajas", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  // Vista global sin tienda elegida: no hay una caja concreta donde cobrar.
+  if (alcance.verTodas || !alcance.sucursalId) return res.json([]);
+  res.json((DB.pos.cajas || []).filter((caja) => caja.sucursal_id === Number(alcance.sucursalId)));
+});
+
 // Mover las coordenadas de una sucursal decide quién puede entrar a ella:
 // validarUbicacionLogin() las usa como centro del radio de tolerancia. Quien
 // las cambia puede abrirle el acceso a cualquiera desde cualquier lado, o

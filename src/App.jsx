@@ -22,6 +22,18 @@ import { apiFetch } from "./api";
 
 const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas", "radar_demanda", "configuracion"];
 
+async function seleccionarCajaPredeterminada() {
+  localStorage.removeItem("caja_activa");
+  if (localStorage.getItem("sucursal_activa") === "todas") return;
+  try {
+    const respuesta = await apiFetch("/cajas");
+    if (!respuesta.ok) return;
+    const cajas = await respuesta.json();
+    const predeterminada = Array.isArray(cajas) && cajas.find((caja) => caja.predeterminada);
+    if (predeterminada) localStorage.setItem("caja_activa", String(predeterminada.id));
+  } catch (_) { /* SelectorCaja vuelve a intentarlo y muestra el error en el encabezado. */ }
+}
+
 function App() {
   const [usuario, setUsuario] = useState(null);
   const [cargandoSesion, setCargandoSesion] = useState(true);
@@ -51,6 +63,7 @@ function App() {
 
   const manejarIngreso = (u) => {
     localStorage.setItem("sucursal_activa", u.ver_todas ? "todas" : String(u.sucursal_id));
+    seleccionarCajaPredeterminada();
     setUsuario(u);
   };
 
@@ -58,6 +71,7 @@ function App() {
     localStorage.removeItem("token");
     localStorage.removeItem("usuario");
     localStorage.removeItem("sucursal_activa");
+    localStorage.removeItem("caja_activa");
     setUsuario(null);
     setVista("dashboard");
   };

@@ -18,6 +18,11 @@ export function sucursalActiva() {
   return localStorage.getItem("sucursal_activa") || "todas";
 }
 
+/** La caja elegida en el encabezado, o null mientras no hay una concreta. */
+export function cajaActiva() {
+  return localStorage.getItem("caja_activa");
+}
+
 /**
  * true cuando el encabezado dice "Todas las sucursales".
  *
@@ -37,11 +42,15 @@ export function sinSucursalElegida() {
 export async function apiFetch(ruta, opciones = {}) {
   const token = localStorage.getItem("token");
   const sucursalActiva = localStorage.getItem("sucursal_activa"); // id numérico o "todas"
+  const cajaActiva = localStorage.getItem("caja_activa");
 
   // Agregar sucursal_id como query param (salvo que ya venga en la ruta o sea "todas").
   let rutaFinal = ruta;
   if (sucursalActiva && sucursalActiva !== "todas" && !ruta.includes("sucursal_id=")) {
     rutaFinal += (ruta.includes("?") ? "&" : "?") + "sucursal_id=" + encodeURIComponent(sucursalActiva);
+  }
+  if (cajaActiva && !ruta.includes("caja_id=")) {
+    rutaFinal += (rutaFinal.includes("?") ? "&" : "?") + "caja_id=" + encodeURIComponent(cajaActiva);
   }
 
   const headers = { "Content-Type": "application/json", ...(opciones.headers || {}) };
@@ -52,6 +61,7 @@ export async function apiFetch(ruta, opciones = {}) {
     localStorage.removeItem("token");
     localStorage.removeItem("usuario");
     localStorage.removeItem("sucursal_activa");
+    localStorage.removeItem("caja_activa");
     window.location.reload();
   }
   return res;

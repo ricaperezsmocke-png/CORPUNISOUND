@@ -4,7 +4,7 @@ import {
   Scissors, CircleDollarSign, X, Package, Cloud, Info, UserCircle2,
   ShoppingCart, History
 } from "lucide-react";
-import { apiFetch, sinSucursalElegida } from "./api";
+import { apiFetch, cajaActiva, sinSucursalElegida } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
 
 const FORMAS = ["EFECTIVO", "CHEQUE", "VALES", "TARJETA"];
@@ -34,7 +34,7 @@ function TicketCorte({ corte, onCerrar }) {
         <div className="p-4 font-mono text-xs">
           <div className="text-center mb-3">
             <div className="font-bold text-sm">Corte de Caja</div>
-            <div>Sucursal {corte.sucursal_id} — Caja 1</div>
+            <div>Sucursal {corte.sucursal_id} — {corte.caja_nombre || `Caja ${corte.caja_id || "—"}`}</div>
           </div>
           {[
             ["Cajero", corte.usuario_nombre],
@@ -131,6 +131,9 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const [enCurso, setEnCurso] = useState(null);
   const [cortes, setCortes] = useState([]);
   const [errorCarga, setErrorCarga] = useState(null);
+  const [errorCaja, setErrorCaja] = useState(null);
+  const [cajaNombre, setCajaNombre] = useState("");
+  const [cajasDisponibles, setCajasDisponibles] = useState([]);
   const [ultimoCorteGuardado, setUltimoCorteGuardado] = useState(null);
   const [guardandoCorte, setGuardandoCorte] = useState(false);
   const [modal, setModal] = useState(null); // "corte" | "historial"
@@ -153,7 +156,26 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   // que no era el de esta caja.
   const cargar = useCallback(async () => {
     if (sinSucursal) { setEnCurso(null); setCortes([]); setErrorCarga(null); return; }
-    const enCursoResp = await pedirDato(() => apiFetch("/cortes/en-curso"), "el corte en curso");
+    const cajaIdGuardada = cajaActiva();
+    const cajasResp = await pedirLista(() => apiFetch("/cajas"), "las cajas");
+    setCajasDisponibles(cajasResp.datos);
+    const caja = cajasResp.datos.find((item) => String(item.id) === String(cajaIdGuardada))
+      || cajasResp.datos.find((item) => item.predeterminada);
+    const cajaId = caja?.id || "";
+    if (cajaId) localStorage.setItem("caja_activa", String(cajaId));
+    setCajaNombre(caja?.nombre || "");
+    const falloCaja = cajasResp.error || (!caja ? "No hay una caja activa para este corte." : null);
+    setErrorCaja(falloCaja);
+    if (falloCaja) {
+      setEnCurso(null);
+      setCortes([]);
+      setErrorCarga(falloCaja);
+      return;
+    }
+    const enCursoResp = await pedirDato(
+      () => apiFetch(`/cortes/en-curso?caja_id=${encodeURIComponent(cajaId || "")}`),
+      "el corte en curso"
+    );
     setEnCurso(enCursoResp.datos);
     let errorHistorial = null;
     if (puede("ver_historial_cortes")) {
@@ -161,7 +183,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       setCortes(historial.datos);
       errorHistorial = historial.error;
     }
-    setErrorCarga(enCursoResp.error || errorHistorial);
+    setErrorCarga(cajasResp.error || enCursoResp.error || errorHistorial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sinSucursal]);
 
@@ -179,6 +201,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
   const abrirCorte = () => {
     if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para hacer el corte");
+    if (errorCaja || !cajaNombre) return mostrarAviso("No se puede hacer el corte sin una caja activa");
     setContado({ EFECTIVO: "", CHEQUE: "", VALES: "", TARJETA: "" });
     setRetiro({ EFECTIVO: "", CHEQUE: "", VALES: "", TARJETA: "" });
     cargar();
@@ -207,6 +230,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
 
   const guardarCorte = async () => {
     if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para guardar el corte");
+    if (errorCaja || !cajaNombre) return mostrarAviso("No se puede guardar el corte sin una caja activa");
     // Un corte duplicado deja un turno fantasma cuyo "sobrante" es todo lo
     // contado, y ese faltante aparece a nombre de quien cerró la caja.
     if (corteEnCurso.current) return;
@@ -218,12 +242,14 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
       const r = await apiFetch("/cortes", {
         method: "POST",
         body: JSON.stringify({
+          caja_id: cajaActiva(),
           contado: Object.fromEntries(FORMAS.map((f) => [f, Number(contado[f]) || 0])),
           retiro: Object.fromEntries(FORMAS.map((f) => [f, Number(retiro[f]) || 0])),
         }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
+      data.caja_nombre = cajaNombre;
       setUltimoCorteGuardado(data);
       setModal("ticket");
       cargar();
@@ -232,7 +258,11 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
     finally { corteEnCurso.current = false; setGuardandoCorte(false); }
   };
 
-  const verTicketDeCorte = (c) => { setUltimoCorteGuardado(c); setModal("ticket"); };
+  const verTicketDeCorte = (c) => {
+    const caja = cajasDisponibles.find((item) => Number(item.id) === Number(c.caja_id));
+    setUltimoCorteGuardado({ ...c, caja_nombre: caja?.nombre });
+    setModal("ticket");
+  };
 
   const infoCorte = ultimoCorteGuardado;
 
@@ -267,8 +297,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
           <button
             type="button"
             onClick={abrirCorte}
-            disabled={sinSucursal}
-            title={sinSucursal ? "Elige una sucursal en el encabezado para hacer el corte" : "Corte de caja (F3)"}
+            disabled={sinSucursal || Boolean(errorCaja) || !cajaNombre}
+            title={sinSucursal ? "Elige una sucursal en el encabezado para hacer el corte" : (errorCaja || !cajaNombre ? "No hay una caja activa" : "Corte de caja (F3)")}
             className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
           >
             <Scissors size={18} className="text-emerald-600" />
@@ -300,7 +330,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
         <div className="text-center border-b border-black/5 py-2 font-semibold text-slate-600">Información del Corte de Caja</div>
         <div className="p-6 flex flex-col gap-4 max-w-md">
           {[
-            ["Caja:", infoCorte ? `Caja 1 — Sucursal ${infoCorte.sucursal_id}` : "–"],
+            ["Caja:", infoCorte ? `${infoCorte.caja_nombre || `Caja ${infoCorte.caja_id || "—"}`} — Sucursal ${infoCorte.sucursal_id}` : (cajaNombre || "–")],
             ["Usuario:", infoCorte ? infoCorte.usuario_nombre : "–"],
             ["Fecha:", infoCorte ? infoCorte.fecha : "–"],
             ["Hora:", infoCorte ? new Date(infoCorte.fecha_hora).toLocaleTimeString("es-MX") : "–"],
@@ -356,7 +386,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   igualar la pantalla de SICAR); con el permiso traen el dato
                   real, sin él, ceros. */}
               <div>
-                <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Caja: Caja 1</div>
+                <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Caja: {cajaNombre || "–"}</div>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-slate-500">
@@ -474,6 +504,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                       <th className="text-left py-2 font-medium">#</th>
                       <th className="text-left py-2 font-medium">Fecha / Hora</th>
                       <th className="text-left py-2 font-medium">Usuario</th>
+                      <th className="text-left py-2 font-medium">Caja</th>
                       <th className="text-right py-2 font-medium">Calculado</th>
                       <th className="text-right py-2 font-medium">Contado</th>
                       <th className="text-right py-2 font-medium">Diferencia</th>
@@ -485,6 +516,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                         <td className="py-2">{c.id}</td>
                         <td className="py-2">{new Date(c.fecha_hora).toLocaleString("es-MX")}</td>
                         <td className="py-2">{c.usuario_nombre}</td>
+                        <td className="py-2">{cajasDisponibles.find((caja) => Number(caja.id) === Number(c.caja_id))?.nombre || "Histórica"}</td>
                         <td className="py-2 text-right">{$fmt(c.total_calculado)}</td>
                         <td className="py-2 text-right">{$fmt(c.total_contado)}</td>
                         <td className={`py-2 text-right font-semibold ${c.total_diferencia < 0 ? "text-red-600" : "text-blue-700"}`}>
