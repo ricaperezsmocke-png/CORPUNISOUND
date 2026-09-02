@@ -33,6 +33,7 @@ const {
   obtenerSeguimientosPostventaPendientes
 } = require("./crm");
 const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta } = require("./ventas");
+const { sembrarCajas } = require("./cajas");
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
 } = require("./apartados");
@@ -178,6 +179,7 @@ const DB = {
     ],
     condiciones_pago: [],
     configuracion: null,
+    cajas: [],
     cortes_caja: [],
     apartado_abonos: [],
   },
@@ -319,6 +321,16 @@ sembrarCategoriasGastos(DB);
 // tanto si el DB viene del seed fresco como si viene de datos persistidos
 // anteriores a esta feature. Ver backend/sucursales.js.
 DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
+
+// Normaliza bases anteriores y garantiza las dos cajas fijas por sucursal.
+// sembrarCajas lanza si los datos no tienen exactamente una predeterminada.
+if (!Array.isArray(DB.pos.cajas)) DB.pos.cajas = [];
+try {
+  sembrarCajas(DB);
+} catch (e) {
+  console.error("🚨 Error de datos en las cajas: " + e.message);
+  throw e;
+}
 
 // Garantiza que el rol "Administrador" tenga TODOS los módulos y permisos del
 // catálogo actual, aunque venga de un snapshot persistido anterior a módulos
@@ -1734,7 +1746,7 @@ app.get("/api/cortes/en-curso", requiereLogin, (req, res) => {
   if (!sucursal_id) {
     return res.status(400).json({ error: "Elige una sucursal en el encabezado para ver el corte — el corte es de una sola caja." });
   }
-  const resultado = calcularCorteEnCurso(DB, sucursal_id);
+  const resultado = calcularCorteEnCurso(DB, sucursal_id, req.query.caja_id);
   res.json(filtrarCorteEnCursoPorPermiso(resultado, permisos));
 });
 app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", resolverPermisosDeRol), (req, res) => {

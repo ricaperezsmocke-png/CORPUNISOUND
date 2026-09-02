@@ -8,12 +8,13 @@
  * siguiente cajera empieza de cero.
  *
  * "El turno" se define solo: son las ventas cerradas desde el último corte
- * de esa sucursal hasta ahora. Guardar un corte "cierra" el turno — el
+ * de esa caja hasta ahora. Guardar un corte "cierra" el turno — el
  * siguiente cálculo parte de ese momento.
  */
 
 const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gastos");
 const { fechaLocal } = require("./fechas");
+const { resolverCajaDeSucursal } = require("./cajas");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -26,11 +27,22 @@ function fechaHoraDeVenta(v) {
   return v.fecha_hora || `${v.fecha}T00:00:00.000Z`;
 }
 
-/** Ventas del turno en curso: cerradas, de la sucursal, posteriores al último corte.
+/** Ventas del turno en curso: cerradas, de la caja, posteriores al último corte.
  *  Excluye Apartados — su dinero se cuenta por abono real (ver abonosDelTurno),
  *  nunca por el total completo de la venta, para no duplicarlo al liquidarse. */
-function ventasDelTurno(DB, sucursal_id) {
-  const cortes = DB.pos.cortes_caja.filter((c) => c.sucursal_id === Number(sucursal_id));
+function ventasDelTurno(DB, sucursal_id, caja) {
+  // `caja` puede venir en null: es una base sin catálogo de cajas sembrado.
+  // Ahí el concepto de caja no existe, así que no puede cambiar nada — el turno
+  // vuelve a ser "toda la sucursal desde su último corte", exactamente como
+  // antes de este trabajo. Sin este camino, al hacer que la resolución
+  // devolviera null se cayeron de golpe 13 pruebas del dinero: apartados,
+  // gastos y el calculado del turno.
+  const esDeEstaCaja = (r) =>
+    !caja || r.caja_id === caja.id || (caja.predeterminada && r.caja_id == null);
+
+  const cortes = DB.pos.cortes_caja.filter(
+    (c) => c.sucursal_id === Number(sucursal_id) && esDeEstaCaja(c)
+  );
   const ultimoCorte = cortes.length ? cortes.reduce((a, b) => (a.fecha_hora > b.fecha_hora ? a : b)) : null;
   const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
 
@@ -41,13 +53,22 @@ function ventasDelTurno(DB, sucursal_id) {
         v.estatus === "cerrada" &&
         v.tipo_documento !== "Apartado" &&
         v.sucursal_id === Number(sucursal_id) &&
+        esDeEstaCaja(v) &&
         (!desde || fechaHoraDeVenta(v) > desde)
     ),
   };
 }
 
-/** Abonos de apartados (incluye el anticipo) del turno en curso de esta sucursal. */
-function abonosDelTurno(DB, sucursal_id, desde) {
+/**
+ * Abonos sin caja propia: la predeterminada los cuenta una sola vez.
+ *
+ * Un abono de apartado no dice de qué mostrador salió, así que se le asigna a
+ * la caja predeterminada para no contarlo dos veces. Sin catálogo (`caja` en
+ * null) se cuentan todos, como siempre: el dinero de un abono no puede
+ * desaparecer porque falte un catálogo.
+ */
+function abonosDelTurno(DB, sucursal_id, desde, caja) {
+  if (caja && !caja.predeterminada) return [];
   return DB.pos.apartado_abonos.filter(
     (a) => a.sucursal_id === Number(sucursal_id) && (!desde || a.fecha_hora > desde)
   );
@@ -69,9 +90,10 @@ function acumularPorFormaPago(calculado, forma, monto) {
 }
 
 /** Lo que el sistema calcula que debería haber en caja, por forma de pago */
-function calcularCorteEnCurso(DB, sucursal_id) {
-  const { desde, ventas } = ventasDelTurno(DB, sucursal_id);
-  const abonos = abonosDelTurno(DB, sucursal_id, desde);
+function calcularCorteEnCurso(DB, sucursal_id, caja_id) {
+  const caja = resolverCajaDeSucursal(DB, sucursal_id, caja_id);
+  const { desde, ventas } = ventasDelTurno(DB, sucursal_id, caja);
+  const abonos = abonosDelTurno(DB, sucursal_id, desde, caja);
 
   const calculado = { EFECTIVO: 0, CHEQUE: 0, VALES: 0, TARJETA: 0 };
   let transferencias = 0;
@@ -114,7 +136,7 @@ function calcularCorteEnCurso(DB, sucursal_id) {
 }
 
 /** Guarda el corte: congela el calculado del momento, registra contado/retiro/diferencias */
-function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {}, retiro = {} }) {
+function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, contado = {}, retiro = {} }) {
   // Sin sucursal no se adivina: antes caía a la 1, y el corte cerraba el turno
   // de Ocosingo con el efectivo contado en otra tienda — faltante inventado en
   // una y turno cerrado en la otra sin que nadie lo pidiera.
@@ -122,7 +144,11 @@ function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {},
   if (!Number.isInteger(sucursalDelCorte) || sucursalDelCorte <= 0) {
     throw new Error("Falta la sucursal de la que es este corte de caja");
   }
-  const enCurso = calcularCorteEnCurso(DB, sucursalDelCorte);
+  // Sin catálogo de cajas el corte se guarda con `caja_id: null`, que es
+  // exactamente lo que ya tienen los cortes históricos. Nunca se impide cortar
+  // por un problema de catálogo: la caja es un dato del corte, no un permiso.
+  const caja = resolverCajaDeSucursal(DB, sucursalDelCorte, caja_id);
+  const enCurso = calcularCorteEnCurso(DB, sucursalDelCorte, caja?.id ?? null);
 
   const redondear = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const contadoLimpio = {};
@@ -137,6 +163,7 @@ function crearCorte(DB, { sucursal_id, usuario_id, usuario_nombre, contado = {},
   const corte = {
     id: siguienteId(DB.pos.cortes_caja),
     sucursal_id: sucursalDelCorte,
+    caja_id: caja?.id ?? null,
     usuario_id: usuario_id ?? null,
     usuario_nombre: usuario_nombre || "—",
     fecha: fechaLocal(),

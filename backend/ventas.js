@@ -14,6 +14,7 @@
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
+const { resolverCajaDeSucursal } = require("./cajas");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -35,7 +36,6 @@ function crearVenta(DB, datos) {
   if (!Number.isInteger(sucursalId) || sucursalId <= 0) {
     throw new Error("Falta la sucursal donde se cierra la venta");
   }
-
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
     for (const l of datos.lineas) {
@@ -67,12 +67,15 @@ function crearVenta(DB, datos) {
     vendedorId = v.id;
   }
 
+  const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);
+
   const nuevoId = siguienteId(DB.pos.ventas);
   const venta = {
     id: nuevoId,
     fecha: fechaLocal(),
     fecha_hora: new Date().toISOString(), // con hora — el corte de caja agrupa ventas por turno
     sucursal_id: sucursalId,
+    caja_id: caja?.id ?? null,
     vendedor_id: vendedorId,
     cliente_id: datos.cliente_id !== undefined && datos.cliente_id !== null ? Number(datos.cliente_id) : 0,
     tipo_documento: datos.tipo_documento || "Ticket",
