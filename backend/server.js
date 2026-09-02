@@ -32,7 +32,7 @@ const {
   registrarContacto, listarContactos, resumenPorSucursal, rankingVendedores,
   obtenerSeguimientosPostventaPendientes
 } = require("./crm");
-const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta } = require("./ventas");
+const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta, cambiarCajaVenta } = require("./ventas");
 const { sembrarCajas } = require("./cajas");
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
@@ -1618,6 +1618,17 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
       return res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
     }
     res.json(cancelarVenta(DB, req.params.id, req.body.motivo));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put("/api/ventas/:id/caja", requiereLogin, requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {
+  try {
+    const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(cambiarCajaVenta(DB, req.params.id, req.body.caja_id, usuario));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

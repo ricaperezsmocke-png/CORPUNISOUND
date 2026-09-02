@@ -3,7 +3,7 @@ import {
   Eye, RefreshCw, Ban, Download, DollarSign, Mail, FileCheck,
   FileText, FileCode, Users, Printer, LayoutGrid, Search, Settings,
   FileBarChart, PieChart, Wrench, Cloud, Info, UserCircle2, ShoppingCart,
-  Package, X
+  Package, X, ArrowLeftRight
 } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
@@ -54,8 +54,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
   const [seleccionadaId, setSeleccionadaId] = useState(null);
   const [detalle, setDetalle] = useState(null);
-  const [modal, setModal] = useState(null); // "detalle" | "cancelar"
+  const [modal, setModal] = useState(null); // "detalle" | "cancelar" | "cambiarCaja"
   const [motivoCancelacion, setMotivoCancelacion] = useState("");
+  const [cajasVenta, setCajasVenta] = useState([]);
+  const [cajaDestinoId, setCajaDestinoId] = useState("");
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -141,6 +143,36 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
+  const abrirCambiarCaja = async () => {
+    if (!seleccionada) return mostrarAviso("Selecciona una venta primero");
+    try {
+      const r = await apiFetch(`/cajas${qSucursal(seleccionada)}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      const cajaActual = data.find((caja) => caja.id === seleccionada.caja_id)
+        || data.find((caja) => caja.predeterminada);
+      const destinos = data.filter((caja) => caja.id !== cajaActual?.id);
+      if (destinos.length === 0) throw new Error("No hay otra caja disponible en esta sucursal");
+      setCajasVenta(data);
+      setCajaDestinoId(String(destinos[0].id));
+      setModal("cambiarCaja");
+    } catch (e) { mostrarAviso(e.message); }
+  };
+
+  const confirmarCambioCaja = async () => {
+    try {
+      const r = await apiFetch(`/ventas/${seleccionada.id}/caja${qSucursal(seleccionada)}`, {
+        method: "PUT",
+        body: JSON.stringify({ caja_id: Number(cajaDestinoId) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso(`Venta folio ${seleccionada.id} movida a ${data.cambios_caja.at(-1).caja_destino_nombre}`);
+      setModal(null);
+      consultar();
+    } catch (e) { mostrarAviso(e.message); }
+  };
+
   const exportarCSV = () => {
     if (!puede("exportar_ventas")) return mostrarAviso("No tienes permiso para exportar");
     if (ventas.length === 0) return mostrarAviso("No hay ventas para exportar");
@@ -158,6 +190,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
         {puede("cancelar_ventas") && <BotonBarra icono={Ban} etiqueta="Cancelar" atajo="F6" tono="rojo" onClick={abrirCancelar} />}
+        {puede("cambiar_caja_venta") && <BotonBarra icono={ArrowLeftRight} etiqueta="Cambiar caja" onClick={abrirCambiarCaja} />}
         {puede("exportar_ventas") && <BotonBarra icono={Download} etiqueta="Exportar" atajo="F7" onClick={exportarCSV} />}
         <BotonBarra icono={DollarSign} etiqueta="Saldo" atajo="F8" onClick={() => mostrarAviso("Consulta de saldos — próximamente")} />
         <BotonBarra icono={Mail} etiqueta="eMail" atajo="F11" onClick={() => mostrarAviso("Envío por correo — requiere facturación CFDI")} />
@@ -325,6 +358,32 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
               </div>
               <button type="button" onClick={confirmarCancelacion} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">Confirmar cancelación</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === "cambiarCaja" && seleccionada && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
+            <div className="bg-[#1a7fe8] text-white px-4 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-sm">Cambiar caja — Folio {seleccionada.id}</h3>
+              <button type="button" onClick={() => setModal(null)} className="hover:bg-blue-700 rounded p-1"><X size={18} /></button>
+            </div>
+            <div className="p-4 flex flex-col gap-3">
+              <p className="text-xs text-slate-600">
+                Caja actual: <b>{(cajasVenta.find((caja) => caja.id === seleccionada.caja_id) || cajasVenta.find((caja) => caja.predeterminada))?.nombre}</b>
+              </p>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Mover la venta a</label>
+                <select value={cajaDestinoId} onChange={(e) => setCajaDestinoId(e.target.value)} className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm">
+                  {cajasVenta
+                    .filter((caja) => caja.id !== (cajasVenta.find((actual) => actual.id === seleccionada.caja_id) || cajasVenta.find((actual) => actual.predeterminada))?.id)
+                    .map((caja) => <option key={caja.id} value={caja.id}>{caja.nombre}</option>)}
+                </select>
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">Solo se puede corregir mientras ninguna de las dos cajas haya cerrado el periodo de esta venta.</p>
+              <button type="button" onClick={confirmarCambioCaja} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded font-semibold">Confirmar cambio de caja</button>
             </div>
           </div>
         </div>

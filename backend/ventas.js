@@ -15,6 +15,7 @@ const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
+const { calcularCorteEnCurso } = require("./cortes");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -188,4 +189,68 @@ function cancelarVenta(DB, id, motivo) {
   return venta;
 }
 
-module.exports = { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta };
+function ventaQuedaDespuesDelUltimoCorte(DB, venta, caja) {
+  // Se consulta al propio cálculo del corte con una vista aislada de la venta.
+  // Así esta decisión comparte también su normalización de fechas históricas:
+  // no se copia aquí que una venta sin fecha_hora empieza a las 00:00.
+  const vista = {
+    ...DB,
+    pos: {
+      ...DB.pos,
+      ventas: [{
+        ...venta,
+        caja_id: caja?.id ?? null,
+        estatus: "cerrada",
+        tipo_documento: "Ticket",
+      }],
+    },
+  };
+  const turno = calcularCorteEnCurso(vista, venta.sucursal_id, caja?.id ?? null);
+  return !turno.desde || turno.ventas_incluidas === 1;
+}
+
+function cambiarCajaVenta(DB, id, cajaDestinoId, usuario) {
+  const venta = DB.pos.ventas.find((v) => v.id === Number(id));
+  if (!venta) throw new Error("Venta no encontrada");
+
+  // resolverCajaDeSucursal concentra la validación de existencia y sucursal.
+  // Al resolver también el origen, una venta histórica con caja_id null se
+  // atribuye a la predeterminada exactamente como la absorbe el corte.
+  const cajaOrigen = resolverCajaDeSucursal(DB, venta.sucursal_id, venta.caja_id);
+  const cajaDestino = resolverCajaDeSucursal(DB, venta.sucursal_id, cajaDestinoId);
+  if (cajaOrigen?.id === cajaDestino?.id) {
+    throw new Error(`Esta venta ya pertenece a la caja ${cajaDestino?.nombre || "indicada"}`);
+  }
+
+  if (!ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaOrigen)) {
+    throw new Error(
+      `No se puede cambiar la caja: esta venta ya forma parte de un corte cerrado de la caja ${cajaOrigen?.nombre || "actual"}. Ese corte conserva sus totales históricos.`
+    );
+  }
+
+  // La caja destino también debe tener abierto el periodo de la venta. Si su
+  // último corte fuera posterior, al moverla el origen dejaría de verla y el
+  // destino la descartaría por antigua: dinero cobrado que no aparecería en
+  // ningún corte futuro.
+  if (!ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaDestino)) {
+    throw new Error(
+      `No se puede cambiar la caja: la caja destino ${cajaDestino.nombre} ya cerró un corte posterior a esta venta. Si se moviera, la venta no aparecería en ningún corte.`
+    );
+  }
+
+  const cambio = {
+    usuario_id: usuario?.id ?? null,
+    usuario_nombre: usuario?.nombre || "—",
+    fecha_hora: new Date().toISOString(),
+    caja_origen_id: cajaOrigen?.id ?? null,
+    caja_origen_nombre: cajaOrigen?.nombre || "Sin caja",
+    caja_destino_id: cajaDestino.id,
+    caja_destino_nombre: cajaDestino.nombre,
+  };
+  if (!Array.isArray(venta.cambios_caja)) venta.cambios_caja = [];
+  venta.cambios_caja.push(cambio);
+  venta.caja_id = cajaDestino.id;
+  return venta;
+}
+
+module.exports = { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta, cambiarCajaVenta };
