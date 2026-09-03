@@ -4,6 +4,7 @@ const { construirDBPrueba } = require("./testHelpers");
 const { sembrarCajas } = require("./cajas");
 const { calcularCorteEnCurso, crearCorte } = require("./cortes");
 const { cambiarCajaVenta, cancelarVenta } = require("./ventas");
+const { avisarSiLaEpocaEstaEnElFuturo } = require("./corteEpoca");
 
 const EPOCA = "2026-09-01T09:00:00.000Z";
 const usuario = { id: 81, nombre: "Encargada Palenque" };
@@ -218,3 +219,57 @@ test("abonos y gastos historicos sellados por el primer corte no reaparecen", ()
 });
 
 module.exports = { comprobarConservacion };
+
+/**
+ * La frontera de la epoca es inclusiva, y esto no es una sutileza de operador.
+ *
+ * La epoca se fija al arrancar con la hora del servidor, y la primera venta de
+ * ese arranque puede caer en el MISMO milisegundo. Con `>` esa venta se iba por
+ * la rama historica: si su caja ya tenia un corte posterior, no la reclamaba
+ * nadie y su importe desaparecia del calculado — exactamente el hueco que el
+ * sellado vino a cerrar, colandose por la puerta de atras.
+ *
+ * Un movimiento que ocurre EN la epoca ya pertenece a la era sellada.
+ */
+test("una venta con la hora exacta de la epoca se rige por el sello, no por el reloj", () => {
+  const DB = prepararDB();
+  const { administrativa: A } = cajasDe(DB);
+
+  // Un corte previo de esa caja, POSTERIOR a la epoca: mueve la frontera de
+  // tiempo por delante de la venta que viene.
+  agregarVenta(DB, { id: 1, caja_id: A.id, total: 55, fecha_hora: "2026-09-01T09:30:00.000Z" });
+  crearCorte(DB, { sucursal_id: 4, caja_id: A.id, usuario_id: usuario.id, usuario_nombre: usuario.nombre, contado: { EFECTIVO: 55 } });
+
+  // Y ahora la venta del milisegundo exacto de la epoca, todavia sin sellar.
+  agregarVenta(DB, { id: 2, caja_id: A.id, total: 120, fecha_hora: EPOCA });
+
+  const enCurso = calcularCorteEnCurso(DB, 4, A.id);
+
+  assert.strictEqual(
+    enCurso.calculado.EFECTIVO, 120,
+    "con la frontera exclusiva esta venta no la reclamaba ningun corte y su importe se perdia"
+  );
+  assert.strictEqual(enCurso.ventas_incluidas, 1);
+});
+
+test("una marca de agua en el futuro se avisa a gritos en vez de operar en silencio", () => {
+  const DB = prepararDB();
+  DB.pos.corte_epoca = new Date(Date.now() + 86400000).toISOString(); // mañana
+
+  const dichos = [];
+  const aviso = avisarSiLaEpocaEstaEnElFuturo(DB, (m) => dichos.push(m));
+
+  assert.strictEqual(aviso, true);
+  assert.match(dichos.join(" "), /FUTURO/);
+  assert.match(
+    dichos.join(" "), /fuera de todos los cortes/,
+    "el aviso tiene que decir la consecuencia, no solo que algo esta raro"
+  );
+});
+
+test("una marca de agua normal no avisa nada", () => {
+  const DB = prepararDB();
+  const dichos = [];
+  assert.strictEqual(avisarSiLaEpocaEstaEnElFuturo(DB, (m) => dichos.push(m)), false);
+  assert.strictEqual(dichos.length, 0);
+});

@@ -15,6 +15,7 @@
 const { dentroDeAlcance } = require("./auth");
 const { buscarHojaActiva, listarCategorias } = require("./gastosCategorias");
 const { esDeEstaCaja } = require("./cajas");
+const { esDeLaEraSellada } = require("./corteEpoca");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
 
@@ -230,13 +231,12 @@ function movimientosDeGasto(DB, id, alcance) {
  *   - misma caja: caja_id explícita, o caja predeterminada para registros sin caja
  */
 function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
-  const epoca = DB.pos.corte_epoca || null;
   return DB.gastos.gastos
     .filter((g) => g.estatus === "activo")
     .filter((g) => g.forma_pago === "EFECTIVO")
     .filter((g) => g.sucursal_id === Number(sucursal_id))
     .filter((g) => {
-      const esPosteriorAEpoca = epoca && g.fecha_hora > epoca;
+      const esPosteriorAEpoca = esDeLaEraSellada(g.fecha_hora, DB);
       if (esPosteriorAEpoca) return esDeEstaCaja(g, caja) && g.corte_id == null;
       return g.corte_id == null && (!desde || g.fecha_hora > desde);
     });

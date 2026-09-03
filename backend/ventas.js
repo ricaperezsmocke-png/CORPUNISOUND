@@ -15,6 +15,7 @@ const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
+const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
 
 function siguienteId(lista) {
@@ -223,8 +224,7 @@ function cambiarCajaVenta(DB, id, cajaDestinoId, usuario) {
     throw new Error(`Esta venta ya pertenece a la caja ${cajaDestino?.nombre || "indicada"}`);
   }
 
-  const epoca = DB.pos.corte_epoca || null;
-  const esPosteriorAEpoca = epoca && (venta.fecha_hora || `${venta.fecha}T00:00:00.000Z`) > epoca;
+  const esPosteriorAEpoca = esDeLaEraSellada(venta.fecha_hora || `${venta.fecha}T00:00:00.000Z`, DB);
   const yaFueCortada = esPosteriorAEpoca
     ? venta.corte_id != null
     : !ventaQuedaDespuesDelUltimoCorte(DB, venta, cajaOrigen);

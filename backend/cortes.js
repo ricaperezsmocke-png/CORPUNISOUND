@@ -15,6 +15,7 @@
 const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gastos");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
+const { esDeLaEraSellada } = require("./corteEpoca");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -43,8 +44,7 @@ function ventasDelTurno(DB, sucursal_id, caja) {
     (c) => c.sucursal_id === Number(sucursal_id) && esDeEstaCaja(c, caja)
   );
   const ultimoCorte = cortes.length ? cortes.reduce((a, b) => (a.fecha_hora > b.fecha_hora ? a : b)) : null;
-  const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
-  const epoca = DB.pos.corte_epoca || null;
+  const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
 
   return {
     desde,
@@ -56,7 +56,7 @@ function ventasDelTurno(DB, sucursal_id, caja) {
         esDeEstaCaja(v, caja) &&
         (() => {
           const fechaHora = fechaHoraDeVenta(v);
-          if (epoca && fechaHora > epoca) return v.corte_id == null;
+          if (esDeLaEraSellada(fechaHora, DB)) return v.corte_id == null;
           return v.corte_id == null && (!desde || fechaHora > desde);
         })()
     ),
@@ -72,12 +72,11 @@ function ventasDelTurno(DB, sucursal_id, caja) {
  * abono no puede desaparecer porque falte un catálogo.
  */
 function abonosDelTurno(DB, sucursal_id, desde, caja) {
-  const epoca = DB.pos.corte_epoca || null;
   return DB.pos.apartado_abonos.filter(
     (a) =>
       a.sucursal_id === Number(sucursal_id) &&
       esDeEstaCaja(a, caja) &&
-      (epoca && a.fecha_hora > epoca
+      (esDeLaEraSellada(a.fecha_hora, DB)
         ? a.corte_id == null
         : a.corte_id == null && (!desde || a.fecha_hora > desde))
   );

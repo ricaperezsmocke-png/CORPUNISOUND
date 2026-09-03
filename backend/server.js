@@ -34,6 +34,7 @@ const {
 } = require("./crm");
 const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta, cambiarCajaVenta } = require("./ventas");
 const { sembrarCajas } = require("./cajas");
+const { avisarSiLaEpocaEstaEnElFuturo } = require("./corteEpoca");
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
 } = require("./apartados");
@@ -330,6 +331,11 @@ if (!DB.pos.corte_epoca) {
   DB.pos.corte_epoca = new Date().toISOString();
   guardar(DB);
 }
+// Una época en el futuro haría que cada venta, abono y gasto nuevo se tratara
+// como histórico, reabriendo los huecos que el sello cierra. No debería poder
+// pasar, pero sí puede llegar así al restaurar un respaldo de otra máquina, y
+// entonces la contabilidad queda expuesta en silencio. Se grita.
+avisarSiLaEpocaEstaEnElFuturo(DB);
 
 // Normaliza bases anteriores y garantiza las dos cajas fijas por sucursal.
 // sembrarCajas lanza si los datos no tienen exactamente una predeterminada.
