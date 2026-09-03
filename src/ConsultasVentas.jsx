@@ -29,6 +29,7 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) 
     <button type="button" onClick={onClick} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors">
       <Icono size={18} className={tonos[tono]} />
       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
+      {atajo && <span className="text-[9px] text-slate-400">{atajo}</span>}
     </button>
   );
 }
@@ -38,8 +39,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
   const [ventas, setVentas] = useState([]);
   const [sucursales, setSucursales] = useState([]);
+  const [cajasFiltro, setCajasFiltro] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [errorCatalogos, setErrorCatalogos] = useState(null);
+  const [errorCajas, setErrorCajas] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
@@ -49,6 +52,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const [documento, setDocumento] = useState("Todos");
   const [estado, setEstado] = useState("Todos");
   const [sucursalFiltro, setSucursalFiltro] = useState("");
+  const [cajaFiltro, setCajaFiltro] = useState("");
   const [vendedorFiltro, setVendedorFiltro] = useState("");
   const [texto, setTexto] = useState("");
 
@@ -80,27 +84,48 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     setErrorCatalogos(suc.error || ven.error);
   }, []);
 
+  useEffect(() => {
+    setCajaFiltro("");
+    if (!sucursalFiltro) {
+      setCajasFiltro([]);
+      setErrorCajas(null);
+      return;
+    }
+
+    let vigente = true;
+    pedirLista(
+      () => apiFetch(`/cajas?sucursal_id=${encodeURIComponent(sucursalFiltro)}&caja_id=`),
+      "las cajas"
+    ).then((respuesta) => {
+      if (!vigente) return;
+      setCajasFiltro(respuesta.datos);
+      setErrorCajas(respuesta.error);
+    });
+    return () => { vigente = false; };
+  }, [sucursalFiltro]);
+
   const consultar = useCallback(async () => {
     setCargando(true);
     setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (fechaInicial) params.set("fecha_inicio", fechaInicial);
-      if (fechaFinal) params.set("fecha_fin", fechaFinal);
-      if (documento !== "Todos") params.set("tipo_documento", documento);
-      if (estado !== "Todos") params.set("estatus", estado);
-      if (sucursalFiltro) params.set("sucursal_id", sucursalFiltro);
-      if (vendedorFiltro) params.set("vendedor_id", vendedorFiltro);
-      if (texto) params.set("texto", texto);
-      const r = await apiFetch(`/ventas?${params.toString()}`);
-      if (!r.ok) throw new Error("El backend respondió con error");
-      setVentas(await r.json());
-    } catch (e) {
-      setError("No se pudo conectar con el backend (http://localhost:4000).");
-    } finally {
-      setCargando(false);
-    }
-  }, [fechaInicial, fechaFinal, documento, estado, sucursalFiltro, vendedorFiltro, texto]);
+    const params = new URLSearchParams();
+    if (fechaInicial) params.set("fecha_inicio", fechaInicial);
+    if (fechaFinal) params.set("fecha_fin", fechaFinal);
+    if (documento !== "Todos") params.set("tipo_documento", documento);
+    if (estado !== "Todos") params.set("estatus", estado);
+    if (sucursalFiltro) params.set("sucursal_id", sucursalFiltro);
+    // Se incluye aun vacio para que apiFetch no inyecte la caja del encabezado:
+    // "Todas" en esta pantalla debe consultar todas las cajas del alcance.
+    params.set("caja_id", cajaFiltro);
+    if (vendedorFiltro) params.set("vendedor_id", vendedorFiltro);
+    if (texto) params.set("texto", texto);
+    const respuesta = await pedirLista(
+      () => apiFetch(`/ventas?${params.toString()}`),
+      "las ventas"
+    );
+    setVentas(respuesta.datos);
+    setError(respuesta.error);
+    setCargando(false);
+  }, [fechaInicial, fechaFinal, documento, estado, sucursalFiltro, cajaFiltro, vendedorFiltro, texto]);
 
   useEffect(() => { cargarCatalogos(); consultar(); /* eslint-disable-next-line */ }, []);
 
@@ -196,6 +221,44 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     mostrarAviso("Exportado a CSV");
   };
 
+  const consultarSaldo = () => mostrarAviso("Consulta de saldos — próximamente");
+  const enviarCorreo = () => mostrarAviso("Envío por correo — requiere facturación CFDI");
+  const verAcuse = () => mostrarAviso("Acuse de cancelación — requiere facturación CFDI");
+  const verXML = () => mostrarAviso("XML del CFDI — requiere facturación CFDI");
+  const imprimir = () => mostrarAviso("Enviando a impresora...");
+
+  // Mismo patrón de PuntoDeVenta: un solo listener global llama las mismas
+  // funciones que los botones. Los campos editables quedan fuera para que una
+  // tecla de consulta o cancelación no interrumpa la captura de filtros.
+  useEffect(() => {
+    const manejador = (e) => {
+      const objetivo = e.target;
+      const esEditable = objetivo && (
+        ["INPUT", "SELECT", "TEXTAREA"].includes(objetivo.tagName)
+        || objetivo.isContentEditable
+      );
+      if (esEditable || modal !== null) return;
+
+      let accion = null;
+      if (e.key === "F4" || e.key === "F5") accion = consultar;
+      else if (e.key === "F6" && puede("cancelar_ventas")) accion = abrirCancelar;
+      else if (e.key === "F7" && puede("exportar_ventas")) accion = exportarCSV;
+      else if (e.key === "F8") accion = consultarSaldo;
+      else if (e.key === "F11") accion = enviarCorreo;
+      else if (e.key === "F12") accion = verAcuse;
+      else if (e.altKey && e.key.toLowerCase() === "d") accion = verDetalle;
+      else if (e.altKey && e.key.toLowerCase() === "x") accion = verXML;
+      else if (e.altKey && e.key.toLowerCase() === "p" && puede("imprimir_ventas")) accion = imprimir;
+
+      if (accion) {
+        e.preventDefault();
+        accion();
+      }
+    };
+    window.addEventListener("keydown", manejador);
+    return () => window.removeEventListener("keydown", manejador);
+  });
+
   const totalPeriodo = useMemo(() => ventas.filter((v) => v.estatus === "cerrada").reduce((a, v) => a + v.total, 0), [ventas]);
 
   return (
@@ -206,12 +269,12 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         {puede("cancelar_ventas") && <BotonBarra icono={Ban} etiqueta="Cancelar" atajo="F6" tono="rojo" onClick={abrirCancelar} />}
         {puede("cambiar_caja_venta") && <BotonBarra icono={ArrowLeftRight} etiqueta="Cambiar caja" onClick={abrirCambiarCaja} />}
         {puede("exportar_ventas") && <BotonBarra icono={Download} etiqueta="Exportar" atajo="F7" onClick={exportarCSV} />}
-        <BotonBarra icono={DollarSign} etiqueta="Saldo" atajo="F8" onClick={() => mostrarAviso("Consulta de saldos — próximamente")} />
-        <BotonBarra icono={Mail} etiqueta="eMail" atajo="F11" onClick={() => mostrarAviso("Envío por correo — requiere facturación CFDI")} />
-        <BotonBarra icono={FileCheck} etiqueta="Acuse X" atajo="F12" onClick={() => mostrarAviso("Acuse de cancelación — requiere facturación CFDI")} />
+        <BotonBarra icono={DollarSign} etiqueta="Saldo" atajo="F8" onClick={consultarSaldo} />
+        <BotonBarra icono={Mail} etiqueta="eMail" atajo="F11" onClick={enviarCorreo} />
+        <BotonBarra icono={FileCheck} etiqueta="Acuse X" atajo="F12" onClick={verAcuse} />
         <BotonBarra icono={FileText} etiqueta="Docs" atajo="Alt+D" onClick={verDetalle} />
-        <BotonBarra icono={FileCode} etiqueta="XML" atajo="Alt+X" onClick={() => mostrarAviso("XML del CFDI — requiere facturación CFDI")} />
-        {puede("imprimir_ventas") && <BotonBarra icono={Printer} etiqueta="Imp" atajo="Alt+P" onClick={() => mostrarAviso("Enviando a impresora...")} />}
+        <BotonBarra icono={FileCode} etiqueta="XML" atajo="Alt+X" onClick={verXML} />
+        {puede("imprimir_ventas") && <BotonBarra icono={Printer} etiqueta="Imp" atajo="Alt+P" onClick={imprimir} />}
       </div>
 
       {error && <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2 shrink-0">{error}</div>}
@@ -239,10 +302,17 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
             </select>
           </div>
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Caja / Sucursal</label>
+            <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
             <select value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               <option value="">Todas</option>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Caja</label>
+            <select value={cajaFiltro} onChange={(e) => setCajaFiltro(e.target.value)} disabled={!sucursalFiltro} className="neu-campo rounded-lg px-2 py-1.5 text-sm disabled:opacity-50">
+              <option value="">Todas</option>
+              {cajasFiltro.map((caja) => <option key={caja.id} value={caja.id}>{caja.nombre}</option>)}
             </select>
           </div>
           <div>
@@ -254,9 +324,9 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           </div>
           <button type="button" onClick={consultar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">Consultar</button>
         </div>
-        {errorCatalogos && (
+        {(errorCatalogos || errorCajas) && (
           <div className="text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded px-2 py-1.5">
-            ⚠ {errorCatalogos} Los desplegables de Sucursal y Vendedor pueden verse incompletos;
+            ⚠ {errorCatalogos || errorCajas} Los desplegables de Sucursal, Caja y Vendedor pueden verse incompletos;
             la lista de ventas de abajo sí es la del periodo consultado.
           </div>
         )}

@@ -14,7 +14,7 @@
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
-const { resolverCajaDeSucursal } = require("./cajas");
+const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
 
@@ -126,6 +126,15 @@ function listarVentas(DB, filtros = {}) {
   if (filtros.fecha_inicio) lista = lista.filter((v) => v.fecha >= filtros.fecha_inicio);
   if (filtros.fecha_fin) lista = lista.filter((v) => v.fecha <= filtros.fecha_fin);
   if (filtros.sucursal_id) lista = lista.filter((v) => v.sucursal_id === Number(filtros.sucursal_id));
+  // La pertenencia a una caja se decide con `esDeEstaCaja` y en ningun otro
+  // lado. Comparar el id a secas escondia justo las ventas historicas
+  // (`caja_id: null`), que el corte de la Administrativa SI cuenta: quien
+  // investigara un faltante filtraba por Administrativa, no veia ninguna de
+  // las ventas que le estaban cobrando, y el faltante parecia inventado.
+  if (filtros.caja_id) {
+    const caja = (DB.pos.cajas || []).find((c) => c.id === Number(filtros.caja_id));
+    lista = caja ? lista.filter((v) => esDeEstaCaja(v, caja)) : [];
+  }
   if (filtros.vendedor_id) lista = lista.filter((v) => v.vendedor_id === Number(filtros.vendedor_id));
   if (filtros.estatus) lista = lista.filter((v) => v.estatus === filtros.estatus);
   if (filtros.tipo_documento) lista = lista.filter((v) => v.tipo_documento === filtros.tipo_documento);
