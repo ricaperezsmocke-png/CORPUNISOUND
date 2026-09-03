@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Eye, RefreshCw, Ban, Download, DollarSign, Mail, FileCheck,
   FileText, FileCode, Users, Printer, LayoutGrid, Search, Settings,
@@ -58,6 +58,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const [motivoCancelacion, setMotivoCancelacion] = useState("");
   const [cajasVenta, setCajasVenta] = useState([]);
   const [cajaDestinoId, setCajaDestinoId] = useState("");
+  const [cancelando, setCancelando] = useState(false);
+  const [cambiandoCaja, setCambiandoCaja] = useState(false);
+  const cancelacionEnCurso = useRef(false);
+  const cambioCajaEnCurso = useRef(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -130,6 +134,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   };
 
   const confirmarCancelacion = async () => {
+    // Una solicitud duplicada intenta reintegrar dos veces el inventario de la venta.
+    if (cancelacionEnCurso.current) return;
+    cancelacionEnCurso.current = true;
+    setCancelando(true);
     try {
       // sucursal_id explícito (el de la propia venta), mismo motivo que en
       // verDetalle(): sin él, el guard de esta ruta responde "Venta no
@@ -141,6 +149,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       setModal(null);
       consultar();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { cancelacionEnCurso.current = false; setCancelando(false); }
   };
 
   const abrirCambiarCaja = async () => {
@@ -160,6 +169,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   };
 
   const confirmarCambioCaja = async () => {
+    // Una solicitud duplicada repite la correccion del dinero entre dos cajas.
+    if (cambioCajaEnCurso.current) return;
+    cambioCajaEnCurso.current = true;
+    setCambiandoCaja(true);
     try {
       const r = await apiFetch(`/ventas/${seleccionada.id}/caja${qSucursal(seleccionada)}`, {
         method: "PUT",
@@ -171,6 +184,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       setModal(null);
       consultar();
     } catch (e) { mostrarAviso(e.message); }
+    finally { cambioCajaEnCurso.current = false; setCambiandoCaja(false); }
   };
 
   const exportarCSV = () => {
@@ -357,7 +371,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <label className="text-xs text-slate-500 block mb-1">Motivo de la cancelación</label>
                 <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
               </div>
-              <button type="button" onClick={confirmarCancelacion} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">Confirmar cancelación</button>
+              <button type="button" onClick={confirmarCancelacion} disabled={cancelando} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{cancelando ? "Cancelando..." : "Confirmar cancelación"}</button>
             </div>
           </div>
         </div>
@@ -383,7 +397,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 </select>
               </div>
               <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">Solo se puede corregir mientras ninguna de las dos cajas haya cerrado el periodo de esta venta.</p>
-              <button type="button" onClick={confirmarCambioCaja} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded font-semibold">Confirmar cambio de caja</button>
+              <button type="button" onClick={confirmarCambioCaja} disabled={cambiandoCaja} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{cambiandoCaja ? "Corrigiendo..." : "Confirmar cambio de caja"}</button>
             </div>
           </div>
         </div>

@@ -35,6 +35,10 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   const [anticipoForma, setAnticipoForma] = useState("EFECTIVO");
   const [guardando, setGuardando] = useState(false);
   const [abonando, setAbonando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+
+  const apartadoEnCurso = useRef(false);
+  const cancelacionEnCurso = useRef(false);
 
   const [abonoActivoId, setAbonoActivoId] = useState(null);
   const [abonoMonto, setAbonoMonto] = useState("");
@@ -70,6 +74,9 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
     if (!monto || monto <= 0) return mostrarAviso("Captura un anticipo mayor a $0");
     if (monto > total) return mostrarAviso("El anticipo no puede ser mayor al total");
 
+    // Un alta duplicada cobra dos anticipos y descuenta dos veces el inventario.
+    if (apartadoEnCurso.current) return;
+    apartadoEnCurso.current = true;
     setGuardando(true);
     try {
       const r = await apiFetch("/apartados", {
@@ -97,6 +104,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
     } catch (e) {
       mostrarAviso("❌ " + e.message);
     } finally {
+      apartadoEnCurso.current = false;
       setGuardando(false);
     }
   };
@@ -157,6 +165,10 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
   });
 
   const cancelarConfirmado = async (apartado) => {
+    // Una cancelacion duplicada puede reintegrar dos veces el inventario y el saldo.
+    if (cancelacionEnCurso.current) return;
+    cancelacionEnCurso.current = true;
+    setCancelando(true);
     try {
       // Mismo motivo que en confirmarAbono: sucursal_id del propio apartado
       // para que el guard no lo dé por inexistente.
@@ -169,6 +181,9 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
       cargarApartados();
     } catch (e) {
       mostrarAviso("❌ " + e.message);
+    } finally {
+      cancelacionEnCurso.current = false;
+      setCancelando(false);
     }
   };
 
@@ -267,7 +282,7 @@ export default function ModalApartados({ onCerrar, carrito, cliente, vendedor, c
                         <td className="py-2 px-3 text-center">
                           <div className="flex gap-1 justify-center">
                             <button type="button" onClick={() => abrirAbono(a)} className="p-1.5 rounded hover:bg-blue-50 text-blue-600" title="Abonar"><DollarSign size={16} /></button>
-                            <button type="button" onClick={() => cancelar(a)} className="p-1.5 rounded hover:bg-red-50 text-red-500" title="Cancelar"><Ban size={16} /></button>
+                            <button type="button" onClick={() => cancelar(a)} disabled={cancelando} className="p-1.5 rounded hover:bg-red-50 text-red-500 disabled:opacity-50 disabled:cursor-not-allowed" title="Cancelar"><Ban size={16} /></button>
                           </div>
                         </td>
                       )}
