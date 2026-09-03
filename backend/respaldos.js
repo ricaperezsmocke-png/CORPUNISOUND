@@ -20,6 +20,7 @@ const crypto = require("crypto");
 const { empaquetar } = require("./respaldoCifrado");
 const { fechaLocal, ahora, momentoLocal } = require("./fechas");
 const mantenimiento = require("./mantenimiento");
+const { validarAntesDeRestaurar } = require("./reconciliarRestauracion");
 
 // Versión 2 (2026-08-15): la 1 OLVIDABA "catalogo-productos" — el catálogo
 // entero de la tienda (productos, categorías, proveedores, departamentos). Un
@@ -327,7 +328,7 @@ async function leerRespaldo(DB, drive, copiaId, llave) {
       `Ese respaldo usa la versión de formato ${foto.version_formato} y este sistema entiende la ${VERSION_FORMATO}. No se puede aplicar.`
     );
   }
-  if (!foto.datos || typeof foto.datos !== "object") {
+  if (!foto.datos || typeof foto.datos !== "object" || Array.isArray(foto.datos)) {
     throw new Error("El respaldo está incompleto: no trae datos");
   }
   // Un respaldo solo responde por lo que él mismo declaró guardar.
@@ -357,6 +358,12 @@ async function leerRespaldo(DB, drive, copiaId, llave) {
       `ℹ️  El respaldo ${copia.nombre_archivo} es anterior a ${posteriores.join(", ")}: ` +
       "esos módulos se restaurarían vacíos, que es lo que había cuando se tomó."
     );
+  }
+  const formaInvalida = COLECCIONES_RESPALDADAS.find(
+    (clave) => !foto.datos[clave] || typeof foto.datos[clave] !== "object" || Array.isArray(foto.datos[clave])
+  );
+  if (formaInvalida) {
+    throw new Error(`El respaldo está incompleto: la colección ${formaInvalida} no tiene la forma esperada`);
   }
   return { copia, foto };
 }
@@ -566,6 +573,11 @@ async function restaurar(DB, drive, {
     // dejar la tienda cerrada ni un segundo.
     const { copia, foto } = await leerRespaldo(DB, drive, copiaId, llave);
 
+    // La misma reconciliación que se aplicará al DB se ensaya sobre una copia
+    // aislada. Detecta formas internas y catálogos de cajas inconsistentes sin
+    // crear siquiera el pre_restauracion ni tocar el estado vivo.
+    validarAntesDeRestaurar(foto.datos);
+
     // A partir de aquí el sistema queda BLOQUEADO para escrituras, y no se
     // desbloquea pase lo que pase (el `finally` de más abajo).
     //
@@ -604,34 +616,38 @@ async function restaurar(DB, drive, {
         if (viva) credencialesVivas[coleccion] = viva;
       }
 
-      // Recién ahora se muta. Colección por colección, solo las respaldadas.
-      for (const nombre of COLECCIONES_RESPALDADAS) {
-        if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
+      let baseReemplazada = false;
+      try {
+        // Recién ahora se muta. Desde la primera asignación, cualquier error debe
+        // decir que la base sí cambió y señalar la copia exacta para deshacerlo.
+        baseReemplazada = true;
+        for (const nombre of COLECCIONES_RESPALDADAS) {
+          if (foto.datos[nombre] !== undefined) DB[nombre] = foto.datos[nombre];
+        }
+
+        // Se devuelven las conexiones vivas. Si NO había ninguna (servidor nuevo,
+        // levantado desde cero), se respeta la que venga en el respaldo.
+        for (const [coleccion, viva] of Object.entries(credencialesVivas)) {
+          if (!DB[coleccion] || typeof DB[coleccion] !== "object") DB[coleccion] = {};
+          DB[coleccion][CREDENCIALES_A_CONSERVAR[coleccion]] = viva;
+        }
+
+        // Se inyectan desde server.js para no acoplar este módulo a roles.js.
+        if (typeof alTerminar === "function") alTerminar(DB);
+
+        pushMovimiento(
+          DB, copia.id, "restauracion",
+          `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
+          `Respaldo previo: ${pre.nombre_archivo}`,
+          usuario
+        );
+      } catch (e) {
+        if (!baseReemplazada) throw e;
+        throw new Error(
+          "La restauración falló después de aplicar los datos: la base SI se reemplazó y la reparación quedó a medias. " +
+          `Para deshacerlo, restaura el respaldo previo ${pre.nombre_archivo}. Detalle: ${e.message}`
+        );
       }
-
-      // Se devuelven las conexiones vivas. Si NO había ninguna (servidor nuevo,
-      // levantado desde cero), se respeta la que venga en el respaldo: ahí sí es
-      // justo lo que se quiere recuperar.
-      for (const [coleccion, viva] of Object.entries(credencialesVivas)) {
-        if (!DB[coleccion] || typeof DB[coleccion] !== "object") DB[coleccion] = {};
-        DB[coleccion][CREDENCIALES_A_CONSERVAR[coleccion]] = viva;
-      }
-
-      // Las reconciliaciones de arranque se vuelven a aplicar. Sin esto,
-      // restaurar era una PUERTA DE UNA SOLA DIRECCIÓN: una foto anterior al
-      // despliegue de este módulo no tiene el módulo `respaldos` ni sus permisos,
-      // así que el rol Administrador se quedaba sin ellos, la pantalla
-      // desaparecía del Dashboard y las rutas devolvían 403 — nadie podía
-      // deshacer la restauración desde el sistema. Lo mismo con CEDIS.
-      // Se inyectan desde server.js para no acoplar este módulo a roles.js.
-      if (typeof alTerminar === "function") alTerminar(DB);
-
-      pushMovimiento(
-        DB, copia.id, "restauracion",
-        `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} ` +
-        `Respaldo previo: ${pre.nombre_archivo}`,
-        usuario
-      );
 
       return { copia, pre_restauracion: pre, aplicado: true, comparacion };
     } finally {

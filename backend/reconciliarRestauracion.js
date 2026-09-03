@@ -23,9 +23,8 @@ const { reconciliarSucursalesCedis } = require("./sucursales");
 const { reconciliarRoles } = require("./roles");
 const { nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { sembrarCajas } = require("./cajas");
-const { avisarSiLaEpocaEstaEnElFuturo } = require("./corteEpoca");
 
-function reconciliarTrasRestaurar(db, avisar = console.error) {
+function reconciliarTrasRestaurar(db) {
   db.pos.sucursales = reconciliarSucursalesCedis(db.pos.sucursales);
   reconciliarRoles(db);
 
@@ -40,14 +39,24 @@ function reconciliarTrasRestaurar(db, avisar = console.error) {
   if (!Array.isArray(db.pos.cajas)) db.pos.cajas = [];
   sembrarCajas(db);
 
-  // La época NO se toma del respaldo a propósito: la de la foto es de otro
-  // momento —o de otra máquina— y moverla hacia atrás volvería a tratar como
-  // históricos movimientos que ya están sellados, reabriendo los huecos que el
-  // sello cierra. Si la foto no trae ninguna, empieza aquí.
-  if (!db.pos.corte_epoca) db.pos.corte_epoca = new Date().toISOString();
-  avisarSiLaEpocaEstaEnElFuturo(db, avisar);
+  // Una época vieja pertenece a la misma foto que sus movimientos y se conserva:
+  // cambiarla reclasificaría datos ya sellados. Una época futura, en cambio, no
+  // ha ocurrido y haría históricos todos los movimientos nuevos; se sustituye
+  // por el instante de esta restauración. El aviso de corteEpoca sigue reservado
+  // al arranque, donde aún sirve para detectar corrupción fuera de este flujo.
+  const ahora = new Date().toISOString();
+  if (!db.pos.corte_epoca || db.pos.corte_epoca > ahora) db.pos.corte_epoca = ahora;
 
   return db;
 }
 
-module.exports = { reconciliarTrasRestaurar };
+/**
+ * Ejecuta sobre una copia todo lo determinista de la reconciliación. Si la foto
+ * trae una forma incompatible o cajas inconsistentes, lanza antes de tocar DB.
+ */
+function validarAntesDeRestaurar(datos) {
+  const copia = JSON.parse(JSON.stringify(datos));
+  reconciliarTrasRestaurar(copia, () => {});
+}
+
+module.exports = { reconciliarTrasRestaurar, validarAntesDeRestaurar };
