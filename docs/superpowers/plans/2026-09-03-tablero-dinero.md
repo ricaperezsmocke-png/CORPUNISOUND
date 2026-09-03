@@ -59,30 +59,33 @@ gastos, y se resuelve igual: campo nuevo, validado contra la sucursal, reutiliza
 `backend/cajas.js`. Los depósitos históricos sin caja los absorbe la predeterminada, como
 todo lo demás.
 
-### 2. Las otras salidas de la tómbola — DECISIÓN PENDIENTE, LEER
+### 2. Las otras salidas de la tómbola — DECISIÓN TOMADA: **opción A** (Victor, 2026-09-03)
 
 Victor dijo que de la tómbola también salen **nóminas y servicios**. Hoy el sistema no
 tiene forma de registrar una salida de la tómbola que no sea un depósito.
 
-Y hay un riesgo real detrás: si esas nóminas se registran hoy como **gastos en efectivo**,
-`gastosEfectivoDelTurno` las está restando **del cajón de la cajera**, que es dinero que
-nunca salió de ahí. Eso le inventa un faltante a la cajera y descuadra su corte. Es
-anterior a este trabajo y hay que comprobarlo antes de construir el tablero, porque cambia
-el número.
+**El riesgo está confirmado en el código, no es una sospecha.** `gastosEfectivoDelTurnoLista`
+(`backend/gastos.js`) resta del cajón TODO gasto activo en `EFECTIVO` de esa sucursal y esa
+caja dentro del turno. No existe ningún concepto de origen del dinero: ni en `crearGasto`,
+ni en `depositos.js`, ni en `cortes.js`. Así que una nómina pagada desde la caja fuerte y
+capturada como gasto en efectivo **le resta al cajón de la cajera dinero que nunca salió de
+ahí**, y le inventa un faltante en su corte. Es un defecto anterior a este trabajo.
 
-Tres caminos:
+**Lo decidido (opción A):** una salida de tómbola es un concepto propio —depósito, nómina,
+servicio u otro— con su caja, su comprobante y su bitácora. El depósito pasa a ser un tipo
+de salida más. Consecuencias que se aceptan al elegirlo:
 
-- **(A, recomendado)** Una salida de tómbola es un concepto propio: depósito, nómina,
-  servicio u otro, todas con su caja y su comprobante. El depósito pasa a ser un tipo de
-  salida. El tablero cuadra siempre y la cajera deja de cargar con gastos que no pagó.
-- **(B)** Solo se cuentan los depósitos. El tablero es exacto para tiendas que solo
-  depositan, y **sobreestima** el saldo de las que pagan nóminas desde la caja fuerte.
-- **(C)** Las nóminas se siguen registrando como gastos, y se marcan con un origen
-  (cajón / tómbola) para que resten del sitio correcto.
+- El tablero cuadra siempre, y la cajera deja de cargar con gastos que no pagó.
+- Es más trabajo que las otras dos opciones: hay que migrar los depósitos existentes al
+  concepto nuevo sin reescribir su historia, y decidir qué pasa con las nóminas que HOY ya
+  están capturadas como gastos en efectivo (no se reescriben; se documenta que los cortes
+  viejos afectados quedan como están).
+- Toca `backend/depositos.js` y el módulo de gastos, los dos de dinero. Va con revisión
+  independiente antes de cada checkpoint, como el resto.
 
-**Esto lo decide Victor antes de empezar.** Sin esa decisión el tablero puede dar un número
-mayor al real, que es justo el error que no se puede cometer en un tablero de dinero: hace
-que el contador cuente con efectivo que no está.
+**Sigue abierto, y lo decide Victor cuando lleguemos a la Fase 4:** si al registrar una
+salida de tómbola de tipo nómina o servicio hay que impedir que esa misma erogación se
+capture además como gasto en efectivo (o solo advertirlo), para que no se reste dos veces.
 
 ## La pantalla
 
@@ -113,7 +116,13 @@ sirve para decidir.
    saldos por caja, alcance por sucursal, depósitos cancelados que no restan, cortes de hoy
    separados del acumulado.
 3. **La pantalla**, con el desglose abierto por cifra.
-4. **Las salidas de tómbola**, según lo que Victor decida en el punto 2 de arriba.
+4. **Las salidas de tómbola** como concepto propio (opción A): depósito, nómina, servicio
+   u otro, con caja y comprobante, y el depósito convertido en un tipo de salida.
+
+**Orden a resolver en el spec, antes de empezar:** con la opción A elegida, el depósito
+acaba siendo un tipo de salida, así que puede convenir construir el concepto de salida
+ANTES que `deposito.caja_id` y no después, para no hacer dos veces la misma migración.
+Es la primera pregunta que el spec tiene que contestar.
 
 Cada fase se revisa antes de la siguiente. Es dinero.
 
