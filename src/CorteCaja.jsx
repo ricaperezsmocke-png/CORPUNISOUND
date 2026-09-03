@@ -231,6 +231,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const guardarCorte = async () => {
     if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para guardar el corte");
     if (errorCaja || !cajaNombre) return mostrarAviso("No se puede guardar el corte sin una caja activa");
+    if (errorCarga) return mostrarAviso("No se puede guardar el corte hasta que el turno cargue correctamente");
     // Un corte duplicado deja un turno fantasma cuyo "sobrante" es todo lo
     // contado, y ese faltante aparece a nombre de quien cerró la caja.
     if (corteEnCurso.current) return;
@@ -480,7 +481,13 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               <p className="text-[11px] text-slate-400 text-center max-w-md">
                 Si sacaste dinero de la caja y todavía no lo capturas en Gastos, hazlo antes de guardar el corte.
               </p>
-              <button type="button" onClick={guardarCorte} disabled={guardandoCorte} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+              <button
+                type="button"
+                onClick={guardarCorte}
+                disabled={guardandoCorte || Boolean(errorCarga)}
+                title={errorCarga ? "Recarga el turno correctamente antes de guardar el corte" : "Guardar corte"}
+                className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-8 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
                 💾 {guardandoCorte ? "Guardando…" : "Guardar"}
               </button>
             </div>
