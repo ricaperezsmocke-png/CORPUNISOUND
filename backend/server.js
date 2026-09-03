@@ -1633,7 +1633,7 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
     if (venta && venta.tipo_documento === "Apartado") {
       return res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
     }
-    res.json(cancelarVenta(DB, req.params.id, req.body.motivo));
+    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/caja", requiereLogin, requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {

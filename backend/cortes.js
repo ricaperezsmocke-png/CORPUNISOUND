@@ -44,7 +44,7 @@ function ventasDelTurno(DB, sucursal_id, caja) {
     (c) => c.sucursal_id === Number(sucursal_id) && esDeEstaCaja(c, caja)
   );
   const ultimoCorte = cortes.length ? cortes.reduce((a, b) => (a.fecha_hora > b.fecha_hora ? a : b)) : null;
-  const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
+  const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
 
   return {
     desde,
@@ -80,6 +80,38 @@ function abonosDelTurno(DB, sucursal_id, desde, caja) {
         ? a.corte_id == null
         : a.corte_id == null && (!desde || a.fecha_hora > desde))
   );
+}
+
+/**
+ * Dinero que este turno YA NO tiene, pero que un corte anterior sí contó.
+ *
+ * Una venta ya cortada que se cancela después deja el corte viejo intacto —su
+ * foto está congelada a propósito— pero si además se le devolvió el efectivo al
+ * cliente, el cajón tiene menos dinero del que este turno espera. Sin este
+ * aviso, ese faltante aparece sin explicación y se busca como si fuera un robo.
+ *
+ * Es SOLO informativo: no se resta del calculado. No sabemos si hubo devolución
+ * de efectivo o si fue un error de captura sin dinero de por medio, y adivinarlo
+ * sería inventar un movimiento que quizá nunca ocurrió. Se informa el dato y
+ * decide quien cuenta el dinero, que es quien sabe.
+ *
+ * Deliberadamente NO se construyó un contramovimiento de devolución: en esta
+ * tienda devolver efectivo es excepcional, y meter maquinaria en el camino del
+ * dinero para un caso raro cuesta más de lo que arregla.
+ */
+function canceladoDeCortesAnteriores(DB, sucursal_id, desde, caja) {
+  return DB.pos.ventas
+    .filter((v) => v.estatus === "cancelada")
+    .filter((v) => v.corte_id != null)          // alguien ya lo conto
+    .filter((v) => v.sucursal_id === Number(sucursal_id))
+    .filter((v) => esDeEstaCaja(v, caja))
+    // Frontera INCLUSIVA, y por la misma razon que la de la epoca: el corte y
+    // la cancelacion pueden caer en el mismo milisegundo, y ahi un `>` estricto
+    // esconde el aviso justo cuando mas se necesita. Ante la duda, este aviso
+    // informa de mas y nunca de menos: callarse un descuadre es peor que
+    // mencionar uno que resulto no serlo.
+    .filter((v) => !desde || (v.fecha_hora_cancelacion || "") >= desde)
+    .reduce((suma, v) => suma + (Number(v.total) || 0), 0);
 }
 
 /** Suma `monto` a `calculado[forma]` si es una de las 4 formas físicas del
@@ -144,6 +176,10 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
     credito: redondear(credito),
     gastos_efectivo: gastosEfectivo,
     gastos_incluidos: gastosIncluidos,
+    // Informativo, nunca restado del calculado. Ver canceladoDeCortesAnteriores.
+    cancelado_de_cortes_anteriores: redondear(
+      canceladoDeCortesAnteriores(DB, sucursal_id, desde, caja)
+    ),
   };
   if (incluirMovimientos) resultado.movimientos_incluidos = { ventas, abonos, gastos: gastosDelTurno };
   return resultado;

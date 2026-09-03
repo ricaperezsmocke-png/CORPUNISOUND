@@ -170,12 +170,21 @@ function obtenerVentaDetalle(DB, id) {
   };
 }
 
-function cancelarVenta(DB, id, motivo) {
+function cancelarVenta(DB, id, motivo, usuario) {
   const venta = DB.pos.ventas.find((v) => v.id === Number(id));
   if (!venta) throw new Error("Venta no encontrada");
   if (venta.estatus === "cancelada") throw new Error("Esta venta ya está cancelada");
   venta.estatus = "cancelada";
   venta.motivo_cancelacion = motivo || "";
+  // Cuándo y quién, no solo por qué. Sin la hora no se puede saber a qué turno
+  // afectó una cancelación, y ese dato es justo el que hace falta el día que un
+  // corte sale corto: una venta ya contada que se cancela y se reembolsa deja
+  // el cajón con menos dinero del que el siguiente corte espera. El corte
+  // anterior no se toca —su foto está congelada— así que sin este rastro el
+  // faltante aparece sin dueño (ver `cancelado_de_cortes_anteriores` en
+  // cortes.js).
+  venta.fecha_hora_cancelacion = new Date().toISOString();
+  venta.cancelada_por = usuario?.nombre || "—";
 
   // Reintegra al inventario lo que sí venía de catálogo
   DB.pos.venta_detalle
