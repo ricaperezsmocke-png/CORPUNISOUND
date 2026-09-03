@@ -35,6 +35,7 @@ const {
 const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta, cambiarCajaVenta } = require("./ventas");
 const { sembrarCajas } = require("./cajas");
 const { avisarSiLaEpocaEstaEnElFuturo } = require("./corteEpoca");
+const { reconciliarTrasRestaurar } = require("./reconciliarRestauracion");
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
 } = require("./apartados");
@@ -2144,16 +2145,9 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       // anterior a este módulo no trae el rol Administrador con los permisos de
       // respaldos, y sin esto restaurar dejaba a Victor sin el propio botón de
       // restaurar (y sin CEDIS).
-      alTerminar: (db) => {
-        db.pos.sucursales = reconciliarSucursalesCedis(db.pos.sucursales);
-        reconciliarRoles(db);
-        // Un respaldo anterior a Gerencia de Ventas no trae esta coleccion, y
-        // restaurar reemplaza DB.pos entero. Se auto-repara sola al abrir la
-        // pantalla, pero el patron es reconciliar aqui igual que al arrancar.
-        if (!db.pos.tareas_venta || !Array.isArray(db.pos.tareas_venta.tareas)) {
-          db.pos.tareas_venta = nuevoEstadoTareasVenta();
-        }
-      },
+      // Todo lo que hay que rehacer tras reemplazar los datos vive en
+      // reconciliarRestauracion.js, con sus pruebas. Aquí solo se engancha.
+      alTerminar: reconciliarTrasRestaurar,
     });
     registrarExito(intentosRestauracion, usuario);
     // Corte REAL de las sesiones abiertas. Antes esto era solo una frase en la
