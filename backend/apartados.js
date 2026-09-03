@@ -15,6 +15,7 @@
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
+const { resolverCajaDeSucursal } = require("./cajas");
 
 const DIAS_LIMITE_APARTADO = 60;
 const DIAS_AVISO_POR_VENCER = 7;
@@ -41,7 +42,7 @@ function diasEntre(fechaA, fechaB) {
   return Math.floor((new Date(fechaB) - new Date(fechaA)) / 86400000);
 }
 
-function crearApartado(DB, datos, sucursalId, usuario) {
+function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
   const cliente_id = Number(datos.cliente_id);
   if (!cliente_id) throw new Error("Selecciona un cliente para el apartado — no puede ser Público en General");
   if (!Array.isArray(datos.lineas) || datos.lineas.length === 0) {
@@ -90,6 +91,7 @@ function crearApartado(DB, datos, sucursalId, usuario) {
   if (anticipoMonto > total) {
     throw new Error(`El anticipo no puede ser mayor al total del apartado ($${total.toFixed(2)})`);
   }
+  const caja = resolverCajaDeSucursal(DB, sucursal_id, cajaId);
   const fechaHoy = hoy();
   const fechaLimiteObj = new Date();
   fechaLimiteObj.setDate(fechaLimiteObj.getDate() + DIAS_LIMITE_APARTADO);
@@ -141,6 +143,7 @@ function crearApartado(DB, datos, sucursalId, usuario) {
     id: nuevoAbonoId,
     venta_id: nuevoId,
     sucursal_id,
+    caja_id: caja?.id ?? null,
     fecha: fechaHoy,
     fecha_hora: new Date().toISOString(),
     monto: Math.round(anticipoMonto * 100) / 100,
@@ -155,7 +158,7 @@ function crearApartado(DB, datos, sucursalId, usuario) {
   return venta;
 }
 
-function registrarAbono(DB, ventaId, datos, usuario) {
+function registrarAbono(DB, ventaId, datos, usuario, cajaId) {
   const venta = DB.pos.ventas.find((v) => v.id === Number(ventaId));
   if (!venta || venta.tipo_documento !== "Apartado") throw new Error("Apartado no encontrado");
   if (venta.estatus !== "apartado") throw new Error("Este apartado ya no está vigente");
@@ -169,12 +172,14 @@ function registrarAbono(DB, ventaId, datos, usuario) {
 
   const saldo = saldoPendiente(DB, venta);
   if (monto > saldo) throw new Error(`El abono ($${monto.toFixed(2)}) no puede ser mayor al saldo pendiente ($${saldo.toFixed(2)})`);
+  const caja = resolverCajaDeSucursal(DB, venta.sucursal_id, cajaId);
 
   const nuevoAbonoId = siguienteId(DB.pos.apartado_abonos);
   DB.pos.apartado_abonos.push({
     id: nuevoAbonoId,
     venta_id: venta.id,
     sucursal_id: venta.sucursal_id,
+    caja_id: caja?.id ?? null,
     fecha: hoy(),
     fecha_hora: new Date().toISOString(),
     monto: Math.round(monto * 100) / 100,

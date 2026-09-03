@@ -107,7 +107,24 @@ function resolverCajaDeSucursal(DB, sucursalId, cajaId) {
   return caja;
 }
 
+/**
+ * La UNICA regla de "este movimiento pertenece a esta caja".
+ *
+ * La usan las ventas, los abonos de apartados, los gastos y los cortes. Vive
+ * aqui y no en el modulo que la necesito primero: es una regla de cajas, y
+ * buscarla en otro lado es como se acaban teniendo dos.
+ *
+ * Un registro sin caja pertenece a la predeterminada — es la que absorbe todo
+ * lo anterior a que existieran las cajas, para que nada quede huerfano. Y sin
+ * catalogo (`caja` en null) pertenece todo: donde el concepto de caja no
+ * existe, no puede filtrar nada.
+ */
+function esDeEstaCaja(registro, caja) {
+  return !caja || registro.caja_id === caja.id || (caja.predeterminada && registro.caja_id == null);
+}
+
 module.exports = {
+  esDeEstaCaja,
   sembrarCajas,
   cajaPredeterminadaDeSucursal,
   resolverCajaDeSucursal,

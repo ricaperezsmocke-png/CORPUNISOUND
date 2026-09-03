@@ -1654,7 +1654,7 @@ app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados",
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de crear un apartado — el producto se reserva en una tienda." });
     }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
-    res.json(crearApartado(DB, req.body, sucursal_id, usuario));
+    res.json(crearApartado(DB, req.body, sucursal_id, usuario, req.query.caja_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
@@ -1665,7 +1665,7 @@ app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_
       return res.status(404).json({ error: "Apartado no encontrado" });
     }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
-    res.json(registrarAbono(DB, req.params.id, req.body, usuario));
+    res.json(registrarAbono(DB, req.params.id, req.body, usuario, req.query.caja_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
@@ -1822,7 +1822,7 @@ app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resol
   try {
     // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
     // cualquiera podría cargarle un gasto a otra tienda.
-    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
+    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive, req.query.caja_id);
     res.json(gasto);
   } catch (e) {
     res.status(400).json({ error: e.message });

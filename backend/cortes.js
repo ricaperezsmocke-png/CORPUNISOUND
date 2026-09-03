@@ -14,7 +14,7 @@
 
 const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gastos");
 const { fechaLocal } = require("./fechas");
-const { resolverCajaDeSucursal } = require("./cajas");
+const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -39,11 +39,8 @@ function ventasDelTurno(DB, sucursal_id, caja) {
   // antes de este trabajo. Sin este camino, al hacer que la resolución
   // devolviera null se cayeron de golpe 13 pruebas del dinero: apartados,
   // gastos y el calculado del turno.
-  const esDeEstaCaja = (r) =>
-    !caja || r.caja_id === caja.id || (caja.predeterminada && r.caja_id == null);
-
   const cortes = DB.pos.cortes_caja.filter(
-    (c) => c.sucursal_id === Number(sucursal_id) && esDeEstaCaja(c)
+    (c) => c.sucursal_id === Number(sucursal_id) && esDeEstaCaja(c, caja)
   );
   const ultimoCorte = cortes.length ? cortes.reduce((a, b) => (a.fecha_hora > b.fecha_hora ? a : b)) : null;
   const desde = ultimoCorte ? ultimoCorte.fecha_hora : null;
@@ -56,7 +53,7 @@ function ventasDelTurno(DB, sucursal_id, caja) {
         v.estatus === "cerrada" &&
         v.tipo_documento !== "Apartado" &&
         v.sucursal_id === Number(sucursal_id) &&
-        esDeEstaCaja(v) &&
+        esDeEstaCaja(v, caja) &&
         (() => {
           const fechaHora = fechaHoraDeVenta(v);
           if (epoca && fechaHora > epoca) return v.corte_id == null;
@@ -67,19 +64,19 @@ function ventasDelTurno(DB, sucursal_id, caja) {
 }
 
 /**
- * Abonos sin caja propia: la predeterminada los cuenta una sola vez.
+ * Abonos de esta caja; los que no tienen caja los absorbe la predeterminada.
  *
- * Un abono de apartado no dice de qué mostrador salió, así que se le asigna a
- * la caja predeterminada para no contarlo dos veces. Sin catálogo (`caja` en
- * null) se cuentan todos, como siempre: el dinero de un abono no puede
- * desaparecer porque falte un catálogo.
+ * Los abonos nuevos conservan la caja donde se cobraron. Los históricos sin
+ * caja pertenecen a la predeterminada para no contarlos dos veces. Sin
+ * catálogo (`caja` en null) se cuentan todos, como siempre: el dinero de un
+ * abono no puede desaparecer porque falte un catálogo.
  */
 function abonosDelTurno(DB, sucursal_id, desde, caja) {
-  if (caja && !caja.predeterminada) return [];
   const epoca = DB.pos.corte_epoca || null;
   return DB.pos.apartado_abonos.filter(
     (a) =>
       a.sucursal_id === Number(sucursal_id) &&
+      esDeEstaCaja(a, caja) &&
       (epoca && a.fecha_hora > epoca
         ? a.corte_id == null
         : a.corte_id == null && (!desde || a.fecha_hora > desde))

@@ -4,6 +4,7 @@ const { construirDBPrueba } = require("./testHelpers");
 const { listarCategorias } = require("./gastosCategorias");
 const { crearGasto, cancelarGasto } = require("./gastos");
 const { calcularCorteEnCurso, crearCorte } = require("./cortes");
+const { sembrarCajas } = require("./cajas");
 
 const ALCANCE_TODAS = { verTodas: true, sucursalId: null };
 const USUARIO = { nombre: "Victor" };
@@ -22,14 +23,33 @@ function idHoja(DB, nombre) {
 // Sucursal 4 (Palenque): construirDBPrueba() no le siembra ventas, a
 // diferencia de 1/2/3 — mismo criterio que ya usa apartadosCorteCaja.test.js
 // para no contaminar las aserciones de estos escenarios.
-async function gasto(DB, { sucursal = 4, monto = 500, forma_pago = "EFECTIVO" } = {}) {
+async function gasto(DB, { sucursal = 4, monto = 500, forma_pago = "EFECTIVO", caja_id } = {}) {
   return crearGasto(DB, {
     categoria_id: idHoja(DB, "Combustible"),
     concepto: "Gasolina",
     monto,
     forma_pago,
     archivo: { nombre_archivo: "t.jpg", tipo_mime: "image/jpeg", contenido_base64: Buffer.from("x").toString("base64") },
-  }, sucursal, USUARIO, driveFalso());
+  }, sucursal, USUARIO, driveFalso(), caja_id);
+}
+
+function prepararDBConCajas() {
+  const DB = construirDBPrueba();
+  DB.pos.ventas = [];
+  DB.pos.cortes_caja = [];
+  DB.pos.apartado_abonos = [];
+  DB.pos.cajas = [];
+  DB.pos.corte_epoca = "2026-09-01T00:00:00.000Z";
+  DB.gastos.gastos = [];
+  sembrarCajas(DB);
+  return DB;
+}
+
+function cajasDe(DB, sucursalId = 4) {
+  return {
+    administrativa: DB.pos.cajas.find((c) => c.sucursal_id === sucursalId && c.nombre === "Administrativa"),
+    fiscal: DB.pos.cajas.find((c) => c.sucursal_id === sucursalId && c.nombre === "Fiscal"),
+  };
 }
 
 /** Venta de contado en la sucursal 4, para que haya efectivo esperado. */
@@ -152,4 +172,69 @@ test("sin gastos, el corte se comporta exactamente igual que antes", async () =>
   assert.strictEqual(r.gastos_efectivo, 0);
   assert.strictEqual(r.gastos_incluidos, 0);
   assert.strictEqual(r.calculado.EFECTIVO, 2000);
+});
+
+test("un gasto pagado desde Fiscal se guarda y descuenta solo en Fiscal", async () => {
+  const DB = prepararDBConCajas();
+  const { administrativa, fiscal } = cajasDe(DB);
+  const creado = await gasto(DB, { monto: 3000, caja_id: fiscal.id });
+
+  assert.strictEqual(creado.caja_id, fiscal.id);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 3000);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, administrativa.id).gastos_efectivo, 0);
+});
+
+test("un gasto posterior sin caja lo absorbe solo la Administrativa", () => {
+  const DB = prepararDBConCajas();
+  const { administrativa, fiscal } = cajasDe(DB);
+  DB.gastos.gastos.push({
+    id: 1, sucursal_id: 4, caja_id: null, monto: 400, forma_pago: "EFECTIVO",
+    estatus: "activo", fecha_hora: "2026-09-01T10:00:00.000Z", corte_id: null,
+  });
+
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, administrativa.id).gastos_efectivo, 400);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 0);
+});
+
+test("un gasto anterior a la epoca conserva la ventana historica", () => {
+  const DB = prepararDBConCajas();
+  const { administrativa, fiscal } = cajasDe(DB);
+  DB.pos.cortes_caja.push({
+    id: 10, sucursal_id: 4, caja_id: administrativa.id, fecha_hora: "2026-08-31T08:00:00.000Z",
+  });
+  DB.gastos.gastos.push(
+    { id: 1, sucursal_id: 4, caja_id: null, monto: 100, forma_pago: "EFECTIVO", estatus: "activo", fecha_hora: "2026-08-31T07:00:00.000Z", corte_id: null },
+    { id: 2, sucursal_id: 4, caja_id: null, monto: 200, forma_pago: "EFECTIVO", estatus: "activo", fecha_hora: "2026-08-31T09:00:00.000Z", corte_id: null }
+  );
+
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, administrativa.id).gastos_efectivo, 200);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 300);
+});
+
+test("crear un gasto rechaza una caja de otra sucursal antes de subir el comprobante", async () => {
+  const DB = prepararDBConCajas();
+  const fiscalAjena = cajasDe(DB, 1).fiscal;
+  const drive = driveFalso();
+  let intentosDeSubida = 0;
+  drive.subirArchivoADrive = async () => {
+    intentosDeSubida += 1;
+    return { id: "file-1", webViewLink: "https://drive.google.com/x" };
+  };
+
+  await assert.rejects(() => crearGasto(DB, {
+    categoria_id: idHoja(DB, "Combustible"), concepto: "Gasolina", monto: 500,
+    forma_pago: "EFECTIVO",
+    archivo: { nombre_archivo: "t.jpg", tipo_mime: "image/jpeg", contenido_base64: Buffer.from("x").toString("base64") },
+  }, 4, USUARIO, drive, fiscalAjena.id), /caja.*sucursal/i);
+  assert.strictEqual(intentosDeSubida, 0);
+  assert.strictEqual(DB.gastos.gastos.length, 0);
+});
+
+test("sin catalogo de cajas el gasto se guarda sin caja y sigue descontando", async () => {
+  const DB = construirDBPrueba();
+  delete DB.pos.cajas;
+  const creado = await gasto(DB, { monto: 350 });
+
+  assert.strictEqual(creado.caja_id, null);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4).gastos_efectivo, 350);
 });

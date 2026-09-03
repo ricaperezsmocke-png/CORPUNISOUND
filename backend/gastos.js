@@ -14,7 +14,9 @@
 
 const { dentroDeAlcance } = require("./auth");
 const { buscarHojaActiva, listarCategorias } = require("./gastosCategorias");
+const { esDeEstaCaja } = require("./cajas");
 const { fechaLocal } = require("./fechas");
+const { resolverCajaDeSucursal } = require("./cajas");
 
 const FORMAS_PAGO_GASTO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const MIME_VALIDOS = ["application/pdf", "image/jpeg", "image/png"];
@@ -74,7 +76,7 @@ function buscarConGuardia(DB, id, alcance) {
  *
  * `sucursalId` viene del token del usuario — nunca del cuerpo de la petición.
  */
-async function crearGasto(DB, datos, sucursalId, usuario, drive) {
+async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
   const categoria = buscarHojaActiva(DB, datos.categoria_id);
 
   const concepto = (datos.concepto || "").trim();
@@ -105,6 +107,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
     throw new Error("No se pudo determinar tu sucursal — vuelve a iniciar sesión antes de registrar el gasto");
   }
   const sucursal = DB.pos.sucursales.find((s) => s.id === sucursal_id) || { id: sucursal_id };
+  const caja = resolverCajaDeSucursal(DB, sucursal_id, cajaId);
 
   // Reserva el id/folio de forma SÍNCRONA, antes de cualquier `await`: es lo
   // único que evita que dos capturas casi simultáneas (de sucursales
@@ -131,6 +134,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
     fecha: fechaLocal(ahora),
     fecha_hora: ahora,
     sucursal_id,
+    caja_id: caja?.id ?? null,
     categoria_id: categoria.id,
     concepto,
     descripcion: (datos.descripcion || "").trim(),
@@ -223,8 +227,7 @@ function movimientosDeGasto(DB, id, alcance) {
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
  *   - transición histórica: hasta corte_epoca conserva fecha_hora > desde
  *   - era sellada: después de corte_epoca solo entra corte_id null
- *   - caja predeterminada: los gastos nuevos no tienen caja propia y deben
- *     tener una sola dueña mientras esperan corte
+ *   - misma caja: caja_id explícita, o caja predeterminada para registros sin caja
  */
 function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
   const epoca = DB.pos.corte_epoca || null;
@@ -234,7 +237,7 @@ function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
     .filter((g) => g.sucursal_id === Number(sucursal_id))
     .filter((g) => {
       const esPosteriorAEpoca = epoca && g.fecha_hora > epoca;
-      if (esPosteriorAEpoca) return (!caja || caja.predeterminada) && g.corte_id == null;
+      if (esPosteriorAEpoca) return esDeEstaCaja(g, caja) && g.corte_id == null;
       return g.corte_id == null && (!desde || g.fecha_hora > desde);
     });
 }
