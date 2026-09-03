@@ -248,20 +248,35 @@ test("los apartados siguen contando por abono real una sola vez con cajas", () =
   assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).total_calculado, 0);
 });
 
-test("los gastos en efectivo usan la ventana temporal de la caja correcta", () => {
+/**
+ * Esta prueba afirmaba lo contrario, y lo contrario era el defecto.
+ *
+ * Decia que un gasto SIN caja, anterior a la epoca, lo cuenta la Fiscal: como
+ * el filtro de caja solo se aplicaba en la era sellada, en la historica mandaba
+ * unicamente la ventana de tiempo, y con los cortes en el orden adecuado las
+ * DOS cajas podian reclamar el mismo gasto. Una auditoria de integridad
+ * contable lo clasifico como critico: el mismo dinero restado dos veces, con un
+ * sobrante artificial en cada corte.
+ *
+ * La regla correcta es la misma que rige a las ventas y a los abonos: un
+ * registro sin caja pertenece a la predeterminada, y a ninguna otra, en las dos
+ * eras. Aqui el gasto queda despues del corte de la Administrativa, asi que lo
+ * cuenta ella; la Fiscal no lo ve nunca, aunque su ultimo corte sea mas viejo.
+ */
+test("un gasto sin caja lo cuenta solo la predeterminada, nunca las dos", () => {
   const DB = prepararDB();
   const { administrativa, fiscal } = cajasDe(DB);
   DB.pos.cortes_caja.push({
     id: 1,
     sucursal_id: 4,
     caja_id: administrativa.id,
-    fecha_hora: "2026-09-01T11:00:00.000Z",
+    fecha_hora: "2026-09-01T09:00:00.000Z",
   });
   DB.pos.cortes_caja.push({
     id: 2,
     sucursal_id: 4,
     caja_id: fiscal.id,
-    fecha_hora: "2026-09-01T09:00:00.000Z",
+    fecha_hora: "2026-09-01T08:00:00.000Z",
   });
   DB.gastos.gastos.push({
     id: 1,
@@ -272,8 +287,15 @@ test("los gastos en efectivo usan la ventana temporal de la caja correcta", () =
     fecha_hora: "2026-09-01T10:00:00.000Z",
   });
 
-  assert.strictEqual(calcularCorteEnCurso(DB, 4, administrativa.id).gastos_efectivo, 0);
-  assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 40);
+  const enAdministrativa = calcularCorteEnCurso(DB, 4, administrativa.id).gastos_efectivo;
+  const enFiscal = calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo;
+
+  assert.strictEqual(enAdministrativa, 40, "la predeterminada absorbe los registros sin caja");
+  assert.strictEqual(enFiscal, 0, "la Fiscal no puede reclamar un gasto que no es suyo");
+  assert.strictEqual(
+    enAdministrativa + enFiscal, 40,
+    "el mismo gasto no puede restarse dos veces entre las dos cajas"
+  );
 });
 
 /**

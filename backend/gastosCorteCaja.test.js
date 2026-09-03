@@ -196,19 +196,20 @@ test("un gasto posterior sin caja lo absorbe solo la Administrativa", () => {
   assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 0);
 });
 
-test("un gasto anterior a la epoca conserva la ventana historica", () => {
+test("un gasto anterior a la epoca conserva la ventana y solo descuenta en la caja predeterminada", () => {
   const DB = prepararDBConCajas();
   const { administrativa, fiscal } = cajasDe(DB);
-  DB.pos.cortes_caja.push({
-    id: 10, sucursal_id: 4, caja_id: administrativa.id, fecha_hora: "2026-08-31T08:00:00.000Z",
-  });
+  DB.pos.cortes_caja.push(
+    { id: 10, sucursal_id: 4, caja_id: administrativa.id, fecha_hora: "2026-08-31T08:00:00.000Z" },
+    { id: 11, sucursal_id: 4, caja_id: fiscal.id, fecha_hora: "2026-08-31T08:00:00.000Z" }
+  );
   DB.gastos.gastos.push(
     { id: 1, sucursal_id: 4, caja_id: null, monto: 100, forma_pago: "EFECTIVO", estatus: "activo", fecha_hora: "2026-08-31T07:00:00.000Z", corte_id: null },
     { id: 2, sucursal_id: 4, caja_id: null, monto: 200, forma_pago: "EFECTIVO", estatus: "activo", fecha_hora: "2026-08-31T09:00:00.000Z", corte_id: null }
   );
 
   assert.strictEqual(calcularCorteEnCurso(DB, 4, administrativa.id).gastos_efectivo, 200);
-  assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 300);
+  assert.strictEqual(calcularCorteEnCurso(DB, 4, fiscal.id).gastos_efectivo, 0);
 });
 
 test("crear un gasto rechaza una caja de otra sucursal antes de subir el comprobante", async () => {
