@@ -10,6 +10,7 @@
  */
 
 const { fechaLocal } = require("./fechas");
+const { cajaPredeterminadaDeSucursal } = require("./cajas");
 
 const ML_API  = "https://api.mercadolibre.com";
 const ML_AUTH = "https://auth.mercadolibre.com.mx/authorization";
@@ -310,17 +311,31 @@ async function importarOrdenComoVenta(DB, ordenId) {
   // Crear venta en sucursal ML (id=5)
   const sigId = DB.pos.ventas.length
     ? Math.max(...DB.pos.ventas.map((v) => v.id)) + 1 : 1;
+  const caja = cajaPredeterminadaDeSucursal(DB, 5);
   const venta = {
     id:          sigId,
     // Mismo razonamiento que en ultimo_contacto (ver comentario arriba): fechaLocal()
     // da el día correcto sin importar si ML manda el desfase local incrustado o
     // normaliza a "Z", y cae en HOY si orden.date_created falta.
     fecha:       fechaLocal(orden.date_created),
+    // El corte mide cuando el dinero entra a la contabilidad de la tienda,
+    // no cuando ML creó la orden. Usar date_created permitiría que una orden
+    // antigua importada hoy quedara antes de la época y del último corte.
+    fecha_hora:  new Date().toISOString(),
     sucursal_id: 5,
+    caja_id:     caja?.id ?? null,
     vendedor_id: null,
     cliente_id:  clienteId,
     total:       orden.total_amount,
     metodo_pago: "mercadolibre",
+    // "Ticket" y no un valor propio como "MercadoLibre": los tipos de documento
+    // son una lista cerrada que las pantallas usan para filtrar, y un valor que
+    // no está en ella deja estas ventas invisibles en todos los filtros salvo
+    // "Todos". El origen igual es inconfundible por `referencia` (ML-xxxx) y por
+    // `metodo_pago`. Lo que NO puede ser es "Apartado": ese valor tiene
+    // significado propio en el corte, que excluye su total para contar solo los
+    // abonos (backend/cortes.js).
+    tipo_documento: "Ticket",
     estatus:     "cerrada",
     referencia:  `ML-${orden.id}`,
   };

@@ -95,7 +95,11 @@ function acumularPorFormaPago(calculado, forma, monto) {
     calculado[forma] += monto;
     return { transferencias: 0, credito: 0 };
   }
-  if (forma === "TRANSFERENCIA") return { transferencias: monto, credito: 0 };
+  // Un pago de MercadoLibre es electrónico: nunca está físicamente en el
+  // cajón, así que se informa junto con las transferencias y no en calculado.
+  if (forma === "TRANSFERENCIA" || forma === "MERCADOLIBRE") {
+    return { transferencias: monto, credito: 0 };
+  }
   if (forma === "CRÉDITO" || forma === "CREDITO") return { transferencias: 0, credito: monto };
   calculado.EFECTIVO += monto;
   return { transferencias: 0, credito: 0 };
