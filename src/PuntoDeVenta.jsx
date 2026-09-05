@@ -1103,16 +1103,15 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           <Campo label="eMail" className="mb-3">
             <input className={inputCls} value={formCliente.email} onChange={(e) => setFormCliente({ ...formCliente, email: e.target.value })} />
           </Campo>
+          {/*
+            Los campos de crédito salieron de aquí: mientras el crédito esté
+            apagado (ver crearVenta en backend/ventas.js) no significan nada, y
+            un límite de crédito que se puede llenar pero que el sistema no
+            respeta invita a vender contra una deuda que nunca se registra.
+            Vuelven el día que existan cuentas por cobrar de verdad.
+          */}
           <div className="border-t border-black/5 pt-3 mb-3">
-            <label className="flex items-center gap-2 text-sm mb-3">
-              <input type="checkbox" checked={formCliente.sujeto_credito} onChange={(e) => setFormCliente({ ...formCliente, sujeto_credito: e.target.checked })} />
-              Es sujeto de crédito
-            </label>
-            <div className="grid grid-cols-3 gap-3">
-              <Campo label="Precio (lista 1-4)"><input type="number" min="1" max="4" className={inputCls} value={formCliente.precio_lista} onChange={(e) => setFormCliente({ ...formCliente, precio_lista: e.target.value })} /></Campo>
-              <Campo label="Días crédito"><input type="number" className={inputCls} value={formCliente.dias_credito} onChange={(e) => setFormCliente({ ...formCliente, dias_credito: e.target.value })} disabled={!formCliente.sujeto_credito} /></Campo>
-              <Campo label="Límite de crédito"><input type="number" className={inputCls} value={formCliente.limite_credito} onChange={(e) => setFormCliente({ ...formCliente, limite_credito: e.target.value })} disabled={!formCliente.sujeto_credito} /></Campo>
-            </div>
+            <Campo label="Precio (lista 1-4)"><input type="number" min="1" max="4" className={inputCls} value={formCliente.precio_lista} onChange={(e) => setFormCliente({ ...formCliente, precio_lista: e.target.value })} /></Campo>
           </div>
           <button onClick={guardarNuevoCliente} className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2.5 rounded-lg font-semibold transition-colors">Aceptar</button>
         </Modal>
