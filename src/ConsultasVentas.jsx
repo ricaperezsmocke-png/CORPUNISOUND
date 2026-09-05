@@ -215,8 +215,13 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const exportarCSV = () => {
     if (!puede("exportar_ventas")) return mostrarAviso("No tienes permiso para exportar");
     if (ventas.length === 0) return mostrarAviso("No hay ventas para exportar");
-    const encabezados = ["Folio", "Fecha", "Documento", "Cliente", "Vendedor", "Estado", "Total"];
-    const filas = ventas.map((v) => [v.id, v.fecha, v.tipo_documento || "Ticket", v.cliente_nombre, v.vendedor_nombre, v.estatus, v.total]);
+    // Quién canceló viaja también en el CSV: si solo se ve en pantalla, no se
+    // puede cruzar contra el efectivo de un turno en una hoja de cálculo, que es
+    // como se revisa un descuadre de verdad.
+    const encabezados = ["Folio", "Fecha", "Documento", "Cliente", "Vendedor", "Estado", "Total", "Canceló", "Cancelada el"];
+    const filas = ventas.map((v) => [v.id, v.fecha, v.tipo_documento || "Ticket", v.cliente_nombre, v.vendedor_nombre, v.estatus, v.total,
+      v.estatus === "cancelada" ? (v.cancelada_por || "—") : "",
+      v.estatus === "cancelada" && v.fecha_hora_cancelacion ? new Date(v.fecha_hora_cancelacion).toLocaleString("es-MX") : ""]);
     descargarCSV(`ventas_${fechaInicial}_a_${fechaFinal}.csv`, encabezados, filas);
     mostrarAviso("Exportado a CSV");
   };
@@ -421,7 +426,16 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <span className="font-bold">Total: ${Number(detalle.total).toFixed(2)}</span>
               </div>
               {detalle.estatus === "cancelada" && (
-                <div className="mt-3 text-xs bg-red-50 text-red-700 rounded px-3 py-2">Cancelada — motivo: {detalle.motivo_cancelacion || "sin especificar"}</div>
+                <div className="mt-3 text-xs bg-red-50 text-red-700 rounded px-3 py-2">
+                  {/* Quién y cuándo, no solo el motivo: el sistema guardaba estos
+                      dos campos desde hace tiempo y no se mostraban en ninguna
+                      parte, así que una cancelación no tenía dueño visible. */}
+                  <div>Cancelada — motivo: {detalle.motivo_cancelacion || "sin especificar"}</div>
+                  <div className="mt-1 text-red-900/80">
+                    Canceló: <strong>{detalle.cancelada_por || "—"}</strong>
+                    {detalle.fecha_hora_cancelacion && <> · {new Date(detalle.fecha_hora_cancelacion).toLocaleString("es-MX")}</>}
+                  </div>
+                </div>
               )}
             </div>
           </div>
