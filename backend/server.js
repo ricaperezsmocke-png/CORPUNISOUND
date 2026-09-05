@@ -1617,7 +1617,12 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado para poder vender — la venta descuenta el inventario de una tienda." });
     }
-    res.json(crearVenta(DB, { ...req.body, sucursal_id }));
+    // Los permisos de quien vende viajan a crearVenta: el descuento se autoriza
+    // en el SERVIDOR. El boton de la pantalla ya estaba gateado, pero la ruta
+    // solo pedia `cerrar_venta`, asi que un descuento del 99.99% entraba por
+    // peticion directa sin dejar ninguna senal.
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {

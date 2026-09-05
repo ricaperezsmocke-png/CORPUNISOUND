@@ -19,11 +19,16 @@ const { listarCondiciones } = require("./condicionesPago");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
 
+/** Centavos, no flotantes sueltos: sumar precios sin redondear arrastra error. */
+function redondear(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
 
-function crearVenta(DB, datos) {
+function crearVenta(DB, datos, opciones = {}) {
   if (!Array.isArray(datos.lineas) || datos.lineas.length === 0) {
     throw new Error("La venta no tiene productos");
   }
@@ -110,6 +115,62 @@ function crearVenta(DB, datos) {
     vendedorId = v.id;
   }
 
+  // EL SERVIDOR DECIDE EL PRECIO. Lo que manda el navegador es una propuesta,
+  // no un hecho: quien manda la peticion a mano se salta cualquier limite de la
+  // pantalla. Antes se copiaban `subtotal`, `descuento` y `total` tal como
+  // llegaban, asi que un articulo de $12,000 se podia registrar en $1 — y en los
+  // reportes se veia como una venta barata legitima, sin ninguna senal.
+  //
+  // Las lineas SIN `producto_id` son productos rapidos / piezas especiales: no
+  // tienen catalogo contra el cual recalcular, y su precio lo sigue poniendo
+  // quien vende.
+  //
+  // El descuento exige `aplicar_descuentos_articulos_venta`, permiso que YA
+  // existia en el catalogo y que solo se comprobaba en la pantalla. Cuando no se
+  // pasan permisos (llamadas internas y pruebas) se asume que NO hay permiso:
+  // una guarda de dinero falla cerrando.
+  const permisos = Array.isArray(opciones.permisos) ? opciones.permisos : [];
+  const puedeDescontar = permisos.includes("aplicar_descuentos_articulos_venta");
+
+  const lineasCalculadas = datos.lineas.map((l) => {
+    const cantidad = Number(l.cantidad) || 0;
+    const producto = l.producto_id
+      ? DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id))
+      : null;
+    if (l.producto_id && !producto) throw new Error("Uno de los productos de la venta no existe");
+
+    // Un producto del catalogo SIN precio no se vende en cero en silencio. Al
+    // tomar el precio del catalogo en vez del que manda la pantalla, un producto
+    // al que nadie le puso precio pasaria a regalarse — y el ticket diria $0 sin
+    // que nadie entienda por que. Se rechaza diciendo cual es.
+    let precio;
+    if (producto) {
+      precio = Number(producto.precio_venta) || 0;
+      if (precio <= 0) {
+        throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de venderlo`);
+      }
+    } else {
+      precio = Number(l.precio_unitario) || 0;
+    }
+
+    const descPct = Number(l.descuento_pct) || 0;
+    if (descPct !== 0) {
+      if (!puedeDescontar) {
+        throw new Error("No tienes permiso para aplicar descuentos a los artículos de la venta");
+      }
+      if (descPct < 0 || descPct > 100) {
+        throw new Error("El descuento debe estar entre 0 y 100 por ciento");
+      }
+    }
+
+    const bruto = redondear(cantidad * precio);
+    return { ...l, cantidad, precio, descPct, bruto, subtotal: redondear(bruto * (1 - descPct / 100)) };
+  });
+
+  const subtotalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.bruto, 0));
+  const totalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.subtotal, 0));
+  const descuentoCalculado = redondear(subtotalCalculado - totalCalculado);
+
   const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);
 
   const nuevoId = siguienteId(DB.pos.ventas);
@@ -126,9 +187,9 @@ function crearVenta(DB, datos) {
     // persistir el texto crudo dejaba entrar espacios y basura mal codificada
     // que despues no coincide con nada al filtrar o al cortar.
     metodo_pago: formaPago,
-    subtotal: Number(datos.subtotal) || 0,
-    descuento: Number(datos.descuento) || 0,
-    total: Number(datos.total) || 0,
+    subtotal: subtotalCalculado,
+    descuento: descuentoCalculado,
+    total: totalCalculado,
     estatus: "cerrada",
     motivo_cancelacion: null,
     corte_id: null,
@@ -136,19 +197,17 @@ function crearVenta(DB, datos) {
   DB.pos.ventas.push(venta);
 
   let siguienteDetalleId = siguienteId(DB.pos.venta_detalle);
-  datos.lineas.forEach((l) => {
-    const cantidad = Number(l.cantidad) || 0;
-    const precio = Number(l.precio_unitario) || 0;
-    const descPct = Number(l.descuento_pct) || 0;
+  lineasCalculadas.forEach((l) => {
+    const cantidad = l.cantidad;
     DB.pos.venta_detalle.push({
       id: siguienteDetalleId++,
       venta_id: nuevoId,
       producto_id: l.producto_id ?? null,
       descripcion: l.descripcion || null, // se usa cuando es un "producto rápido" sin catálogo
       cantidad,
-      precio_unitario: precio,
-      descuento: descPct,
-      subtotal: Math.round(cantidad * precio * (1 - descPct / 100) * 100) / 100,
+      precio_unitario: l.precio,
+      descuento: l.descPct,
+      subtotal: l.subtotal,
     });
 
     // Solo se descuenta inventario si es un producto real del catálogo
