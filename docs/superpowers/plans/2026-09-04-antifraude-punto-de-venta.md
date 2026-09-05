@@ -524,7 +524,31 @@ git commit -m "feat(inventario): el alta con existencia inicial deja movimiento 
 
 **Por qué.** `backend/garantiasGastos.js:47-58` guarda el gasto **sin forma de pago, sin sucursal, sin caja y sin corte**, y la pantalla tampoco lo pregunta (`src/Garantias.jsx:43`). Es dinero que sale y no aparece en ningún corte ni en la utilidad. Además se pueden borrar (`:79-91`), dejando solo una nota de texto.
 
-Esta tarea **depende de la decisión que Victor ya tiene pendiente** desde el módulo de Gastos: si los gastos de garantía deben restarse de la utilidad y del corte, o quedarse como cifras separadas. **Preguntar antes de implementar.**
+**DECISION DE VICTOR (2026-09-04): el gasto de garantia lo paga el cliente, y ESE DINERO PASA POR LA CAJA.**
+Eso convierte el hallazgo en dos movimientos, no uno, y hoy no se registra ninguno:
+
+1. **El cliente paga** el flete o la reparacion -> **entra efectivo al cajon** que el corte no espera.
+2. **La tienda paga** al fabricante o al fletero -> **sale efectivo del cajon** que el corte no sabe.
+
+Si las dos cosas caen en el mismo turno y por el mismo monto se cancelan y nadie nota nada. En
+cuanto se separan —el cliente paga hoy, el flete se paga la semana que viene— la cajera aparece con
+un **sobrante** el primer dia y un **faltante** el segundo, dos descuadres que no puede explicar por
+dinero que manejo bien.
+
+Y el lado de fraude, que es peor: **ese ingreso el sistema no lo espera nunca.** Si quien lo recibe
+se lo queda, no se produce ningun faltante, porque nadie registro que entro. Es dinero invisible por
+diseno, y la unica forma de detectarlo es que alguien compare los expedientes de garantia contra el
+efectivo a mano.
+
+**Lo que hay que construir:** el cobro al cliente es un **ingreso a una caja** y el pago es un
+**gasto de esa misma caja**; los dos con `caja_id`, los dos entrando al corte, los dos con la misma
+regla de sellado por `corte_id` que ya usa todo lo demas. La pantalla de Garantias
+(`src/Garantias.jsx:43`, hoy `FORM_GASTO = { tipo, monto, descripcion }`) tiene que preguntar forma
+de pago y caja, igual que Gastos.
+
+**Sigue abierto y lo decide Victor antes de implementar:** si esos importes deben ademas restarse de
+la Utilidad, o quedarse como cifras separadas. Son cosas distintas — el dinero de la caja tiene que
+cuadrar en cualquier caso; lo de la utilidad es una decision contable.
 
 ---
 
