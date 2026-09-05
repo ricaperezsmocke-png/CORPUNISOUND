@@ -938,7 +938,7 @@ app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", reso
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de dar de alta un producto — su existencia inicial tiene que quedar en una tienda." });
     }
-    res.json(crearProducto(DB, req.body, sucursal_id));
+    res.json(crearProducto(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -992,6 +992,25 @@ app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_pro
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+/**
+ * El historial de movimientos de un producto: quien movio sus piezas, cuando y
+ * por que documento. Es la pantalla que le da sentido al campo `usuario` de cada
+ * movimiento — un dato que se guarda y no se puede ver es media funcion.
+ *
+ * Solo lectura, con el mismo alcance que el resto del inventario: una cajera
+ * amarrada ve los movimientos de SU tienda, no los de las demas.
+ */
+app.get("/api/productos/:id/movimientos", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+  const movimientos = (DB.inventario.movimientos_inventario || [])
+    .filter((m) => m.producto_id === Number(req.params.id))
+    .filter((m) => alcance.verTodas || m.sucursal_id === alcance.sucursalId)
+    .map((m) => ({ ...m, sucursal_nombre: nombreSucursal(m.sucursal_id), usuario: m.usuario || "—" }))
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  res.json(movimientos);
+});
+
 app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -1000,7 +1019,10 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de ajustar la existencia — con \"Todas\" la lista muestra la suma de todas las tiendas y el ajuste no sabría a cuál aplicarse." });
     }
-    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id }));
+    // El usuario va aparte del cuerpo a proposito: quien ajusta lo dice el
+    // token, no la peticion. Si viniera del body, cualquiera podria firmar un
+    // ajuste con el nombre de otro.
+    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

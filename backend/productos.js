@@ -185,7 +185,7 @@ function generarClave() {
   return "PROD" + String(Date.now()).slice(-8);
 }
 
-function crearProducto(DB, datos, sucursalId) {
+function crearProducto(DB, datos, sucursalId, usuario) {
   if (!datos.descripcion || !datos.descripcion.trim()) {
     throw new Error("La descripción del producto es obligatoria");
   }
@@ -233,11 +233,26 @@ function crearProducto(DB, datos, sucursalId) {
     DB.inventario.existencias.push({
       producto_id: nuevoId,
       sucursal_id: s.id,
-      cantidad_actual: esOrigen ? (Number(datos.existencia_inicial) || 0) : 0,
+      cantidad_actual: 0,
       cantidad_minima: esOrigen ? (Number(datos.existencia_minima) || 0) : 0,
       cantidad_maxima: esOrigen ? (Number(datos.existencia_maxima) || 0) : 0,
     });
   });
+
+  // La existencia inicial entra por el MISMO camino que todo lo demas, en vez de
+  // escribirse directo en `cantidad_actual`. Antes era la unica forma de meter
+  // piezas al sistema sin dejar movimiento y sin usuario — y es la razon por la
+  // que el guard de baja de productos tuvo que aprender a mirar la existencia
+  // ademas de los movimientos.
+  const inicial = Number(datos.existencia_inicial) || 0;
+  if (inicial > 0) {
+    ajustarExistencia(DB, nuevoId, {
+      cantidad: inicial,
+      motivo: `Alta de producto — existencia inicial`,
+      sucursal_id: sucursalOrigen,
+      usuario,
+    });
+  }
   return producto;
 }
 
@@ -369,7 +384,7 @@ function clonarProducto(DB, id, sucursalId) {
   }, sucursalId);
 }
 
-function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
+function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id, usuario }) {
   // Sin sucursal no se adivina: antes caía a la 1 y el ajuste (o el descuento
   // de una venta) se aplicaba a la existencia de la tienda equivocada.
   const suc = Number(sucursal_id);
@@ -393,6 +408,13 @@ function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
     tipo: delta >= 0 ? "entrada" : "salida",
     cantidad: delta,
     referencia_documento: motivo || "Ajuste manual",
+    // QUIEN. Un ajuste manual no nace de ningun documento: no hay venta, compra
+    // ni traspaso a los que rastrearlo, asi que sin esto bajar la existencia de
+    // un producto caro no deja a nadie a quien preguntarle. Los movimientos que
+    // si nacen de un documento se rastrean por su folio, que va arriba en
+    // `referencia_documento`; cuando no llega usuario se guarda la misma marca
+    // que usan las cancelaciones, nunca `undefined`.
+    usuario: usuario?.nombre || "—",
   });
   return exist;
 }
