@@ -27,6 +27,30 @@ function crearVenta(DB, datos) {
     throw new Error("La venta no tiene productos");
   }
 
+  // EL CREDITO ESTA APAGADO A PROPOSITO (decision de Victor, 2026-09-04).
+  //
+  // El sistema aceptaba la venta pero NUNCA generaba la deuda: `cliente.saldo`
+  // se inicializa en cero (clientes.js) y ninguna linea de produccion lo sube.
+  // Esta funcion ni siquiera busca al cliente. Asi que una venta a credito era
+  // mercancia entregada, cliente debiendo cero y caja cuadrada — sin faltante
+  // que delatara nada. Era el unico hueco de este tamano al alcance de una
+  // cajera del rol estandar, y tambien se aceptaba a "Publico en General".
+  //
+  // Va aqui, en el servidor, y no solo en la pantalla: quien manda la peticion
+  // a mano se salta cualquier boton escondido. Y se normaliza el acento porque
+  // en el repo se escribe "CREDITO" con tilde (condicionesPago.js) mientras que
+  // cortes.js acepta las dos formas: comparar contra una sola dejaria el
+  // agujero abierto con las pruebas en verde.
+  //
+  // Se vuelve a encender el dia que existan cuentas por cobrar de verdad —que
+  // generen la deuda, validen el limite y registren abonos—, y no antes.
+  const formaPago = String(datos.metodo_pago || "EFECTIVO").trim().toUpperCase();
+  if (formaPago.normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO") {
+    throw new Error(
+      "Las ventas a crédito están deshabilitadas: el sistema todavía no lleva cuentas por cobrar"
+    );
+  }
+
   // No dejar vender más de lo que hay en existencia, a menos que la
   // configuración lo permita explícitamente ("Permitir Ventas de
   // Artículos Sin Existencia"). Se valida TODO antes de crear nada,

@@ -94,6 +94,19 @@ function Campo({ label, children, className = "" }) {
 // ============================================================
 // COMPONENTE PRINCIPAL
 // ============================================================
+/**
+ * El crédito está apagado (ver crearVenta en backend/ventas.js). Las condiciones
+ * de pago viven en la base, sembradas por sucursal, así que no basta con quitar
+ * un botón del código: hay que filtrarlas al pintarlas. Se normaliza el acento
+ * porque en el repo conviven "CRÉDITO" y "CREDITO".
+ *
+ * Esto solo esconde la opción. La regla que de verdad protege está en el
+ * servidor: quien mande la petición a mano recibe un error, no una venta.
+ */
+function esCredito(nombre) {
+  return String(nombre || "").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO";
+}
+
 export default function PuntoDeVenta({ onVolver, permisos }) {
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
   const [confirmacion, setConfirmacion] = useState(null);
@@ -1188,7 +1201,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {condicionesPago.map((c) => {
+                    {condicionesPago.filter((c) => !esCredito(c.nombre)).map((c) => {
                       const activoEfectivo = descuentoPagoHabilitado && c.activo;
                       const nuevoTotal = Math.round(total * (1 - (activoEfectivo ? c.descuento_pct : 0) / 100) * 100) / 100;
                       const seleccionada = condicionSeleccionada?.id === c.id;
