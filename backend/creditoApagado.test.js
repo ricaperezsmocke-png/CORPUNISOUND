@@ -64,7 +64,46 @@ test("las demas formas de pago siguen funcionando", () => {
 
 /** Una venta sin forma de pago declarada cae en EFECTIVO y tiene que seguir pasando. */
 test("una venta sin metodo_pago declarado sigue funcionando", () => {
+  for (const vacio of [undefined, "", "   "]) {
+    const DB = prepararDB();
+    const venta = crearVenta(DB, { sucursal_id: 4, metodo_pago: vacio, lineas: [LINEA], total: 100 });
+    assert.strictEqual(venta.estatus, "cerrada", `fallo con ${JSON.stringify(vacio)}`);
+    assert.strictEqual(venta.metodo_pago ? String(venta.metodo_pago).toUpperCase() : "EFECTIVO", "EFECTIVO");
+  }
+});
+
+/**
+ * EL CASO QUE SE ESCAPO EN LA PRUEBA REAL, Y QUE NINGUNA PRUEBA HABIA VISTO.
+ *
+ * La primera version de la guarda comparaba contra "CREDITO" normalizando el
+ * acento. Una peticion con el cuerpo mal codificado —el acento mandado en
+ * Latin-1 en vez de UTF-8— llega como "CR\uFFFDDITO" (caracter de reemplazo),
+ * no coincide con nada, y la venta a credito ENTRABA. Se descubrio probando
+ * contra el servidor real, no con pruebas: todas mandan texto bien formado.
+ *
+ * Por eso ahora se valida contra la lista de lo PERMITIDO y no contra lo
+ * prohibido: cualquier basura que no sea exactamente una forma de pago
+ * configurada se rechaza. La guarda falla cerrando.
+ */
+test("una forma de pago con el acento mal codificado se rechaza", () => {
   const DB = prepararDB();
-  const venta = crearVenta(DB, { sucursal_id: 4, lineas: [LINEA], total: 100 });
-  assert.strictEqual(venta.estatus, "cerrada");
+
+  assert.throws(
+    () => crearVenta(DB, { sucursal_id: 4, metodo_pago: "CR\uFFFDDITO", lineas: [LINEA], total: 100 }),
+    /no v[aá]lida|cr[eé]dito/i
+  );
+  assert.strictEqual(DB.pos.ventas.length, 0, "no se guarda nada");
+});
+
+test("una forma de pago inventada se rechaza", () => {
+  const DB = prepararDB();
+
+  for (const basura of ["PAGARE", "EFECTIV0", "<script>", "TARJETA VISA"]) {
+    assert.throws(
+      () => crearVenta(DB, { sucursal_id: 4, metodo_pago: basura, lineas: [LINEA], total: 100 }),
+      /no v[aá]lida/i,
+      `dejo pasar ${JSON.stringify(basura)}`
+    );
+  }
+  assert.strictEqual(DB.pos.ventas.length, 0);
 });

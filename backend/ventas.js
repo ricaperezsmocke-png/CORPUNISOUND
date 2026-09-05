@@ -15,6 +15,7 @@ const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
+const { listarCondiciones } = require("./condicionesPago");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
 
@@ -27,29 +28,6 @@ function crearVenta(DB, datos) {
     throw new Error("La venta no tiene productos");
   }
 
-  // EL CREDITO ESTA APAGADO A PROPOSITO (decision de Victor, 2026-09-04).
-  //
-  // El sistema aceptaba la venta pero NUNCA generaba la deuda: `cliente.saldo`
-  // se inicializa en cero (clientes.js) y ninguna linea de produccion lo sube.
-  // Esta funcion ni siquiera busca al cliente. Asi que una venta a credito era
-  // mercancia entregada, cliente debiendo cero y caja cuadrada — sin faltante
-  // que delatara nada. Era el unico hueco de este tamano al alcance de una
-  // cajera del rol estandar, y tambien se aceptaba a "Publico en General".
-  //
-  // Va aqui, en el servidor, y no solo en la pantalla: quien manda la peticion
-  // a mano se salta cualquier boton escondido. Y se normaliza el acento porque
-  // en el repo se escribe "CREDITO" con tilde (condicionesPago.js) mientras que
-  // cortes.js acepta las dos formas: comparar contra una sola dejaria el
-  // agujero abierto con las pruebas en verde.
-  //
-  // Se vuelve a encender el dia que existan cuentas por cobrar de verdad —que
-  // generen la deuda, validen el limite y registren abonos—, y no antes.
-  const formaPago = String(datos.metodo_pago || "EFECTIVO").trim().toUpperCase();
-  if (formaPago.normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO") {
-    throw new Error(
-      "Las ventas a crédito están deshabilitadas: el sistema todavía no lleva cuentas por cobrar"
-    );
-  }
 
   // No dejar vender más de lo que hay en existencia, a menos que la
   // configuración lo permita explícitamente ("Permitir Ventas de
@@ -62,6 +40,45 @@ function crearVenta(DB, datos) {
   if (!Number.isInteger(sucursalId) || sucursalId <= 0) {
     throw new Error("Falta la sucursal donde se cierra la venta");
   }
+  // EL CREDITO ESTA APAGADO A PROPOSITO (decision de Victor, 2026-09-04).
+  //
+  // El sistema aceptaba la venta pero NUNCA generaba la deuda: `cliente.saldo`
+  // se inicializa en cero (clientes.js) y ninguna linea de produccion lo sube.
+  // Esta funcion ni siquiera busca al cliente. Asi que una venta a credito era
+  // mercancia entregada, cliente debiendo cero y caja cuadrada — sin faltante
+  // que delatara nada. Era el unico hueco de este tamano al alcance de una
+  // cajera del rol estandar, y tambien se aceptaba a "Publico en General".
+  //
+  // SE VALIDA CONTRA LA LISTA DE LO PERMITIDO, NO CONTRA LO PROHIBIDO, y esa
+  // diferencia no es de estilo: es la que decide si la guarda falla abriendo o
+  // cerrando. La primera version comparaba contra "CREDITO" normalizando el
+  // acento, y una peticion con el cuerpo mal codificado —el acento mandado en
+  // Latin-1 en vez de UTF-8— llegaba como "CR�DITO", no coincidia con
+  // nada, y la venta a credito ENTRABA. Se descubrio probando contra el
+  // servidor real; ninguna prueba lo habria encontrado, porque todas mandan
+  // texto bien formado. Ahora cualquier cosa que no sea exactamente una forma
+  // de pago configurada y permitida se rechaza.
+  //
+  // El credito se vuelve a encender el dia que existan cuentas por cobrar de
+  // verdad —que generen la deuda, validen el limite y registren abonos—, y no
+  // antes: mientras tanto sigue fuera de la lista de permitidas.
+  const sinAcentos = (s) => String(s).trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Vacio o solo espacios = EFECTIVO: una venta sin forma de pago declarada es
+  // de contado, y asi se ha comportado siempre. Se decide aqui una sola vez
+  // para que "" y "   " no acaben tratados distinto.
+  const declarada = String(datos.metodo_pago ?? "").trim();
+  const formaPago = declarada === "" ? "EFECTIVO" : sinAcentos(declarada);
+  const permitidas = listarCondiciones(DB, sucursalId)
+    .map((c) => sinAcentos(c.nombre))
+    .filter((n) => n !== "CREDITO");
+  if (!permitidas.includes(formaPago)) {
+    throw new Error(
+      formaPago === "CREDITO"
+        ? "Las ventas a crédito están deshabilitadas: el sistema todavía no lleva cuentas por cobrar"
+        : `Forma de pago no válida: "${datos.metodo_pago}". Las ventas a crédito están deshabilitadas.`
+    );
+  }
+
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
     for (const l of datos.lineas) {
@@ -105,7 +122,10 @@ function crearVenta(DB, datos) {
     vendedor_id: vendedorId,
     cliente_id: datos.cliente_id !== undefined && datos.cliente_id !== null ? Number(datos.cliente_id) : 0,
     tipo_documento: datos.tipo_documento || "Ticket",
-    metodo_pago: datos.metodo_pago || "EFECTIVO",
+    // Se guarda la forma de pago YA VALIDADA, no la que llego en el cuerpo:
+    // persistir el texto crudo dejaba entrar espacios y basura mal codificada
+    // que despues no coincide con nada al filtrar o al cortar.
+    metodo_pago: formaPago,
     subtotal: Number(datos.subtotal) || 0,
     descuento: Number(datos.descuento) || 0,
     total: Number(datos.total) || 0,
