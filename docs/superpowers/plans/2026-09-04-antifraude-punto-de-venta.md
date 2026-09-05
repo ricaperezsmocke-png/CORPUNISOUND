@@ -53,15 +53,66 @@ Cada fase se revisa antes de la siguiente.
 
 # FASE 1 — Lo que una cajera puede hacer sola, hoy
 
+## API real de las pruebas — VERIFICADA, usa esto y nada más
+
+Un intento anterior se detuvo porque este plan citaba helpers de prueba que no existen. Estas son
+las firmas reales, comprobadas en el código el 2026-09-04:
+
+```js
+crearVenta(DB, datos)                 // DOS argumentos, no cuatro
+crearCliente(DB, datos)               // DOS
+actualizarCliente(DB, id, datos)      // TRES: sin usuario y sin alcance
+```
+
+- **`backend/ventas.test.js` NO EXISTE.** No lo busques.
+- **`backend/testHelpers.js` exporta solo `construirDBPrueba` y `sembrarCuentas`.** No existen
+  `datosVentaDePrueba`, `usuarioDePrueba`, `datosClienteDePrueba`, `alcanceDePrueba` ni `driveFalso`.
+- El patrón a seguir es el de `backend/cajas.test.js`: un `prepararDB()` local dentro del propio
+  archivo de prueba. Cópialo de ahí:
+
+```js
+const { construirDBPrueba } = require("./testHelpers");
+const { sembrarCajas } = require("./cajas");
+const { crearVenta } = require("./ventas");
+
+function prepararDB() {
+  const DB = construirDBPrueba();
+  DB.pos.ventas = [];
+  DB.pos.venta_detalle = [];
+  DB.pos.cortes_caja = [];
+  DB.pos.apartado_abonos = [];
+  DB.pos.cajas = [];
+  sembrarCajas(DB);
+  return DB;
+}
+```
+
+- Una venta se arma así — ojo con `precio_unitario`, que no se llama `precio`:
+
+```js
+crearVenta(DB, {
+  sucursal_id: 4,
+  lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 100 }],
+  total: 100,
+});
+```
+
+- **Las líneas sin `producto_id` son "productos rápidos" / piezas especiales**: no tienen catálogo
+  contra el cual recalcular, y hay que respetarlas tal cual.
+- `DB.pos.configuracion = { permitir_ventas_sin_existencia: true }` es la bandera que usan las
+  pruebas existentes para no chocar con el inventario.
+
+---
+
 ### Task 1: Apagar el crédito
 
-**Por qué.** Verificado ejecutándolo: **nadie escribe nunca `cliente.saldo`.** Se inicializa en cero (`backend/clientes.js:52`) y ahí se queda. `crearVenta` (`backend/ventas.js:84-91`) no busca al cliente ni una sola vez. Una cajera da de alta un cliente, le pone el límite que quiera, vende $30,000 "a crédito", se lleva la mercancía, y el cliente sigue debiendo $0 — sin faltante de caja, porque el efectivo nunca bajó. También se acepta crédito a "Público en General" (id 0).
+**Por qué.** Verificado ejecutándolo: **nadie escribe nunca `cliente.saldo`.** Se inicializa en cero (`backend/clientes.js:52`) y ahí se queda. `crearVenta` (`backend/ventas.js:25`) no busca al cliente ni una sola vez. Una cajera da de alta un cliente, le pone el límite que quiera, vende "a crédito", se lleva la mercancía, y el cliente sigue debiendo $0 — sin faltante de caja, porque el efectivo nunca bajó. También se acepta crédito a "Público en General" (id 0).
 
 Es el hueco más caro y el único abierto a la cajera estándar. El techo es todo el inventario.
 
 **Files:**
 - Modify: `backend/ventas.js` (`crearVenta`)
-- Modify: `src/PuntoDeVenta.jsx:1095-1100` (el botón)
+- Modify: `src/PuntoDeVenta.jsx` (las formas de pago ofrecidas)
 - Test: `backend/creditoApagado.test.js` (nuevo)
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
@@ -69,8 +120,21 @@ Es el hueco más caro y el único abierto a la cajera estándar. El techo es tod
 ```js
 const { test } = require("node:test");
 const assert = require("node:assert");
-const { crearVenta } = require("./ventas");
 const { construirDBPrueba } = require("./testHelpers");
+const { sembrarCajas } = require("./cajas");
+const { crearVenta } = require("./ventas");
+
+function prepararDB() {
+  const DB = construirDBPrueba();
+  DB.pos.ventas = [];
+  DB.pos.venta_detalle = [];
+  DB.pos.cajas = [];
+  sembrarCajas(DB);
+  DB.pos.configuracion = { permitir_ventas_sin_existencia: true };
+  return DB;
+}
+
+const LINEA = { descripcion: "Servicio", cantidad: 1, precio_unitario: 100 };
 
 /**
  * El credito no genera deuda: `cliente.saldo` se inicializa en cero y ninguna
@@ -79,30 +143,38 @@ const { construirDBPrueba } = require("./testHelpers");
  * el boton escondido no detiene a quien manda la peticion a mano.
  */
 test("una venta a credito se rechaza", () => {
-  const DB = construirDBPrueba();
+  const DB = prepararDB();
   assert.throws(
-    () => crearVenta(DB, { ...datosVentaDePrueba(), metodo_pago: "CREDITO" }, 1, usuarioDePrueba()),
+    () => crearVenta(DB, { sucursal_id: 4, metodo_pago: "CRÉDITO", lineas: [LINEA], total: 100 }),
     /cr[eé]dito/i
   );
+  assert.strictEqual(DB.pos.ventas.length, 0, "no se guarda nada");
 });
 
-test("una venta a credito se rechaza sin importar como se escriba", () => {
-  const DB = construirDBPrueba();
-  for (const forma of ["credito", "Crédito", "CRÉDITO", "  CREDITO  "]) {
-    assert.throws(() => crearVenta(DB, { ...datosVentaDePrueba(), metodo_pago: forma }, 1, usuarioDePrueba()), /cr[eé]dito/i, `no rechazo "${forma}"`);
+/**
+ * En el repo el credito se escribe "CRÉDITO" con acento (condicionesPago.js:14,
+ * apartados.js:54 y :169) y cortes.js:131 acepta las dos formas. Un rechazo que
+ * solo atrape una de las dos deja el agujero abierto y las pruebas en verde.
+ */
+test("se rechaza sin importar acento, mayusculas ni espacios", () => {
+  for (const forma of ["credito", "Crédito", "CRÉDITO", "CREDITO", "  crédito  "]) {
+    const DB = prepararDB();
+    assert.throws(
+      () => crearVenta(DB, { sucursal_id: 4, metodo_pago: forma, lineas: [LINEA], total: 100 }),
+      /cr[eé]dito/i,
+      `no rechazo "${forma}"`
+    );
   }
 });
 
 test("las demas formas de pago siguen funcionando", () => {
-  const DB = construirDBPrueba();
   for (const forma of ["EFECTIVO", "TARJETA", "TRANSFERENCIA"]) {
-    const venta = crearVenta(DB, { ...datosVentaDePrueba(), metodo_pago: forma }, 1, usuarioDePrueba());
-    assert.strictEqual(venta.estatus, "cerrada");
+    const DB = prepararDB();
+    const venta = crearVenta(DB, { sucursal_id: 4, metodo_pago: forma, lineas: [LINEA], total: 100 });
+    assert.strictEqual(venta.estatus, "cerrada", `se rompio ${forma}`);
   }
 });
 ```
-
-Reutiliza los helpers que ya existan (`datosVentaDePrueba`, `usuarioDePrueba`); no crees copias.
 
 - [ ] **Step 2: Correr y verificar que fallan**
 
@@ -115,17 +187,15 @@ En `crearVenta`, **antes** de construir la venta y antes de tocar el inventario:
 
 ```js
   // El credito esta APAGADO a proposito (decision de Victor, 2026-09-04). El
-  // sistema acepta la venta pero NUNCA genera la deuda: `cliente.saldo` se
-  // inicializa en cero y ninguna linea lo sube, asi que una venta a credito es
+  // sistema aceptaba la venta pero NUNCA generaba la deuda: `cliente.saldo` se
+  // inicializa en cero y ninguna linea lo sube, asi que una venta a credito era
   // mercancia regalada con la caja cuadrada. Se vuelve a encender el dia que
   // existan cuentas por cobrar de verdad, y no antes.
   const formaPago = String(datos.metodo_pago || "EFECTIVO").trim().toUpperCase();
-  if (formaPago.startsWith("CR") && formaPago.replace(/[ÉE]/g, "E") === "CREDITO") {
+  if (formaPago.normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO") {
     throw new Error("Las ventas a crédito están deshabilitadas: el sistema todavía no lleva cuentas por cobrar");
   }
 ```
-
-Comprueba primero cómo se escribe hoy el método de pago de crédito en el resto del repo (`grep -rn "CREDITO\|CRÉDITO" backend/ src/`) y **normaliza contra lo que de verdad se guarda**, no contra lo que suponga este plan.
 
 - [ ] **Step 4: Quitar el botón de la pantalla**
 
@@ -133,8 +203,8 @@ En `src/PuntoDeVenta.jsx`, quitar CRÉDITO de las formas de pago ofrecidas. La r
 
 - [ ] **Step 5: Correr y verificar que pasan**
 
-Run: `cd backend && node --test creditoApagado.test.js ventas.test.js`
-Expected: PASS. **Si alguna prueba existente asume que el crédito funciona, actualízala** y deja escrito en su comentario que el cambio fue deliberado, con fecha.
+Run: `cd backend && node --test creditoApagado.test.js cajas.test.js corteSellado.test.js`
+Expected: PASS. Si alguna prueba existente arma una venta a crédito, **actualízala** y deja escrito en su comentario que el cambio fue deliberado, con fecha.
 
 - [ ] **Step 6: Suite y commit**
 
@@ -149,7 +219,7 @@ git commit -m "fix(ventas): apagar el credito, que entrega mercancia sin generar
 
 ### Task 2: Cerrar la puerta trasera de los clientes
 
-**Por qué.** `actualizarCliente` (`backend/clientes.js:70`) hace `{ ...actual, ...datos, id }` sin lista blanca. Quien tenga `editar_cliente` —**y el gerente sí lo tiene**— puede fijar por HTTP `limite_credito`, `sujeto_credito`, `saldo` y `monedero` a lo que quiera sobre cualquier cliente. Es la puerta trasera de la Tarea 1 y sigue abierta aunque el crédito esté apagado: `monedero` y `saldo` son dinero.
+**Por qué.** `actualizarCliente` (`backend/clientes.js:67-70`) hace `{ ...actual, ...datos, id }` sin lista blanca. Quien tenga `editar_cliente` —**y el gerente sí lo tiene**— puede fijar por HTTP `limite_credito`, `sujeto_credito`, `saldo` y `monedero` sobre cualquier cliente. Es la puerta trasera de la Tarea 1, y sigue abierta aunque el crédito esté apagado: `monedero` y `saldo` son dinero.
 
 **Files:**
 - Modify: `backend/clientes.js` (`actualizarCliente`)
@@ -158,14 +228,20 @@ git commit -m "fix(ventas): apagar el credito, que entrega mercancia sin generar
 - [ ] **Step 1: Escribir la prueba que falla**
 
 ```js
+const { test } = require("node:test");
+const assert = require("node:assert");
+const { construirDBPrueba } = require("./testHelpers");
+const { crearCliente, actualizarCliente } = require("./clientes");
+
 /**
  * Asignacion en masa: el cuerpo de la peticion se copiaba entero sobre el
- * cliente. Los campos de dinero (`saldo`, `monedero`, `limite_credito`) no los
- * escribe una persona desde una pantalla: los calcula el sistema.
+ * cliente. Los campos de dinero no los escribe una persona desde una pantalla:
+ * los calcula el sistema.
  */
 test("editar un cliente no puede tocar los campos de dinero", () => {
   const DB = construirDBPrueba();
-  const cliente = crearCliente(DB, datosClienteDePrueba(), 1, usuarioDePrueba());
+  const cliente = crearCliente(DB, { nombre: "Cliente de prueba", sucursal_id: 1 });
+  const limiteOriginal = cliente.limite_credito;
 
   actualizarCliente(DB, cliente.id, {
     nombre: "Nombre corregido",
@@ -173,15 +249,18 @@ test("editar un cliente no puede tocar los campos de dinero", () => {
     monedero: 50000,
     limite_credito: 900000,
     sujeto_credito: true,
-  }, alcanceDePrueba(), usuarioDePrueba());
+  });
 
   const guardado = DB.crm.clientes.find((c) => c.id === cliente.id);
   assert.strictEqual(guardado.nombre, "Nombre corregido", "los campos normales si se editan");
   assert.strictEqual(guardado.saldo, 0);
   assert.strictEqual(guardado.monedero, 0);
-  assert.strictEqual(guardado.limite_credito, cliente.limite_credito);
+  assert.strictEqual(guardado.limite_credito, limiteOriginal);
 });
 ```
+
+Comprueba primero cómo se llama la colección de clientes dentro de `construirDBPrueba` y ajusta la
+aserción a la real; **no lo supongas**.
 
 - [ ] **Step 2: Correr y verificar que falla**
 
@@ -190,20 +269,25 @@ Expected: FAIL — hoy los cuatro campos se sobrescriben.
 
 - [ ] **Step 3: Implementar la lista blanca**
 
-Sustituir el `spread` por una lista explícita de los campos que una persona sí puede editar. **Léela del objeto que crea `crearCliente`** (`clientes.js:47-52`) para no dejar fuera un campo legítimo, y excluye a mano los de dinero:
+Sustituir el spread por una lista explícita de campos editables. **Léela del objeto que construye
+`crearCliente`** (`backend/clientes.js:32-52`) para no dejar fuera ninguno legítimo, y excluye a mano
+los de dinero:
 
 ```js
 // Los campos de dinero (saldo, monedero, limite_credito, sujeto_credito) NO se
 // editan desde aqui: los calcula el sistema. Con el spread entero, quien tenia
 // `editar_cliente` podia fijarse un limite de credito o un monedero por HTTP.
-const CAMPOS_EDITABLES = [/* nombre, telefono, email, direccion, rfc, ... */];
+const CAMPOS_EDITABLES = [/* copiar de crearCliente, menos los de dinero */];
 ```
 
-- [ ] **Step 4: Correr y verificar que pasa** — `cd backend && node --test clientesListaBlanca.test.js clientes.test.js`
+- [ ] **Step 4: Correr y verificar que pasa**
+
+Run: `cd backend && node --test clientesListaBlanca.test.js`
 
 - [ ] **Step 5: Quitar los campos de crédito del alta rápida**
 
-En la pantalla de alta rápida de clientes del POS, quitar los campos de límite de crédito y sujeto a crédito: mientras el crédito esté apagado, no significan nada y solo invitan a llenarlos.
+En la pantalla de alta rápida de clientes del POS, quitar límite de crédito y sujeto a crédito:
+mientras el crédito esté apagado no significan nada y solo invitan a llenarlos.
 
 - [ ] **Step 6: Suite y commit**
 
@@ -218,78 +302,35 @@ git commit -m "fix(clientes): editar un cliente ya no puede fijarle saldo, moned
 
 ### Task 3: El servidor decide el precio, no el navegador
 
-**Por qué.** Verificado: `crearVenta` (`backend/ventas.js:85-87`) guarda `subtotal`, `descuento` y `total` **tal como se los manda la pantalla**. Un artículo de $12,000 se puede registrar en $1, y un descuento de 99.99% se acepta. El límite de descuento está solo en la interfaz (`src/PuntoDeVenta.jsx:669`), y la ruta solo pide `cerrar_venta`.
+**Por qué.** Verificado: `crearVenta` guarda `subtotal`, `descuento` y `total` **tal como se los manda la pantalla**. Un artículo de $12,000 se puede registrar en $1, y un descuento de 99.99% se acepta. El límite está solo en la interfaz, y la ruta solo pide `cerrar_venta`.
 
-Se lleva el margen completo de cada ticket y **no deja ninguna señal**: en los reportes se ve como una venta barata legítima, no como un fraude. Está al alcance de la cajera estándar.
+Se lleva el margen completo de cada ticket y **no deja ninguna señal**: en los reportes se ve como una venta barata legítima.
+
+**NO INVENTES UN PORCENTAJE MÁXIMO.** Se buscó y **no existe ninguno** en el repo. El control de esta tarea es otro: el servidor exige el permiso **`aplicar_descuentos_articulos_venta`** (`backend/permisosCatalogo.js:21`, que hoy solo se comprueba en la pantalla) para aceptar cualquier descuento mayor que cero. El tope porcentual es una decisión pendiente de Victor y **no entra aquí**.
 
 **Files:**
-- Modify: `backend/ventas.js` (`crearVenta`)
+- Modify: `backend/ventas.js` (`crearVenta`), `backend/server.js` (pasar los permisos de quien vende)
 - Test: `backend/ventaPrecioServidor.test.js` (nuevo)
-
-**Interfaces:**
-- Consumes: el precio de catálogo del producto (`producto.precio_venta` y los niveles en `producto.precios`, ver `backend/productos.js:227`).
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
 
-```js
-/**
- * El servidor RECALCULA. Lo que manda el navegador es una propuesta, no un
- * hecho: quien manda la peticion a mano se salta cualquier limite de la
- * pantalla, y una venta con el precio cambiado se ve en los reportes como una
- * venta barata legitima.
- */
-test("el total se recalcula desde el catalogo, no se copia del navegador", () => {
-  const DB = construirDBPrueba();
-  const producto = DB["catalogo-productos"].productos[0]; // precio_venta conocido
-  const venta = crearVenta(DB, {
-    ...datosVentaDePrueba(),
-    lineas: [{ producto_id: producto.id, cantidad: 1, precio: 1, descuento_pct: 0 }],
-    subtotal: 1, descuento: 0, total: 1,
-  }, 1, usuarioDePrueba());
+Cubrir tres cosas, usando el `prepararDB()` de arriba y un producto real de
+`DB["catalogo-productos"].productos`:
 
-  assert.strictEqual(venta.total, producto.precio_venta);
-});
+1. Una línea **con `producto_id`** y un precio manipulado se registra al precio del catálogo, no al enviado.
+2. Una línea **sin `producto_id`** (producto rápido) se respeta tal cual — no hay catálogo contra el cual recalcular.
+3. Un descuento mayor que cero **sin el permiso** `aplicar_descuentos_articulos_venta` se rechaza; **con** el permiso se acepta.
 
-test("un descuento por encima del maximo se rechaza", () => {
-  const DB = construirDBPrueba();
-  const producto = DB["catalogo-productos"].productos[0];
-  assert.throws(() => crearVenta(DB, {
-    ...datosVentaDePrueba(),
-    lineas: [{ producto_id: producto.id, cantidad: 1, descuento_pct: 99.99 }],
-  }, 1, usuarioDePrueba()), /descuento/i);
-});
+- [ ] **Step 2: Correr y verificar que fallan.**
 
-test("una venta normal sigue dando el mismo total de siempre", () => {
-  // La red que evita que este cambio rompa el cobro de todos los dias.
-  const DB = construirDBPrueba();
-  const producto = DB["catalogo-productos"].productos[0];
-  const venta = crearVenta(DB, {
-    ...datosVentaDePrueba(),
-    lineas: [{ producto_id: producto.id, cantidad: 3, descuento_pct: 0 }],
-  }, 1, usuarioDePrueba());
+- [ ] **Step 3: Implementar el recálculo** — por cada línea con `producto_id`, tomar el precio del catálogo, aplicar el descuento solo si quien vende tiene el permiso, y calcular `subtotal`, `descuento` y `total` desde ahí. Lo que venga en el cuerpo para esos tres campos se ignora.
 
-  assert.strictEqual(venta.total, producto.precio_venta * 3);
-});
-```
+- [ ] **Step 4: Correr la suite entera.** Aquí es donde más probable es romper algo: cualquier prueba que arme una venta con totales a mano va a cambiar. **Actualízala solo si el nuevo total es el correcto**; si no cuadra, el recálculo está mal.
 
-- [ ] **Step 2: Correr y verificar que fallan** — `cd backend && node --test ventaPrecioServidor.test.js`
-
-- [ ] **Step 3: Implementar el recálculo**
-
-En `crearVenta`, por cada línea: buscar el producto en el catálogo, tomar **su** precio, aplicar el descuento declarado si está dentro del máximo permitido, y calcular `subtotal`, `descuento` y `total` desde ahí. Lo que venga en el cuerpo para esos tres campos se ignora.
-
-**Antes de escribir el máximo de descuento, búscalo en el repo** (`grep -rn "descuento_max\|descuento_pct" backend/ src/`): si ya existe un límite por rol o por configuración, úsalo. Si no existe ninguno, **detente y pregunta a Victor** cuál debe ser en vez de inventar un número — un límite mal puesto frena ventas legítimas.
-
-- [ ] **Step 4: Correr y verificar que pasan** — `cd backend && node --test ventaPrecioServidor.test.js ventas.test.js corteSellado.test.js`
-
-Aquí es donde más probable es romper algo: cualquier prueba que arme una venta con totales a mano va a cambiar. **Actualízalas solo si el nuevo total es el correcto**; si no cuadra, es que el recálculo está mal.
-
-- [ ] **Step 5: Suite y commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-cd backend && node --test
-cd .. && npx eslint src backend
-git add backend/ventas.js backend/ventaPrecioServidor.test.js
+git add backend/ventas.js backend/server.js backend/ventaPrecioServidor.test.js
 git commit -m "fix(ventas): el precio y el total los decide el servidor, no el navegador"
 ```
 
