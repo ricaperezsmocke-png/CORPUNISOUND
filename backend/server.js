@@ -82,7 +82,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
-const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos, reporteCancelaciones } = require("./reportes");
 const crypto = require("crypto");
 const {
   crearRespaldo, limpiarViejos, verificarRespaldo, copiaParaReverificar, restaurar,
@@ -1636,7 +1636,7 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
       return res.status(404).json({ error: "Venta no encontrada" });
     }
     if (venta && venta.tipo_documento === "Apartado") {
-      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
     }
     res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1687,7 +1687,7 @@ app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar
     if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
       return res.status(404).json({ error: "Apartado no encontrado" });
     }
-    res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+    res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2451,6 +2451,12 @@ app.get("/api/reportes/cortes-caja", requiereLogin, requierePermiso("ver_reporte
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { fecha_inicio, fecha_fin } = req.query;
   res.json(reporteCortesCaja(DB, { fecha_inicio, fecha_fin }, alcance));
+});
+
+app.get("/api/reportes/cancelaciones", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin } = req.query;
+  res.json(reporteCancelaciones(DB, { fecha_inicio, fecha_fin }, alcance));
 });
 
 app.get("/api/reportes/existencias", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
