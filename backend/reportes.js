@@ -212,6 +212,10 @@ function reporteCortesCaja(DB, filtros, alcance) {
 
   const filas = cortes.map((c) => ({
     id: c.id, fecha: c.fecha, sucursal_nombre: nombreSucursal(c.sucursal_id), usuario_nombre: c.usuario_nombre,
+    // Desde las cajas hay DOS cortes por tienda y por dia. Sin esto son dos
+    // renglones identicos: los totales suman bien, la lectura no. Los cortes
+    // historicos no traen caja_id y se ven como raya, nunca como undefined.
+    caja_nombre: (DB.pos.cajas || []).find((caja) => caja.id === c.caja_id)?.nombre || "—",
     total_calculado: c.total_calculado, total_contado: c.total_contado, total_diferencia: c.total_diferencia,
     total_retiro: c.total_retiro,
     // Cortes previos a la feature de Gastos no tienen este campo: se ve como
