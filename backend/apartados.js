@@ -101,6 +101,12 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
     fecha: fechaHoy,
     fecha_hora: new Date().toISOString(),
     sucursal_id,
+    // El documento vive en la MISMA caja que su dinero (el abono de abajo). Sin
+    // esto, el corte de la Fiscal cobraba el anticipo y Consultas de Ventas
+    // listaba el apartado bajo la Administrativa —porque un caja_id ausente es
+    // "historico" y se lo lleva la predeterminada—, asi que quien investigara un
+    // descuadre veia lo contrario de lo que habia pasado.
+    caja_id: caja?.id ?? null,
     vendedor_id: datos.vendedor_id ? Number(datos.vendedor_id) : null,
     cliente_id,
     tipo_documento: "Apartado",
