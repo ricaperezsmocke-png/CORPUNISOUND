@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
-const { sembrarCajas, cajaPredeterminadaDeSucursal } = require("./cajas");
+const { sembrarCajas, cajaPredeterminadaDeSucursal, esDeEstaCaja } = require("./cajas");
 const { crearVenta } = require("./ventas");
 const { calcularCorteEnCurso, crearCorte } = require("./cortes");
 
@@ -346,4 +346,40 @@ test("sin catalogo de cajas, los abonos de apartados se siguen contando", () => 
     enCurso.calculado.EFECTIVO, 500,
     "el dinero de un abono no puede desaparecer porque no haya catalogo de cajas"
   );
+});
+
+/**
+ * Los caminos de escritura de hoy guardan `caja.id`, que es numero. Pero si
+ * llegara un `caja_id: "7"` —una foto restaurada editada a mano, o una ruta
+ * futura que persista req.query.caja_id crudo—, `"7" === 7` es falso y
+ * `"7" == null` tambien: la venta no la reclamaria NINGUNA de las dos cajas.
+ * Dinero que desaparece sin dejar rastro es peor que dinero contado dos veces,
+ * porque nadie lo va a buscar. Misma trampa ya documentada con producto_id.
+ */
+test("un caja_id de texto pertenece a su caja, no desaparece", () => {
+  const DB = prepararDB();
+  const { administrativa, fiscal } = cajasDe(DB);
+  const registro = { caja_id: String(fiscal.id) };
+
+  assert.strictEqual(esDeEstaCaja(registro, fiscal), true);
+  assert.strictEqual(esDeEstaCaja(registro, administrativa), false);
+});
+
+test("un registro sin caja sigue siendo de la predeterminada y solo de ella", () => {
+  const DB = prepararDB();
+  const { administrativa, fiscal } = cajasDe(DB);
+
+  // Number(null) es 0: la comprobacion de nulo tiene que ir ANTES de convertir.
+  assert.strictEqual(esDeEstaCaja({ caja_id: null }, administrativa), true);
+  assert.strictEqual(esDeEstaCaja({}, administrativa), true);
+  assert.strictEqual(esDeEstaCaja({ caja_id: null }, fiscal), false);
+  assert.strictEqual(esDeEstaCaja({}, fiscal), false);
+});
+
+test("sin catalogo de cajas todo pertenece a todo: no puede filtrar nada", () => {
+  const DB = prepararDB();
+  const { fiscal } = cajasDe(DB);
+
+  assert.strictEqual(esDeEstaCaja({ caja_id: String(fiscal.id) }, null), true);
+  assert.strictEqual(esDeEstaCaja({ caja_id: null }, null), true);
 });

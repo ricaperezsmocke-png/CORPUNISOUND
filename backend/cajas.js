@@ -161,7 +161,14 @@ function resolverCajaDeSucursal(DB, sucursalId, cajaId) {
  * existe, no puede filtrar nada.
  */
 function esDeEstaCaja(registro, caja) {
-  return !caja || registro.caja_id === caja.id || (caja.predeterminada && registro.caja_id == null);
+  if (!caja) return true;
+  // El orden importa: `Number(null)` es 0, asi que el caso "sin caja" se
+  // resuelve ANTES de convertir. Y se convierte a proposito, porque un
+  // `caja_id` de TEXTO no lo reclamaria ninguna de las dos cajas —ni por
+  // igualdad estricta ni por la rama de nulo— y el dinero desapareceria de
+  // los dos cortes sin que nadie lo fuera a buscar.
+  if (registro.caja_id == null) return caja.predeterminada === true;
+  return Number(registro.caja_id) === caja.id;
 }
 
 module.exports = {
