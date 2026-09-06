@@ -183,6 +183,10 @@ function listarGastos(DB, filtros, alcance) {
   const categorias = listarCategorias(DB, {});
   const nombreCategoria = (id) => categorias.find((c) => c.id === id) || null;
   const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+  // Un gasto histórico (anterior a las cajas) tiene `caja_id: null` y no lleva
+  // nombre: el corte de la predeterminada lo absorbe, pero la lista no debe
+  // afirmar que salió de una caja que nadie eligió.
+  const nombreCaja = (id) => (id == null ? "—" : ((DB.pos.cajas || []).find((c) => c.id === Number(id)) || {}).nombre || "—");
   const nombreProveedor = (id) =>
     id == null ? null : (DB["catalogo-productos"].proveedores.find((p) => p.id === id) || {}).nombre || null;
 
@@ -201,6 +205,7 @@ function listarGastos(DB, filtros, alcance) {
         categoria_nombre: categoria ? categoria.nombre : "—",
         grupo_nombre: grupo ? grupo.nombre : "—",
         sucursal_nombre: nombreSucursal(g.sucursal_id),
+        caja_nombre: nombreCaja(g.caja_id),
         proveedor_nombre: nombreProveedor(g.proveedor_id),
       };
     })
