@@ -617,6 +617,7 @@ async function restaurar(DB, drive, {
       }
 
       let baseReemplazada = false;
+      let reparaciones = [];
       try {
         // Recién ahora se muta. Desde la primera asignación, cualquier error debe
         // decir que la base sí cambió y señalar la copia exacta para deshacerlo.
@@ -633,7 +634,13 @@ async function restaurar(DB, drive, {
         }
 
         // Se inyectan desde server.js para no acoplar este módulo a roles.js.
-        if (typeof alTerminar === "function") alTerminar(DB);
+        // Lo que la reconciliación haya tenido que REPARAR viaja de vuelta: una
+        // reparación silenciosa es la mitad del defecto que se cerró al dejar
+        // que restaurar repare el catálogo de cajas en vez de rechazar la foto.
+        if (typeof alTerminar === "function") {
+          const resultado = alTerminar(DB);
+          if (Array.isArray(resultado?.reparaciones)) reparaciones = resultado.reparaciones;
+        }
 
         pushMovimiento(
           DB, copia.id, "restauracion",
@@ -649,7 +656,7 @@ async function restaurar(DB, drive, {
         );
       }
 
-      return { copia, pre_restauracion: pre, aplicado: true, comparacion };
+      return { copia, pre_restauracion: pre, aplicado: true, comparacion, reparaciones };
     } finally {
       // SIEMPRE se desbloquea: si algo revienta a media restauración, la tienda no
       // se queda cerrada esperando a que alguien reinicie el servidor. Un `finally`

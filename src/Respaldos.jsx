@@ -137,8 +137,17 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
         );
       }
       if (!r.ok) throw new Error(data.error);
+      // Restaurar ya no rechaza una foto con el catálogo de cajas torcido: lo
+      // repara. Pero una reparación invisible es la mitad del defecto — Victor
+      // se quedaría creyendo que restauró tal cual. Va en el mismo aviso porque
+      // justo después se recarga la página y lo que se pintara se perdería.
+      const reparaciones = Array.isArray(data.reparaciones) ? data.reparaciones : [];
+      const detalleReparaciones = reparaciones.length
+        ? "\n\nEl respaldo traía el catálogo de cajas inconsistente y se reparó al restaurar:\n• " +
+          reparaciones.join("\n• ")
+        : "";
       // Los usuarios y roles acaban de cambiar: no hay sesión que valga.
-      window.alert(data.aviso);
+      window.alert(data.aviso + detalleReparaciones);
       localStorage.removeItem("token");
       window.location.reload();
     } catch (err) {
