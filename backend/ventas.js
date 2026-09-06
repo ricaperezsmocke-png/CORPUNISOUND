@@ -14,18 +14,25 @@
 const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
-const { resolverCajaDeSucursal } = require("./cajas");
+const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
+const { listarCondiciones } = require("./condicionesPago");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
+
+/** Centavos, no flotantes sueltos: sumar precios sin redondear arrastra error. */
+function redondear(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
 
-function crearVenta(DB, datos) {
+function crearVenta(DB, datos, opciones = {}) {
   if (!Array.isArray(datos.lineas) || datos.lineas.length === 0) {
     throw new Error("La venta no tiene productos");
   }
+
 
   // No dejar vender más de lo que hay en existencia, a menos que la
   // configuración lo permita explícitamente ("Permitir Ventas de
@@ -38,6 +45,45 @@ function crearVenta(DB, datos) {
   if (!Number.isInteger(sucursalId) || sucursalId <= 0) {
     throw new Error("Falta la sucursal donde se cierra la venta");
   }
+  // EL CREDITO ESTA APAGADO A PROPOSITO (decision de Victor, 2026-09-04).
+  //
+  // El sistema aceptaba la venta pero NUNCA generaba la deuda: `cliente.saldo`
+  // se inicializa en cero (clientes.js) y ninguna linea de produccion lo sube.
+  // Esta funcion ni siquiera busca al cliente. Asi que una venta a credito era
+  // mercancia entregada, cliente debiendo cero y caja cuadrada — sin faltante
+  // que delatara nada. Era el unico hueco de este tamano al alcance de una
+  // cajera del rol estandar, y tambien se aceptaba a "Publico en General".
+  //
+  // SE VALIDA CONTRA LA LISTA DE LO PERMITIDO, NO CONTRA LO PROHIBIDO, y esa
+  // diferencia no es de estilo: es la que decide si la guarda falla abriendo o
+  // cerrando. La primera version comparaba contra "CREDITO" normalizando el
+  // acento, y una peticion con el cuerpo mal codificado —el acento mandado en
+  // Latin-1 en vez de UTF-8— llegaba como "CR�DITO", no coincidia con
+  // nada, y la venta a credito ENTRABA. Se descubrio probando contra el
+  // servidor real; ninguna prueba lo habria encontrado, porque todas mandan
+  // texto bien formado. Ahora cualquier cosa que no sea exactamente una forma
+  // de pago configurada y permitida se rechaza.
+  //
+  // El credito se vuelve a encender el dia que existan cuentas por cobrar de
+  // verdad —que generen la deuda, validen el limite y registren abonos—, y no
+  // antes: mientras tanto sigue fuera de la lista de permitidas.
+  const sinAcentos = (s) => String(s).trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Vacio o solo espacios = EFECTIVO: una venta sin forma de pago declarada es
+  // de contado, y asi se ha comportado siempre. Se decide aqui una sola vez
+  // para que "" y "   " no acaben tratados distinto.
+  const declarada = String(datos.metodo_pago ?? "").trim();
+  const formaPago = declarada === "" ? "EFECTIVO" : sinAcentos(declarada);
+  const permitidas = listarCondiciones(DB, sucursalId)
+    .map((c) => sinAcentos(c.nombre))
+    .filter((n) => n !== "CREDITO");
+  if (!permitidas.includes(formaPago)) {
+    throw new Error(
+      formaPago === "CREDITO"
+        ? "Las ventas a crédito están deshabilitadas: el sistema todavía no lleva cuentas por cobrar"
+        : `Forma de pago no válida: "${datos.metodo_pago}". Las ventas a crédito están deshabilitadas.`
+    );
+  }
+
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
     for (const l of datos.lineas) {
@@ -69,6 +115,62 @@ function crearVenta(DB, datos) {
     vendedorId = v.id;
   }
 
+  // EL SERVIDOR DECIDE EL PRECIO. Lo que manda el navegador es una propuesta,
+  // no un hecho: quien manda la peticion a mano se salta cualquier limite de la
+  // pantalla. Antes se copiaban `subtotal`, `descuento` y `total` tal como
+  // llegaban, asi que un articulo de $12,000 se podia registrar en $1 — y en los
+  // reportes se veia como una venta barata legitima, sin ninguna senal.
+  //
+  // Las lineas SIN `producto_id` son productos rapidos / piezas especiales: no
+  // tienen catalogo contra el cual recalcular, y su precio lo sigue poniendo
+  // quien vende.
+  //
+  // El descuento exige `aplicar_descuentos_articulos_venta`, permiso que YA
+  // existia en el catalogo y que solo se comprobaba en la pantalla. Cuando no se
+  // pasan permisos (llamadas internas y pruebas) se asume que NO hay permiso:
+  // una guarda de dinero falla cerrando.
+  const permisos = Array.isArray(opciones.permisos) ? opciones.permisos : [];
+  const puedeDescontar = permisos.includes("aplicar_descuentos_articulos_venta");
+
+  const lineasCalculadas = datos.lineas.map((l) => {
+    const cantidad = Number(l.cantidad) || 0;
+    const producto = l.producto_id
+      ? DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id))
+      : null;
+    if (l.producto_id && !producto) throw new Error("Uno de los productos de la venta no existe");
+
+    // Un producto del catalogo SIN precio no se vende en cero en silencio. Al
+    // tomar el precio del catalogo en vez del que manda la pantalla, un producto
+    // al que nadie le puso precio pasaria a regalarse — y el ticket diria $0 sin
+    // que nadie entienda por que. Se rechaza diciendo cual es.
+    let precio;
+    if (producto) {
+      precio = Number(producto.precio_venta) || 0;
+      if (precio <= 0) {
+        throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de venderlo`);
+      }
+    } else {
+      precio = Number(l.precio_unitario) || 0;
+    }
+
+    const descPct = Number(l.descuento_pct) || 0;
+    if (descPct !== 0) {
+      if (!puedeDescontar) {
+        throw new Error("No tienes permiso para aplicar descuentos a los artículos de la venta");
+      }
+      if (descPct < 0 || descPct > 100) {
+        throw new Error("El descuento debe estar entre 0 y 100 por ciento");
+      }
+    }
+
+    const bruto = redondear(cantidad * precio);
+    return { ...l, cantidad, precio, descPct, bruto, subtotal: redondear(bruto * (1 - descPct / 100)) };
+  });
+
+  const subtotalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.bruto, 0));
+  const totalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.subtotal, 0));
+  const descuentoCalculado = redondear(subtotalCalculado - totalCalculado);
+
   const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);
 
   const nuevoId = siguienteId(DB.pos.ventas);
@@ -81,10 +183,13 @@ function crearVenta(DB, datos) {
     vendedor_id: vendedorId,
     cliente_id: datos.cliente_id !== undefined && datos.cliente_id !== null ? Number(datos.cliente_id) : 0,
     tipo_documento: datos.tipo_documento || "Ticket",
-    metodo_pago: datos.metodo_pago || "EFECTIVO",
-    subtotal: Number(datos.subtotal) || 0,
-    descuento: Number(datos.descuento) || 0,
-    total: Number(datos.total) || 0,
+    // Se guarda la forma de pago YA VALIDADA, no la que llego en el cuerpo:
+    // persistir el texto crudo dejaba entrar espacios y basura mal codificada
+    // que despues no coincide con nada al filtrar o al cortar.
+    metodo_pago: formaPago,
+    subtotal: subtotalCalculado,
+    descuento: descuentoCalculado,
+    total: totalCalculado,
     estatus: "cerrada",
     motivo_cancelacion: null,
     corte_id: null,
@@ -92,19 +197,17 @@ function crearVenta(DB, datos) {
   DB.pos.ventas.push(venta);
 
   let siguienteDetalleId = siguienteId(DB.pos.venta_detalle);
-  datos.lineas.forEach((l) => {
-    const cantidad = Number(l.cantidad) || 0;
-    const precio = Number(l.precio_unitario) || 0;
-    const descPct = Number(l.descuento_pct) || 0;
+  lineasCalculadas.forEach((l) => {
+    const cantidad = l.cantidad;
     DB.pos.venta_detalle.push({
       id: siguienteDetalleId++,
       venta_id: nuevoId,
       producto_id: l.producto_id ?? null,
       descripcion: l.descripcion || null, // se usa cuando es un "producto rápido" sin catálogo
       cantidad,
-      precio_unitario: precio,
-      descuento: descPct,
-      subtotal: Math.round(cantidad * precio * (1 - descPct / 100) * 100) / 100,
+      precio_unitario: l.precio,
+      descuento: l.descPct,
+      subtotal: l.subtotal,
     });
 
     // Solo se descuenta inventario si es un producto real del catálogo
@@ -113,7 +216,12 @@ function crearVenta(DB, datos) {
       try {
         ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Venta — folio ${nuevoId}`, sucursal_id: venta.sucursal_id });
       } catch (e) {
-        // Si el producto no tiene registro de existencia en esta sucursal, no se detiene la venta
+        // ULTIMO RECURSO. Desde que `ajustarExistencia` crea la fila que falte,
+        // esto ya no se dispara por el caso comun. Si aun asi falla, la venta NO
+        // se detiene —hay un cliente enfrente— pero el fallo deja de ser
+        // invisible: antes se tragaba en silencio y la tienda perdia la cuenta
+        // de lo que tiene sin que nadie se enterara.
+        console.error(`[inventario] la venta ${nuevoId} no pudo descontar el producto ${l.producto_id} en la sucursal ${venta.sucursal_id}: ${e.message}`);
       }
     }
   });
@@ -126,6 +234,15 @@ function listarVentas(DB, filtros = {}) {
   if (filtros.fecha_inicio) lista = lista.filter((v) => v.fecha >= filtros.fecha_inicio);
   if (filtros.fecha_fin) lista = lista.filter((v) => v.fecha <= filtros.fecha_fin);
   if (filtros.sucursal_id) lista = lista.filter((v) => v.sucursal_id === Number(filtros.sucursal_id));
+  // La pertenencia a una caja se decide con `esDeEstaCaja` y en ningun otro
+  // lado. Comparar el id a secas escondia justo las ventas historicas
+  // (`caja_id: null`), que el corte de la Administrativa SI cuenta: quien
+  // investigara un faltante filtraba por Administrativa, no veia ninguna de
+  // las ventas que le estaban cobrando, y el faltante parecia inventado.
+  if (filtros.caja_id) {
+    const caja = (DB.pos.cajas || []).find((c) => c.id === Number(filtros.caja_id));
+    lista = caja ? lista.filter((v) => esDeEstaCaja(v, caja)) : [];
+  }
   if (filtros.vendedor_id) lista = lista.filter((v) => v.vendedor_id === Number(filtros.vendedor_id));
   if (filtros.estatus) lista = lista.filter((v) => v.estatus === filtros.estatus);
   if (filtros.tipo_documento) lista = lista.filter((v) => v.tipo_documento === filtros.tipo_documento);
@@ -193,7 +310,11 @@ function cancelarVenta(DB, id, motivo, usuario) {
       if (l.producto_id) {
         try {
           ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
-        } catch (e) { /* si no existe existencia, no detiene la cancelación */ }
+        } catch (e) {
+          // Ultimo recurso: la cancelacion no se detiene, pero se dice. Un
+          // reintegro que falla en silencio deja mercancia fuera del inventario.
+          console.error(`[inventario] la cancelacion de la venta ${venta.id} no pudo reintegrar el producto ${l.producto_id}: ${e.message}`);
+        }
       }
     });
 

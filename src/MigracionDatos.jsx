@@ -31,6 +31,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
   const [aviso, setAviso] = useState(null);
   const nombreArchivoRef = useRef("");
   const inputArchivoRef = useRef(null);
+  const importacionEnCurso = useRef(false);
 
   const tipoActual = TIPOS.find((t) => t.id === tab);
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 3000); };
@@ -73,6 +74,9 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
   const aplicar = async () => {
     const filas = previsualizacion.filas.filter((f) => f.valida && confirmados[f.numero_fila]).map((f) => f.datos);
     if (filas.length === 0) return mostrarAviso("Confirma al menos un renglón antes de aplicar");
+    // Una importacion duplicada aplica dos veces altas y existencias del archivo.
+    if (importacionEnCurso.current) return;
+    importacionEnCurso.current = true;
     setCargando(true);
     try {
       const r = await apiFetch("/migracion/aplicar", {
@@ -87,7 +91,7 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
       mostrarAviso(`${data.nuevos} nuevos, ${data.actualizados} actualizados${data.errores.length ? `, ${data.errores.length} con error` : ""}`);
       if (tab === "articulos" && onImportado) onImportado();
     } catch (e) { mostrarAviso("❌ " + e.message); }
-    finally { setCargando(false); }
+    finally { importacionEnCurso.current = false; setCargando(false); }
   };
 
   const exportarRespaldo = async () => {
@@ -218,8 +222,8 @@ export default function MigracionDatos({ onVolver, permisos, usuario, onImportad
               </div>
             )}
 
-            <button onClick={aplicar} className="mt-3 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold flex items-center justify-center gap-2">
-              <Upload size={15} /> Aplicar importación
+            <button onClick={aplicar} disabled={cargando} className="mt-3 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+              <Upload size={15} /> {cargando ? "Aplicando..." : "Aplicar importación"}
             </button>
           </div>
         )}

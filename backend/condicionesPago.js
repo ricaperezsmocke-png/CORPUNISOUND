@@ -14,6 +14,11 @@ function siguienteId(lista) {
 const FORMAS_PAGO_DEFAULT = ["EFECTIVO", "TARJETA", "VALES", "CHEQUE", "TRANSFERENCIA", "CRÉDITO"];
 
 function asegurarSeed(DB, sucursal_id) {
+  // Un respaldo anterior a este modulo, o una base de prueba minima, no traen
+  // la coleccion. Sin esto, cualquier llamada revienta con un TypeError que no
+  // dice nada — y desde que crearVenta valida la forma de pago contra este
+  // catalogo, eso tumbaria una venta.
+  if (!Array.isArray(DB.pos.condiciones_pago)) DB.pos.condiciones_pago = [];
   const existentes = DB.pos.condiciones_pago.filter((c) => c.sucursal_id === sucursal_id);
   if (existentes.length > 0) return;
   FORMAS_PAGO_DEFAULT.forEach((nombre) => {

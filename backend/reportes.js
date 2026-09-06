@@ -232,6 +232,52 @@ function reporteCortesCaja(DB, filtros, alcance) {
   };
 }
 
+/**
+ * Quien cancelo, cuando, cuanto y por que.
+ *
+ * `cancelada_por` y `fecha_hora_cancelacion` se guardaban desde hace tiempo y
+ * NO SE MOSTRABAN EN NINGUNA PANTALLA NI REPORTE: la informacion existia y nadie
+ * podia verla. Un fraude que nadie puede ver es un fraude que se repite.
+ *
+ * Cancelar una venta ya cobrada —o un apartado ya abonado— saca el dinero del
+ * cajon y devuelve la mercancia al inventario, con la caja y el stock
+ * aparentemente cuadrados. Este reporte es lo que lo vuelve visible.
+ *
+ * Incluye los APARTADOS a proposito: mueven el mismo dinero, y hasta hace poco
+ * eran el camino con MENOS rastro de los dos. Dejarlos fuera seria dejar fuera
+ * justo lo que mas hay que mirar.
+ */
+function reporteCancelaciones(DB, filtros, alcance) {
+  const { fecha_inicio, fecha_fin } = filtros;
+  const canceladas = filtrarPorSucursal(DB.pos.ventas, alcance)
+    .filter((v) => v.estatus === "cancelada")
+    .filter((v) => enRango(v.fecha, fecha_inicio, fecha_fin));
+
+  const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+
+  const filas = canceladas.map((v) => ({
+    id: v.id,
+    folio: v.folio || String(v.id),
+    fecha: v.fecha,
+    sucursal_nombre: nombreSucursal(v.sucursal_id),
+    tipo_documento: v.tipo_documento || "Ticket",
+    total: Number(v.total) || 0,
+    // Las cancelaciones anteriores a que se guardara el usuario no tienen
+    // dueno, y eso se dice: no se inventa uno ni se rompe la pantalla.
+    cancelada_por: v.cancelada_por || "—",
+    fecha_hora_cancelacion: v.fecha_hora_cancelacion || null,
+    motivo_cancelacion: v.motivo_cancelacion || "",
+  })).sort((a, b) => String(b.fecha_hora_cancelacion || b.fecha).localeCompare(String(a.fecha_hora_cancelacion || a.fecha)));
+
+  return {
+    filas,
+    totales: {
+      numero_cancelaciones: filas.length,
+      total_cancelado: redondear(filas.reduce((a, f) => a + f.total, 0)),
+    },
+  };
+}
+
 function reporteExistencias(DB, filtros, alcance) {
   const { departamento_id, estado } = filtros;
   const sucursalesVisibles = alcance.verTodas
@@ -534,4 +580,4 @@ function reporteGastos(DB, filtros, alcance) {
   };
 }
 
-module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos };
+module.exports = { redondear, enRango, reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos, reporteCancelaciones };

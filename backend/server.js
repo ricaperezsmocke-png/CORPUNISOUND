@@ -82,7 +82,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
-const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos, reporteCancelaciones } = require("./reportes");
 const crypto = require("crypto");
 const {
   crearRespaldo, limpiarViejos, verificarRespaldo, copiaParaReverificar, restaurar,
@@ -938,7 +938,7 @@ app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", reso
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de dar de alta un producto — su existencia inicial tiene que quedar en una tienda." });
     }
-    res.json(crearProducto(DB, req.body, sucursal_id));
+    res.json(crearProducto(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -992,6 +992,25 @@ app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_pro
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+/**
+ * El historial de movimientos de un producto: quien movio sus piezas, cuando y
+ * por que documento. Es la pantalla que le da sentido al campo `usuario` de cada
+ * movimiento — un dato que se guarda y no se puede ver es media funcion.
+ *
+ * Solo lectura, con el mismo alcance que el resto del inventario: una cajera
+ * amarrada ve los movimientos de SU tienda, no los de las demas.
+ */
+app.get("/api/productos/:id/movimientos", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+  const movimientos = (DB.inventario.movimientos_inventario || [])
+    .filter((m) => m.producto_id === Number(req.params.id))
+    .filter((m) => alcance.verTodas || m.sucursal_id === alcance.sucursalId)
+    .map((m) => ({ ...m, sucursal_nombre: nombreSucursal(m.sucursal_id), usuario: m.usuario || "—" }))
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  res.json(movimientos);
+});
+
 app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -1000,7 +1019,10 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de ajustar la existencia — con \"Todas\" la lista muestra la suma de todas las tiendas y el ajuste no sabría a cuál aplicarse." });
     }
-    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id }));
+    // El usuario va aparte del cuerpo a proposito: quien ajusta lo dice el
+    // token, no la peticion. Si viniera del body, cualquiera podria firmar un
+    // ajuste con el nombre de otro.
+    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -1242,7 +1264,12 @@ app.get("/api/auth/yo", requiereLogin, (req, res) => {
 app.get("/api/permisos-catalogo", (req, res) => res.json({ permisos: listarPermisos(), modulos: listarModulosSistema() }));
 
 // ---------- Roles ----------
-app.get("/api/roles", (req, res) => res.json(listarRoles(DB)));
+// Esta ruta respondia SIN LOGIN y devolvia el arreglo completo de permisos de
+// cada rol: el modelo de autorizacion entero, publicado en internet. No es
+// dinero directo, pero es el mapa que usa cualquiera que quiera buscar por
+// donde entrar. Solo la consume la pantalla de Roles y Personal, que ya exige
+// sesion; el login NO la usa, asi que cerrarla no rompe la entrada al sistema.
+app.get("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarRoles(DB)));
 app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -1617,7 +1644,12 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado para poder vender — la venta descuenta el inventario de una tienda." });
     }
-    res.json(crearVenta(DB, { ...req.body, sucursal_id }));
+    // Los permisos de quien vende viajan a crearVenta: el descuento se autoriza
+    // en el SERVIDOR. El boton de la pantalla ya estaba gateado, pero la ruta
+    // solo pedia `cerrar_venta`, asi que un descuento del 99.99% entraba por
+    // peticion directa sin dejar ninguna senal.
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {
@@ -1631,7 +1663,7 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
       return res.status(404).json({ error: "Venta no encontrada" });
     }
     if (venta && venta.tipo_documento === "Apartado") {
-      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
     }
     res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1682,7 +1714,7 @@ app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar
     if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
       return res.status(404).json({ error: "Apartado no encontrado" });
     }
-    res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+    res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2446,6 +2478,12 @@ app.get("/api/reportes/cortes-caja", requiereLogin, requierePermiso("ver_reporte
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { fecha_inicio, fecha_fin } = req.query;
   res.json(reporteCortesCaja(DB, { fecha_inicio, fecha_fin }, alcance));
+});
+
+app.get("/api/reportes/cancelaciones", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin } = req.query;
+  res.json(reporteCancelaciones(DB, { fecha_inicio, fecha_fin }, alcance));
 });
 
 app.get("/api/reportes/existencias", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {

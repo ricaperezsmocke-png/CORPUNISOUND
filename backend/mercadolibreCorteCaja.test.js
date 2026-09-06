@@ -30,6 +30,11 @@ function prepararDB({ conCajas = true } = {}) {
 function ordenDePrueba(id, dateCreated) {
   return {
     id,
+    // Desde el 2026-09-05 solo se importan las ordenes PAGADAS: antes no se
+    // miraba el estado y una orden cancelada entraba igual, sacando mercancia
+    // del inventario por dinero que nunca llego. Estas pruebas son del corte de
+    // caja, no del guard, asi que representan una orden pagada de verdad.
+    status: "paid",
     date_created: dateCreated,
     total_amount: 375,
     buyer: null,

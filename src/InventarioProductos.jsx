@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus, Edit3, RefreshCw, Trash2, SlidersHorizontal, Copy, Printer,
-  Search, ChevronLeft, ChevronRight, Camera, MapPin, X, Tag, Info
-} from "lucide-react";
+  Search, ChevronLeft, ChevronRight, Camera, MapPin, X, Tag, Info, History } from "lucide-react";
 
 import { apiFetch, sinSucursalElegida } from "./api";
 import RecepcionCompras from "./RecepcionCompras.jsx";
@@ -91,7 +90,8 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
 
-  const [modal, setModal] = useState(null); // "form" | "ajustar" | null
+  const [modal, setModal] = useState(null); // "form" | "ajustar" | "movimientos" | null
+  const [movimientos, setMovimientos] = useState(null);
   const [modoForm, setModoForm] = useState("crear"); // "crear" | "editar"
   const [form, setForm] = useState(FORM_VACIO);
   const [ajusteCantidad, setAjusteCantidad] = useState("");
@@ -299,6 +299,25 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 
+  /**
+   * Quién movió las piezas de este producto, cuándo y por qué documento.
+   *
+   * Cada movimiento guarda el usuario que lo hizo, pero hasta ahora ese dato no
+   * se veía en ninguna parte — y un dato que se guarda y no se puede ver es
+   * media función. Un ajuste manual no nace de ningún documento: sin esta
+   * pantalla, bajar la existencia de un producto caro no dejaba a nadie a quien
+   * preguntarle.
+   */
+  const abrirMovimientos = async () => {
+    if (!seleccionado) return mostrarAviso("Selecciona un producto primero");
+    setMovimientos(null);
+    setModal("movimientos");
+    try {
+      const r = await apiFetch(`/productos/${seleccionado.id}/movimientos`);
+      setMovimientos(r.ok ? await r.json() : []);
+    } catch { setMovimientos([]); }
+  };
+
   const abrirAjustar = () => {
     // El número que se ve en la lista con "Todas" es la suma de las tiendas:
     // ajustar sobre él descuadraría la existencia de una sola sucursal.
@@ -449,6 +468,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
             : <BotonBarra icono={Trash2} etiqueta="Dar de baja" atajo="F6" tono="rojo" onClick={eliminarSeleccionado} />
         )}
         {puede("ajustar_existencia") && <BotonBarra icono={SlidersHorizontal} etiqueta="Ajustar" atajo="F8" onClick={abrirAjustar} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
+        <BotonBarra icono={History} etiqueta="Movimientos" onClick={abrirMovimientos} />
         {puede("clonar_producto") && <BotonBarra icono={Copy} etiqueta="Clonar" atajo="F9" onClick={clonarSeleccionado} desactivado={sinSucursal} motivoDesactivado={MOTIVO_SIN_SUCURSAL} />}
         <BotonBarra icono={Printer} etiqueta="Imp." atajo="Ctrl+P" onClick={() => mostrarAviso("Enviando listado a impresora...")} />
       </div>
@@ -720,6 +740,48 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                 <button type="button" onClick={() => setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-2 rounded font-medium hover:bg-background">Cancelar</button>
                 <button type="button" onClick={guardarProducto} className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold">Guardar</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Modal: Movimientos del producto ---------- */}
+      {modal === "movimientos" && seleccionado && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-panel-in">
+            <div className="bg-blue-700 text-white px-4 py-3 flex items-center justify-between shrink-0">
+              <h3 className="font-semibold text-sm">Movimientos — {seleccionado.descripcion}</h3>
+              <button type="button" onClick={() => setModal(null)} className="text-white/80 hover:text-white text-lg leading-none">×</button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {movimientos === null ? (
+                <p className="text-center text-slate-400 py-16 text-sm">Consultando...</p>
+              ) : movimientos.length === 0 ? (
+                <p className="text-center text-slate-400 py-16 text-sm">Este producto no tiene movimientos registrados</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 sticky top-0">
+                    <tr>
+                      <th className="py-2 px-3 text-left font-medium">Fecha</th>
+                      <th className="py-2 px-3 text-left font-medium">Sucursal</th>
+                      <th className="py-2 px-3 text-right font-medium">Cantidad</th>
+                      <th className="py-2 px-3 text-left font-medium">Quién</th>
+                      <th className="py-2 px-3 text-left font-medium">Documento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movimientos.map((m) => (
+                      <tr key={m.id} className="border-b border-slate-100">
+                        <td className="py-2 px-3 text-slate-500">{new Date(m.fecha).toLocaleString("es-MX")}</td>
+                        <td className="py-2 px-3">{m.sucursal_nombre}</td>
+                        <td className={`py-2 px-3 text-right font-medium ${m.cantidad < 0 ? "text-red-600" : "text-emerald-700"}`}>{m.cantidad > 0 ? `+${m.cantidad}` : m.cantidad}</td>
+                        <td className="py-2 px-3">{m.usuario}</td>
+                        <td className="py-2 px-3 text-slate-500">{m.referencia_documento}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

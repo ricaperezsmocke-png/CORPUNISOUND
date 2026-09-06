@@ -12,6 +12,8 @@
 const { fechaLocal } = require("./fechas");
 const { cajaPredeterminadaDeSucursal } = require("./cajas");
 
+const { ajustarExistencia } = require("./productos");
+
 const ML_API  = "https://api.mercadolibre.com";
 const ML_AUTH = "https://auth.mercadolibre.com.mx/authorization";
 
@@ -236,6 +238,26 @@ async function listarOrdenes(DB, limite = 50) {
   return data.results || [];
 }
 
+/**
+ * Una orden solo se importa si esta PAGADA.
+ *
+ * `importarOrdenComoVenta` nunca miraba `orden.status` ni los pagos: traia la
+ * orden y la creaba como venta `cerrada`, descontando inventario. Una orden
+ * cancelada o pendiente de pago entraba igual, y con ella salia mercancia del
+ * inventario por dinero que nunca llego. No inventa efectivo en el cajon
+ * —`metodo_pago: "mercadolibre"` cae en transferencias— pero si falsea el
+ * inventario y la utilidad.
+ *
+ * Se deja como funcion pura y aparte para poder probarla sin red.
+ */
+function validarOrdenImportable(orden) {
+  const estado = String(orden?.status || "").toLowerCase();
+  if (estado !== "paid") {
+    throw new Error(`La orden de MercadoLibre no está pagada (estado: ${estado || "desconocido"}) — no se importa hasta que el pago se confirme`);
+  }
+  return orden;
+}
+
 async function importarOrdenComoVenta(DB, ordenId) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${ML_API}/orders/${ordenId}`, { headers: mlHeaders(token) });
@@ -246,6 +268,8 @@ async function importarOrdenComoVenta(DB, ordenId) {
   if (DB.ml.ordenes_importadas.includes(ordenId)) {
     throw new Error("Esta orden ya fue importada");
   }
+
+  validarOrdenImportable(orden);
 
   // Mapear ítems ML → productos locales por SKU
   const lineas = [];
@@ -350,12 +374,25 @@ async function importarOrdenComoVenta(DB, ordenId) {
       producto_id: l.producto_id, cantidad: l.cantidad,
       precio_unitario: l.precio_unitario, descuento: 0, subtotal: l.subtotal,
     });
-    // Descontar inventario ML
+    // Descontar inventario ML por el MISMO camino que todo lo demas.
+    //
+    // Antes se escribia la existencia a mano y con `Math.max(0, ...)`: no
+    // generaba movimiento —era el unico cambio de inventario del sistema sin
+    // rastro— y recortaba a cero, que es justo lo que el comentario de
+    // `ajustarExistencia` dice que NO hay que hacer: al recortar se pierde
+    // informacion, y si despues se cancela la venta el reintegro parte de un
+    // punto falso y crea inventario de la nada.
     if (l.producto_id) {
-      const ex = DB.inventario.existencias.find(
-        (e) => e.producto_id === l.producto_id && e.sucursal_id === 5
-      );
-      if (ex) ex.cantidad_actual = Math.max(0, ex.cantidad_actual - l.cantidad);
+      try {
+        ajustarExistencia(DB, l.producto_id, {
+          cantidad: -l.cantidad,
+          motivo: `Venta MercadoLibre — orden ${ordenId}`,
+          sucursal_id: 5,
+          usuario: { nombre: "MercadoLibre" },
+        });
+      } catch (e) {
+        console.error(`[inventario] la orden ML ${ordenId} no pudo descontar el producto ${l.producto_id}: ${e.message}`);
+      }
     }
   }
   DB.ml.ordenes_importadas.push(ordenId);
@@ -365,5 +402,5 @@ async function importarOrdenComoVenta(DB, ordenId) {
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
-  listarOrdenes, importarOrdenComoVenta,
+  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable,
 };

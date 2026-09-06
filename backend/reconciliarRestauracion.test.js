@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
 const { reconciliarTrasRestaurar } = require("./reconciliarRestauracion");
+const { esDeLaEraSellada } = require("./corteEpoca");
 
 /**
  * Restaurar reemplaza colecciones enteras con una foto vieja. Estas pruebas
@@ -35,7 +36,7 @@ test("restaurar una foto sin marca de agua le pone una, para no volver a la regl
   assert.ok(DB.pos.corte_epoca <= new Date().toISOString());
 });
 
-test("restaurar NO retrocede una marca de agua que ya existe", () => {
+test("restaurar conserva una marca de agua vieja y coherente", () => {
   const DB = fotoVieja();
   const original = "2026-09-01T09:00:00.000Z";
   DB.pos.corte_epoca = original;
@@ -48,12 +49,31 @@ test("restaurar NO retrocede una marca de agua que ya existe", () => {
   );
 });
 
+test("restaurar reemplaza una marca de agua futura y los movimientos nuevos se rigen por sello", () => {
+  const DB = fotoVieja();
+  DB.pos.corte_epoca = "2999-01-01T00:00:00.000Z";
+  const antes = new Date().toISOString();
+
+  reconciliarTrasRestaurar(DB, () => {});
+
+  const despues = new Date().toISOString();
+  assert.ok(DB.pos.corte_epoca >= antes, "la epoca corregida debe nacer al restaurar");
+  assert.ok(DB.pos.corte_epoca <= despues, "la epoca corregida no puede quedar en el futuro");
+  assert.strictEqual(
+    esDeLaEraSellada(despues, DB), true,
+    "un movimiento nuevo debe entrar a la rama que se rige por corte_id"
+  );
+});
+
 test("restaurar sigue reconciliando lo que ya reconciliaba", () => {
   const DB = fotoVieja();
   delete DB.pos.tareas_venta;
+  const administrador = DB.admin.roles.find((r) => r.nombre === "Administrador");
+  administrador.permisos = administrador.permisos.filter((p) => p !== "restaurar_respaldo");
 
   reconciliarTrasRestaurar(DB, () => {});
 
   assert.ok(Array.isArray(DB.pos.tareas_venta?.tareas), "las tareas de venta se reconstruyen");
   assert.ok(DB.pos.sucursales.some((s) => s.nombre === "CEDIS"), "CEDIS se reconcilia");
+  assert.ok(administrador.permisos.includes("restaurar_respaldo"), "los roles se reconcilian");
 });

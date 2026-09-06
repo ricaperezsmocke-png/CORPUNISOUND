@@ -203,7 +203,7 @@ function liquidarApartado(DB, ventaId) {
   return venta;
 }
 
-function cancelarApartado(DB, ventaId, motivo) {
+function cancelarApartado(DB, ventaId, motivo, usuario) {
   const venta = DB.pos.ventas.find((v) => v.id === Number(ventaId));
   if (!venta || venta.tipo_documento !== "Apartado") throw new Error("Apartado no encontrado");
   if (venta.estatus !== "apartado") throw new Error("Este apartado ya no está vigente");
@@ -212,6 +212,16 @@ function cancelarApartado(DB, ventaId, motivo) {
 
   venta.estatus = "cancelada";
   venta.motivo_cancelacion = motivo || "Cancelado";
+  // QUIEN Y CUANDO, igual que en `cancelarVenta` (ventas.js) — esta funcion no
+  // los guardaba y las dos rutas que la llaman no pasaban el usuario, asi que
+  // quedaba `cancelada_por: undefined`.
+  //
+  // Importa porque cancelar un apartado es el mismo movimiento de dinero que
+  // cancelar una venta cobrada: la mercancia vuelve al inventario y el anticipo
+  // —que un corte anterior ya conto— sale del cajon. Sin este rastro, ese
+  // faltante no tiene dueno ni hora, y nadie puede reconstruir que paso.
+  venta.fecha_hora_cancelacion = new Date().toISOString();
+  venta.cancelada_por = usuario?.nombre || "—";
 
   DB.pos.venta_detalle
     .filter((d) => d.venta_id === venta.id)
@@ -219,7 +229,11 @@ function cancelarApartado(DB, ventaId, motivo) {
       if (l.producto_id) {
         try {
           ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de apartado — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
-        } catch (e) { /* si no existe existencia, no detiene la cancelación */ }
+        } catch (e) {
+          // Ultimo recurso: no detiene la cancelacion, pero se dice. Un
+          // reintegro que falla en silencio deja mercancia fuera del inventario.
+          console.error(`[inventario] la cancelacion del apartado ${venta.id} no pudo reintegrar el producto ${l.producto_id}: ${e.message}`);
+        }
       }
     });
 
@@ -235,7 +249,11 @@ function procesarVencimientos(DB) {
   const fechaHoy = hoy();
   DB.pos.ventas
     .filter((v) => v.tipo_documento === "Apartado" && v.estatus === "apartado" && v.fecha_limite < fechaHoy)
-    .forEach((v) => cancelarApartado(DB, v.id, "Vencido — 60 días sin liquidar"));
+    // El vencimiento corre SOLO cada vez que alguien abre la pantalla de
+    // Apartados. Se firma como del sistema para que un apartado grande que se
+    // dejo vencer no se lea igual que uno que una persona decidio cancelar — ni,
+    // peor, como uno que nadie cancelo.
+    .forEach((v) => cancelarApartado(DB, v.id, "Vencido — 60 días sin liquidar", { nombre: "Sistema (vencimiento automático)" }));
 }
 
 function listarApartados(DB, alcance) {

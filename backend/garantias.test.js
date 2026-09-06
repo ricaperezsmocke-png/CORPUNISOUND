@@ -213,7 +213,18 @@ test("marcarEnviada: en el caso normal marca stock_ajustado=true y lo anota en l
   assert.match(movs[movs.length - 1].descripcion, /descontó 1 pieza/i);
 });
 
-test("marcarEnviada: si el producto no tiene existencia en la sucursal, no lanza, avanza igual y marca stock_ajustado=false", () => {
+/**
+ * CAMBIO DELIBERADO (2026-09-05). Antes, un producto sin FILA de existencia en
+ * la sucursal hacia que `ajustarExistencia` lanzara, y la garantia avanzaba
+ * marcando `stock_ajustado: false`: la pieza salia de la tienda y el inventario
+ * no se enteraba. Era la misma fuga silenciosa que en las ventas.
+ *
+ * Ahora la fila se crea y se descuenta aunque quede en negativo, que es la senal
+ * de que a ese producto le falta un ajuste ahi. El flujo de la garantia sigue
+ * sin detenerse, y `stock_ajustado` queda en true porque el ajuste SI ocurrio.
+ * La bandera se conserva para los fallos de verdad.
+ */
+test("marcarEnviada: sin fila de existencia la crea, descuenta y no detiene la garantia", () => {
   const DB = construirDBPrueba();
   const g = crearGarantia(DB, { producto_id: 1 }, 1, USUARIO);
   // Simula dato legado: sin registro de existencia del producto en la sucursal de origen.
@@ -224,9 +235,10 @@ test("marcarEnviada: si el producto no tiene existencia en la sucursal, no lanza
   const enviada = marcarEnviada(DB, g.id, { destino_tipo: "proveedor", destino_nombre: "Proveedor XYZ" }, USUARIO, ALCANCE_TODAS);
 
   assert.strictEqual(enviada.estado, "enviada", "el flujo de la garantía no se detiene");
-  assert.strictEqual(enviada.stock_ajustado, false);
-  const movs = DB.inventario.garantia_movimientos.filter((m) => m.garantia_id === g.id);
-  assert.match(movs[movs.length - 1].descripcion, /sin ajuste de existencia/i);
+  assert.strictEqual(enviada.stock_ajustado, true, "el ajuste SI ocurre: la fila se crea");
+  const fila = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 1);
+  assert.ok(fila, "la fila que faltaba queda creada");
+  assert.strictEqual(fila.cantidad_actual, -1, "en negativo, que es la senal de que falta un ajuste");
 });
 
 test("recibirEnTienda (stock propio): en el caso normal marca stock_ajustado=true", () => {

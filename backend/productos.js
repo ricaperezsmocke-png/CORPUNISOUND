@@ -185,7 +185,7 @@ function generarClave() {
   return "PROD" + String(Date.now()).slice(-8);
 }
 
-function crearProducto(DB, datos, sucursalId) {
+function crearProducto(DB, datos, sucursalId, usuario) {
   if (!datos.descripcion || !datos.descripcion.trim()) {
     throw new Error("La descripción del producto es obligatoria");
   }
@@ -233,11 +233,26 @@ function crearProducto(DB, datos, sucursalId) {
     DB.inventario.existencias.push({
       producto_id: nuevoId,
       sucursal_id: s.id,
-      cantidad_actual: esOrigen ? (Number(datos.existencia_inicial) || 0) : 0,
+      cantidad_actual: 0,
       cantidad_minima: esOrigen ? (Number(datos.existencia_minima) || 0) : 0,
       cantidad_maxima: esOrigen ? (Number(datos.existencia_maxima) || 0) : 0,
     });
   });
+
+  // La existencia inicial entra por el MISMO camino que todo lo demas, en vez de
+  // escribirse directo en `cantidad_actual`. Antes era la unica forma de meter
+  // piezas al sistema sin dejar movimiento y sin usuario — y es la razon por la
+  // que el guard de baja de productos tuvo que aprender a mirar la existencia
+  // ademas de los movimientos.
+  const inicial = Number(datos.existencia_inicial) || 0;
+  if (inicial > 0) {
+    ajustarExistencia(DB, nuevoId, {
+      cantidad: inicial,
+      motivo: `Alta de producto — existencia inicial`,
+      sucursal_id: sucursalOrigen,
+      usuario,
+    });
+  }
   return producto;
 }
 
@@ -369,15 +384,30 @@ function clonarProducto(DB, id, sucursalId) {
   }, sucursalId);
 }
 
-function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
+function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id, usuario }) {
   // Sin sucursal no se adivina: antes caía a la 1 y el ajuste (o el descuento
   // de una venta) se aplicaba a la existencia de la tienda equivocada.
   const suc = Number(sucursal_id);
   if (!Number.isInteger(suc) || suc <= 0) {
     throw new Error("Falta la sucursal a la que se le ajusta la existencia");
   }
-  const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === suc);
-  if (!exist) throw new Error("Este producto no tiene registro de existencia en esta sucursal");
+  let exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === suc);
+  if (!exist) {
+    // La fila no existe: un producto dado de alta en una tienda y vendido en
+    // otra, o uno que llego de una migracion sin fila en todas las sucursales.
+    //
+    // ANTES esto lanzaba, y `crearVenta` se tragaba la excepcion en silencio: la
+    // venta se cobraba, el dinero entraba y el inventario NO se movia. Nadie se
+    // enteraba, y la tienda iba perdiendo la cuenta de lo que tiene.
+    //
+    // Rechazar la operacion tampoco sirve: seria negarle una compra a un cliente
+    // que esta enfrente con el producto en la mano, por un dato administrativo.
+    // Se crea la fila y se descuenta, aunque quede en NEGATIVO — que es
+    // exactamente la senal de que a ese producto le falta un ajuste, y la razon
+    // por la que aqui nunca se recorta a cero (ver el comentario de abajo).
+    exist = { producto_id: Number(id), sucursal_id: suc, cantidad_actual: 0, cantidad_minima: 0, cantidad_maxima: 0 };
+    DB.inventario.existencias.push(exist);
+  }
   const delta = Number(cantidad) || 0;
   // Importante: NO se recorta a 0 aquí. Si se recorta, una venta que deja
   // el stock "en 0" en vez de en negativo pierde información — y al
@@ -393,6 +423,13 @@ function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id }) {
     tipo: delta >= 0 ? "entrada" : "salida",
     cantidad: delta,
     referencia_documento: motivo || "Ajuste manual",
+    // QUIEN. Un ajuste manual no nace de ningun documento: no hay venta, compra
+    // ni traspaso a los que rastrearlo, asi que sin esto bajar la existencia de
+    // un producto caro no deja a nadie a quien preguntarle. Los movimientos que
+    // si nacen de un documento se rastrean por su folio, que va arriba en
+    // `referencia_documento`; cuando no llega usuario se guarda la misma marca
+    // que usan las cancelaciones, nunca `undefined`.
+    usuario: usuario?.nombre || "—",
   });
   return exist;
 }

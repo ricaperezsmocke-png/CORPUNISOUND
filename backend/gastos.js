@@ -226,25 +226,27 @@ function movimientosDeGasto(DB, id, alcance) {
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
+ *   - misma caja      : aplica en ambas eras; los registros sin caja pertenecen
+ *                       solo a la caja predeterminada
  *   - transición histórica: hasta corte_epoca conserva fecha_hora > desde
  *   - era sellada: después de corte_epoca solo entra corte_id null
- *   - misma caja: caja_id explícita, o caja predeterminada para registros sin caja
  */
 function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
   return DB.gastos.gastos
     .filter((g) => g.estatus === "activo")
     .filter((g) => g.forma_pago === "EFECTIVO")
     .filter((g) => g.sucursal_id === Number(sucursal_id))
+    .filter((g) => esDeEstaCaja(g, caja))
     .filter((g) => {
       const esPosteriorAEpoca = esDeLaEraSellada(g.fecha_hora, DB);
-      if (esPosteriorAEpoca) return esDeEstaCaja(g, caja) && g.corte_id == null;
+      if (esPosteriorAEpoca) return g.corte_id == null;
       return g.corte_id == null && (!desde || g.fecha_hora > desde);
     });
 }
 
 /** Suma de los gastos que SALIERON DE LA CAJA en el turno en curso. Es lo que
  *  el Corte de Caja resta del efectivo esperado. Deriva de
- *  gastosEfectivoDelTurnoLista — ver ahí las cuatro condiciones. */
+ *  gastosEfectivoDelTurnoLista — ver ahí sus condiciones. */
 function gastosEfectivoDelTurno(DB, sucursal_id, desde, caja) {
   return redondear(
     gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja)

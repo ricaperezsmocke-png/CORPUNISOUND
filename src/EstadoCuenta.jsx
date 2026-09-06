@@ -58,6 +58,9 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const [seleccionado, setSeleccionado] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const depositoEnCurso = useRef(false);
+  const cancelacionEnCurso = useRef(false);
 
   const [form, setForm] = useState({ monto: "", forma_pago: "EFECTIVO", referencia: "", nota: "" });
   const [archivo, setArchivo] = useState(null);
@@ -172,6 +175,9 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
   const guardar = async (e) => {
     e.preventDefault();
+    // Un deposito duplicado acredita dos veces dinero que solo se entrego una vez.
+    if (depositoEnCurso.current) return;
+    depositoEnCurso.current = true;
     setGuardando(true);
     try {
       const body = { monto: form.monto, forma_pago: form.forma_pago, referencia: form.referencia, nota: form.nota };
@@ -189,6 +195,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     } catch (err) {
       mostrarAviso("❌ " + err.message);
     } finally {
+      depositoEnCurso.current = false;
       setGuardando(false);
     }
   };
@@ -226,6 +233,10 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
   const cancelar = async (e) => {
     e.preventDefault();
+    // Una cancelacion duplicada descuenta dos veces el mismo deposito del saldo.
+    if (cancelacionEnCurso.current) return;
+    cancelacionEnCurso.current = true;
+    setCancelando(true);
     try {
       // sucursal_id explícito (el del propio depósito), por el mismo motivo que
       // en cargarResumen: si se omite, apiFetch le inyecta la sucursal_activa
@@ -245,6 +256,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
       cargarDepositos();
       cargarResumen();
     } catch (err) { mostrarAviso("❌ " + err.message); }
+    finally { cancelacionEnCurso.current = false; setCancelando(false); }
   };
 
   const exportarResumen = () => {
@@ -630,7 +642,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
             </form>
             <div className="px-4 py-3 border-t border-black/5 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Volver</button>
-              <button type="submit" form="form-cancelar-deposito" className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">Cancelar depósito</button>
+              <button type="submit" form="form-cancelar-deposito" disabled={cancelando} className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">{cancelando ? "Cancelando..." : "Cancelar depósito"}</button>
             </div>
           </div>
         </div>

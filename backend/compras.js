@@ -62,6 +62,21 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     const descuento_pesos = Number(r.descuento_pesos) || 0;
     const descuento_porcentaje = Number(r.descuento_porcentaje) || 0;
     const costoFinal = Math.round((costo - descuento_pesos) * (1 - descuento_porcentaje / 100) * 100) / 100;
+    // El costo no se validaba. Un costo en cero, negativo, o un descuento que se
+    // come el costo entero dejan el `costoFinal` en cero o menos — y
+    // `actualizarCostoDesdeCompra` solo actualiza el producto si es mayor que
+    // cero, asi que el detalle de la compra se quedaba con un costo imposible
+    // mientras el producto conservaba otro. El reporte de Utilidad calcula la
+    // ganancia contra ese costo: mercancia que parece regalada, o que parece
+    // haber costado dinero negativo.
+    //
+    // Va aqui, con las demas validaciones de renglon, porque todas corren ANTES
+    // de la primera mutacion: una recepcion invalida no puede dejar la existencia
+    // a medias.
+    if (!Number.isFinite(costoFinal) || costoFinal <= 0) {
+      const nombre = DB["catalogo-productos"].productos.find((p) => p.id === producto_id)?.nombre || `producto ${producto_id}`;
+      throw new Error(`El costo final de "${nombre}" queda en ${costoFinal}: revisa el costo y los descuentos del renglón`);
+    }
     return {
       producto_id, cantidad, descuento_pesos, descuento_porcentaje, costoFinal,
       clave_sat: r.clave_sat, localizacion: r.localizacion, aplicaIva: r.aplicaIva, neto: r.neto, precios: r.precios,
