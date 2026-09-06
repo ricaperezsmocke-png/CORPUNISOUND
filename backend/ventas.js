@@ -345,6 +345,19 @@ function cambiarCajaVenta(DB, id, cajaDestinoId, usuario) {
   const venta = DB.pos.ventas.find((v) => v.id === Number(id));
   if (!venta) throw new Error("Venta no encontrada");
 
+  // El dinero de un apartado NO vive en la venta: vive en `apartado_abonos`,
+  // cada abono con su propia caja. Mover el documento diria "movida a Fiscal"
+  // sin mover un peso, y quien lo hizo creeria que corrigio. Ademas
+  // `ventaQuedaDespuesDelUltimoCorte` construye la vista forzando "Ticket" y
+  // "cerrada": decidiria bajo una premisa falsa. El spec deja los apartados
+  // fuera de alcance, asi que aqui se rechaza, no se extiende.
+  if (venta.tipo_documento === "Apartado") {
+    throw new Error("La caja de un apartado no se corrige aquí: su dinero está en los abonos, no en el documento");
+  }
+  if (venta.estatus !== "cerrada") {
+    throw new Error(`Solo se puede cambiar la caja de una venta cerrada; esta está ${venta.estatus}`);
+  }
+
   // resolverCajaDeSucursal concentra la validación de existencia y sucursal.
   // Al resolver también el origen, una venta histórica con caja_id null se
   // atribuye a la predeterminada exactamente como la absorbe el corte.

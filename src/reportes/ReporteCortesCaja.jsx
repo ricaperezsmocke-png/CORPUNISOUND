@@ -42,8 +42,8 @@ export default function ReporteCortesCaja({ onVolver }) {
   const exportarExcel = () => {
     if (!datos) return;
     descargarCSV(`cortes_de_caja_${fechaInicial}_a_${fechaFinal}.csv`,
-      ["Fecha", "Folio", "Sucursal", "Usuario", "Calculado", "Contado", "Diferencia", "Retiro", "Gastos"],
-      datos.filas.map((f) => [f.fecha, f.id, f.sucursal_nombre, f.usuario_nombre, f.total_calculado, f.total_contado, f.total_diferencia, f.total_retiro, f.gastos_efectivo]));
+      ["Fecha", "Folio", "Sucursal", "Caja", "Usuario", "Calculado", "Contado", "Diferencia", "Retiro", "Gastos"],
+      datos.filas.map((f) => [f.fecha, f.id, f.sucursal_nombre, f.caja_nombre, f.usuario_nombre, f.total_calculado, f.total_contado, f.total_diferencia, f.total_retiro, f.gastos_efectivo]));
   };
 
   return (
@@ -77,6 +77,7 @@ export default function ReporteCortesCaja({ onVolver }) {
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>
                 <th className="py-2 px-3 text-left font-medium">Sucursal</th>
+                <th className="py-2 px-3 text-left font-medium">Caja</th>
                 <th className="py-2 px-3 text-left font-medium">Usuario</th>
                 <th className="py-2 px-3 text-right font-medium">Calculado</th>
                 <th className="py-2 px-3 text-right font-medium">Contado</th>
@@ -86,12 +87,13 @@ export default function ReporteCortesCaja({ onVolver }) {
               </tr>
             </thead>
             <tbody>
-              {datos.filas.length === 0 && <tr><td colSpan={9} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
+              {datos.filas.length === 0 && <tr><td colSpan={10} className="text-center text-slate-400 py-16">Sin resultados</td></tr>}
               {datos.filas.map((f) => (
                 <tr key={f.id} className="border-b border-slate-100">
                   <td className="py-2 px-3">{f.fecha}</td>
                   <td className="py-2 px-3 font-medium">{f.id}</td>
                   <td className="py-2 px-3">{f.sucursal_nombre}</td>
+                  <td className="py-2 px-3">{f.caja_nombre || "—"}</td>
                   <td className="py-2 px-3">{f.usuario_nombre}</td>
                   <td className="py-2 px-3 text-right">${f.total_calculado.toFixed(2)}</td>
                   <td className="py-2 px-3 text-right">${f.total_contado.toFixed(2)}</td>

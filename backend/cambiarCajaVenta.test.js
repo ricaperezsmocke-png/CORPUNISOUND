@@ -147,6 +147,37 @@ test("deja constancia de quien cambio la caja, cuando y de cual a cual", () => {
   assert.ok(!Number.isNaN(Date.parse(venta.cambios_caja[0].fecha_hora)));
 });
 
+/**
+ * El dinero de un apartado NO vive en la venta: vive en `apartado_abonos`,
+ * cada abono con su propia caja. Mover el documento diria "movida a Fiscal"
+ * sin mover un peso, y la encargada creeria que corrigio un anticipo mal
+ * cobrado. Peor: `ventaQuedaDespuesDelUltimoCorte` evalua la venta forzando
+ * tipo_documento "Ticket" y estatus "cerrada", o sea decide bajo una premisa
+ * falsa. El spec deja los apartados fuera de alcance: se rechaza, no se extiende.
+ */
+test("no se puede cambiar la caja de un apartado: su dinero vive en los abonos", () => {
+  const DB = prepararDB();
+  const { fiscal } = cajasDe(DB);
+  DB.pos.ventas = [{
+    id: 30, fecha: "2026-09-04", fecha_hora: "2026-09-04T10:00:00.000Z",
+    sucursal_id: 4, caja_id: null, tipo_documento: "Apartado", estatus: "apartado", total: 500,
+  }];
+
+  assert.throws(() => cambiarCajaVenta(DB, 30, fiscal.id, usuario), /apartado/i);
+  assert.strictEqual(DB.pos.ventas[0].caja_id, null, "el rechazo no puede dejar el documento movido");
+});
+
+test("no se puede cambiar la caja de una venta cancelada", () => {
+  const DB = prepararDB();
+  const { fiscal } = cajasDe(DB);
+  DB.pos.ventas = [{
+    id: 31, fecha: "2026-09-04", fecha_hora: "2026-09-04T10:00:00.000Z",
+    sucursal_id: 4, caja_id: null, tipo_documento: "Ticket", estatus: "cancelada", total: 500,
+  }];
+
+  assert.throws(() => cambiarCajaVenta(DB, 31, fiscal.id, usuario), /cancelada/i);
+});
+
 process.env.DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cambiar-caja-venta-")), "datos.sqlite");
 process.env.JWT_SECRET = process.env.JWT_SECRET || "secreto-de-pruebas";
 const app = require("./server");
@@ -157,7 +188,14 @@ let servidor = null;
 let base = "";
 
 before(async () => {
-  app.DB.admin.roles.push({ id: 982, nombre: "Sin cambiar caja", permisos: [], modulos: ["pos"] });
+  // Con `permisos: []` esta prueba pasaba con CUALQUIER clave: un rol sin nada
+  // recibe 403 contra cualquier `requierePermiso`, asi que no verificaba lo que
+  // su nombre promete. Con vecinos del mismo modulo se pone roja el dia que
+  // alguien cambie la clave de la ruta por una prestada de otro permiso.
+  app.DB.admin.roles.push({
+    id: 982, nombre: "Sin cambiar caja", modulos: ["pos"],
+    permisos: ["ver_lista_ventas", "cancelar_ventas"],
+  });
   sembrarCuentas(app, [{ id: 82, nombre: "Sin permiso", rol_id: 982, sucursal_id: 1 }]);
   await new Promise((listo) => { servidor = app.listen(0, listo); });
   base = `http://127.0.0.1:${servidor.address().port}`;

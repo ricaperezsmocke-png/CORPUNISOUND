@@ -4,6 +4,7 @@ const { construirDBPrueba } = require("./testHelpers");
 const { calcularCorteEnCurso } = require("./cortes");
 const { crearApartado, registrarAbono } = require("./apartados");
 const { sembrarCajas } = require("./cajas");
+const { listarVentas } = require("./ventas");
 
 function prepararDBConCajas() {
   const DB = construirDBPrueba();
@@ -184,4 +185,44 @@ test("sin catalogo de cajas los abonos se guardan sin caja y el corte los conser
 
   assert.deepStrictEqual(DB.pos.apartado_abonos.slice(-2).map((a) => a.caja_id), [null, null]);
   assert.strictEqual(calcularCorteEnCurso(DB, 4).calculado.EFECTIVO, 30);
+});
+
+/**
+ * El abono del apartado ya guardaba su caja; el documento de venta no. Como
+ * `esDeEstaCaja` da los registros sin caja a la predeterminada, el corte de la
+ * Fiscal cobraba el anticipo mientras Consultas de Ventas listaba el apartado
+ * bajo la Administrativa: quien investigara un descuadre sacaba la conclusion
+ * contraria a la verdad. La consulta tiene que contar la misma historia que el
+ * corte.
+ */
+test("el apartado se lista en la misma caja donde se cobro su anticipo", () => {
+  const DB = prepararDBConCajas();
+  const { administrativa, fiscal } = cajasDe(DB);
+
+  crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 250, descuento_pct: 0 }],
+    anticipo_monto: 200,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 4, { nombre: "Ana" }, fiscal.id);
+
+  assert.strictEqual(listarVentas(DB, { sucursal_id: 4, caja_id: fiscal.id }).length, 1);
+  assert.strictEqual(listarVentas(DB, { sucursal_id: 4, caja_id: administrativa.id }).length, 0);
+});
+
+test("un apartado sin caja declarada queda en la predeterminada, como su abono", () => {
+  const DB = prepararDBConCajas();
+  const { administrativa, fiscal } = cajasDe(DB);
+
+  const venta = crearApartado(DB, {
+    cliente_id: 1,
+    lineas: [{ producto_id: 1, cantidad: 1, precio_unitario: 250, descuento_pct: 0 }],
+    anticipo_monto: 200,
+    anticipo_forma_pago: "EFECTIVO",
+  }, 4, { nombre: "Ana" });
+
+  const abono = DB.pos.apartado_abonos.find((a) => a.venta_id === venta.id);
+  assert.strictEqual(venta.caja_id, abono.caja_id, "documento y dinero no pueden vivir en cajas distintas");
+  assert.strictEqual(listarVentas(DB, { sucursal_id: 4, caja_id: administrativa.id }).length, 1);
+  assert.strictEqual(listarVentas(DB, { sucursal_id: 4, caja_id: fiscal.id }).length, 0);
 });

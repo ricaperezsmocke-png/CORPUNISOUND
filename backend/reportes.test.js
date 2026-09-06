@@ -156,6 +156,7 @@ test("reporteCompras: respeta el alcance de sucursal", () => {
 });
 
 const { reporteCortesCaja } = require("./reportes");
+const { sembrarCajas } = require("./cajas");
 
 function seedCorte(DB) {
   DB.pos.cortes_caja.push({
@@ -621,4 +622,36 @@ test("reporteCompras: una recepción de la noche cae en el día que la tienda vi
 
   assert.strictEqual(r.general.length, 1, "debe caer en el 31, no en el 1 de agosto");
   assert.strictEqual(r.general[0].fecha, "2026-07-31");
+});
+
+/**
+ * Desde las cajas hay DOS cortes por tienda y por dia. Sin el nombre de la caja
+ * son dos renglones indistinguibles: los totales suman bien, pero la lectura no
+ * — y este reporte es justo donde se busca de que turno salio una diferencia.
+ */
+test("reporteCortesCaja: dice de que caja es cada corte", () => {
+  const DB = construirDBPrueba();
+  DB.pos.cajas = sembrarCajas(DB);
+  const fiscal = DB.pos.cajas.find((c) => c.sucursal_id === 1 && c.nombre === "Fiscal");
+  DB.pos.cortes_caja.push({
+    id: 1, sucursal_id: 1, caja_id: fiscal.id, usuario_nombre: "Ana López", fecha: "2026-06-10",
+    total_calculado: 700, total_contado: 700, total_diferencia: 0, total_retiro: 0,
+  });
+
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-10", fecha_fin: "2026-06-10" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas[0].caja_nombre, "Fiscal");
+});
+
+test("reporteCortesCaja: un corte historico sin caja no rompe el reporte", () => {
+  const DB = construirDBPrueba();
+  DB.pos.cajas = sembrarCajas(DB);
+  DB.pos.cortes_caja.push({
+    id: 2, sucursal_id: 1, usuario_nombre: "Ana López", fecha: "2026-06-11",
+    total_calculado: 300, total_contado: 300, total_diferencia: 0, total_retiro: 0,
+  });
+
+  const r = reporteCortesCaja(DB, { fecha_inicio: "2026-06-11", fecha_fin: "2026-06-11" }, ALCANCE_TODAS);
+
+  assert.strictEqual(r.filas[0].caja_nombre, "—");
 });

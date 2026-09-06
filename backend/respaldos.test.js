@@ -714,7 +714,18 @@ test("si el respaldo previo FALLA, la restauración se cancela y no se muta nada
   drive.subirArchivoADrive = subirOriginal;
 });
 
-test("una foto con cajas inconsistentes falla antes de tocar la base", async () => {
+/**
+ * CAMBIO DELIBERADO — Victor, 2026-09-04. Esta prueba afirmaba lo contrario:
+ * que una foto con el catalogo de cajas torcido se RECHAZABA entera. Se cambio
+ * a proposito; no se rompio sola.
+ *
+ * El motivo: el arranque tambien muere ante un catalogo torcido, asi que un
+ * solo booleano mal puesto dejaba la tienda sin sistema Y sin la via de escape,
+ * porque la via de escape es justamente restaurar. El arranque sigue estricto
+ * (ahi todavia queda salida); restaurar repara, porque el catalogo de cajas no
+ * es dato del negocio: se deriva de la lista de sucursales. Los ids no se tocan.
+ */
+test("una foto con cajas inconsistentes se restaura y el catalogo se repara", async () => {
   const DB = nuevoDB();
   const drive = driveConMemoria();
   DB.pos.cajas = [
@@ -724,24 +735,25 @@ test("una foto con cajas inconsistentes falla antes de tocar la base", async () 
   const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
   DB.pos = nuevoDB().pos;
   DB.pos.ventas.push({ id: 99, total: 999, tipo_documento: "Ticket" });
-  const antes = JSON.stringify(DB.pos);
-  const previosAntes = DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length;
 
-  await assert.rejects(
-    () => restaurar(DB, drive, {
-      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
-      confirmacion: PALABRA_CONFIRMACION,
-      usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
-      alTerminar: reconciliarTrasRestaurar,
-    }),
-    /exactamente una caja predeterminada/i,
+  const resultado = await restaurar(DB, drive, {
+    copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+    confirmacion: PALABRA_CONFIRMACION,
+    usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+    alTerminar: reconciliarTrasRestaurar,
+  });
+
+  assert.strictEqual(resultado.aplicado, true, "la puerta de emergencia no puede cerrarse");
+  const deOcosingo = DB.pos.cajas.filter((c) => c.sucursal_id === 1);
+  assert.strictEqual(deOcosingo.filter((c) => c.predeterminada).length, 1);
+  assert.strictEqual(deOcosingo.find((c) => c.predeterminada).nombre, "Administrativa");
+  assert.deepStrictEqual(
+    deOcosingo.map((c) => c.id).sort((a, b) => a - b), [1, 2],
+    "reasignar ids convertiria el dinero de una caja en dinero de otra",
   );
-
-  assert.strictEqual(JSON.stringify(DB.pos), antes, "la foto invalida no debe tocar DB.pos");
-  assert.strictEqual(
-    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length,
-    previosAntes,
-    "una foto invalida debe rechazarse incluso antes del respaldo previo",
+  assert.ok(
+    resultado.reparaciones.length > 0,
+    "una reparacion invisible es la mitad del defecto: tiene que llegar a la pantalla",
   );
 });
 

@@ -55,8 +55,11 @@ function validarPredeterminadaDeSucursal(DB, sucursalId) {
   throw new Error(`La sucursal ${sucursal?.nombre || sucursalId} ${estado.motivo}`);
 }
 
-/** Completa las dos cajas que falten y valida la predeterminada. */
-function sembrarCajas(DB) {
+/**
+ * Completa las dos cajas que falten. NO valida nada: eso lo decide quien llama.
+ * El arranque valida y grita; restaurar repara y sigue.
+ */
+function sembrarCajasSinValidar(DB) {
   const cajas = normalizarCajas(DB);
   for (const sucursal of DB.pos?.sucursales || []) {
     const existentes = cajasDeSucursal(DB, sucursal.id);
@@ -76,9 +79,47 @@ function sembrarCajas(DB) {
         predeterminada: false,
       });
     }
-    validarPredeterminadaDeSucursal(DB, sucursal.id);
   }
   return cajas;
+}
+
+/** Completa las dos cajas que falten y valida la predeterminada (arranque). */
+function sembrarCajas(DB) {
+  const cajas = sembrarCajasSinValidar(DB);
+  for (const sucursal of DB.pos?.sucursales || []) validarPredeterminadaDeSucursal(DB, sucursal.id);
+  return cajas;
+}
+
+/**
+ * Deja el catalogo de cajas en un estado valido SIN lanzar, y cuenta lo que
+ * arreglo. Es la version para restaurar; `sembrarCajas` es la del arranque, que
+ * grita a proposito (decision de Victor, 2026-09-04).
+ *
+ * La diferencia importa: el arranque puede permitirse morir porque hay una
+ * salida —restaurar—, pero restaurar NO puede morir, porque es la salida. Un
+ * catalogo torcido no es dato del negocio: las cajas son derivables de la lista
+ * de sucursales. Lo unico intocable son los `id`, que las ventas, los abonos,
+ * los gastos y los cortes referencian; reasignarlos convertiria el dinero de una
+ * caja en dinero de otra.
+ */
+function repararCajas(DB) {
+  const reparaciones = [];
+  sembrarCajasSinValidar(DB);
+
+  for (const sucursal of DB.pos?.sucursales || []) {
+    const cajas = cajasDeSucursal(DB, sucursal.id);
+    const predeterminadas = cajas.filter((c) => c.predeterminada === true);
+    if (predeterminadas.length === 1) continue;
+
+    const administrativa = cajas.find((c) => c.nombre === "Administrativa");
+    if (!administrativa) continue; // sembrarCajasSinValidar ya la habria creado
+    for (const caja of cajas) caja.predeterminada = caja.id === administrativa.id;
+    reparaciones.push(
+      `${sucursal.nombre}: tenia ${predeterminadas.length} cajas predeterminadas; se dejo "Administrativa".`
+    );
+  }
+
+  return { reparaciones };
 }
 
 /**
@@ -120,12 +161,20 @@ function resolverCajaDeSucursal(DB, sucursalId, cajaId) {
  * existe, no puede filtrar nada.
  */
 function esDeEstaCaja(registro, caja) {
-  return !caja || registro.caja_id === caja.id || (caja.predeterminada && registro.caja_id == null);
+  if (!caja) return true;
+  // El orden importa: `Number(null)` es 0, asi que el caso "sin caja" se
+  // resuelve ANTES de convertir. Y se convierte a proposito, porque un
+  // `caja_id` de TEXTO no lo reclamaria ninguna de las dos cajas —ni por
+  // igualdad estricta ni por la rama de nulo— y el dinero desapareceria de
+  // los dos cortes sin que nadie lo fuera a buscar.
+  if (registro.caja_id == null) return caja.predeterminada === true;
+  return Number(registro.caja_id) === caja.id;
 }
 
 module.exports = {
   esDeEstaCaja,
   sembrarCajas,
+  repararCajas,
   cajaPredeterminadaDeSucursal,
   resolverCajaDeSucursal,
 };
