@@ -148,6 +148,19 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     pedirLista(() => apiFetch("/proveedores"), "los proveedores").then(({ datos }) => setProveedores(datos));
   }, []);
 
+  /**
+   * La ÚNICA regla de "qué caja se propone al capturar": la del encabezado si
+   * está entre las de la tienda, y si no, la predeterminada.
+   *
+   * Se SUGIERE, no se impone: quien captura decide de qué cajón salió el
+   * dinero. Heredarla en silencio es justo el defecto que le cargaba a la
+   * cajera un faltante por un gasto que sí capturó.
+   */
+  const sugerirCaja = useCallback((lista) => {
+    const sugerida = lista.find((c) => String(c.id) === String(cajaActiva())) || lista.find((c) => c.predeterminada);
+    return sugerida ? String(sugerida.id) : "";
+  }, []);
+
   // Las cajas de la tienda en la que se está capturando. El backend solo
   // devuelve las de la sucursal del encabezado, y capturar solo se permite
   // cuando el encabezado es la tienda propia (ver `fueraDeSuSucursal`), así
@@ -158,20 +171,10 @@ export default function Gastos({ onVolver, permisos, usuario }) {
       // Si el modal ya estaba abierto cuando llegaron las cajas, el formulario
       // se quedó sin ninguna elegida y `required` bloquearía el guardado sin
       // decir por qué. Se rellena con la sugerida.
-      const sugerida = datos.find((c) => String(c.id) === String(cajaActiva())) || datos.find((c) => c.predeterminada);
-      if (sugerida) setForm((f) => (f.caja_id ? f : { ...f, caja_id: String(sugerida.id) }));
+      const sugerida = sugerirCaja(datos);
+      if (sugerida) setForm((f) => (f.caja_id ? f : { ...f, caja_id: sugerida }));
     });
-  }, [viendo]);
-
-  /**
-   * La caja del encabezado se SUGIERE, no se impone: quien captura decide de
-   * qué cajón salió el dinero. Heredarla en silencio es justo el defecto que
-   * le cargaba a la cajera un faltante por un gasto que sí capturó.
-   */
-  const sugerirCaja = useCallback((lista) => {
-    const sugerida = lista.find((c) => String(c.id) === String(cajaActiva())) || lista.find((c) => c.predeterminada);
-    return sugerida ? String(sugerida.id) : "";
-  }, []);
+  }, [viendo, sugerirCaja]);
 
   /** Grupos con sus subcategorías — lo consume el select y la chuleta "?". */
   const arbol = useMemo(() => {
