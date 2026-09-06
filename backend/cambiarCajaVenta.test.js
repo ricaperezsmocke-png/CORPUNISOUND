@@ -188,7 +188,14 @@ let servidor = null;
 let base = "";
 
 before(async () => {
-  app.DB.admin.roles.push({ id: 982, nombre: "Sin cambiar caja", permisos: [], modulos: ["pos"] });
+  // Con `permisos: []` esta prueba pasaba con CUALQUIER clave: un rol sin nada
+  // recibe 403 contra cualquier `requierePermiso`, asi que no verificaba lo que
+  // su nombre promete. Con vecinos del mismo modulo se pone roja el dia que
+  // alguien cambie la clave de la ruta por una prestada de otro permiso.
+  app.DB.admin.roles.push({
+    id: 982, nombre: "Sin cambiar caja", modulos: ["pos"],
+    permisos: ["ver_lista_ventas", "cancelar_ventas"],
+  });
   sembrarCuentas(app, [{ id: 82, nombre: "Sin permiso", rol_id: 982, sucursal_id: 1 }]);
   await new Promise((listo) => { servidor = app.listen(0, listo); });
   base = `http://127.0.0.1:${servidor.address().port}`;
