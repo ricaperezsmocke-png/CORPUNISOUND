@@ -391,8 +391,23 @@ function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id, usuario }) {
   if (!Number.isInteger(suc) || suc <= 0) {
     throw new Error("Falta la sucursal a la que se le ajusta la existencia");
   }
-  const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === suc);
-  if (!exist) throw new Error("Este producto no tiene registro de existencia en esta sucursal");
+  let exist = DB.inventario.existencias.find((e) => e.producto_id === Number(id) && e.sucursal_id === suc);
+  if (!exist) {
+    // La fila no existe: un producto dado de alta en una tienda y vendido en
+    // otra, o uno que llego de una migracion sin fila en todas las sucursales.
+    //
+    // ANTES esto lanzaba, y `crearVenta` se tragaba la excepcion en silencio: la
+    // venta se cobraba, el dinero entraba y el inventario NO se movia. Nadie se
+    // enteraba, y la tienda iba perdiendo la cuenta de lo que tiene.
+    //
+    // Rechazar la operacion tampoco sirve: seria negarle una compra a un cliente
+    // que esta enfrente con el producto en la mano, por un dato administrativo.
+    // Se crea la fila y se descuenta, aunque quede en NEGATIVO — que es
+    // exactamente la senal de que a ese producto le falta un ajuste, y la razon
+    // por la que aqui nunca se recorta a cero (ver el comentario de abajo).
+    exist = { producto_id: Number(id), sucursal_id: suc, cantidad_actual: 0, cantidad_minima: 0, cantidad_maxima: 0 };
+    DB.inventario.existencias.push(exist);
+  }
   const delta = Number(cantidad) || 0;
   // Importante: NO se recorta a 0 aquí. Si se recorta, una venta que deja
   // el stock "en 0" en vez de en negativo pierde información — y al

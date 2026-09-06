@@ -269,8 +269,16 @@ test("PUT /api/apartados/:id/cancelar: un amarrado NO puede cancelar el apartado
   // La ruta real corta ANTES de llamar a cancelarApartado — el apartado
   // ajeno debe seguir vigente y sin reintegro cruzado de inventario.
   assert.strictEqual(venta.estatus, "apartado");
-  const existAntes = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 4);
-  assert.ok(!existAntes || existAntes.cantidad_actual >= 0, "sin reintegro cruzado de inventario");
+  // Desde el 2026-09-05 `ajustarExistencia` CREA la fila que falte en vez de
+  // lanzar, asi que el apartado si descuenta en la sucursal 4 y la deja en
+  // negativo — eso es correcto y es la senal de que a ese producto le falta un
+  // ajuste ahi. Lo que esta prueba vigila es otra cosa: que la cancelacion
+  // ajena NO ocurra, o sea que la existencia no SUBA. Antes se comprobaba con
+  // `>= 0`, que confundia el descuento legitimo del apartado con un reintegro.
+  const trasApartar = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 4)?.cantidad_actual ?? 0;
+  assert.strictEqual(trasApartar, -1, "el apartado descuenta en su tienda");
+  const alFinal = DB.inventario.existencias.find((e) => e.producto_id === 1 && e.sucursal_id === 4)?.cantidad_actual ?? 0;
+  assert.strictEqual(alFinal, trasApartar, "sin reintegro cruzado de inventario");
 });
 
 test("POST /api/apartados/:id/abonos: un amarrado sí puede abonar el apartado de su propia sucursal", () => {

@@ -216,7 +216,12 @@ function crearVenta(DB, datos, opciones = {}) {
       try {
         ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Venta — folio ${nuevoId}`, sucursal_id: venta.sucursal_id });
       } catch (e) {
-        // Si el producto no tiene registro de existencia en esta sucursal, no se detiene la venta
+        // ULTIMO RECURSO. Desde que `ajustarExistencia` crea la fila que falte,
+        // esto ya no se dispara por el caso comun. Si aun asi falla, la venta NO
+        // se detiene —hay un cliente enfrente— pero el fallo deja de ser
+        // invisible: antes se tragaba en silencio y la tienda perdia la cuenta
+        // de lo que tiene sin que nadie se enterara.
+        console.error(`[inventario] la venta ${nuevoId} no pudo descontar el producto ${l.producto_id} en la sucursal ${venta.sucursal_id}: ${e.message}`);
       }
     }
   });
@@ -305,7 +310,11 @@ function cancelarVenta(DB, id, motivo, usuario) {
       if (l.producto_id) {
         try {
           ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
-        } catch (e) { /* si no existe existencia, no detiene la cancelación */ }
+        } catch (e) {
+          // Ultimo recurso: la cancelacion no se detiene, pero se dice. Un
+          // reintegro que falla en silencio deja mercancia fuera del inventario.
+          console.error(`[inventario] la cancelacion de la venta ${venta.id} no pudo reintegrar el producto ${l.producto_id}: ${e.message}`);
+        }
       }
     });
 

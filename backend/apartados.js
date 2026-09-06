@@ -229,7 +229,11 @@ function cancelarApartado(DB, ventaId, motivo, usuario) {
       if (l.producto_id) {
         try {
           ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de apartado — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
-        } catch (e) { /* si no existe existencia, no detiene la cancelación */ }
+        } catch (e) {
+          // Ultimo recurso: no detiene la cancelacion, pero se dice. Un
+          // reintegro que falla en silencio deja mercancia fuera del inventario.
+          console.error(`[inventario] la cancelacion del apartado ${venta.id} no pudo reintegrar el producto ${l.producto_id}: ${e.message}`);
+        }
       }
     });
 
