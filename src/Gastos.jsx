@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, X, HelpCircle, History, Ban, FileText, Upload } from "lucide-react";
-import { apiFetch, sucursalActiva } from "./api";
+import { apiFetch, sucursalActiva, cajaActiva } from "./api";
 import { pedirLista } from "./cargaSegura";
 import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
@@ -106,9 +106,10 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const gastoEnCurso = useRef(false);
   const cancelacionEnCurso = useRef(false);
 
+  const [cajas, setCajas] = useState([]);
   const [form, setForm] = useState({
     categoria_id: "", concepto: "", descripcion: "", monto: "",
-    forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "",
+    forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "", caja_id: "",
   });
   const [archivo, setArchivo] = useState(null);
   const [comprimiendo, setComprimiendo] = useState(false);
@@ -147,6 +148,31 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     pedirLista(() => apiFetch("/proveedores"), "los proveedores").then(({ datos }) => setProveedores(datos));
   }, []);
 
+  // Las cajas de la tienda en la que se está capturando. El backend solo
+  // devuelve las de la sucursal del encabezado, y capturar solo se permite
+  // cuando el encabezado es la tienda propia (ver `fueraDeSuSucursal`), así
+  // que esta lista es siempre la que el backend va a aceptar.
+  useEffect(() => {
+    pedirLista(() => apiFetch("/cajas"), "las cajas").then(({ datos }) => {
+      setCajas(datos);
+      // Si el modal ya estaba abierto cuando llegaron las cajas, el formulario
+      // se quedó sin ninguna elegida y `required` bloquearía el guardado sin
+      // decir por qué. Se rellena con la sugerida.
+      const sugerida = datos.find((c) => String(c.id) === String(cajaActiva())) || datos.find((c) => c.predeterminada);
+      if (sugerida) setForm((f) => (f.caja_id ? f : { ...f, caja_id: String(sugerida.id) }));
+    });
+  }, [viendo]);
+
+  /**
+   * La caja del encabezado se SUGIERE, no se impone: quien captura decide de
+   * qué cajón salió el dinero. Heredarla en silencio es justo el defecto que
+   * le cargaba a la cajera un faltante por un gasto que sí capturó.
+   */
+  const sugerirCaja = useCallback((lista) => {
+    const sugerida = lista.find((c) => String(c.id) === String(cajaActiva())) || lista.find((c) => c.predeterminada);
+    return sugerida ? String(sugerida.id) : "";
+  }, []);
+
   /** Grupos con sus subcategorías — lo consume el select y la chuleta "?". */
   const arbol = useMemo(() => {
     const grupos = categorias.filter((c) => c.categoria_padre_id === null);
@@ -161,7 +187,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const abrirNuevo = () => {
     if (fueraDeSuSucursal) return mostrarAviso("❌ " + MOTIVO_FUERA);
     seleccionArchivo.current++; // invalida cualquier compresión en curso de una selección anterior
-    setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "" });
+    setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "", caja_id: sugerirCaja(cajas) });
     setArchivo(null);
     setPesoOriginal(null);
     setComprimiendo(false);
@@ -314,6 +340,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                   <th className="py-2 px-3 text-left font-medium">Categoría</th>
                   <th className="py-2 px-3 text-left font-medium">Concepto</th>
                   <th className="py-2 px-3 text-left font-medium">Forma de pago</th>
+                  <th className="py-2 px-3 text-left font-medium">Caja</th>
                   <th className="py-2 px-3 text-center font-medium">Comprobante</th>
                   <th className="py-2 px-3 text-right font-medium">Monto</th>
                   <th className="py-2 px-3 text-center font-medium">Acciones</th>
@@ -321,7 +348,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               </thead>
               <tbody>
                 {gastos.length === 0 && (
-                  <tr><td colSpan={10} className={`text-center py-16 ${errorGastos ? "text-red-700" : "text-slate-400"}`}>
+                  <tr><td colSpan={11} className={`text-center py-16 ${errorGastos ? "text-red-700" : "text-slate-400"}`}>
                     {errorGastos ? `⚠ ${errorGastos}` : "Sin gastos en el periodo"}
                   </td></tr>
                 )}
@@ -339,6 +366,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                     <td className="py-2 px-3">{g.categoria_nombre}</td>
                     <td className="py-2 px-3">{g.concepto}</td>
                     <td className="py-2 px-3">{g.forma_pago}</td>
+                    {/* Una transferencia o una tarjeta no salieron de ningún
+                        cajón: mostrar una caja ahí sería mentira. */}
+                    <td className="py-2 px-3">{g.forma_pago === "EFECTIVO" ? (g.caja_nombre || "—") : "—"}</td>
                     <td className="py-2 px-3 text-center">
                       <a href={g.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1a7fe8] hover:underline" title={g.nombre_archivo}>
                         <FileText size={14} /> Ver
@@ -414,10 +444,21 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 </div>
               </div>
 
+              {/* Solo para EFECTIVO: una transferencia o una tarjeta no tocan el
+                  cajón, y preguntar por la caja ahí solo confundiría. */}
               {form.forma_pago === "EFECTIVO" && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                  Este gasto se descontará del efectivo esperado en el corte de caja de tu turno.
-                </p>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">¿De qué caja salió el dinero? *</label>
+                  <select required value={form.caja_id} onChange={(e) => setForm({ ...form, caja_id: e.target.value })} className={inputCls}>
+                    {cajas.length === 0 && <option value="">— sin cajas disponibles —</option>}
+                    {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-1.5">
+                    Este gasto se descontará del efectivo esperado en el corte de la caja{" "}
+                    <strong>{cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "seleccionada"}</strong>.
+                    Si el dinero salió de la otra caja, cámbialo aquí antes de guardar.
+                  </p>
+                </div>
               )}
 
               <div>
