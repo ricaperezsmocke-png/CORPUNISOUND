@@ -5,6 +5,15 @@ const { construirDBPrueba } = require("./testHelpers");
 const { sembrarCajas } = require("./cajas");
 const { crearVenta } = require("./ventas");
 
+/**
+ * `RAPIDO` declara el permiso `agregar_articulo_rapido`. Desde el 2026-09-06 el
+ * servidor lo exige para cualquier linea SIN `producto_id`: antes se comprobaba
+ * solo en la pantalla, y mandar la mercancia real como "articulo rapido" a $1
+ * se saltaba el recalculo de precios entero. Estas pruebas usan articulos
+ * rapidos como atajo de fixture, no porque traten sobre ellos.
+ */
+const RAPIDO = { permisos: ["agregar_articulo_rapido"] };
+
 function prepararDB() {
   const DB = construirDBPrueba();
   DB.pos.ventas = [];
@@ -57,7 +66,7 @@ test("se rechaza sin importar acento, mayusculas ni espacios", () => {
 test("las demas formas de pago siguen funcionando", () => {
   for (const forma of ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "VALES", "CHEQUE"]) {
     const DB = prepararDB();
-    const venta = crearVenta(DB, { sucursal_id: 4, metodo_pago: forma, lineas: [LINEA], total: 100 });
+    const venta = crearVenta(DB, { sucursal_id: 4, metodo_pago: forma, lineas: [LINEA], total: 100 }, RAPIDO);
     assert.strictEqual(venta.estatus, "cerrada", `se rompio ${forma}`);
   }
 });
@@ -66,7 +75,7 @@ test("las demas formas de pago siguen funcionando", () => {
 test("una venta sin metodo_pago declarado sigue funcionando", () => {
   for (const vacio of [undefined, "", "   "]) {
     const DB = prepararDB();
-    const venta = crearVenta(DB, { sucursal_id: 4, metodo_pago: vacio, lineas: [LINEA], total: 100 });
+    const venta = crearVenta(DB, { sucursal_id: 4, metodo_pago: vacio, lineas: [LINEA], total: 100 }, RAPIDO);
     assert.strictEqual(venta.estatus, "cerrada", `fallo con ${JSON.stringify(vacio)}`);
     assert.strictEqual(venta.metodo_pago ? String(venta.metodo_pago).toUpperCase() : "EFECTIVO", "EFECTIVO");
   }

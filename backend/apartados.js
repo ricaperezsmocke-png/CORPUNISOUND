@@ -42,6 +42,17 @@ function diasEntre(fechaA, fechaB) {
   return Math.floor((new Date(fechaB) - new Date(fechaA)) / 86400000);
 }
 
+/**
+ * Normaliza una forma de pago para compararla: sin acentos, sin espacios, en
+ * mayusculas. En el repo conviven "CRÉDITO" y "CREDITO", asi que una
+ * comparacion exacta contra una de las dos deja pasar la otra — y una guarda de
+ * dinero que no reconoce una entrada la deja pasar, que es fallar ABRIENDO.
+ * Mismo defecto que ya se cerro en `crearVenta` (backend/ventas.js).
+ */
+function esCredito(forma) {
+  return String(forma ?? "").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO";
+}
+
 function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
   const cliente_id = Number(datos.cliente_id);
   if (!cliente_id) throw new Error("Selecciona un cliente para el apartado — no puede ser Público en General");
@@ -51,7 +62,7 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
   const anticipoMonto = Number(datos.anticipo_monto);
   if (!anticipoMonto || anticipoMonto <= 0) throw new Error("El anticipo debe ser mayor a $0");
   if (!datos.anticipo_forma_pago) throw new Error("Selecciona la forma de pago del anticipo");
-  if (String(datos.anticipo_forma_pago).toUpperCase() === "CRÉDITO") {
+  if (esCredito(datos.anticipo_forma_pago)) {
     throw new Error("Un apartado no puede pagarse a crédito");
   }
 
@@ -172,7 +183,7 @@ function registrarAbono(DB, ventaId, datos, usuario, cajaId) {
   const monto = Number(datos.monto);
   if (!monto || monto <= 0) throw new Error("El monto del abono debe ser mayor a $0");
   if (!datos.forma_pago) throw new Error("Selecciona la forma de pago del abono");
-  if (String(datos.forma_pago).toUpperCase() === "CRÉDITO") {
+  if (esCredito(datos.forma_pago)) {
     throw new Error("Un abono no puede pagarse a crédito");
   }
 

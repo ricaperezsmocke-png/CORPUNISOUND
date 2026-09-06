@@ -73,7 +73,8 @@ function crearVenta(DB, datos, opciones = {}) {
   // para que "" y "   " no acaben tratados distinto.
   const declarada = String(datos.metodo_pago ?? "").trim();
   const formaPago = declarada === "" ? "EFECTIVO" : sinAcentos(declarada);
-  const permitidas = listarCondiciones(DB, sucursalId)
+  const condiciones = listarCondiciones(DB, sucursalId);
+  const permitidas = condiciones
     .map((c) => sinAcentos(c.nombre))
     .filter((n) => n !== "CREDITO");
   if (!permitidas.includes(formaPago)) {
@@ -150,6 +151,18 @@ function crearVenta(DB, datos, opciones = {}) {
         throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de venderlo`);
       }
     } else {
+      // ARTICULO RAPIDO: sin producto no hay catalogo contra el cual recalcular,
+      // asi que conserva el precio que le pongan — a proposito, para servicios y
+      // piezas especiales.
+      //
+      // Pero eso deja una puerta: mandar la mercancia real como articulo rapido
+      // a $1 se salta el recalculo entero, y en los reportes se ve como una
+      // venta barata legitima. El permiso `agregar_articulo_rapido` ya existia
+      // en el catalogo y solo se comprobaba en la PANTALLA — el mismo descuido
+      // que tenian los descuentos.
+      if (!permisos.includes("agregar_articulo_rapido")) {
+        throw new Error("No tienes permiso para vender un artículo rápido (una línea sin producto del catálogo)");
+      }
       precio = Number(l.precio_unitario) || 0;
     }
 
@@ -168,7 +181,27 @@ function crearVenta(DB, datos, opciones = {}) {
   });
 
   const subtotalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.bruto, 0));
-  const totalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.subtotal, 0));
+  const trasLineas = redondear(lineasCalculadas.reduce((s, l) => s + l.subtotal, 0));
+
+  // EL DESCUENTO POR FORMA DE PAGO. Las condiciones de pago traen su propio
+  // porcentaje —6% en EFECTIVO y TRANSFERENCIA por defecto— y la PANTALLA ya lo
+  // aplica: el "Total a cobrar" que ve la cajera viene descontado, y eso es lo
+  // que cobra (ver `descuentoPago` en src/PuntoDeVenta.jsx).
+  //
+  // Mientras el servidor copiaba el total del navegador, el descuento viajaba
+  // dentro y todo cuadraba. Al pasar a recalcular desde el catalogo se perdio, y
+  // la venta quedaba en el precio de lista mientras la cajera habia cobrado
+  // menos: un faltante en su corte por cada descuento que diera en el dia, y
+  // ninguno explicable. Se detecto en una auditoria del codigo ya desplegado.
+  //
+  // Las tres condiciones son las MISMAS que mira la pantalla, a proposito: la
+  // bandera de configuracion, que la condicion este activa, y su porcentaje.
+  const config2 = obtenerConfiguracion(DB);
+  const descuentosPagoHabilitados = config2 ? config2.descuentos_pago_habilitado !== false : true;
+  const condicion = condiciones.find((c) => sinAcentos(c.nombre) === formaPago);
+  const pctPago = descuentosPagoHabilitados && condicion?.activo ? Number(condicion.descuento_pct) || 0 : 0;
+
+  const totalCalculado = redondear(trasLineas * (1 - pctPago / 100));
   const descuentoCalculado = redondear(subtotalCalculado - totalCalculado);
 
   const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);

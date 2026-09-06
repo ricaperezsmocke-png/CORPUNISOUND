@@ -15,6 +15,14 @@ function prepararDB() {
   return DB;
 }
 
+
+/**
+ * TARJETA en todas: no lleva descuento por forma de pago (EFECTIVO y
+ * TRANSFERENCIA si, 6% por defecto). Estas pruebas son sobre QUIEN DECIDE EL
+ * PRECIO —el catalogo, no el navegador—, y mezclarles el descuento de pago las
+ * volveria aritmetica de dos cosas a la vez. El descuento por forma de pago
+ * tiene su propio archivo: descuentoFormaPago.test.js.
+ */
 const CON_DESCUENTO = { permisos: ["aplicar_descuentos_articulos_venta"] };
 
 /**
@@ -29,6 +37,7 @@ test("el precio de un producto del catalogo no lo decide el navegador", () => {
 
   const venta = crearVenta(DB, {
     sucursal_id: 4,
+    metodo_pago: "TARJETA",
     lineas: [{ producto_id: producto.id, cantidad: 1, precio_unitario: 1 }],
     subtotal: 1, descuento: 0, total: 1,
   });
@@ -44,6 +53,7 @@ test("el total de la venta se calcula, no se copia", () => {
 
   const venta = crearVenta(DB, {
     sucursal_id: 4,
+    metodo_pago: "TARJETA",
     lineas: [{ producto_id: producto.id, cantidad: 3 }],
     total: 99999,
   });
@@ -59,10 +69,14 @@ test("el total de la venta se calcula, no se copia", () => {
 test("un producto rapido sin catalogo conserva el precio que se le puso", () => {
   const DB = prepararDB();
 
+  // Desde el 2026-09-06 vender un articulo rapido exige `agregar_articulo_rapido`:
+  // sin producto no hay catalogo contra el cual recalcular, y sin permiso eso era
+  // la puerta para saltarse el recalculo entero mandando la mercancia real a $1.
   const venta = crearVenta(DB, {
     sucursal_id: 4,
+    metodo_pago: "TARJETA",
     lineas: [{ descripcion: "Reparacion de bajo", cantidad: 1, precio_unitario: 450 }],
-  });
+  }, { permisos: ["agregar_articulo_rapido"] });
 
   assert.strictEqual(venta.total, 450);
 });
@@ -79,6 +93,7 @@ test("un descuento sin el permiso se rechaza", () => {
   assert.throws(
     () => crearVenta(DB, {
       sucursal_id: 4,
+      metodo_pago: "TARJETA",
       lineas: [{ producto_id: producto.id, cantidad: 1, descuento_pct: 99.99 }],
     }),
     /descuento/i
@@ -92,6 +107,7 @@ test("con el permiso, el descuento se aplica y se refleja en el total", () => {
 
   const venta = crearVenta(DB, {
     sucursal_id: 4,
+    metodo_pago: "TARJETA",
     lineas: [{ producto_id: producto.id, cantidad: 2, descuento_pct: 10 }],
   }, CON_DESCUENTO);
 
@@ -108,6 +124,7 @@ test("un descuento fuera de rango se rechaza aun con el permiso", () => {
     assert.throws(
       () => crearVenta(DB, {
         sucursal_id: 4,
+        metodo_pago: "TARJETA",
         lineas: [{ producto_id: producto.id, cantidad: 1, descuento_pct: pct }],
       }, CON_DESCUENTO),
       /descuento/i,
@@ -123,6 +140,7 @@ test("una venta normal de varias lineas da el mismo total de siempre", () => {
 
   const venta = crearVenta(DB, {
     sucursal_id: 4,
+    metodo_pago: "TARJETA",
     lineas: [
       { producto_id: uno.id, cantidad: 2 },
       { producto_id: dos.id, cantidad: 3 },
