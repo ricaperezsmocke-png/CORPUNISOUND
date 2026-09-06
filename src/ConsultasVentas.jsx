@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Eye, RefreshCw, Ban, Download, DollarSign, Mail, FileCheck,
   FileText, FileCode, Users, Printer, LayoutGrid, Search, Settings,
   FileBarChart, PieChart, Wrench, Cloud, Info, UserCircle2, ShoppingCart,
-  Package, X
+  Package, X, ArrowLeftRight
 } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
@@ -29,6 +29,7 @@ function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) 
     <button type="button" onClick={onClick} className="flex flex-col items-center justify-center gap-1 px-3 py-2 min-w-[74px] border-r border-slate-100 hover:bg-blue-50 transition-colors">
       <Icono size={18} className={tonos[tono]} />
       <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{etiqueta}</span>
+      {atajo && <span className="text-[9px] text-slate-400">{atajo}</span>}
     </button>
   );
 }
@@ -38,8 +39,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
 
   const [ventas, setVentas] = useState([]);
   const [sucursales, setSucursales] = useState([]);
+  const [cajasFiltro, setCajasFiltro] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [errorCatalogos, setErrorCatalogos] = useState(null);
+  const [errorCajas, setErrorCajas] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
@@ -49,13 +52,20 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const [documento, setDocumento] = useState("Todos");
   const [estado, setEstado] = useState("Todos");
   const [sucursalFiltro, setSucursalFiltro] = useState("");
+  const [cajaFiltro, setCajaFiltro] = useState("");
   const [vendedorFiltro, setVendedorFiltro] = useState("");
   const [texto, setTexto] = useState("");
 
   const [seleccionadaId, setSeleccionadaId] = useState(null);
   const [detalle, setDetalle] = useState(null);
-  const [modal, setModal] = useState(null); // "detalle" | "cancelar"
+  const [modal, setModal] = useState(null); // "detalle" | "cancelar" | "cambiarCaja"
   const [motivoCancelacion, setMotivoCancelacion] = useState("");
+  const [cajasVenta, setCajasVenta] = useState([]);
+  const [cajaDestinoId, setCajaDestinoId] = useState("");
+  const [cancelando, setCancelando] = useState(false);
+  const [cambiandoCaja, setCambiandoCaja] = useState(false);
+  const cancelacionEnCurso = useRef(false);
+  const cambioCajaEnCurso = useRef(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -74,27 +84,48 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     setErrorCatalogos(suc.error || ven.error);
   }, []);
 
+  useEffect(() => {
+    setCajaFiltro("");
+    if (!sucursalFiltro) {
+      setCajasFiltro([]);
+      setErrorCajas(null);
+      return;
+    }
+
+    let vigente = true;
+    pedirLista(
+      () => apiFetch(`/cajas?sucursal_id=${encodeURIComponent(sucursalFiltro)}&caja_id=`),
+      "las cajas"
+    ).then((respuesta) => {
+      if (!vigente) return;
+      setCajasFiltro(respuesta.datos);
+      setErrorCajas(respuesta.error);
+    });
+    return () => { vigente = false; };
+  }, [sucursalFiltro]);
+
   const consultar = useCallback(async () => {
     setCargando(true);
     setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (fechaInicial) params.set("fecha_inicio", fechaInicial);
-      if (fechaFinal) params.set("fecha_fin", fechaFinal);
-      if (documento !== "Todos") params.set("tipo_documento", documento);
-      if (estado !== "Todos") params.set("estatus", estado);
-      if (sucursalFiltro) params.set("sucursal_id", sucursalFiltro);
-      if (vendedorFiltro) params.set("vendedor_id", vendedorFiltro);
-      if (texto) params.set("texto", texto);
-      const r = await apiFetch(`/ventas?${params.toString()}`);
-      if (!r.ok) throw new Error("El backend respondió con error");
-      setVentas(await r.json());
-    } catch (e) {
-      setError("No se pudo conectar con el backend (http://localhost:4000).");
-    } finally {
-      setCargando(false);
-    }
-  }, [fechaInicial, fechaFinal, documento, estado, sucursalFiltro, vendedorFiltro, texto]);
+    const params = new URLSearchParams();
+    if (fechaInicial) params.set("fecha_inicio", fechaInicial);
+    if (fechaFinal) params.set("fecha_fin", fechaFinal);
+    if (documento !== "Todos") params.set("tipo_documento", documento);
+    if (estado !== "Todos") params.set("estatus", estado);
+    if (sucursalFiltro) params.set("sucursal_id", sucursalFiltro);
+    // Se incluye aun vacio para que apiFetch no inyecte la caja del encabezado:
+    // "Todas" en esta pantalla debe consultar todas las cajas del alcance.
+    params.set("caja_id", cajaFiltro);
+    if (vendedorFiltro) params.set("vendedor_id", vendedorFiltro);
+    if (texto) params.set("texto", texto);
+    const respuesta = await pedirLista(
+      () => apiFetch(`/ventas?${params.toString()}`),
+      "las ventas"
+    );
+    setVentas(respuesta.datos);
+    setError(respuesta.error);
+    setCargando(false);
+  }, [fechaInicial, fechaFinal, documento, estado, sucursalFiltro, cajaFiltro, vendedorFiltro, texto]);
 
   useEffect(() => { cargarCatalogos(); consultar(); /* eslint-disable-next-line */ }, []);
 
@@ -128,6 +159,10 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   };
 
   const confirmarCancelacion = async () => {
+    // Una solicitud duplicada intenta reintegrar dos veces el inventario de la venta.
+    if (cancelacionEnCurso.current) return;
+    cancelacionEnCurso.current = true;
+    setCancelando(true);
     try {
       // sucursal_id explícito (el de la propia venta), mismo motivo que en
       // verDetalle(): sin él, el guard de esta ruta responde "Venta no
@@ -139,16 +174,95 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
       setModal(null);
       consultar();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { cancelacionEnCurso.current = false; setCancelando(false); }
+  };
+
+  const abrirCambiarCaja = async () => {
+    if (!seleccionada) return mostrarAviso("Selecciona una venta primero");
+    try {
+      const r = await apiFetch(`/cajas${qSucursal(seleccionada)}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      const cajaActual = data.find((caja) => caja.id === seleccionada.caja_id)
+        || data.find((caja) => caja.predeterminada);
+      const destinos = data.filter((caja) => caja.id !== cajaActual?.id);
+      if (destinos.length === 0) throw new Error("No hay otra caja disponible en esta sucursal");
+      setCajasVenta(data);
+      setCajaDestinoId(String(destinos[0].id));
+      setModal("cambiarCaja");
+    } catch (e) { mostrarAviso(e.message); }
+  };
+
+  const confirmarCambioCaja = async () => {
+    // Una solicitud duplicada repite la correccion del dinero entre dos cajas.
+    if (cambioCajaEnCurso.current) return;
+    cambioCajaEnCurso.current = true;
+    setCambiandoCaja(true);
+    try {
+      const r = await apiFetch(`/ventas/${seleccionada.id}/caja${qSucursal(seleccionada)}`, {
+        method: "PUT",
+        body: JSON.stringify({ caja_id: Number(cajaDestinoId) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso(`Venta folio ${seleccionada.id} movida a ${data.cambios_caja.at(-1).caja_destino_nombre}`);
+      setModal(null);
+      consultar();
+    } catch (e) { mostrarAviso(e.message); }
+    finally { cambioCajaEnCurso.current = false; setCambiandoCaja(false); }
   };
 
   const exportarCSV = () => {
     if (!puede("exportar_ventas")) return mostrarAviso("No tienes permiso para exportar");
     if (ventas.length === 0) return mostrarAviso("No hay ventas para exportar");
-    const encabezados = ["Folio", "Fecha", "Documento", "Cliente", "Vendedor", "Estado", "Total"];
-    const filas = ventas.map((v) => [v.id, v.fecha, v.tipo_documento || "Ticket", v.cliente_nombre, v.vendedor_nombre, v.estatus, v.total]);
+    // Quién canceló viaja también en el CSV: si solo se ve en pantalla, no se
+    // puede cruzar contra el efectivo de un turno en una hoja de cálculo, que es
+    // como se revisa un descuadre de verdad.
+    const encabezados = ["Folio", "Fecha", "Documento", "Cliente", "Vendedor", "Estado", "Total", "Canceló", "Cancelada el"];
+    const filas = ventas.map((v) => [v.id, v.fecha, v.tipo_documento || "Ticket", v.cliente_nombre, v.vendedor_nombre, v.estatus, v.total,
+      v.estatus === "cancelada" ? (v.cancelada_por || "—") : "",
+      v.estatus === "cancelada" && v.fecha_hora_cancelacion ? new Date(v.fecha_hora_cancelacion).toLocaleString("es-MX") : ""]);
     descargarCSV(`ventas_${fechaInicial}_a_${fechaFinal}.csv`, encabezados, filas);
     mostrarAviso("Exportado a CSV");
   };
+
+  const consultarSaldo = () => mostrarAviso("Consulta de saldos — próximamente");
+  const enviarCorreo = () => mostrarAviso("Envío por correo — requiere facturación CFDI");
+  const verAcuse = () => mostrarAviso("Acuse de cancelación — requiere facturación CFDI");
+  const verXML = () => mostrarAviso("XML del CFDI — requiere facturación CFDI");
+  const imprimir = () => mostrarAviso("Enviando a impresora...");
+
+  // Mismo patrón de PuntoDeVenta: un solo listener global llama las mismas
+  // funciones que los botones. Los campos editables quedan fuera para que una
+  // tecla de consulta o cancelación no interrumpa la captura de filtros.
+  useEffect(() => {
+    const manejador = (e) => {
+      const objetivo = e.target;
+      const esEditable = objetivo && (
+        ["INPUT", "SELECT", "TEXTAREA"].includes(objetivo.tagName)
+        || objetivo.isContentEditable
+      );
+      if (esEditable || modal !== null) return;
+
+      let accion = null;
+      if (e.key === "F4" || e.key === "F5") accion = consultar;
+      else if (e.key === "F6" && puede("cancelar_ventas")) accion = abrirCancelar;
+      else if (e.key === "F7" && puede("exportar_ventas")) accion = exportarCSV;
+      else if (e.key === "F8") accion = consultarSaldo;
+      else if (e.key === "F11") accion = enviarCorreo;
+      else if (e.key === "F12") accion = verAcuse;
+      else if (e.altKey && e.key.toLowerCase() === "d") accion = verDetalle;
+      else if (e.altKey && e.key.toLowerCase() === "x") accion = verXML;
+      else if (e.altKey && e.key.toLowerCase() === "p" && puede("imprimir_ventas")) accion = imprimir;
+
+      if (accion) {
+        e.preventDefault();
+        accion();
+      }
+    };
+    window.addEventListener("keydown", manejador);
+    return () => window.removeEventListener("keydown", manejador);
+  });
 
   const totalPeriodo = useMemo(() => ventas.filter((v) => v.estatus === "cerrada").reduce((a, v) => a + v.total, 0), [ventas]);
 
@@ -158,13 +272,14 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
         {puede("cancelar_ventas") && <BotonBarra icono={Ban} etiqueta="Cancelar" atajo="F6" tono="rojo" onClick={abrirCancelar} />}
+        {puede("cambiar_caja_venta") && <BotonBarra icono={ArrowLeftRight} etiqueta="Cambiar caja" onClick={abrirCambiarCaja} />}
         {puede("exportar_ventas") && <BotonBarra icono={Download} etiqueta="Exportar" atajo="F7" onClick={exportarCSV} />}
-        <BotonBarra icono={DollarSign} etiqueta="Saldo" atajo="F8" onClick={() => mostrarAviso("Consulta de saldos — próximamente")} />
-        <BotonBarra icono={Mail} etiqueta="eMail" atajo="F11" onClick={() => mostrarAviso("Envío por correo — requiere facturación CFDI")} />
-        <BotonBarra icono={FileCheck} etiqueta="Acuse X" atajo="F12" onClick={() => mostrarAviso("Acuse de cancelación — requiere facturación CFDI")} />
+        <BotonBarra icono={DollarSign} etiqueta="Saldo" atajo="F8" onClick={consultarSaldo} />
+        <BotonBarra icono={Mail} etiqueta="eMail" atajo="F11" onClick={enviarCorreo} />
+        <BotonBarra icono={FileCheck} etiqueta="Acuse X" atajo="F12" onClick={verAcuse} />
         <BotonBarra icono={FileText} etiqueta="Docs" atajo="Alt+D" onClick={verDetalle} />
-        <BotonBarra icono={FileCode} etiqueta="XML" atajo="Alt+X" onClick={() => mostrarAviso("XML del CFDI — requiere facturación CFDI")} />
-        {puede("imprimir_ventas") && <BotonBarra icono={Printer} etiqueta="Imp" atajo="Alt+P" onClick={() => mostrarAviso("Enviando a impresora...")} />}
+        <BotonBarra icono={FileCode} etiqueta="XML" atajo="Alt+X" onClick={verXML} />
+        {puede("imprimir_ventas") && <BotonBarra icono={Printer} etiqueta="Imp" atajo="Alt+P" onClick={imprimir} />}
       </div>
 
       {error && <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs px-4 py-2 shrink-0">{error}</div>}
@@ -192,10 +307,17 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
             </select>
           </div>
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Caja / Sucursal</label>
+            <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
             <select value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
               <option value="">Todas</option>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Caja</label>
+            <select value={cajaFiltro} onChange={(e) => setCajaFiltro(e.target.value)} disabled={!sucursalFiltro} className="neu-campo rounded-lg px-2 py-1.5 text-sm disabled:opacity-50">
+              <option value="">Todas</option>
+              {cajasFiltro.map((caja) => <option key={caja.id} value={caja.id}>{caja.nombre}</option>)}
             </select>
           </div>
           <div>
@@ -207,9 +329,9 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           </div>
           <button type="button" onClick={consultar} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">Consultar</button>
         </div>
-        {errorCatalogos && (
+        {(errorCatalogos || errorCajas) && (
           <div className="text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded px-2 py-1.5">
-            ⚠ {errorCatalogos} Los desplegables de Sucursal y Vendedor pueden verse incompletos;
+            ⚠ {errorCatalogos || errorCajas} Los desplegables de Sucursal, Caja y Vendedor pueden verse incompletos;
             la lista de ventas de abajo sí es la del periodo consultado.
           </div>
         )}
@@ -304,7 +426,16 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <span className="font-bold">Total: ${Number(detalle.total).toFixed(2)}</span>
               </div>
               {detalle.estatus === "cancelada" && (
-                <div className="mt-3 text-xs bg-red-50 text-red-700 rounded px-3 py-2">Cancelada — motivo: {detalle.motivo_cancelacion || "sin especificar"}</div>
+                <div className="mt-3 text-xs bg-red-50 text-red-700 rounded px-3 py-2">
+                  {/* Quién y cuándo, no solo el motivo: el sistema guardaba estos
+                      dos campos desde hace tiempo y no se mostraban en ninguna
+                      parte, así que una cancelación no tenía dueño visible. */}
+                  <div>Cancelada — motivo: {detalle.motivo_cancelacion || "sin especificar"}</div>
+                  <div className="mt-1 text-red-900/80">
+                    Canceló: <strong>{detalle.cancelada_por || "—"}</strong>
+                    {detalle.fecha_hora_cancelacion && <> · {new Date(detalle.fecha_hora_cancelacion).toLocaleString("es-MX")}</>}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -324,7 +455,33 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <label className="text-xs text-slate-500 block mb-1">Motivo de la cancelación</label>
                 <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
               </div>
-              <button type="button" onClick={confirmarCancelacion} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">Confirmar cancelación</button>
+              <button type="button" onClick={confirmarCancelacion} disabled={cancelando} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{cancelando ? "Cancelando..." : "Confirmar cancelación"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === "cambiarCaja" && seleccionada && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
+          <div className="neu-panel rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
+            <div className="bg-[#1a7fe8] text-white px-4 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-sm">Cambiar caja — Folio {seleccionada.id}</h3>
+              <button type="button" onClick={() => setModal(null)} className="hover:bg-blue-700 rounded p-1"><X size={18} /></button>
+            </div>
+            <div className="p-4 flex flex-col gap-3">
+              <p className="text-xs text-slate-600">
+                Caja actual: <b>{(cajasVenta.find((caja) => caja.id === seleccionada.caja_id) || cajasVenta.find((caja) => caja.predeterminada))?.nombre}</b>
+              </p>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Mover la venta a</label>
+                <select value={cajaDestinoId} onChange={(e) => setCajaDestinoId(e.target.value)} className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm">
+                  {cajasVenta
+                    .filter((caja) => caja.id !== (cajasVenta.find((actual) => actual.id === seleccionada.caja_id) || cajasVenta.find((actual) => actual.predeterminada))?.id)
+                    .map((caja) => <option key={caja.id} value={caja.id}>{caja.nombre}</option>)}
+                </select>
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">Solo se puede corregir mientras ninguna de las dos cajas haya cerrado el periodo de esta venta.</p>
+              <button type="button" onClick={confirmarCambioCaja} disabled={cambiandoCaja} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{cambiandoCaja ? "Corrigiendo..." : "Confirmar cambio de caja"}</button>
             </div>
           </div>
         </div>

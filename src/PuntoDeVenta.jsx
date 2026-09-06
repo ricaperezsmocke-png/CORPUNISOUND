@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Sparkles, SlidersHorizontal, Bookmark
 } from "lucide-react";
 
-import { apiFetch, sinSucursalElegida, sucursalActiva } from "./api";
+import { apiFetch, cajaActiva, sinSucursalElegida, sucursalActiva } from "./api";
 import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
@@ -94,6 +94,19 @@ function Campo({ label, children, className = "" }) {
 // ============================================================
 // COMPONENTE PRINCIPAL
 // ============================================================
+/**
+ * El crédito está apagado (ver crearVenta en backend/ventas.js). Las condiciones
+ * de pago viven en la base, sembradas por sucursal, así que no basta con quitar
+ * un botón del código: hay que filtrarlas al pintarlas. Se normaliza el acento
+ * porque en el repo conviven "CRÉDITO" y "CREDITO".
+ *
+ * Esto solo esconde la opción. La regla que de verdad protege está en el
+ * servidor: quien mande la petición a mano recibe un error, no una venta.
+ */
+function esCredito(nombre) {
+  return String(nombre || "").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO";
+}
+
 export default function PuntoDeVenta({ onVolver, permisos }) {
   // Confirmacion dentro de la app: { titulo, mensaje, textoConfirmar, peligro, alConfirmar }
   const [confirmacion, setConfirmacion] = useState(null);
@@ -489,6 +502,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             body: JSON.stringify({
               cliente_id: cliente.id,
               vendedor_id: vendedor.id,
+              caja_id: cajaActiva(),
               // Sin sucursal_id: la venta se registra en la sucursal del
               // encabezado (o en la del usuario si está amarrado). Antes iba un
               // 1 fijo aquí y toda venta caía en Ocosingo.
@@ -1089,16 +1103,15 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           <Campo label="eMail" className="mb-3">
             <input className={inputCls} value={formCliente.email} onChange={(e) => setFormCliente({ ...formCliente, email: e.target.value })} />
           </Campo>
+          {/*
+            Los campos de crédito salieron de aquí: mientras el crédito esté
+            apagado (ver crearVenta en backend/ventas.js) no significan nada, y
+            un límite de crédito que se puede llenar pero que el sistema no
+            respeta invita a vender contra una deuda que nunca se registra.
+            Vuelven el día que existan cuentas por cobrar de verdad.
+          */}
           <div className="border-t border-black/5 pt-3 mb-3">
-            <label className="flex items-center gap-2 text-sm mb-3">
-              <input type="checkbox" checked={formCliente.sujeto_credito} onChange={(e) => setFormCliente({ ...formCliente, sujeto_credito: e.target.checked })} />
-              Es sujeto de crédito
-            </label>
-            <div className="grid grid-cols-3 gap-3">
-              <Campo label="Precio (lista 1-4)"><input type="number" min="1" max="4" className={inputCls} value={formCliente.precio_lista} onChange={(e) => setFormCliente({ ...formCliente, precio_lista: e.target.value })} /></Campo>
-              <Campo label="Días crédito"><input type="number" className={inputCls} value={formCliente.dias_credito} onChange={(e) => setFormCliente({ ...formCliente, dias_credito: e.target.value })} disabled={!formCliente.sujeto_credito} /></Campo>
-              <Campo label="Límite de crédito"><input type="number" className={inputCls} value={formCliente.limite_credito} onChange={(e) => setFormCliente({ ...formCliente, limite_credito: e.target.value })} disabled={!formCliente.sujeto_credito} /></Campo>
-            </div>
+            <Campo label="Precio (lista 1-4)"><input type="number" min="1" max="4" className={inputCls} value={formCliente.precio_lista} onChange={(e) => setFormCliente({ ...formCliente, precio_lista: e.target.value })} /></Campo>
           </div>
           <button onClick={guardarNuevoCliente} className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2.5 rounded-lg font-semibold transition-colors">Aceptar</button>
         </Modal>
@@ -1187,7 +1200,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {condicionesPago.map((c) => {
+                    {condicionesPago.filter((c) => !esCredito(c.nombre)).map((c) => {
                       const activoEfectivo = descuentoPagoHabilitado && c.activo;
                       const nuevoTotal = Math.round(total * (1 - (activoEfectivo ? c.descuento_pct : 0) / 100) * 100) / 100;
                       const seleccionada = condicionSeleccionada?.id === c.id;

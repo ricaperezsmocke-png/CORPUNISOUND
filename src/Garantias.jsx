@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ShieldAlert, Search, X, ChevronLeft, ChevronRight, Send, MapPin, ClipboardCheck, PackageCheck, UserCheck, History, DollarSign, Upload, Trash2, FileText } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
@@ -84,6 +84,8 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const [sucursales, setSucursales] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState(null);
+  const [procesandoMovimiento, setProcesandoMovimiento] = useState(null);
+  const movimientoEnCurso = useRef(false);
 
   const [filtroEstado, setFiltroEstado] = useState("");
   const [soloAtrasadas, setSoloAtrasadas] = useState(false);
@@ -174,6 +176,10 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const abrirEnviar = (g) => { setFormEnviar(FORM_ENVIAR); setModalEnviar(g); };
   const enviar = async () => {
     if (!formEnviar.destino_nombre.trim()) return mostrarAviso("Indica el destino del envío");
+    // Un envio duplicado descuenta dos veces la pieza de la existencia de origen.
+    if (movimientoEnCurso.current) return;
+    movimientoEnCurso.current = true;
+    setProcesandoMovimiento("enviar");
     try {
       const r = await apiFetch(`/garantias/${modalEnviar.id}/enviar?sucursal_id=todas`, { method: "PUT", body: JSON.stringify(formEnviar) });
       const data = await r.json();
@@ -184,6 +190,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       setModalEnviar(null);
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { movimientoEnCurso.current = false; setProcesandoMovimiento(null); }
   };
 
   const abrirUbicacion = (g) => { setFormUbicacion(FORM_UBICACION); setModalUbicacion(g); };
@@ -262,14 +269,20 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const agregarGastoUI = async () => {
     const monto = Number(formGasto.monto);
     if (!Number.isFinite(monto) || monto <= 0) return mostrarAviso("El monto debe ser mayor que cero");
-    let archivoPayload = {};
     if (archivoGasto) {
       if (!MIME_GASTO_OK.includes(archivoGasto.type)) return mostrarAviso("❌ Solo PDF, JPG o PNG");
       if (archivoGasto.size > TAM_MAX_GASTO) return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
-      const contenido_base64 = await leerArchivoBase64(archivoGasto);
-      archivoPayload = { nombre_archivo: archivoGasto.name, tipo_mime: archivoGasto.type, contenido_base64 };
     }
+    // Un envio duplicado registra dos veces el mismo gasto de la garantia.
+    if (movimientoEnCurso.current) return;
+    movimientoEnCurso.current = true;
+    setProcesandoMovimiento("gasto");
     try {
+      let archivoPayload = {};
+      if (archivoGasto) {
+        const contenido_base64 = await leerArchivoBase64(archivoGasto);
+        archivoPayload = { nombre_archivo: archivoGasto.name, tipo_mime: archivoGasto.type, contenido_base64 };
+      }
       const r = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`, {
         method: "POST",
         body: JSON.stringify({ tipo: formGasto.tipo, monto, descripcion: formGasto.descripcion, ...archivoPayload }),
@@ -282,6 +295,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       await cargarGastosDe(modalGastos.id);
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { movimientoEnCurso.current = false; setProcesandoMovimiento(null); }
   };
 
   const eliminarGastoUI = (gastoId) => setConfirmacion({
@@ -293,6 +307,10 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   });
 
   const eliminarGastoConfirmado = async (gastoId) => {
+    // Una solicitud duplicada intenta descontar dos veces el mismo gasto.
+    if (movimientoEnCurso.current) return;
+    movimientoEnCurso.current = true;
+    setProcesandoMovimiento("eliminarGasto");
     try {
       const r = await apiFetch(`/garantias/${modalGastos.id}/gastos/${gastoId}?sucursal_id=todas`, { method: "DELETE" });
       const data = await r.json();
@@ -301,6 +319,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       await cargarGastosDe(modalGastos.id);
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { movimientoEnCurso.current = false; setProcesandoMovimiento(null); }
   };
 
   const recibir = (g) => setConfirmacion({
@@ -311,6 +330,10 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   });
 
   const recibirConfirmado = async (g) => {
+    // Una recepcion duplicada reintegra dos veces la pieza al inventario.
+    if (movimientoEnCurso.current) return;
+    movimientoEnCurso.current = true;
+    setProcesandoMovimiento(`recibir:${g.id}`);
     try {
       const r = await apiFetch(`/garantias/${g.id}/recibir?sucursal_id=todas`, { method: "PUT", body: JSON.stringify({}) });
       const data = await r.json();
@@ -320,6 +343,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
         : "Garantía recibida (sin ajuste: el producto no tenía stock en esta sucursal)");
       await cargarGarantias();
     } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { movimientoEnCurso.current = false; setProcesandoMovimiento(null); }
   };
 
   const entregar = (g) => setConfirmacion({
@@ -418,7 +442,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                   <td className="py-2 px-3">
                     <div className="flex items-center justify-end gap-1.5 flex-wrap">
                       {g.estado === "registrada" && puede("gestionar_garantias") && (
-                        <button onClick={() => abrirEnviar(g)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1"><Send size={12} /> Marcar enviada</button>
+                        <button onClick={() => abrirEnviar(g)} disabled={procesandoMovimiento !== null} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"><Send size={12} /> Marcar enviada</button>
                       )}
                       {g.estado === "enviada" && puede("gestionar_garantias") && (
                         <>
@@ -427,7 +451,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                         </>
                       )}
                       {g.estado === "resuelta" && puede("gestionar_garantias") && (
-                        <button onClick={() => recibir(g)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1"><PackageCheck size={12} /> Recibir en tienda</button>
+                        <button onClick={() => recibir(g)} disabled={procesandoMovimiento !== null} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"><PackageCheck size={12} /> {procesandoMovimiento === `recibir:${g.id}` ? "Recibiendo..." : "Recibir en tienda"}</button>
                       )}
                       {g.estado === "en_tienda_pendiente_entrega" && puede("gestionar_garantias") && (
                         <button onClick={() => entregar(g)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1"><UserCheck size={12} /> Entregar a cliente</button>
@@ -510,7 +534,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
               </select>
             </Campo>
             <p className="text-xs text-slate-500">Al enviar se descuenta 1 pieza de la existencia de {modalEnviar.sucursal_origen_nombre}.</p>
-            <button onClick={enviar} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold mt-1">Marcar enviada</button>
+            <button onClick={enviar} disabled={procesandoMovimiento !== null} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold mt-1 disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "enviar" ? "Enviando..." : "Marcar enviada"}</button>
           </div>
         </Modal>
       )}
@@ -589,7 +613,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                     {x.descripcion ? <span className="text-slate-400"> · {x.descripcion}</span> : null}
                     {x.drive_link ? <a href={x.drive_link} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline ml-2 inline-flex items-center gap-1"><FileText size={11} /> Ver</a> : null}
                   </div>
-                  <button onClick={() => eliminarGastoUI(x.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14} /></button>
+                  <button onClick={() => eliminarGastoUI(x.id)} disabled={procesandoMovimiento !== null} className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>
@@ -614,7 +638,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setArchivoGasto(e.target.files?.[0] || null)} />
                 </label>
               </Campo>
-              <button onClick={agregarGastoUI} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold mt-1">Agregar gasto</button>
+              <button onClick={agregarGastoUI} disabled={procesandoMovimiento !== null} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold mt-1 disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "gasto" ? "Agregando..." : "Agregar gasto"}</button>
             </div>
           </div>
         </Modal>

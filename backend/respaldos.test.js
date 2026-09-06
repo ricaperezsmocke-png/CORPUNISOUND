@@ -10,6 +10,7 @@ const {
 } = require("./respaldos");
 const { desempaquetar } = require("./respaldoCifrado");
 const { estaActivo, desactivar } = require("./mantenimiento");
+const { reconciliarTrasRestaurar } = require("./reconciliarRestauracion");
 
 const LLAVE = Buffer.from("a".repeat(64), "hex");
 
@@ -711,6 +712,86 @@ test("si el respaldo previo FALLA, la restauración se cancela y no se muta nada
   );
   assert.strictEqual(JSON.stringify(DB.pos.ventas), antes, "la base se movió y no debía");
   drive.subirArchivoADrive = subirOriginal;
+});
+
+test("una foto con cajas inconsistentes falla antes de tocar la base", async () => {
+  const DB = nuevoDB();
+  const drive = driveConMemoria();
+  DB.pos.cajas = [
+    { id: 1, nombre: "Administrativa", sucursal_id: 1, predeterminada: true },
+    { id: 2, nombre: "Fiscal", sucursal_id: 1, predeterminada: true },
+  ];
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  DB.pos = nuevoDB().pos;
+  DB.pos.ventas.push({ id: 99, total: 999, tipo_documento: "Ticket" });
+  const antes = JSON.stringify(DB.pos);
+  const previosAntes = DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length;
+
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION,
+      usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+      alTerminar: reconciliarTrasRestaurar,
+    }),
+    /exactamente una caja predeterminada/i,
+  );
+
+  assert.strictEqual(JSON.stringify(DB.pos), antes, "la foto invalida no debe tocar DB.pos");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length,
+    previosAntes,
+    "una foto invalida debe rechazarse incluso antes del respaldo previo",
+  );
+});
+
+test("una colección con forma inválida se rechaza antes de tocar la base", async () => {
+  const DB = nuevoDB();
+  const drive = driveConMemoria();
+  DB.crm = [];
+  const copia = await crearRespaldo(DB, drive, { tipo: "dia", llave: LLAVE });
+  DB.crm = { clientes: [{ id: 88, nombre: "Estado vivo" }], contactos_cliente: [], oportunidades: [] };
+  const antes = JSON.stringify(DB.crm);
+  const previosAntes = DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length;
+
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION,
+      usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+      alTerminar: reconciliarTrasRestaurar,
+    }),
+    /colección crm no tiene la forma esperada/i,
+  );
+
+  assert.strictEqual(JSON.stringify(DB.crm), antes, "la colección viva no debe cambiar");
+  assert.strictEqual(
+    DB.respaldos.copias.filter((c) => c.tipo === "pre_restauracion").length,
+    previosAntes,
+  );
+});
+
+test("un fallo posterior a reemplazar dice que la base cambio y como deshacerlo", async () => {
+  const { DB, drive, copia } = await conRespaldoListo();
+  DB.pos.ventas.push({ id: 99, total: 999, tipo_documento: "Ticket" });
+
+  await assert.rejects(
+    () => restaurar(DB, drive, {
+      copiaId: copia.id, llave: LLAVE, clave: ENV_OK.CLAVE_RESTAURACION,
+      confirmacion: PALABRA_CONFIRMACION,
+      usuario: { nombre: "Victor" }, permisos: PERMISOS_GLOBALES, env: ENV_OK,
+      alTerminar: () => { throw new Error("fallo inevitable al persistir"); },
+    }),
+    (error) => {
+      assert.match(error.message, /la base SI se reemplazó/i);
+      assert.match(error.message, /reparación quedó a medias/i);
+      const previo = DB.respaldos.copias.find((c) => c.tipo === "pre_restauracion");
+      assert.ok(previo, "debe existir la copia para deshacer");
+      assert.ok(error.message.includes(previo.nombre_archivo));
+      assert.match(error.message, /fallo inevitable al persistir/);
+      return true;
+    },
+  );
 });
 
 test("restaurar NO pisa DB.respaldos con el índice viejo", async () => {

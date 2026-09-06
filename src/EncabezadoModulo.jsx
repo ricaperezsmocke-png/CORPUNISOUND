@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SelectorSucursal from "./SelectorSucursal.jsx";
+import SelectorCaja from "./SelectorCaja.jsx";
 
 const TITULOS = {
   dashboard:  "Inicio",
@@ -43,7 +44,14 @@ export default function EncabezadoModulo({ vista, usuario, onSalir }) {
 
       {/* Derecha: sucursal + usuario + salir */}
       <div className="flex items-center gap-3 shrink-0">
-        <SelectorSucursal usuario={usuario} onCambio={() => window.location.reload()} />
+        <SelectorSucursal
+          usuario={usuario}
+          onCambio={() => {
+            localStorage.removeItem("caja_activa");
+            window.location.reload();
+          }}
+        />
+        <SelectorCaja />
         {usuario && (
           <div className="text-right hidden sm:block">
             <div className="text-white text-xs font-semibold leading-tight">{usuario.nombre}</div>

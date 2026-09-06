@@ -14,7 +14,10 @@
 
 const { dentroDeAlcance } = require("./auth");
 const { buscarHojaActiva, listarCategorias } = require("./gastosCategorias");
+const { esDeEstaCaja } = require("./cajas");
+const { esDeLaEraSellada } = require("./corteEpoca");
 const { fechaLocal } = require("./fechas");
+const { resolverCajaDeSucursal } = require("./cajas");
 
 const FORMAS_PAGO_GASTO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const MIME_VALIDOS = ["application/pdf", "image/jpeg", "image/png"];
@@ -74,7 +77,7 @@ function buscarConGuardia(DB, id, alcance) {
  *
  * `sucursalId` viene del token del usuario — nunca del cuerpo de la petición.
  */
-async function crearGasto(DB, datos, sucursalId, usuario, drive) {
+async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
   const categoria = buscarHojaActiva(DB, datos.categoria_id);
 
   const concepto = (datos.concepto || "").trim();
@@ -105,6 +108,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
     throw new Error("No se pudo determinar tu sucursal — vuelve a iniciar sesión antes de registrar el gasto");
   }
   const sucursal = DB.pos.sucursales.find((s) => s.id === sucursal_id) || { id: sucursal_id };
+  const caja = resolverCajaDeSucursal(DB, sucursal_id, cajaId);
 
   // Reserva el id/folio de forma SÍNCRONA, antes de cualquier `await`: es lo
   // único que evita que dos capturas casi simultáneas (de sucursales
@@ -131,6 +135,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
     fecha: fechaLocal(ahora),
     fecha_hora: ahora,
     sucursal_id,
+    caja_id: caja?.id ?? null,
     categoria_id: categoria.id,
     concepto,
     descripcion: (datos.descripcion || "").trim(),
@@ -144,6 +149,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive) {
     usuario: usuario?.nombre || "—",
     estatus: "activo",
     motivo_cancelacion: null,
+    corte_id: null,
   };
   DB.gastos.gastos.push(gasto);
 
@@ -214,28 +220,36 @@ function movimientosDeGasto(DB, id, alcance) {
  * para el conteo (gastos_incluidos en cortes.js), para que nunca puedan
  * desincronizarse.
  *
- * Las cuatro condiciones son deliberadas y cada una tiene prueba propia en
+ * Las condiciones son deliberadas y cada una tiene prueba propia en
  * gastos.test.js (bloque "gastosEfectivoDelTurno: ...") y en
  * gastosCorteCaja.test.js:
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
- *   - fecha_hora > desde : lo anterior al último corte pertenece a un turno YA cerrado
+ *   - misma caja      : aplica en ambas eras; los registros sin caja pertenecen
+ *                       solo a la caja predeterminada
+ *   - transición histórica: hasta corte_epoca conserva fecha_hora > desde
+ *   - era sellada: después de corte_epoca solo entra corte_id null
  */
-function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde) {
+function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
   return DB.gastos.gastos
     .filter((g) => g.estatus === "activo")
     .filter((g) => g.forma_pago === "EFECTIVO")
     .filter((g) => g.sucursal_id === Number(sucursal_id))
-    .filter((g) => !desde || g.fecha_hora > desde);
+    .filter((g) => esDeEstaCaja(g, caja))
+    .filter((g) => {
+      const esPosteriorAEpoca = esDeLaEraSellada(g.fecha_hora, DB);
+      if (esPosteriorAEpoca) return g.corte_id == null;
+      return g.corte_id == null && (!desde || g.fecha_hora > desde);
+    });
 }
 
 /** Suma de los gastos que SALIERON DE LA CAJA en el turno en curso. Es lo que
  *  el Corte de Caja resta del efectivo esperado. Deriva de
- *  gastosEfectivoDelTurnoLista — ver ahí las cuatro condiciones. */
-function gastosEfectivoDelTurno(DB, sucursal_id, desde) {
+ *  gastosEfectivoDelTurnoLista — ver ahí sus condiciones. */
+function gastosEfectivoDelTurno(DB, sucursal_id, desde, caja) {
   return redondear(
-    gastosEfectivoDelTurnoLista(DB, sucursal_id, desde)
+    gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja)
       .reduce((suma, g) => suma + Number(g.monto || 0), 0)
   );
 }

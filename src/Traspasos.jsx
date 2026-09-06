@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ArrowRightLeft, Send, PackageCheck, X, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
@@ -56,6 +56,8 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
   const [filtroProveedor, setFiltroProveedor] = useState("");
   const [paginaBusqueda, setPaginaBusqueda] = useState(1);
   const [comentarioRecepcion, setComentarioRecepcion] = useState("");
+  const [moviendoInventario, setMoviendoInventario] = useState(null);
+  const movimientoEnCurso = useRef(false);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -113,6 +115,10 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
     // pone el token. Sin esto el backend rechaza, pero hasta después de llenar
     // todo el formulario.
     if (usuario?.ver_todas && !form.sucursal_origen_id) return mostrarAviso("Selecciona la sucursal de origen — es de donde sale la mercancía");
+    // Un envio duplicado descuenta dos veces la mercancia de la sucursal origen.
+    if (movimientoEnCurso.current) return;
+    movimientoEnCurso.current = true;
+    setMoviendoInventario("enviar");
     try {
       // sucursal_id=todas explícito: evita que apiFetch pise la sucursal_origen_id elegida
       // en el formulario con la sucursal_activa ambiental del selector global.
@@ -125,12 +131,19 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
       setTab("pendientes");
     } catch (e) {
       mostrarAviso("❌ " + e.message);
+    } finally {
+      movimientoEnCurso.current = false;
+      setMoviendoInventario(null);
     }
   };
 
   const abrirRecibir = (t) => { setModalRecibir(t); setComentarioRecepcion(""); };
 
   const confirmarRecepcion = async () => {
+    // Una recepcion duplicada suma dos veces la mercancia en la sucursal destino.
+    if (movimientoEnCurso.current) return;
+    movimientoEnCurso.current = true;
+    setMoviendoInventario("recibir");
     try {
       // sucursal_id=todas explícito: evita que apiFetch pise el destino real del traspaso
       // (resuelto server-side) con la sucursal_activa ambiental del selector global.
@@ -144,6 +157,9 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
       await Promise.all([cargarTodo(), cargarProductos(origenEfectivo)]);
     } catch (e) {
       mostrarAviso("❌ " + e.message);
+    } finally {
+      movimientoEnCurso.current = false;
+      setMoviendoInventario(null);
     }
   };
 
@@ -233,7 +249,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
             <Campo label="Comentario (opcional)">
               <input className={inputCls} value={form.comentario} onChange={(e) => setForm({ ...form, comentario: e.target.value })} placeholder="ej: reabasto de fin de mes" />
             </Campo>
-            <button onClick={enviarTraspaso} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold mt-2">Enviar traspaso</button>
+            <button onClick={enviarTraspaso} disabled={moviendoInventario === "enviar"} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold mt-2 disabled:opacity-50 disabled:cursor-not-allowed">{moviendoInventario === "enviar" ? "Enviando..." : "Enviar traspaso"}</button>
           </div>
         ) : (
           <table className="w-full text-sm neu rounded-xl overflow-hidden">
@@ -297,7 +313,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
               <Campo label="Comentario (opcional — ej: mercancía dañada, faltante evidente)">
                 <input autoFocus className={inputCls} value={comentarioRecepcion} onChange={(e) => setComentarioRecepcion(e.target.value)} placeholder="Se recibe siempre la cantidad enviada" />
               </Campo>
-              <button onClick={confirmarRecepcion} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold">Confirmar recepción</button>
+              <button onClick={confirmarRecepcion} disabled={moviendoInventario === "recibir"} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{moviendoInventario === "recibir" ? "Recibiendo..." : "Confirmar recepción"}</button>
             </div>
           </div>
         </div>

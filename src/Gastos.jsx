@@ -102,6 +102,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const gastoEnCurso = useRef(false);
+  const cancelacionEnCurso = useRef(false);
 
   const [form, setForm] = useState({
     categoria_id: "", concepto: "", descripcion: "", monto: "",
@@ -193,6 +196,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const guardar = async (e) => {
     e.preventDefault();
     if (!archivo) return mostrarAviso("❌ El comprobante es obligatorio");
+    // Un gasto duplicado descuenta dos veces dinero que solo salio una vez.
+    if (gastoEnCurso.current) return;
+    gastoEnCurso.current = true;
     setGuardando(true);
     try {
       const contenido_base64 = await leerArchivoComoBase64(archivo);
@@ -211,12 +217,17 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     } catch (err) {
       mostrarAviso("❌ " + err.message);
     } finally {
+      gastoEnCurso.current = false;
       setGuardando(false);
     }
   };
 
   const cancelar = async (e) => {
     e.preventDefault();
+    // Una cancelacion duplicada revierte dos veces el mismo gasto en la caja.
+    if (cancelacionEnCurso.current) return;
+    cancelacionEnCurso.current = true;
+    setCancelando(true);
     try {
       // sucursal_id explícito (el del propio gasto): si se omite, apiFetch
       // inyecta la sucursal_activa del encabezado global (ver src/api.js) y el
@@ -233,6 +244,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
       setModal(null); setMotivo("");
       cargarGastos();
     } catch (err) { mostrarAviso("❌ " + err.message); }
+    finally { cancelacionEnCurso.current = false; setCancelando(false); }
   };
 
   const abrirHistorial = async (g) => {
@@ -467,7 +479,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
             </form>
             <div className="px-4 py-3 border-t border-black/5 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Volver</button>
-              <button type="submit" form="form-cancelar-gasto" className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700">Cancelar gasto</button>
+              <button type="submit" form="form-cancelar-gasto" disabled={cancelando} className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">{cancelando ? "Cancelando..." : "Cancelar gasto"}</button>
             </div>
           </div>
         </div>

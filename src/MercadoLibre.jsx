@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   RefreshCw, Link, Link2Off, ShoppingBag, Package, PlusCircle,
   Settings, ExternalLink, CheckCircle, XCircle, AlertTriangle,
@@ -60,6 +60,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState(null);
+  const publicacionEnCurso = useRef(false);
 
   const prod = productos.find((p) => p.id === Number(form.producto_id));
   const set  = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -79,12 +80,15 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
   const enviar = async (e) => {
     e.preventDefault();
     if (!form.categoria_ml) return setError("Ingresa el ID de categoría de ML (ej: MLM1055)");
+    // Un envio duplicado crea dos publicaciones para el mismo inventario.
+    if (publicacionEnCurso.current) return;
+    publicacionEnCurso.current = true;
     setError(null); setEnviando(true);
     try {
       await onPublicar(form);
       onCerrar();
     } catch (err) { setError(err.message); }
-    finally { setEnviando(false); }
+    finally { publicacionEnCurso.current = false; setEnviando(false); }
   };
 
   return (
@@ -374,6 +378,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const [modalPublicar, setModalPublicar] = useState(false);
   const [itemEditar, setItemEditar]     = useState(null);
   const [importando, setImportando]     = useState(null);
+  const importacionEnCurso = useRef(false);
 
   // Filtros — publicaciones
   const [filtroEstado,  setFiltroEstado]  = useState("");
@@ -495,12 +500,15 @@ export default function MercadoLibre({ onVolver, permisos }) {
   };
 
   const importarOrden = async (ordenId) => {
+    // Una importacion duplicada registra dos ventas y descuenta dos veces el inventario.
+    if (importacionEnCurso.current) return;
+    importacionEnCurso.current = true;
     setImportando(ordenId);
     try {
       const r = await apiFetch(`/ml/ordenes/${ordenId}/importar`, { method: "POST" });
       if (r.ok) mostrarAviso("✅ Orden importada como venta en el sistema");
       else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
-    } finally { setImportando(null); }
+    } finally { importacionEnCurso.current = false; setImportando(null); }
   };
 
   const editarPublicacion = async (itemId, cambios) => {
@@ -829,7 +837,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
                               {puede("importar_ordenes_ml") && (
                                 <button
                                   onClick={() => importarOrden(String(o.id))}
-                                  disabled={importando === String(o.id)}
+                                  disabled={importando !== null}
                                   className="flex items-center gap-1 mx-auto text-xs text-[#1a7fe8] hover:text-[#1262b8] font-medium disabled:opacity-40"
                                 >
                                   <Banknote size={13} />

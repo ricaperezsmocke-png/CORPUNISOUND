@@ -40,6 +40,7 @@ const PERMISOS = [
   { clave: "ver_lista_ventas", etiqueta: "Recargar/Ver Lista de Ventas", modulo: "pos", implementado: true },
   { clave: "mostrar_detalle_venta", etiqueta: "Mostrar el Detalle de la Venta", modulo: "pos", implementado: true },
   { clave: "cancelar_ventas", etiqueta: "Cancelar Ventas", modulo: "pos", implementado: true },
+  { clave: "cambiar_caja_venta", etiqueta: "Cambiar Caja de una Venta", modulo: "pos", implementado: true },
   { clave: "exportar_ventas", etiqueta: "Exportar Factura(s)", modulo: "pos", implementado: true },
   { clave: "imprimir_ventas", etiqueta: "Imprimir Ventas", modulo: "pos", implementado: true },
   { clave: "aplicar_abonos_clientes_venta", etiqueta: "Aplicar Abonos a Clientes", modulo: "pos", implementado: false },

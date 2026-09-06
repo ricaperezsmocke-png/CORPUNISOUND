@@ -32,7 +32,10 @@ const {
   registrarContacto, listarContactos, resumenPorSucursal, rankingVendedores,
   obtenerSeguimientosPostventaPendientes
 } = require("./crm");
-const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta } = require("./ventas");
+const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta, cambiarCajaVenta } = require("./ventas");
+const { sembrarCajas } = require("./cajas");
+const { avisarSiLaEpocaEstaEnElFuturo } = require("./corteEpoca");
+const { reconciliarTrasRestaurar } = require("./reconciliarRestauracion");
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
 } = require("./apartados");
@@ -79,7 +82,7 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
-const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos } = require("./reportes");
+const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos, reporteCancelaciones } = require("./reportes");
 const crypto = require("crypto");
 const {
   crearRespaldo, limpiarViejos, verificarRespaldo, copiaParaReverificar, restaurar,
@@ -178,7 +181,9 @@ const DB = {
     ],
     condiciones_pago: [],
     configuracion: null,
+    cajas: [],
     cortes_caja: [],
+    corte_epoca: null,
     apartado_abonos: [],
   },
   crm: {
@@ -319,6 +324,29 @@ sembrarCategoriasGastos(DB);
 // tanto si el DB viene del seed fresco como si viene de datos persistidos
 // anteriores a esta feature. Ver backend/sucursales.js.
 DB.pos.sucursales = reconciliarSucursalesCedis(DB.pos.sucursales);
+
+// Marca de agua de la transición a cortes sellados. Se fija y persiste una
+// sola vez: moverla en otro arranque convertiría movimientos nuevos en
+// históricos y volvería a abrir huecos en la contabilidad.
+if (!DB.pos.corte_epoca) {
+  DB.pos.corte_epoca = new Date().toISOString();
+  guardar(DB);
+}
+// Una época en el futuro haría que cada venta, abono y gasto nuevo se tratara
+// como histórico, reabriendo los huecos que el sello cierra. No debería poder
+// pasar, pero sí puede llegar así al restaurar un respaldo de otra máquina, y
+// entonces la contabilidad queda expuesta en silencio. Se grita.
+avisarSiLaEpocaEstaEnElFuturo(DB);
+
+// Normaliza bases anteriores y garantiza las dos cajas fijas por sucursal.
+// sembrarCajas lanza si los datos no tienen exactamente una predeterminada.
+if (!Array.isArray(DB.pos.cajas)) DB.pos.cajas = [];
+try {
+  sembrarCajas(DB);
+} catch (e) {
+  console.error("🚨 Error de datos en las cajas: " + e.message);
+  throw e;
+}
 
 // Garantiza que el rol "Administrador" tenga TODOS los módulos y permisos del
 // catálogo actual, aunque venga de un snapshot persistido anterior a módulos
@@ -910,7 +938,7 @@ app.post("/api/productos", requiereLogin, requierePermiso("crear_producto", reso
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de dar de alta un producto — su existencia inicial tiene que quedar en una tienda." });
     }
-    res.json(crearProducto(DB, req.body, sucursal_id));
+    res.json(crearProducto(DB, req.body, sucursal_id, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -964,6 +992,25 @@ app.post("/api/productos/:id/clonar", requiereLogin, requierePermiso("clonar_pro
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+/**
+ * El historial de movimientos de un producto: quien movio sus piezas, cuando y
+ * por que documento. Es la pantalla que le da sentido al campo `usuario` de cada
+ * movimiento — un dato que se guarda y no se puede ver es media funcion.
+ *
+ * Solo lectura, con el mismo alcance que el resto del inventario: una cajera
+ * amarrada ve los movimientos de SU tienda, no los de las demas.
+ */
+app.get("/api/productos/:id/movimientos", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const nombreSucursal = (id) => (DB.pos.sucursales.find((s) => s.id === id) || {}).nombre || "—";
+  const movimientos = (DB.inventario.movimientos_inventario || [])
+    .filter((m) => m.producto_id === Number(req.params.id))
+    .filter((m) => alcance.verTodas || m.sucursal_id === alcance.sucursalId)
+    .map((m) => ({ ...m, sucursal_nombre: nombreSucursal(m.sucursal_id), usuario: m.usuario || "—" }))
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  res.json(movimientos);
+});
+
 app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_existencia", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -972,7 +1019,10 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de ajustar la existencia — con \"Todas\" la lista muestra la suma de todas las tiendas y el ajuste no sabría a cuál aplicarse." });
     }
-    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id }));
+    // El usuario va aparte del cuerpo a proposito: quien ajusta lo dice el
+    // token, no la peticion. Si viniera del body, cualquiera podria firmar un
+    // ajuste con el nombre de otro.
+    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -1214,7 +1264,12 @@ app.get("/api/auth/yo", requiereLogin, (req, res) => {
 app.get("/api/permisos-catalogo", (req, res) => res.json({ permisos: listarPermisos(), modulos: listarModulosSistema() }));
 
 // ---------- Roles ----------
-app.get("/api/roles", (req, res) => res.json(listarRoles(DB)));
+// Esta ruta respondia SIN LOGIN y devolvia el arreglo completo de permisos de
+// cada rol: el modelo de autorizacion entero, publicado en internet. No es
+// dinero directo, pero es el mapa que usa cualquiera que quiera buscar por
+// donde entrar. Solo la consume la pantalla de Roles y Personal, que ya exige
+// sesion; el login NO la usa, asi que cerrarla no rompe la entrada al sistema.
+app.get("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarRoles(DB)));
 app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -1459,6 +1514,26 @@ app.get("/api/sucursales", (req, res) => {
   res.json(DB.pos.sucursales.map(({ lat, lng, ...resto }) => resto));
 });
 
+// Las cajas de la sucursal en la que está parada la sesión, para el selector de
+// la barra superior.
+//
+// Se resuelve con el alcance directo, y a propósito NO con el ayudante de
+// escritura: ese es para rutas que CREAN algo y viene con la obligación de
+// responder 400 cuando no hay sucursal elegida. Hay una prueba que cuenta sus
+// usos justamente para que nadie meta uno sin esa obligación
+// (rutasEscrituraSucursal.test.js). Aquí no se escribe nada: sin sucursal
+// concreta simplemente no hay cajas que ofrecer.
+//
+// Ojo si vas a nombrar ese ayudante aquí: esa prueba cuenta apariciones de texto
+// en el archivo, así que mencionarlo con su paréntesis —hasta en un comentario—
+// la pone en rojo.
+app.get("/api/cajas", requiereLogin, (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  // Vista global sin tienda elegida: no hay una caja concreta donde cobrar.
+  if (alcance.verTodas || !alcance.sucursalId) return res.json([]);
+  res.json((DB.pos.cajas || []).filter((caja) => caja.sucursal_id === Number(alcance.sucursalId)));
+});
+
 // Mover las coordenadas de una sucursal decide quién puede entrar a ella:
 // validarUbicacionLogin() las usa como centro del radio de tolerancia. Quien
 // las cambia puede abrirle el acceso a cualquiera desde cualquier lado, o
@@ -1569,7 +1644,12 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado para poder vender — la venta descuenta el inventario de una tienda." });
     }
-    res.json(crearVenta(DB, { ...req.body, sucursal_id }));
+    // Los permisos de quien vende viajan a crearVenta: el descuento se autoriza
+    // en el SERVIDOR. El boton de la pantalla ya estaba gateado, pero la ruta
+    // solo pedia `cerrar_venta`, asi que un descuento del 99.99% entraba por
+    // peticion directa sin dejar ninguna senal.
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {
@@ -1583,9 +1663,20 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
       return res.status(404).json({ error: "Venta no encontrada" });
     }
     if (venta && venta.tipo_documento === "Apartado") {
-      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+      return res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
     }
-    res.json(cancelarVenta(DB, req.params.id, req.body.motivo));
+    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put("/api/ventas/:id/caja", requiereLogin, requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {
+  try {
+    const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
+    const alcance = resolverAlcance(req);
+    if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(cambiarCajaVenta(DB, req.params.id, req.body.caja_id, usuario));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -1602,7 +1693,7 @@ app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados",
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de crear un apartado — el producto se reserva en una tienda." });
     }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
-    res.json(crearApartado(DB, req.body, sucursal_id, usuario));
+    res.json(crearApartado(DB, req.body, sucursal_id, usuario, req.query.caja_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
@@ -1613,7 +1704,7 @@ app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_
       return res.status(404).json({ error: "Apartado no encontrado" });
     }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
-    res.json(registrarAbono(DB, req.params.id, req.body, usuario));
+    res.json(registrarAbono(DB, req.params.id, req.body, usuario, req.query.caja_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
@@ -1623,7 +1714,7 @@ app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar
     if (venta && !dentroDeAlcance(venta.sucursal_id, alcance)) {
       return res.status(404).json({ error: "Apartado no encontrado" });
     }
-    res.json(cancelarApartado(DB, req.params.id, req.body.motivo));
+    res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -1734,7 +1825,7 @@ app.get("/api/cortes/en-curso", requiereLogin, (req, res) => {
   if (!sucursal_id) {
     return res.status(400).json({ error: "Elige una sucursal en el encabezado para ver el corte — el corte es de una sola caja." });
   }
-  const resultado = calcularCorteEnCurso(DB, sucursal_id);
+  const resultado = calcularCorteEnCurso(DB, sucursal_id, req.query.caja_id);
   res.json(filtrarCorteEnCursoPorPermiso(resultado, permisos));
 });
 app.get("/api/cortes", requiereLogin, requierePermiso("ver_historial_cortes", resolverPermisosDeRol), (req, res) => {
@@ -1770,7 +1861,7 @@ app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resol
   try {
     // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
     // cualquiera podría cargarle un gasto a otra tienda.
-    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
+    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive, req.query.caja_id);
     res.json(gasto);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -2086,16 +2177,9 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       // anterior a este módulo no trae el rol Administrador con los permisos de
       // respaldos, y sin esto restaurar dejaba a Victor sin el propio botón de
       // restaurar (y sin CEDIS).
-      alTerminar: (db) => {
-        db.pos.sucursales = reconciliarSucursalesCedis(db.pos.sucursales);
-        reconciliarRoles(db);
-        // Un respaldo anterior a Gerencia de Ventas no trae esta coleccion, y
-        // restaurar reemplaza DB.pos entero. Se auto-repara sola al abrir la
-        // pantalla, pero el patron es reconciliar aqui igual que al arrancar.
-        if (!db.pos.tareas_venta || !Array.isArray(db.pos.tareas_venta.tareas)) {
-          db.pos.tareas_venta = nuevoEstadoTareasVenta();
-        }
-      },
+      // Todo lo que hay que rehacer tras reemplazar los datos vive en
+      // reconciliarRestauracion.js, con sus pruebas. Aquí solo se engancha.
+      alTerminar: reconciliarTrasRestaurar,
     });
     registrarExito(intentosRestauracion, usuario);
     // Corte REAL de las sesiones abiertas. Antes esto era solo una frase en la
@@ -2394,6 +2478,12 @@ app.get("/api/reportes/cortes-caja", requiereLogin, requierePermiso("ver_reporte
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   const { fecha_inicio, fecha_fin } = req.query;
   res.json(reporteCortesCaja(DB, { fecha_inicio, fecha_fin }, alcance));
+});
+
+app.get("/api/reportes/cancelaciones", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
+  const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+  const { fecha_inicio, fecha_fin } = req.query;
+  res.json(reporteCancelaciones(DB, { fecha_inicio, fecha_fin }, alcance));
 });
 
 app.get("/api/reportes/existencias", requiereLogin, requierePermiso("ver_reportes", resolverPermisosDeRol), (req, res) => {
