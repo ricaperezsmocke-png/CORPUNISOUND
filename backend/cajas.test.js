@@ -158,6 +158,11 @@ test("la Administrativa absorbe una venta creada antes de sembrar el catalogo de
 
   crearVenta(DB, {
     sucursal_id: 4,
+    // TARJETA a proposito: no lleva descuento por forma de pago, asi que el
+    // importe se queda en 70 redondo y esta prueba sigue siendo sobre lo suyo
+    // —que la Administrativa absorbe lo anterior a las cajas— y no sobre
+    // aritmetica de descuentos.
+    metodo_pago: "TARJETA",
     lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 70 }],
     total: 70,
   });
