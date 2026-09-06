@@ -649,8 +649,12 @@ test("una venta no se puede atribuir a un vendedor de otra sucursal", async () =
 
   // El de su propia sucursal sí pasa, y sin vendedor también (se puede cobrar
   // aunque nadie se haya identificado: una caja que no cobra es peor).
-  assert.strictEqual(crearVenta(DB, { ...venta, vendedor_id: 1 }).vendedor_id, 1);
-  assert.strictEqual(crearVenta(DB, { ...venta }).vendedor_id, null);
+  // El fixture vende un articulo rapido (linea sin `producto_id`), y desde el
+  // 2026-09-06 eso exige `agregar_articulo_rapido` en el servidor. La prueba es
+  // sobre el VENDEDOR, asi que se declara el permiso y sigue siendo sobre lo suyo.
+  const RAPIDO = { permisos: ["agregar_articulo_rapido"] };
+  assert.strictEqual(crearVenta(DB, { ...venta, vendedor_id: 1 }, RAPIDO).vendedor_id, 1);
+  assert.strictEqual(crearVenta(DB, { ...venta }, RAPIDO).vendedor_id, null);
 });
 
 test("la caja pregunta por el vendedor con la configuración de fábrica", async () => {

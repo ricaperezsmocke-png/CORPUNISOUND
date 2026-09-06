@@ -151,6 +151,18 @@ function crearVenta(DB, datos, opciones = {}) {
         throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de venderlo`);
       }
     } else {
+      // ARTICULO RAPIDO: sin producto no hay catalogo contra el cual recalcular,
+      // asi que conserva el precio que le pongan — a proposito, para servicios y
+      // piezas especiales.
+      //
+      // Pero eso deja una puerta: mandar la mercancia real como articulo rapido
+      // a $1 se salta el recalculo entero, y en los reportes se ve como una
+      // venta barata legitima. El permiso `agregar_articulo_rapido` ya existia
+      // en el catalogo y solo se comprobaba en la PANTALLA — el mismo descuido
+      // que tenian los descuentos.
+      if (!permisos.includes("agregar_articulo_rapido")) {
+        throw new Error("No tienes permiso para vender un artículo rápido (una línea sin producto del catálogo)");
+      }
       precio = Number(l.precio_unitario) || 0;
     }
 

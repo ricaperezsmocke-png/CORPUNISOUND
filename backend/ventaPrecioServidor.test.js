@@ -69,11 +69,14 @@ test("el total de la venta se calcula, no se copia", () => {
 test("un producto rapido sin catalogo conserva el precio que se le puso", () => {
   const DB = prepararDB();
 
+  // Desde el 2026-09-06 vender un articulo rapido exige `agregar_articulo_rapido`:
+  // sin producto no hay catalogo contra el cual recalcular, y sin permiso eso era
+  // la puerta para saltarse el recalculo entero mandando la mercancia real a $1.
   const venta = crearVenta(DB, {
     sucursal_id: 4,
     metodo_pago: "TARJETA",
     lineas: [{ descripcion: "Reparacion de bajo", cantidad: 1, precio_unitario: 450 }],
-  });
+  }, { permisos: ["agregar_articulo_rapido"] });
 
   assert.strictEqual(venta.total, 450);
 });

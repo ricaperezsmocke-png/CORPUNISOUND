@@ -5,6 +5,15 @@ const { sembrarCajas, cajaPredeterminadaDeSucursal } = require("./cajas");
 const { crearVenta } = require("./ventas");
 const { calcularCorteEnCurso, crearCorte } = require("./cortes");
 
+/**
+ * `RAPIDO` declara el permiso `agregar_articulo_rapido`. Desde el 2026-09-06 el
+ * servidor lo exige para cualquier linea SIN `producto_id`: antes se comprobaba
+ * solo en la pantalla, y mandar la mercancia real como "articulo rapido" a $1
+ * se saltaba el recalculo de precios entero. Estas pruebas usan articulos
+ * rapidos como atajo de fixture, no porque traten sobre ellos.
+ */
+const RAPIDO = { permisos: ["agregar_articulo_rapido"] };
+
 function prepararDB() {
   const DB = construirDBPrueba();
   DB.pos.ventas = [];
@@ -93,7 +102,7 @@ test("crearVenta rechaza una caja de otra sucursal", () => {
       caja_id: cajaAjena.id,
       lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 100 }],
       total: 100,
-    }),
+    }, RAPIDO),
     /caja.*sucursal/i
   );
   assert.strictEqual(DB.pos.ventas.length, 0);
@@ -113,7 +122,7 @@ test("crearVenta conserva sus validaciones de negocio si la base no trae sucursa
       vendedor_id: 3,
       lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 100 }],
       total: 100,
-    }),
+    }, RAPIDO),
     /no vende en esta sucursal/i
   );
 });
@@ -126,7 +135,7 @@ test("crearVenta usa la Administrativa de su sucursal cuando no se declara caja"
     sucursal_id: 4,
     lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 100 }],
     total: 100,
-  });
+  }, RAPIDO);
 
   assert.strictEqual(venta.caja_id, cajasDe(DB).administrativa.id);
 });
@@ -142,7 +151,7 @@ test("crearVenta sin catalogo de cajas no lanza y guarda caja_id null", () => {
     sucursal_id: 4,
     lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 70 }],
     total: 70,
-  });
+  }, RAPIDO);
 
   assert.strictEqual(venta.caja_id, null);
 });
@@ -165,7 +174,7 @@ test("la Administrativa absorbe una venta creada antes de sembrar el catalogo de
     metodo_pago: "TARJETA",
     lineas: [{ descripcion: "Servicio", cantidad: 1, precio_unitario: 70 }],
     total: 70,
-  });
+  }, RAPIDO);
   sembrarCajas(DB);
 
   const { administrativa, fiscal } = cajasDe(DB);
