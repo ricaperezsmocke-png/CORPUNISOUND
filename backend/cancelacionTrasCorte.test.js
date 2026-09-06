@@ -105,3 +105,57 @@ test("una cancelacion de una venta NO cortada no aparece en el aviso", () => {
     "esa venta nunca se conto, asi que su cancelacion no descuadra nada"
   );
 });
+
+/**
+ * Todo lo que hay hoy en la base es historico: sin `corte_id`, porque ese sello
+ * nacio con la rama de cajas. Si el aviso solo mira lo sellado, esta apagado
+ * justo el primer mes — que es cuando la base es casi toda historica, cuando
+ * mas probable es cancelar algo viejo, y cuando mas falta hace la explicacion.
+ * La cajera cargaba con el faltante y el sistema callaba.
+ */
+test("una venta historica ya contada y cancelada despues si produce el aviso", () => {
+  const DB = prepararDB();
+  const A = caja(DB);
+  DB.pos.ventas = [{
+    id: 1, sucursal_id: 4, caja_id: null, corte_id: null,
+    tipo_documento: "Ticket", estatus: "cancelada", metodo_pago: "EFECTIVO",
+    fecha: "2026-08-20", fecha_hora: "2026-08-20T18:00:00.000Z", total: 500,
+    fecha_hora_cancelacion: "2026-09-02T10:00:00.000Z",
+  }];
+  // El corte anterior de esta caja: cerro DESPUES de la venta, o sea la conto.
+  DB.pos.cortes_caja = [{
+    id: 1, sucursal_id: 4, caja_id: A.id, fecha: "2026-08-25",
+    fecha_hora: "2026-08-25T00:00:00.000Z", total_calculado: 500, total_contado: 500,
+    total_diferencia: 0, total_retiro: 0,
+  }];
+
+  const enCurso = calcularCorteEnCurso(DB, 4, A.id);
+
+  assert.strictEqual(
+    enCurso.cancelado_de_cortes_anteriores, 500,
+    "sin sello, 'ya lo conto un corte' se deduce del reloj, con la misma frontera que ventasDelTurno"
+  );
+});
+
+test("una venta historica que ningun corte alcanzo a contar no produce aviso", () => {
+  const DB = prepararDB();
+  const A = caja(DB);
+  DB.pos.ventas = [{
+    id: 2, sucursal_id: 4, caja_id: null, corte_id: null,
+    tipo_documento: "Ticket", estatus: "cancelada", metodo_pago: "EFECTIVO",
+    fecha: "2026-08-28", fecha_hora: "2026-08-28T18:00:00.000Z", total: 700,
+    fecha_hora_cancelacion: "2026-09-02T10:00:00.000Z",
+  }];
+  DB.pos.cortes_caja = [{
+    id: 1, sucursal_id: 4, caja_id: A.id, fecha: "2026-08-25",
+    fecha_hora: "2026-08-25T00:00:00.000Z", total_calculado: 0, total_contado: 0,
+    total_diferencia: 0, total_retiro: 0,
+  }];
+
+  const enCurso = calcularCorteEnCurso(DB, 4, A.id);
+
+  assert.strictEqual(
+    enCurso.cancelado_de_cortes_anteriores, 0,
+    "avisar de dinero que ningun corte conto seria inventarle un descuadre a la cajera"
+  );
+});

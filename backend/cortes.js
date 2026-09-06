@@ -102,7 +102,19 @@ function abonosDelTurno(DB, sucursal_id, desde, caja) {
 function canceladoDeCortesAnteriores(DB, sucursal_id, desde, caja) {
   return DB.pos.ventas
     .filter((v) => v.estatus === "cancelada")
-    .filter((v) => v.corte_id != null)          // alguien ya lo conto
+    // "Alguien ya lo conto" tiene dos respuestas, una por era. Mirar solo el
+    // sello dejaba el aviso APAGADO durante las primeras semanas: el corte_id
+    // nacio con las cajas, asi que ninguna venta anterior lo tiene, y es
+    // justamente cuando la base es casi toda historica y mas probable es
+    // cancelar algo viejo.
+    .filter((v) => {
+      const marca = fechaHoraDeVenta(v);
+      // Era sellada: lo conto un corte si lleva su sello.
+      if (esDeLaEraSellada(marca, DB)) return v.corte_id != null;
+      // Era historica: no hay sello, asi que se deduce del reloj, con la MISMA
+      // frontera que usa ventasDelTurno para decidir si todavia la incluye.
+      return desde ? marca <= desde : false;
+    })
     .filter((v) => v.sucursal_id === Number(sucursal_id))
     .filter((v) => esDeEstaCaja(v, caja))
     // Frontera INCLUSIVA, y por la misma razon que la de la epoca: el corte y
