@@ -1861,7 +1861,18 @@ app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resol
   try {
     // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
     // cualquiera podría cargarle un gasto a otra tienda.
-    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive, req.query.caja_id);
+    //
+    // La caja, en cambio, la DECLARA quien captura (cuerpo), no la hereda del
+    // encabezado. Con `?caja_id=` la sucursal salía del token y la caja del
+    // selector de arriba —que `apiFetch` inyecta desde localStorage—: dos
+    // fuentes para una sola decisión. El gasto rebotaba con "La caja indicada
+    // no pertenece a la sucursal de la sesión" cuando el encabezado apuntaba a
+    // otra tienda, y dentro de la propia tienda se cargaba en silencio a la
+    // caja que hubiera arriba, dejándole un faltante a la cajera.
+    //
+    // La caja declarada se sigue validando contra la sucursal del token dentro
+    // de `crearGasto` (resolverCajaDeSucursal): declararla no es elegirla libre.
+    const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive, req.body.caja_id);
     res.json(gasto);
   } catch (e) {
     res.status(400).json({ error: e.message });

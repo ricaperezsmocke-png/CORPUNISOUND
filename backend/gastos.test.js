@@ -3,6 +3,7 @@ const assert = require("node:assert");
 const { construirDBPrueba } = require("./testHelpers");
 const { listarCategorias, desactivarCategoria } = require("./gastosCategorias");
 const { crearGasto, cancelarGasto, listarGastos, movimientosDeGasto, gastosEfectivoDelTurno } = require("./gastos");
+const { sembrarCajas } = require("./cajas");
 
 const ALCANCE_TODAS = { verTodas: true, sucursalId: null };
 const USUARIO = { nombre: "Victor" };
@@ -305,4 +306,56 @@ test("crearGasto: dos capturas simultáneas de sucursales distintas, con Drive l
   assert.notStrictEqual(gOcosingo.id, gTuxtla.id, "no deben compartir id");
   assert.notStrictEqual(gOcosingo.folio, gTuxtla.folio, "no deben compartir folio");
   assert.strictEqual(DB.gastos.gastos.length, 2, "deben quedar los dos gastos, cada uno con su propio registro");
+});
+
+// ─────────────────── La caja de la que salió el dinero ───────────────────
+
+/**
+ * La caja la DECLARA quien captura, y se valida contra la sucursal del TOKEN,
+ * que es donde el gasto se registra. Antes la caja venía del encabezado del
+ * navegador y la sucursal del token: dos fuentes distintas para una sola
+ * decisión, que es exactamente la trampa documentada en CLAUDE.md.
+ */
+test("crearGasto: el gasto se carga a la caja declarada, no a la predeterminada", async () => {
+  const DB = construirDBPrueba();
+  sembrarCajas(DB);
+  const fiscal = DB.pos.cajas.find((c) => c.sucursal_id === 1 && !c.predeterminada);
+
+  const g = await crearGasto(DB, datosBase(DB), 1, USUARIO, driveFalso(), fiscal.id);
+
+  assert.strictEqual(g.caja_id, fiscal.id);
+});
+
+test("crearGasto: un gasto sin caja declarada cae en la predeterminada de su sucursal", async () => {
+  const DB = construirDBPrueba();
+  sembrarCajas(DB);
+  const administrativa = DB.pos.cajas.find((c) => c.sucursal_id === 1 && c.predeterminada);
+
+  const g = await crearGasto(DB, datosBase(DB), 1, USUARIO, driveFalso(), undefined);
+
+  assert.strictEqual(g.caja_id, administrativa.id);
+});
+
+/**
+ * Sin esta columna, quien revisa un descuadre no puede saber a qué caja se le
+ * cargó cada gasto: el `caja_id` crudo no le dice nada a nadie.
+ */
+test("listarGastos: cada fila dice de qué caja salió el dinero", async () => {
+  const DB = construirDBPrueba();
+  sembrarCajas(DB);
+  const fiscal = DB.pos.cajas.find((c) => c.sucursal_id === 1 && !c.predeterminada);
+  await crearGasto(DB, datosBase(DB), 1, USUARIO, driveFalso(), fiscal.id);
+
+  const [fila] = listarGastos(DB, {}, ALCANCE_TODAS);
+  assert.strictEqual(fila.caja_nombre, "Fiscal");
+});
+
+test("listarGastos: un gasto histórico sin caja no inventa un nombre", async () => {
+  const DB = construirDBPrueba();
+  sembrarCajas(DB);
+  await crearGasto(DB, datosBase(DB), 1, USUARIO, driveFalso());
+  DB.gastos.gastos[0].caja_id = null;
+
+  const [fila] = listarGastos(DB, {}, ALCANCE_TODAS);
+  assert.strictEqual(fila.caja_nombre, "—");
 });
