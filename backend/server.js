@@ -1264,7 +1264,12 @@ app.get("/api/auth/yo", requiereLogin, (req, res) => {
 app.get("/api/permisos-catalogo", (req, res) => res.json({ permisos: listarPermisos(), modulos: listarModulosSistema() }));
 
 // ---------- Roles ----------
-app.get("/api/roles", (req, res) => res.json(listarRoles(DB)));
+// Esta ruta respondia SIN LOGIN y devolvia el arreglo completo de permisos de
+// cada rol: el modelo de autorizacion entero, publicado en internet. No es
+// dinero directo, pero es el mapa que usa cualquiera que quiera buscar por
+// donde entrar. Solo la consume la pantalla de Roles y Personal, que ya exige
+// sesion; el login NO la usa, asi que cerrarla no rompe la entrada al sistema.
+app.get("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarRoles(DB)));
 app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
