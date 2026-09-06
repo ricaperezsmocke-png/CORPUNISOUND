@@ -272,7 +272,12 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
         {puede("cancelar_ventas") && <BotonBarra icono={Ban} etiqueta="Cancelar" atajo="F6" tono="rojo" onClick={abrirCancelar} />}
-        {puede("cambiar_caja_venta") && <BotonBarra icono={ArrowLeftRight} etiqueta="Cambiar caja" onClick={abrirCambiarCaja} />}
+        {/* La regla vive en el backend (cambiarCajaVenta rechaza apartados y no
+            cerradas); esto solo evita ofrecer algo que va a rebotar. El dinero
+            de un apartado esta en sus abonos, no en el documento. */}
+        {puede("cambiar_caja_venta") && seleccionada?.tipo_documento !== "Apartado" && seleccionada?.estatus === "cerrada" && (
+          <BotonBarra icono={ArrowLeftRight} etiqueta="Cambiar caja" onClick={abrirCambiarCaja} />
+        )}
         {puede("exportar_ventas") && <BotonBarra icono={Download} etiqueta="Exportar" atajo="F7" onClick={exportarCSV} />}
         <BotonBarra icono={DollarSign} etiqueta="Saldo" atajo="F8" onClick={consultarSaldo} />
         <BotonBarra icono={Mail} etiqueta="eMail" atajo="F11" onClick={enviarCorreo} />
