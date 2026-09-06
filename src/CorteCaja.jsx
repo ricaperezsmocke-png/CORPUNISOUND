@@ -360,6 +360,16 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   <span className="font-medium text-amber-800">− {$fmt(enCurso.gastos_efectivo)}</span>
                 </div>
               )}
+              {/* El backend calculaba esto y nadie lo pintaba: media funcion
+                  construida, y la mitad que faltaba era la unica que ve la
+                  cajera. Sin el renglon, ese faltante aparece sin explicacion
+                  y se busca como si fuera un robo. */}
+              {Number(enCurso?.cancelado_de_cortes_anteriores) > 0 && (
+                <div className="text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded px-2 py-1.5 mt-2">
+                  ⚠ Se cancelaron {$fmt(enCurso.cancelado_de_cortes_anteriores)} de ventas que un corte anterior ya había contado.
+                  Si te falta ese dinero, esta es la razón — no es un faltante tuyo.
+                </div>
+              )}
               {!puedeVerMontos && (
                 <div className="text-[11px] text-slate-400 mt-2">Los montos esperados solo son visibles para supervisión.</div>
               )}
@@ -446,6 +456,14 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                     <span>Ventas del turno: <b>{enCurso.ventas_incluidas}</b></span>
                   </div>
                   <p className="text-center text-[11px] text-blue-600 mt-2">Las transferencias y ventas a crédito no entran al conteo físico de la caja</p>
+                  {/* Va tambien aqui a proposito: este es el momento en que la
+                      cajera cuenta el dinero y ve la diferencia. */}
+                  {Number(enCurso?.cancelado_de_cortes_anteriores) > 0 && (
+                    <div className="text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded px-2 py-1.5 mt-2">
+                      ⚠ Se cancelaron {$fmt(enCurso.cancelado_de_cortes_anteriores)} de ventas que un corte anterior ya había contado.
+                      Si te falta ese dinero, esta es la razón — no es un faltante tuyo.
+                    </div>
+                  )}
                   {!puedeVerMontos && (
                     <p className="text-center text-[11px] text-slate-400 mt-1">Los montos esperados solo son visibles para supervisión.</p>
                   )}
