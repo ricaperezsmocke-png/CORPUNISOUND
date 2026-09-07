@@ -1859,6 +1859,21 @@ app.get("/api/gastos", requiereLogin, requierePermiso("ver_gastos", resolverPerm
 
 app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resolverPermisosDeRol), async (req, res) => {
   try {
+    // Marcar un gasto como pagado desde la CAJA FUERTE baja el dinero
+    // resguardado SIN descuadrar el corte de nadie —justo porque no le resta a
+    // ninguna cajera—, asi que con un comprobante falso seria la forma mas
+    // limpia de sacarlo sin dejar senal contable. Por eso lleva permiso propio y
+    // no viene incluido en `registrar_gastos`.
+    //
+    // Se RECHAZA, no se degrada a "CAJON" en silencio: guardar algo distinto de
+    // lo que declaro quien captura dejaria el gasto restandole a una cajera que
+    // no lo pago, y quien lo capturo creeria que hizo lo correcto.
+    if (String(req.body.origen || "").toUpperCase() === "CAJA_FUERTE") {
+      const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+      if (!Array.isArray(permisos) || !permisos.includes("registrar_gasto_caja_fuerte")) {
+        return res.status(403).json({ error: "No tienes permiso para registrar un gasto pagado desde la caja fuerte" });
+      }
+    }
     // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
     // cualquiera podría cargarle un gasto a otra tienda.
     //
