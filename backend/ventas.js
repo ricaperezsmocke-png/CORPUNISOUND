@@ -211,6 +211,28 @@ function crearVenta(DB, datos, opciones = {}) {
 
   const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);
 
+  // El monedero salda una deuda con el cliente: NO es efectivo ni cambia el
+  // valor de la venta. El servidor limita la propuesta al saldo y al total.
+  // Validamos la caja antes de consumir saldo, para no gastarlo si se rechaza.
+  let monederoAplicado = 0;
+  const pedido = Number(datos.monedero_aplicado ?? 0);
+  if (!Number.isFinite(pedido) || pedido < 0) {
+    throw new Error("El importe de monedero debe ser un número válido y no negativo");
+  }
+  if (pedido > 0) {
+    if (datos.tipo_documento === "Apartado") {
+      throw new Error("El monedero solo se aplica a venta directa, no a apartados");
+    }
+    const clienteId = Number(datos.cliente_id) || 0;
+    if (!clienteId) throw new Error("Elige un cliente para aplicar su monedero: Público en General no tiene saldo");
+    const cliente = DB.crm.clientes.find((c) => Number(c.id) === clienteId);
+    if (!cliente) throw new Error("El cliente de la venta no existe");
+    const saldo = Number(cliente.monedero) || 0;
+    if (!Number.isFinite(saldo) || saldo < 0) throw new Error("El saldo de monedero del cliente no es válido");
+    monederoAplicado = redondear(Math.min(pedido, saldo, Math.max(0, totalCalculado)));
+    cliente.monedero = redondear(saldo - monederoAplicado);
+  }
+
   const nuevoId = siguienteId(DB.pos.ventas);
   const venta = {
     id: nuevoId,
@@ -228,6 +250,8 @@ function crearVenta(DB, datos, opciones = {}) {
     subtotal: subtotalCalculado,
     descuento: descuentoCalculado,
     total: totalCalculado,
+    // Rastro del saldo usado: el corte cobra solo total - monedero_aplicado.
+    monedero_aplicado: monederoAplicado,
     estatus: "cerrada",
     motivo_cancelacion: null,
     corte_id: null,
@@ -340,6 +364,14 @@ function cancelarVenta(DB, id, motivo, usuario) {
   // cortes.js).
   venta.fecha_hora_cancelacion = new Date().toISOString();
   venta.cancelada_por = usuario?.nombre || "—";
+
+  // El saldo era del cliente: cancelar se lo devuelve. La guarda de venta
+  // ya cancelada, arriba, impide reintegrarlo dos veces. Se conserva el rastro.
+  const monederoAplicado = Number(venta.monedero_aplicado) || 0;
+  if (monederoAplicado > 0) {
+    const cliente = DB.crm.clientes.find((c) => Number(c.id) === Number(venta.cliente_id));
+    if (cliente) cliente.monedero = redondear((Number(cliente.monedero) || 0) + monederoAplicado);
+  }
 
   // Reintegra al inventario lo que sí venía de catálogo
   DB.pos.venta_detalle
