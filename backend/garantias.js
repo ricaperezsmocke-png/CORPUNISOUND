@@ -89,12 +89,13 @@ function pushMovimiento(DB, garantia, tipo, descripcion, usuario) {
  *  existencia en esa sucursal (dato legado — no debe frenar el flujo de la
  *  garantía). Cualquier otro error se propaga: no queremos volver a tragarnos
  *  en silencio fallas futuras de ajustarExistencia. */
-function ajustarExistenciaOrigen(DB, garantia, cantidad, motivo) {
+function ajustarExistenciaOrigen(DB, garantia, cantidad, motivo, usuario) {
   try {
     ajustarExistencia(DB, garantia.producto_id, {
       cantidad,
       motivo,
       sucursal_id: garantia.sucursal_origen_id,
+      usuario,
     });
     return true;
   } catch (e) {
@@ -181,7 +182,7 @@ function marcarEnviada(DB, id, datos, usuario, alcance) {
 
   const esPropio = esStockPropio(garantia);
   const stockAjustado = esPropio
-    ? ajustarExistenciaOrigen(DB, garantia, -1, `Garantía ${garantia.folio} — enviada`)
+    ? ajustarExistenciaOrigen(DB, garantia, -1, `Garantía ${garantia.folio} — enviada`, usuario)
     : false;
 
   garantia.estado = "enviada";
@@ -241,7 +242,7 @@ function recibirEnTienda(DB, id, usuario, alcance) {
 
   const esPropio = esStockPropio(garantia);
   const stockAjustado = esPropio
-    ? ajustarExistenciaOrigen(DB, garantia, 1, `Garantía ${garantia.folio} — recibida`)
+    ? ajustarExistenciaOrigen(DB, garantia, 1, `Garantía ${garantia.folio} — recibida`, usuario)
     : false;
 
   const sucursal = nombreSucursal(DB, garantia.sucursal_origen_id);

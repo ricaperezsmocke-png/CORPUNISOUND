@@ -1649,7 +1649,7 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
     // solo pedia `cerrar_venta`, asi que un descuento del 99.99% entraba por
     // peticion directa sin dejar ninguna senal.
     const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
-    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos }));
+    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {

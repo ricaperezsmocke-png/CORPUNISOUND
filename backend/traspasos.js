@@ -58,6 +58,7 @@ function crearTraspaso(DB, datos, sucursalOrigenId, usuario) {
     cantidad: -cantidad,
     motivo: `Traspaso #${nuevo.id} — envío a sucursal ${sucursal_destino_id}`,
     sucursal_id: sucursal_origen_id,
+    usuario,
   });
 
   DB.inventario.traspasos.push(nuevo);
@@ -87,6 +88,7 @@ function recibirTraspaso(DB, id, datos, sucursalUsuarioId, usuario) {
     cantidad: traspaso.cantidad,
     motivo: `Traspaso #${traspaso.id} — recepción de sucursal ${traspaso.sucursal_origen_id}`,
     sucursal_id: traspaso.sucursal_destino_id,
+    usuario,
   });
 
   traspaso.estatus = "recibido";
