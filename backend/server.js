@@ -56,7 +56,7 @@ const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, veri
 const { consultarModulo, tablasConsultables } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
 const { sembrarCategoriasGastos } = require("./gastosCategorias");
-const { crearGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosDeGasto } = require("./gastos");
+const { crearGasto, corregirOrigenGasto, cancelarGasto, listarGastos: listarGastosGasto, movimientosDeGasto } = require("./gastos");
 const { listarCategorias: listarCategoriasGasto, crearCategoria: crearCategoriaGasto,
         renombrarCategoria: renombrarCategoriaGasto, desactivarCategoria: desactivarCategoriaGasto,
       } = require("./gastosCategorias");
@@ -1859,6 +1859,21 @@ app.get("/api/gastos", requiereLogin, requierePermiso("ver_gastos", resolverPerm
 
 app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resolverPermisosDeRol), async (req, res) => {
   try {
+    // Marcar un gasto como pagado desde la CAJA FUERTE baja el dinero
+    // resguardado SIN descuadrar el corte de nadie —justo porque no le resta a
+    // ninguna cajera—, asi que con un comprobante falso seria la forma mas
+    // limpia de sacarlo sin dejar senal contable. Por eso lleva permiso propio y
+    // no viene incluido en `registrar_gastos`.
+    //
+    // Se RECHAZA, no se degrada a "CAJON" en silencio: guardar algo distinto de
+    // lo que declaro quien captura dejaria el gasto restandole a una cajera que
+    // no lo pago, y quien lo capturo creeria que hizo lo correcto.
+    if (String(req.body.origen || "").toUpperCase() === "CAJA_FUERTE") {
+      const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+      if (!Array.isArray(permisos) || !permisos.includes("registrar_gasto_caja_fuerte")) {
+        return res.status(403).json({ error: "No tienes permiso para registrar un gasto pagado desde la caja fuerte" });
+      }
+    }
     // La sucursal sale del TOKEN, nunca del body: si viniera del cliente,
     // cualquiera podría cargarle un gasto a otra tienda.
     //
@@ -1874,6 +1889,19 @@ app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resol
     // de `crearGasto` (resolverCajaDeSucursal): declararla no es elegirla libre.
     const gasto = await crearGasto(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive, req.body.caja_id);
     res.json(gasto);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
+ * Corregir el origen de un gasto mal capturado. Mismo permiso que marcarlo desde
+ * la caja fuerte: quien puede declarar que un gasto salio del resguardo es quien
+ * puede corregirlo. La ruta rechaza si el gasto ya entro en un corte cerrado.
+ */
+app.put("/api/gastos/:id/origen", requiereLogin, requierePermiso("registrar_gasto_caja_fuerte", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json(corregirOrigenGasto(DB, req.params.id, req.body, req.usuarioToken));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

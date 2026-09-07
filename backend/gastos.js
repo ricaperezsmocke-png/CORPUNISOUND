@@ -20,6 +20,7 @@ const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
 
 const FORMAS_PAGO_GASTO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
+const ORIGENES_GASTO = ["CAJON", "CAJA_FUERTE"];
 const MIME_VALIDOS = ["application/pdf", "image/jpeg", "image/png"];
 const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
 
@@ -89,6 +90,13 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
   const forma_pago = (datos.forma_pago || "").toUpperCase();
   if (!FORMAS_PAGO_GASTO.includes(forma_pago)) throw new Error("Elige una forma de pago válida");
 
+  // Solo ausente o null absorbe el histórico como cajón. Otros valores
+  // inválidos se rechazan: no cambiar lo que declaró quien captura.
+  const origen = typeof datos.origen === "string" ? datos.origen.toUpperCase() : (datos.origen ?? "CAJON");
+  if (!ORIGENES_GASTO.includes(origen)) {
+    throw new Error("El origen del dinero debe ser el cajón o la caja fuerte");
+  }
+
   const archivo = datos.archivo;
   if (!archivo || !archivo.contenido_base64) {
     throw new Error("El comprobante es obligatorio — adjunta la foto del ticket o la factura");
@@ -136,6 +144,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
     fecha_hora: ahora,
     sucursal_id,
     caja_id: caja?.id ?? null,
+    origen,
     categoria_id: categoria.id,
     concepto,
     descripcion: (datos.descripcion || "").trim(),
@@ -176,6 +185,47 @@ function enRango(fecha, desde, hasta) {
   if (desde && fecha < desde) return false;
   if (hasta && fecha > hasta) return false;
   return true;
+}
+
+/**
+ * Corrige el origen —y opcionalmente la caja— de un gasto que todavia NO ha
+ * entrado en un corte cerrado.
+ *
+ * Sin esto, un gasto marcado con el origen equivocado es un faltante permanente
+ * a nombre de quien cerro la caja ese dia: cuenta su cajon, el corte le pide de
+ * mas por una nomina que salio del resguardo, y no hay forma de arreglarlo.
+ *
+ * Despues de un corte cerrado NO se toca, por la misma razon que las ventas con
+ * `cambiarCajaVenta`: cambiaria el calculado de un corte que alguien ya firmo.
+ * La regla de "ya lo conto un corte" es la MISMA que usa
+ * `gastosEfectivoDelTurnoLista` —el sello `corte_id`— y se lee de ahi en vez de
+ * copiarse: en este repo, cada vez que una regla de dinero ha vivido en dos
+ * sitios, las dos han acabado discrepando.
+ */
+function corregirOrigenGasto(DB, id, cambios, usuario) {
+  const gasto = DB.gastos.gastos.find((g) => g.id === Number(id));
+  if (!gasto) throw new Error("Gasto no encontrado");
+  if (gasto.estatus !== "activo") throw new Error("Un gasto cancelado ya no se corrige");
+  if (gasto.corte_id != null) {
+    throw new Error("Este gasto ya entro en un corte cerrado y su origen no se puede cambiar");
+  }
+
+  const antes = { origen: gasto.origen || "CAJON", caja_id: gasto.caja_id };
+
+  if (cambios.origen !== undefined) {
+    const origen = String(cambios.origen).toUpperCase();
+    if (!ORIGENES_GASTO.includes(origen)) {
+      throw new Error("El origen del dinero debe ser el cajón o la caja fuerte");
+    }
+    gasto.origen = origen;
+  }
+  if (cambios.caja_id !== undefined) {
+    gasto.caja_id = resolverCajaDeSucursal(DB, gasto.sucursal_id, cambios.caja_id).id;
+  }
+
+  pushMovimiento(DB, gasto, "correccion",
+    `Origen: ${antes.origen} → ${gasto.origen || "CAJON"}; caja: ${antes.caja_id} → ${gasto.caja_id}`, usuario);
+  return gasto;
 }
 
 function listarGastos(DB, filtros, alcance) {
@@ -230,6 +280,7 @@ function movimientosDeGasto(DB, id, alcance) {
  * gastosCorteCaja.test.js:
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
+ *   - origen cajón    : la caja fuerte no resta; ausente o null conserva el histórico
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
  *   - misma caja      : aplica en ambas eras; los registros sin caja pertenecen
  *                       solo a la caja predeterminada
@@ -240,6 +291,8 @@ function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
   return DB.gastos.gastos
     .filter((g) => g.estatus === "activo")
     .filter((g) => g.forma_pago === "EFECTIVO")
+    // El resguardo nunca estuvo en el cajón: descontarlo inventa un faltante.
+    .filter((g) => g.origen !== "CAJA_FUERTE")
     .filter((g) => g.sucursal_id === Number(sucursal_id))
     .filter((g) => esDeEstaCaja(g, caja))
     .filter((g) => {
@@ -260,6 +313,7 @@ function gastosEfectivoDelTurno(DB, sucursal_id, desde, caja) {
 }
 
 module.exports = {
+  corregirOrigenGasto,
   crearGasto, cancelarGasto, listarGastos, movimientosDeGasto,
   gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista,
   buscarConGuardia, FORMAS_PAGO_GASTO, MIME_VALIDOS, TAMANO_MAXIMO_BYTES,

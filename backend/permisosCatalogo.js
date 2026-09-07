@@ -115,6 +115,7 @@ const PERMISOS = [
   { clave: "ver_gastos", etiqueta: "Ver Gastos", modulo: "gastos", implementado: true },
   { clave: "registrar_gastos", etiqueta: "Registrar Gasto", modulo: "gastos", implementado: true },
   { clave: "cancelar_gastos", etiqueta: "Cancelar Gastos", modulo: "gastos", implementado: true },
+  { clave: "registrar_gasto_caja_fuerte", etiqueta: "Registrar Gasto Pagado desde la Caja Fuerte", modulo: "gastos", implementado: true },
   { clave: "administrar_categorias_gastos", etiqueta: "Administrar Categorías de Gastos", modulo: "gastos", implementado: true },
 
   // ---- Estado de Cuenta (cuenta común entre sucursales) ----
