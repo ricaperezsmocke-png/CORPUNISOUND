@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ShieldAlert, Search, X, ChevronLeft, ChevronRight, Send, MapPin, ClipboardCheck, PackageCheck, UserCheck, History, DollarSign, Upload, Trash2, FileText } from "lucide-react";
-import { apiFetch } from "./api";
+import { apiFetch, cajaActiva } from "./api";
 import { pedirLista } from "./cargaSegura";
 import ModalConfirmar from "./ModalConfirmar";
 
@@ -40,7 +40,53 @@ function leerArchivoBase64(archivo) {
     lector.readAsDataURL(archivo);
   });
 }
-const FORM_GASTO = { tipo: "traslado", monto: "", descripcion: "" };
+const FORM_COBRO = { monto: "", descripcion: "", forma_pago: "EFECTIVO", caja_id: "" };
+const FORM_GASTO = { ...FORM_COBRO, tipo: "traslado" };
+
+export function sugerirCajaGarantia(cajas, encabezado) {
+  const caja = cajas.find((c) => String(c.id) === String(encabezado)) || cajas.find((c) => c.predeterminada);
+  return caja ? String(caja.id) : "";
+}
+
+export function PagoGarantia({ form, setForm, cajas, sucursalNombre, cobro = false }) {
+  const nombreCaja = cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "predeterminada";
+  return (
+    <>
+      <Campo label="Forma de pago">
+        <select aria-label={`Forma de pago del ${cobro ? "cobro" : "gasto"}`} className={inputCls} value={form.forma_pago} onChange={(e) => setForm({ ...form, forma_pago: e.target.value })}>
+          <option value="EFECTIVO">Efectivo</option>
+          <option value="TARJETA">Tarjeta</option>
+          <option value="TRANSFERENCIA">Transferencia</option>
+        </select>
+      </Campo>
+      {form.forma_pago === "EFECTIVO" && (
+        <Campo label={cobro ? "¿A qué caja entró el dinero?" : "¿De qué caja salió el dinero?"}>
+          <select aria-label={`Caja de efectivo del ${cobro ? "cobro" : "gasto"}`} className={inputCls} value={form.caja_id} onChange={(e) => setForm({ ...form, caja_id: e.target.value })}>
+            {cajas.length === 0 && <option value="">Predeterminada de la sucursal</option>}
+            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <p className={`text-xs rounded px-2 py-1.5 mt-1.5 ${cobro ? "text-emerald-800 bg-emerald-50" : "text-amber-800 bg-amber-50"}`}>
+            Este {cobro ? "cobro se sumará al" : "gasto se descontará del"} efectivo esperado de la caja <strong>{nombreCaja}</strong> de <strong>{sucursalNombre}</strong>.
+          </p>
+        </Campo>
+      )}
+    </>
+  );
+}
+
+export function ResumenDineroGarantia({ cobros, gastos, cargando, error }) {
+  if (cargando) return <p className="text-sm text-slate-500" role="status">Cargando el dinero del caso…</p>;
+  if (error) return <p className="text-sm text-red-700" role="alert">{error} — cierra y vuelve a abrir esta garantía.</p>;
+  const cobrado = cobros.reduce((s, x) => s + Number(x.monto || 0), 0);
+  const pagado = gastos.reduce((s, x) => s + Number(x.monto || 0), 0);
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 rounded px-3 py-2 text-sm">
+      {[['Cobrado al cliente', cobrado], ['Pagado por la tienda', pagado], ['Diferencia (cobrado − pagado)', cobrado - pagado]].map(([etiqueta, monto]) => (
+        <div key={etiqueta}><div className="text-slate-500">{etiqueta}</div><strong>${monto.toFixed(2)}</strong></div>
+      ))}
+    </div>
+  );
+}
 
 function Campo({ label, children }) {
   return (
@@ -102,8 +148,13 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const [modalHistorial, setModalHistorial] = useState(null);
   const [modalGastos, setModalGastos] = useState(null); // garantía o null
   const [gastos, setGastos] = useState([]);
+  const [cobros, setCobros] = useState([]);
+  const [cajasGarantia, setCajasGarantia] = useState([]);
+  const [cargandoDinero, setCargandoDinero] = useState(false);
+  const cargaDineroActual = useRef(0);
   const [errorGastos, setErrorGastos] = useState(null);
   const [formGasto, setFormGasto] = useState(FORM_GASTO);
+  const [formCobro, setFormCobro] = useState(FORM_COBRO);
   const [archivoGasto, setArchivoGasto] = useState(null); // File | null
 
   // Buscador de producto (mismo patrón visual que Traspasos/POS)
@@ -224,8 +275,12 @@ export default function Garantias({ onVolver, permisos, usuario }) {
   const abrirGastos = async (g) => {
     setModalGastos(g);
     setFormGasto(FORM_GASTO);
+    setFormCobro(FORM_COBRO);
+    setGastos([]);
+    setCobros([]);
+    setCajasGarantia([]);
     setArchivoGasto(null);
-    await cargarGastosDe(g.id);
+    await cargarGastosDe(g.id, g.sucursal_origen_id, true);
   };
 
   /**
@@ -242,31 +297,61 @@ export default function Garantias({ onVolver, permisos, usuario }) {
    * datos, ocurría después, al pintar. Por eso aquí se valida que lo recibido
    * sea de verdad una lista antes de dejarlo entrar al estado.
    */
-  const cargarGastosDe = async (garantiaId) => {
+  const cargarGastosDe = async (garantiaId, sucursalId = modalGastos?.sucursal_origen_id, sugerir = false) => {
+    const solicitud = ++cargaDineroActual.current;
+    setCargandoDinero(true);
     try {
-      const r = await apiFetch(`/garantias/${garantiaId}/gastos?sucursal_id=todas`);
-      const data = await r.json().catch(() => null);
-      if (!r.ok || !Array.isArray(data)) {
-        throw new Error(data?.error || "No se pudieron cargar los gastos");
+      const [pagos, ingresos, cajas] = await Promise.all([
+        pedirLista(() => apiFetch(`/garantias/${garantiaId}/gastos`), "los gastos"),
+        pedirLista(() => apiFetch(`/garantias/${garantiaId}/cobros`), "los cobros"),
+        pedirLista(() => apiFetch(`/cajas?sucursal_id=${sucursalId}`), "las cajas"),
+      ]);
+      if (solicitud !== cargaDineroActual.current) return;
+      const error = pagos.error || ingresos.error || cajas.error;
+      if (error) throw new Error(error);
+      setGastos(pagos.datos);
+      setCobros(ingresos.datos);
+      setCajasGarantia(cajas.datos);
+      if (sugerir) {
+        const caja_id = sugerirCajaGarantia(cajas.datos, cajaActiva());
+        setFormGasto((f) => ({ ...f, caja_id }));
+        setFormCobro((f) => ({ ...f, caja_id }));
       }
-      setGastos(data);
       setErrorGastos(null);
     } catch (e) {
+      if (solicitud !== cargaDineroActual.current) return;
       setGastos([]);
+      setCobros([]);
       // Se distingue "no hay gastos" de "no se pudieron cargar": una lista
       // vacía por fallo se ve idéntica a una lista vacía de verdad.
       setErrorGastos(e.message || "No se pudieron cargar los gastos");
+    } finally {
+      if (solicitud === cargaDineroActual.current) setCargandoDinero(false);
     }
   };
 
-  // `Array.isArray` no sobra aunque el cargador ya lo valide: este cálculo
-  // corre en CADA render, y si algún día vuelve a entrar algo que no sea lista,
-  // el precio es la pantalla completa en blanco.
-  const totalGastosModal = Array.isArray(gastos)
-    ? gastos.reduce((s, x) => s + Number(x.monto || 0), 0)
-    : 0;
+  const agregarCobroUI = async () => {
+    const monto = Number(formCobro.monto);
+    if (!Number.isFinite(monto) || monto <= 0) return mostrarAviso("El monto debe ser mayor que cero");
+    if (movimientoEnCurso.current || cargandoDinero || errorGastos) return;
+    movimientoEnCurso.current = true;
+    setProcesandoMovimiento("cobro");
+    try {
+      const r = await apiFetch(`/garantias/${modalGastos.id}/cobros`, {
+        method: "POST", body: JSON.stringify({ ...formCobro, monto }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("Cobro al cliente registrado");
+      setFormCobro((f) => ({ ...f, monto: "", descripcion: "" }));
+      await cargarGastosDe(modalGastos.id);
+      await cargarGarantias();
+    } catch (e) { mostrarAviso("❌ " + e.message); }
+    finally { movimientoEnCurso.current = false; setProcesandoMovimiento(null); }
+  };
 
   const agregarGastoUI = async () => {
+    if (cargandoDinero || errorGastos) return;
     const monto = Number(formGasto.monto);
     if (!Number.isFinite(monto) || monto <= 0) return mostrarAviso("El monto debe ser mayor que cero");
     if (archivoGasto) {
@@ -285,12 +370,12 @@ export default function Garantias({ onVolver, permisos, usuario }) {
       }
       const r = await apiFetch(`/garantias/${modalGastos.id}/gastos?sucursal_id=todas`, {
         method: "POST",
-        body: JSON.stringify({ tipo: formGasto.tipo, monto, descripcion: formGasto.descripcion, ...archivoPayload }),
+        body: JSON.stringify({ ...formGasto, monto, ...archivoPayload }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso("Gasto agregado");
-      setFormGasto(FORM_GASTO);
+      setFormGasto((f) => ({ ...f, monto: "", descripcion: "" }));
       setArchivoGasto(null);
       await cargarGastosDe(modalGastos.id);
       await cargarGarantias();
@@ -457,7 +542,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                         <button onClick={() => entregar(g)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1 rounded flex items-center gap-1"><UserCheck size={12} /> Entregar a cliente</button>
                       )}
                       {puede("gestionar_garantias") && (
-                        <button onClick={() => abrirGastos(g)} className="text-emerald-700 hover:text-emerald-900 text-xs px-2 py-1 rounded flex items-center gap-1"><DollarSign size={12} /> Gastos{g.total_gastos > 0 ? ` ($${Number(g.total_gastos).toFixed(2)})` : ""}</button>
+                        <button onClick={() => abrirGastos(g)} className="text-emerald-700 hover:text-emerald-900 text-xs px-2 py-1 rounded flex items-center gap-1"><DollarSign size={12} /> Cobros y gastos</button>
                       )}
                       <button onClick={() => setModalHistorial(g)} className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1 rounded flex items-center gap-1"><History size={12} /> Historial</button>
                     </div>
@@ -591,29 +676,51 @@ export default function Garantias({ onVolver, permisos, usuario }) {
 
       {/* Modal Gastos */}
       {modalGastos && (
-        <Modal titulo={`Gastos — ${modalGastos.folio}`} onCerrar={() => setModalGastos(null)} ancho="max-w-2xl">
+        <Modal titulo={`Cobros y gastos — ${modalGastos.folio}`} onCerrar={() => {
+          if (movimientoEnCurso.current) return;
+          cargaDineroActual.current++;
+          setModalGastos(null);
+        }} ancho="max-w-2xl">
           <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between bg-slate-50 rounded px-3 py-2">
-              <span className="text-sm text-slate-500">Total de gastos</span>
-              <span className="text-lg font-semibold text-slate-800">${totalGastosModal.toFixed(2)}</span>
+            <p className="text-sm text-slate-600">Sucursal del caso: <strong>{modalGastos.sucursal_origen_nombre}</strong></p>
+            <ResumenDineroGarantia cobros={cobros} gastos={gastos} cargando={cargandoDinero} error={errorGastos} />
+
+            <div className="border border-emerald-200 rounded-lg p-3 flex flex-col gap-2">
+              <h4 className="font-semibold text-emerald-800">Cobro al cliente — dinero que entra</h4>
+              <Campo label="Monto del cobro">
+                <input aria-label="Monto del cobro" type="number" min="0.01" step="0.01" className={inputCls} value={formCobro.monto} onChange={(e) => setFormCobro({ ...formCobro, monto: e.target.value })} placeholder="0.00" />
+              </Campo>
+              <PagoGarantia form={formCobro} setForm={setFormCobro} cajas={cajasGarantia} sucursalNombre={modalGastos.sucursal_origen_nombre} cobro />
+              <Campo label="Descripción del cobro (opcional)">
+                <input aria-label="Descripción del cobro" className={inputCls} value={formCobro.descripcion} onChange={(e) => setFormCobro({ ...formCobro, descripcion: e.target.value })} placeholder="ej: cliente paga el flete" />
+              </Campo>
+              <button onClick={agregarCobroUI} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="bg-emerald-700 hover:bg-emerald-800 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "cobro" ? "Registrando…" : "Registrar cobro al cliente"}</button>
+              {!cargandoDinero && !errorGastos && cobros.length === 0 && <p className="text-sm text-slate-500">Sin cobros registrados</p>}
+              {cobros.map((x) => (
+                <div key={x.id} className="text-sm border-t border-emerald-100 pt-2">
+                  <strong>Ingreso: ${Number(x.monto).toFixed(2)}</strong> · {x.forma_pago} · {cajasGarantia.find((c) => String(c.id) === String(x.caja_id))?.nombre || "Predeterminada"}
+                  {x.descripcion && <span> · {x.descripcion}</span>}
+                  <div className="text-xs text-slate-500">{new Date(x.fecha).toLocaleString()} — {x.usuario}{x.corte_id != null ? ` · Corte #${x.corte_id}` : ""}</div>
+                </div>
+              ))}
             </div>
 
+            <h4 className="font-semibold text-amber-800">Pagos de la tienda — dinero que sale</h4>
             <div className="border border-slate-200 rounded divide-y divide-slate-100 max-h-56 overflow-y-auto">
-              {errorGastos && (
-                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 my-2">
-                  {errorGastos} — cierra y vuelve a abrir esta garantía, o recarga la página.
-                </p>
-              )}
-              {!errorGastos && gastos.length === 0 && <p className="text-slate-400 text-sm text-center py-6">Sin gastos registrados</p>}
+              {!cargandoDinero && !errorGastos && gastos.length === 0 && <p className="text-slate-400 text-sm text-center py-6">Sin gastos registrados</p>}
               {gastos.map((x) => (
                 <div key={x.id} className="flex items-center justify-between px-3 py-2 text-sm">
                   <div>
                     <span className="font-medium">{ETIQUETA_TIPO_GASTO[x.tipo] || x.tipo}</span>
                     <span className="text-slate-500"> — ${Number(x.monto).toFixed(2)}</span>
                     {x.descripcion ? <span className="text-slate-400"> · {x.descripcion}</span> : null}
+                    <div className="text-xs text-slate-500">
+                      {x.forma_pago ? `${x.forma_pago} · ${cajasGarantia.find((c) => String(c.id) === String(x.caja_id))?.nombre || "Predeterminada"}` : "Gasto histórico · sin datos de caja"}
+                      {x.corte_id != null ? ` · Corte #${x.corte_id}` : ""}
+                    </div>
                     {x.drive_link ? <a href={x.drive_link} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline ml-2 inline-flex items-center gap-1"><FileText size={11} /> Ver</a> : null}
                   </div>
-                  <button onClick={() => eliminarGastoUI(x.id)} disabled={procesandoMovimiento !== null} className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={14} /></button>
+                  {x.corte_id == null && <button aria-label={`Eliminar gasto de $${Number(x.monto).toFixed(2)}`} onClick={() => eliminarGastoUI(x.id)} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={14} /></button>}
                 </div>
               ))}
             </div>
@@ -626,9 +733,10 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                   </select>
                 </Campo>
                 <Campo label="Monto">
-                  <input type="number" min="0" step="0.01" className={inputCls} value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} placeholder="0.00" />
+                  <input aria-label="Monto del gasto" type="number" min="0.01" step="0.01" className={inputCls} value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} placeholder="0.00" />
                 </Campo>
               </div>
+              <PagoGarantia form={formGasto} setForm={setFormGasto} cajas={cajasGarantia} sucursalNombre={modalGastos.sucursal_origen_nombre} />
               <Campo label="Descripción (opcional)">
                 <input className={inputCls} value={formGasto.descripcion} onChange={(e) => setFormGasto({ ...formGasto, descripcion: e.target.value })} placeholder="ej: flete de ida a Sensey" />
               </Campo>
@@ -638,7 +746,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setArchivoGasto(e.target.files?.[0] || null)} />
                 </label>
               </Campo>
-              <button onClick={agregarGastoUI} disabled={procesandoMovimiento !== null} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold mt-1 disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "gasto" ? "Agregando..." : "Agregar gasto"}</button>
+              <button onClick={agregarGastoUI} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="bg-amber-700 hover:bg-amber-800 text-white py-2 rounded font-semibold mt-1 disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "gasto" ? "Registrando…" : "Registrar pago de la tienda"}</button>
             </div>
           </div>
         </Modal>
