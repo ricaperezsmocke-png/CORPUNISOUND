@@ -159,12 +159,32 @@ token. Así fue como apareció el agujero del crédito que la pantalla escondía
 
 ---
 
+## Decisiones tomadas — no volver a preguntarlas
+
+Las cuatro las decidió Victor el 2026-09-07:
+
+- **Los importes de garantías NO restan de la Utilidad.** El dinero sí entra y sale de la caja
+  —eso ya funciona y el cajón cuadra—, pero la Utilidad sigue midiendo solo la venta de mercancía.
+  Las garantías se leen en su propio reporte. Consecuencia aceptada: la utilidad no refleja lo que
+  cuesta atender garantías.
+- **No hay tope porcentual de descuento.** Quien tiene `aplicar_descuentos_articulos_venta` puede
+  descontar lo que sea; el control es a quién se le da el permiso, y el reporte de ventas permite
+  revisarlo después. No inventar un máximo.
+- **El monedero se vuelve una forma de pago real.** Hoy el saldo que deja un apartado cancelado
+  existe y no se puede gastar en ninguna parte. Debe poder usarse en el punto de venta y bajar al
+  usarse. Ver el spec correspondiente antes de implementarlo: no es solo una forma de pago más, no
+  es efectivo y no puede sumar al cajón.
+- **Las garantías van en dos etapas:** primero el expediente (tipo de equipo, serie, accesorios,
+  fotos, y separar el dictamen de la devolución), después los envíos con bultos y escaneo. El
+  segundo es el trabajo más grande que ha tenido este sistema; no empezarlo hasta que el primero
+  esté probado en la tienda.
+
 ## Deuda conocida
 
 - **Nadie ha probado en navegador** el módulo de Garantías completo, los Gastos con comprobante, ni
   el reporte de Gastos de Garantías.
 - **Los gastos de garantía no entran en ningún corte** y el dinero del cliente sí pasa por la caja:
   hay un plan escrito para arreglarlo.
-- **El dinero de un apartado cancelado** se convierte en `monedero`, un saldo que no se puede gastar
-  en ninguna parte.
+- **El dinero de un apartado cancelado** se convierte en `monedero`, un saldo que todavía no se
+  puede gastar. Ya está decidido que debe poder usarse (ver arriba); falta construirlo.
 - **`precio_lista` del cliente no se lee nunca**: el POS usa siempre `producto.precio_venta`.
