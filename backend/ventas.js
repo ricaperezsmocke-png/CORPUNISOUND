@@ -131,6 +131,11 @@ function crearVenta(DB, datos, opciones = {}) {
   // pasan permisos (llamadas internas y pruebas) se asume que NO hay permiso:
   // una guarda de dinero falla cerrando.
   const permisos = Array.isArray(opciones.permisos) ? opciones.permisos : [];
+  // Quien vende viaja hasta el movimiento de inventario: el folio dice POR QUE
+  // se movieron las piezas, y esto dice QUIEN. Sin ello el historial de un
+  // producto obliga a rastrear el folio a mano para contestar la pregunta
+  // directa (Victor, 2026-09-06).
+  const usuarioVenta = opciones.usuario || null;
   const puedeDescontar = permisos.includes("aplicar_descuentos_articulos_venta");
 
   const lineasCalculadas = datos.lineas.map((l) => {
@@ -247,7 +252,7 @@ function crearVenta(DB, datos, opciones = {}) {
     // (los productos rápidos / piezas especiales no tienen existencia que ajustar)
     if (l.producto_id) {
       try {
-        ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Venta — folio ${nuevoId}`, sucursal_id: venta.sucursal_id });
+        ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Venta — folio ${nuevoId}`, sucursal_id: venta.sucursal_id, usuario: usuarioVenta });
       } catch (e) {
         // ULTIMO RECURSO. Desde que `ajustarExistencia` crea la fila que falte,
         // esto ya no se dispara por el caso comun. Si aun asi falla, la venta NO
@@ -342,7 +347,7 @@ function cancelarVenta(DB, id, motivo, usuario) {
     .forEach((l) => {
       if (l.producto_id) {
         try {
-          ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
+          ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de venta — folio ${venta.id}`, sucursal_id: venta.sucursal_id, usuario });
         } catch (e) {
           // Ultimo recurso: la cancelacion no se detiene, pero se dice. Un
           // reintegro que falla en silencio deja mercancia fuera del inventario.

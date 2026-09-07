@@ -105,6 +105,7 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
       cantidad,
       motivo: `Compra #${nuevoId} — factura ${compra.factura || "s/n"}`,
       sucursal_id,
+      usuario,
     });
 
     if (Number.isFinite(costoFinal) && costoFinal > 0) {

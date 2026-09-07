@@ -331,7 +331,15 @@ function aplicarFilaArticulo(DB, fila, existente, sucursal_id, defaults, nombreA
     const actualizado = actualizarProducto(DB, existente.id, datos, sucursal_id);
     if (fila.existencia !== undefined && fila.existencia !== "") {
       const delta = Number(fila.existencia) - exist.cantidad_actual;
-      if (delta !== 0) ajustarExistencia(DB, existente.id, { cantidad: delta, motivo: `Importación SICAR — ${nombreArchivo || "archivo"}`, sucursal_id });
+      if (delta !== 0) ajustarExistencia(DB, existente.id, {
+        cantidad: delta,
+        motivo: `Importación SICAR — ${nombreArchivo || "archivo"}`,
+        sucursal_id,
+        // Una importacion no la hace una persona linea por linea: se firma como
+        // el proceso. Inventar aqui el usuario que subio el archivo diria que
+        // movio esas piezas a mano, y no es cierto.
+        usuario: { nombre: "Importación SICAR" },
+      });
     }
     return actualizado;
   }

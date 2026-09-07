@@ -150,7 +150,7 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
 
     if (l.producto_id) {
       try {
-        ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Apartado — folio ${nuevoId}`, sucursal_id });
+        ajustarExistencia(DB, l.producto_id, { cantidad: -cantidad, motivo: `Apartado — folio ${nuevoId}`, sucursal_id, usuario });
       } catch (e) { /* si no existe registro de existencia en esta sucursal, no detiene el apartado */ }
     }
   });
@@ -245,7 +245,7 @@ function cancelarApartado(DB, ventaId, motivo, usuario) {
     .forEach((l) => {
       if (l.producto_id) {
         try {
-          ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de apartado — folio ${venta.id}`, sucursal_id: venta.sucursal_id });
+          ajustarExistencia(DB, l.producto_id, { cantidad: Number(l.cantidad), motivo: `Cancelación de apartado — folio ${venta.id}`, sucursal_id: venta.sucursal_id, usuario });
         } catch (e) {
           // Ultimo recurso: no detiene la cancelacion, pero se dice. Un
           // reintegro que falla en silencio deja mercancia fuera del inventario.
