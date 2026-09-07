@@ -156,6 +156,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   const [valorTemporal, setValorTemporal] = useState("");
   const [efectivoRecibido, setEfectivoRecibido] = useState("");
+  const [usarMonedero, setUsarMonedero] = useState(false);
 
   const [condicionesPago, setCondicionesPago] = useState([]);
   const [errorCondiciones, setErrorCondiciones] = useState(null);
@@ -325,10 +326,13 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   useEffect(() => {
     if (vista === "venta") {
       cargarProductos();
+      cargarClientes();
       cargarCondicionesPago();
       cargarConfiguracion();
     }
-  }, [vista, cargarProductos, cargarCondicionesPago, cargarConfiguracion]);
+  }, [vista, cargarProductos, cargarClientes, cargarCondicionesPago, cargarConfiguracion]);
+
+  useEffect(() => { setUsarMonedero(false); }, [cliente.id]);
 
   // ---------- Cálculos de totales ----------
   const subtotal = carrito.reduce((acc, f) => acc + f.cantidad * f.precioUnitario, 0);
@@ -339,10 +343,16 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const descuentoPagoHabilitado = config ? config.descuentos_pago_habilitado !== false : true;
   const descuentoPago = descuentoPagoHabilitado && condicionSeleccionada?.activo ? (condicionSeleccionada.descuento_pct || 0) : 0;
   const totalConCondicion = Math.round(total * (1 - descuentoPago / 100) * 100) / 100;
+  // Usa el catálogo actualizado también al recuperar un ticket en espera.
+  const saldoMonedero = Math.max(0, Number(clientes.find((c) => Number(c.id) === Number(cliente.id))?.monedero ?? cliente.monedero) || 0);
+  const puedeUsarMonedero = Number(cliente.id) > 0 && saldoMonedero > 0 && !esCotizacion;
+  const monederoAplicado = usarMonedero && puedeUsarMonedero
+    ? Math.round(Math.min(saldoMonedero, Math.max(0, totalConCondicion)) * 100) / 100 : 0;
+  const totalACobrar = Math.round((totalConCondicion - monederoAplicado) * 100) / 100;
   const permiteCambioEnCualquierPago = config?.permitir_cambio_en_todas_las_formas_de_pago;
   const mostrarCampoEfectivo = condicionSeleccionada?.nombre === "EFECTIVO" || permiteCambioEnCualquierPago;
   const cambio = mostrarCampoEfectivo && efectivoRecibido !== ""
-    ? Math.max(0, Number(efectivoRecibido) - totalConCondicion) : 0;
+    ? Math.max(0, Math.round((Number(efectivoRecibido) - totalACobrar) * 100) / 100) : 0;
 
   // ---------- Operaciones de carrito ----------
   const agregarProducto = useCallback((producto, cantidad = 1) => {
@@ -445,6 +455,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   const limpiarTicket = () => {
     setCarrito([]);
+    setUsarMonedero(false);
     setCliente(clientes.find((c) => c.id === 0) || clientes[0]);
     setFilaSeleccionada(null);
     setEsCotizacion(false);
@@ -462,6 +473,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
 
   const recuperarEspera = (item) => {
     setCarrito(item.carrito);
+    setUsarMonedero(false);
     setCliente(item.cliente);
     setEnEspera((prev) => prev.filter((e) => e.id !== item.id));
     setModal(null);
@@ -482,7 +494,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       setModal("vendedor");
       return mostrarAviso("Selecciona el vendedor antes de cerrar la venta");
     }
-    if (!esCotizacion && mostrarCampoEfectivo && Number(efectivoRecibido) < totalConCondicion) {
+    if (!esCotizacion && mostrarCampoEfectivo && Number(efectivoRecibido) < totalACobrar) {
       return mostrarAviso("El efectivo recibido es menor al total");
     }
 
@@ -511,6 +523,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
               subtotal,
               descuento: descuentoTotal,
               total: totalConCondicion,
+              monedero_aplicado: monederoAplicado,
               lineas: carrito.map((f) => ({
                 producto_id: f.esRapido ? null : f.producto_id,
                 descripcion: f.esRapido ? f.descripcion : undefined,
@@ -524,6 +537,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           if (!r.ok) throw new Error(data.error || "No se pudo registrar la venta");
           folioReal = data.id;
           cargarProductos();
+          await cargarClientes();
         } catch (e) {
           mostrarAviso("❌ No se pudo cerrar la venta: " + e.message);
           return;
@@ -858,14 +872,22 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           </div>
 
           {/* Barra de totales */}
-          <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex items-center justify-between text-xs shrink-0 text-slate-600">
+          <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 text-slate-600">
             <div className="flex gap-6">
               <span>Piezas: <b>{piezas}</b></span>
               <span className="text-red-400">Notas de Créd: <b>$0.00</b></span>
               <span className="text-red-400">Promociones: <b>$0.00</b></span>
             </div>
-            <div className="flex gap-6">
-              <span>Monedero: <b>${Number(cliente.monedero || 0).toFixed(2)}</b></span>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <span>Monedero: <b>${saldoMonedero.toFixed(2)}</b></span>
+              {puedeUsarMonedero && (
+                <button type="button" onClick={() => setUsarMonedero((valor) => !valor)}
+                  aria-pressed={usarMonedero} disabled={totalConCondicion <= 0}
+                  className="rounded border border-blue-200 px-2 py-1 text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+                  {usarMonedero ? "Quitar monedero" : "Aplicar monedero"}
+                </button>
+              )}
+              {monederoAplicado > 0 && <span>Monedero aplicado: <b>${monederoAplicado.toFixed(2)}</b> · Por cobrar: <b>${totalACobrar.toFixed(2)}</b></span>}
               <span className="text-red-400">Descuento: <b>${descuentoTotal.toFixed(2)}</b></span>
               <span>Retenciones: <b>$0.00</b></span>
             </div>
@@ -1226,14 +1248,21 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
               </div>
 
               <>
+                {monederoAplicado > 0 && (
+                  <div className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">
+                    <div className="flex justify-between"><span>Importe de la venta</span><b>${totalConCondicion.toFixed(2)}</b></div>
+                    <div className="flex justify-between"><span>Monedero aplicado</span><b>−${monederoAplicado.toFixed(2)}</b></div>
+                  </div>
+                )}
                 <div className="text-center mb-3">
                   <div className="text-xs text-slate-400">Total a cobrar ({condicionSeleccionada?.nombre || "—"})</div>
-                  <div className="text-3xl font-bold text-slate-800">${totalConCondicion.toFixed(2)} MXN</div>
+                  <div className="text-3xl font-bold text-slate-800" aria-live="polite">${totalACobrar.toFixed(2)} MXN</div>
                 </div>
                 {mostrarCampoEfectivo && (
                   <div className="mb-3">
-                    <label className="text-xs text-slate-500">Efectivo recibido</label>
+                    <label htmlFor="efectivo-recibido" className="text-xs text-slate-500">Efectivo recibido</label>
                     <input
+                      id="efectivo-recibido" min="0" step="0.01"
                       type="number" value={efectivoRecibido}
                       onChange={(e) => setEfectivoRecibido(e.target.value)}
                       className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right focus:outline-none focus:border-blue-500"

@@ -81,6 +81,12 @@ function TicketCorte({ corte, onCerrar }) {
 
           <div className="mt-2 flex justify-between py-0.5"><span>Transferencias:</span><span className="font-semibold">{$fmt(corte.transferencias)}</span></div>
           <div className="flex justify-between py-0.5"><span>A crédito:</span><span className="font-semibold">{$fmt(corte.credito)}</span></div>
+          {/* Explica por qué el Calculado es menor que lo vendido: el monedero
+              salda una deuda con el cliente y no entra un peso al cajón. Sin
+              esta línea, la cajera ve un esperado más bajo y nada que lo diga. */}
+          {Number(corte.monedero_aplicado) > 0 && (
+            <div className="flex justify-between py-0.5"><span>Monedero aplicado:</span><span className="font-semibold">{$fmt(corte.monedero_aplicado)}</span></div>
+          )}
 
           {/* Explica por qué el Calculado bajó: sin esto, un corte abierto
               semanas después en el historial muestra una Diferencia que no
@@ -453,9 +459,12 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   <div className="flex justify-between text-xs text-slate-600 flex-wrap gap-2">
                     <span>Total Transferencias: <b>{$fmt(enCurso.transferencias)}</b></span>
                     <span>Total a Crédito: <b>{$fmt(enCurso.credito)}</b></span>
+                    {Number(enCurso.monedero_aplicado) > 0 && (
+                      <span>Monedero aplicado: <b>{$fmt(enCurso.monedero_aplicado)}</b></span>
+                    )}
                     <span>Ventas del turno: <b>{enCurso.ventas_incluidas}</b></span>
                   </div>
-                  <p className="text-center text-[11px] text-blue-600 mt-2">Las transferencias y ventas a crédito no entran al conteo físico de la caja</p>
+                  <p className="text-center text-[11px] text-blue-600 mt-2">Las transferencias, las ventas a crédito y el monedero aplicado no entran al conteo físico de la caja</p>
                   {/* Va tambien aqui a proposito: este es el momento en que la
                       cajera cuenta el dinero y ve la diferencia. */}
                   {Number(enCurso?.cancelado_de_cortes_anteriores) > 0 && (

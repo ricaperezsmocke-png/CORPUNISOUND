@@ -169,9 +169,14 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
   const calculado = { EFECTIVO: 0, CHEQUE: 0, VALES: 0, TARJETA: 0 };
   let transferencias = 0;
   let credito = 0;
+  let monederoAplicado = 0;
 
   ventas.forEach((v) => {
-    const r = acumularPorFormaPago(calculado, (v.metodo_pago || "EFECTIVO").toUpperCase(), v.total);
+    // EL MONEDERO NO ES EFECTIVO: solo se cobró el resto. El saldo usado se
+    // informa aparte y nunca se suma al calculado ni al efectivo esperado.
+    const monedero = Number(v.monedero_aplicado) || 0;
+    const r = acumularPorFormaPago(calculado, (v.metodo_pago || "EFECTIVO").toUpperCase(), v.total - monedero);
+    monederoAplicado += monedero;
     transferencias += r.transferencias;
     credito += r.credito;
   });
@@ -212,6 +217,7 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
     total_calculado: redondear(FORMAS_CORTE.reduce((a, f) => a + calculado[f], 0)),
     transferencias: redondear(transferencias),
     credito: redondear(credito),
+    monedero_aplicado: redondear(monederoAplicado),
     gastos_efectivo: gastosEfectivo,
     gastos_incluidos: gastosIncluidos,
     garantias_cobros_efectivo: cobrosGarantiaEfectivo,
@@ -278,6 +284,7 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
     total_retiro: redondear(FORMAS_CORTE.reduce((a, f) => a + retiroLimpio[f], 0)),
     transferencias: enCurso.transferencias,
     credito: enCurso.credito,
+    monedero_aplicado: enCurso.monedero_aplicado,
   };
   corte.total_diferencia = redondear(corte.total_contado - corte.total_calculado);
 
