@@ -7,7 +7,7 @@ import { descargarCSV } from "./reportes/exportarCSV.js";
 import { pedirLista, pedirDato } from "./cargaSegura";
 
 /** Forma que el render da por hecha cuando todavía no hay datos que pintar. */
-const RESUMEN_VACIO = { resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0 } };
+const RESUMEN_VACIO = { resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0, sin_comprobante: 0, monto_sin_comprobante: 0 } };
 
 const inputCls = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500";
 const FORMAS_PAGO_DEPOSITO = ["EFECTIVO", "TRANSFERENCIA"];
@@ -55,6 +55,9 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
   const [errorDepositos, setErrorDepositos] = useState(null);
 
   const [modal, setModal] = useState(null); // null | "nuevo" | "comprobante" | "cancelar"
+  // Guardar sin ficha sigue permitido —Drive se cae, y la ficha suele llegar
+  // más tarde— pero deja de ser un descuido silencioso: hay que decir que sí.
+  const [confirmarSinFicha, setConfirmarSinFicha] = useState(false);
   const [seleccionado, setSeleccionado] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
@@ -139,6 +142,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
     setArchivo(null);
     setPesoOriginal(null);
     setComprimiendo(false);
+    setConfirmarSinFicha(false);
     setModal("nuevo");
   };
 
@@ -164,6 +168,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
       if (idSeleccion !== seleccionArchivo.current) return;
       if (listo.size > TAM_MAX) return mostrarAviso("❌ El archivo no puede pesar más de 10 MB");
       setArchivo(listo);
+      setConfirmarSinFicha(false);
       setPesoOriginal(listo.size < original.size ? original.size : null);
     } catch (err) {
       if (idSeleccion === seleccionArchivo.current) mostrarAviso("❌ No se pudo preparar la imagen: " + err.message);
@@ -175,6 +180,14 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
 
   const guardar = async (e) => {
     e.preventDefault();
+    // Sin ficha, este depósito es dinero que sale de la tienda "al banco" sin
+    // nada que pruebe que llegó, y el estado de cuenta lo cuenta como
+    // depositado igual. No se bloquea (decisión de Victor), pero no puede
+    // pasar en silencio: se pide un sí explícito una sola vez.
+    if (!archivo && !confirmarSinFicha) {
+      setConfirmarSinFicha(true);
+      return;
+    }
     // Un deposito duplicado acredita dos veces dinero que solo se entrego una vez.
     if (depositoEnCurso.current) return;
     depositoEnCurso.current = true;
@@ -380,6 +393,17 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
               ⚠ {errorResumen} <b>Los totales de abajo NO son confiables.</b>
             </div>
           )}
+          {/* La cifra viene del servidor (estadoCuenta), no se calcula aqui:
+              es con la que Victor y su contador van a reclamar la ficha. Solo
+              aparece si hay algo pendiente; sin depositos sin ficha no se
+              inventa una alarma que la gente aprenda a ignorar. */}
+          {resumen.totales.sin_comprobante > 0 && (
+            <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <b>{resumen.totales.sin_comprobante} {resumen.totales.sin_comprobante === 1 ? "depósito" : "depósitos"} sin comprobante</b>
+              {" — "}${resumen.totales.monto_sin_comprobante.toFixed(2)} contados como depositados sin nada que pruebe que llegaron al banco.
+              <span className="block text-[12px] text-red-700 mt-0.5">Búscalos en la pestaña Depósitos y súbeles la ficha con el clip.</span>
+            </div>
+          )}
           <div className="neu rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-[#1a7fe8] text-white">
@@ -504,6 +528,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
                       <a href={d.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1a7fe8] hover:underline" title={d.nombre_archivo}>
                         <FileText size={14} /> Ver
                       </a>
+                    ) : d.estatus === "activo" ? (
+                      <span className="text-red-600 font-medium text-[11px] whitespace-nowrap">Sin comprobante</span>
                     ) : (
                       <span className="text-slate-300">—</span>
                     )}
@@ -575,13 +601,26 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
                 )}
                 <p className="text-xs text-slate-400 mt-1">Si no adjuntas ficha, el depósito se registra igual y puedes agregarla después desde la lista, con el botón del clip. No hace falta cancelar nada.</p>
               </div>
+
+              {/* El freno: no bloquea, pero obliga a decir que si. Sin esto, la
+                  pantalla respondia "registrado" en verde y el dinero quedaba
+                  contado como depositado sin nada que probara que llego. */}
+              {confirmarSinFicha && !archivo && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-semibold">Este depósito va SIN comprobante.</p>
+                  <p className="mt-1 text-[13px]">
+                    Se va a contar como dinero ya depositado, y no habrá nada que pruebe que llegó al banco.
+                    Queda marcado en rojo en la lista hasta que alguien suba la ficha.
+                  </p>
+                </div>
+              )}
             </form>
 
             <div className="px-4 py-3 border-t border-black/5 flex items-center justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
               <button type="submit" form="form-deposito" disabled={guardando || comprimiendo}
-                className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
-                {guardando ? "Guardando..." : "Guardar depósito"}
+                className={`px-4 py-1.5 text-sm text-white rounded disabled:opacity-40 disabled:cursor-not-allowed ${confirmarSinFicha && !archivo ? "bg-amber-600 hover:bg-amber-700" : "bg-[#1a7fe8] hover:bg-blue-700"}`}>
+                {guardando ? "Guardando..." : confirmarSinFicha && !archivo ? "Registrar sin comprobante" : "Guardar depósito"}
               </button>
             </div>
           </div>
