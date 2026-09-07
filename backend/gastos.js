@@ -20,6 +20,7 @@ const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
 
 const FORMAS_PAGO_GASTO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
+const ORIGENES_GASTO = ["CAJON", "CAJA_FUERTE"];
 const MIME_VALIDOS = ["application/pdf", "image/jpeg", "image/png"];
 const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
 
@@ -89,6 +90,13 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
   const forma_pago = (datos.forma_pago || "").toUpperCase();
   if (!FORMAS_PAGO_GASTO.includes(forma_pago)) throw new Error("Elige una forma de pago válida");
 
+  // Solo ausente o null absorbe el histórico como cajón. Otros valores
+  // inválidos se rechazan: no cambiar lo que declaró quien captura.
+  const origen = typeof datos.origen === "string" ? datos.origen.toUpperCase() : (datos.origen ?? "CAJON");
+  if (!ORIGENES_GASTO.includes(origen)) {
+    throw new Error("El origen del dinero debe ser el cajón o la caja fuerte");
+  }
+
   const archivo = datos.archivo;
   if (!archivo || !archivo.contenido_base64) {
     throw new Error("El comprobante es obligatorio — adjunta la foto del ticket o la factura");
@@ -136,6 +144,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
     fecha_hora: ahora,
     sucursal_id,
     caja_id: caja?.id ?? null,
+    origen,
     categoria_id: categoria.id,
     concepto,
     descripcion: (datos.descripcion || "").trim(),
@@ -230,6 +239,7 @@ function movimientosDeGasto(DB, id, alcance) {
  * gastosCorteCaja.test.js:
  *   - estatus activo  : un gasto cancelado no salió de la caja
  *   - EFECTIVO        : una transferencia o tarjeta no toca la caja de la tienda
+ *   - origen cajón    : la caja fuerte no resta; ausente o null conserva el histórico
  *   - misma sucursal  : el gasto de otra tienda no descuadra ésta
  *   - misma caja      : aplica en ambas eras; los registros sin caja pertenecen
  *                       solo a la caja predeterminada
@@ -240,6 +250,8 @@ function gastosEfectivoDelTurnoLista(DB, sucursal_id, desde, caja) {
   return DB.gastos.gastos
     .filter((g) => g.estatus === "activo")
     .filter((g) => g.forma_pago === "EFECTIVO")
+    // El resguardo nunca estuvo en el cajón: descontarlo inventa un faltante.
+    .filter((g) => g.origen !== "CAJA_FUERTE")
     .filter((g) => g.sucursal_id === Number(sucursal_id))
     .filter((g) => esDeEstaCaja(g, caja))
     .filter((g) => {
