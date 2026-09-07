@@ -8,6 +8,7 @@
  */
 
 const { buscarConGuardia, pushMovimiento } = require("./garantias");
+const { resolverCajaDeSucursal } = require("./cajas");
 
 const TIPOS_GASTO = ["traslado", "reparacion", "otro"];
 const ETIQUETA_TIPO = { traslado: "Traslado", reparacion: "Reparación", otro: "Otro" };
@@ -18,13 +19,25 @@ function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
 }
 
+function datosDeDinero(DB, garantia, datos) {
+  const monto = Number(datos.monto);
+  if (!["number", "string"].includes(typeof datos.monto) || !Number.isFinite(monto) || monto <= 0) {
+    throw new Error("El monto debe ser un número mayor que cero");
+  }
+  const forma_pago = typeof datos.forma_pago === "string" ? datos.forma_pago.toUpperCase() : "";
+  if (!["EFECTIVO", "TARJETA", "TRANSFERENCIA"].includes(forma_pago)) throw new Error("Forma de pago inválida");
+  const sucursal_id = garantia.sucursal_origen_id;
+  const caja = resolverCajaDeSucursal(DB, sucursal_id, datos.caja_id);
+  return { monto, forma_pago, sucursal_id, caja_id: caja?.id ?? null, corte_id: null };
+}
+
 async function agregarGasto(DB, garantiaId, datos, usuario, alcance, drive) {
   const garantia = buscarConGuardia(DB, garantiaId, alcance);
 
   const tipo = datos.tipo;
   if (!TIPOS_GASTO.includes(tipo)) throw new Error("Tipo de gasto inválido");
-  const monto = Number(datos.monto);
-  if (!Number.isFinite(monto) || monto <= 0) throw new Error("El monto debe ser un número mayor que cero");
+  const dinero = datosDeDinero(DB, garantia, datos);
+  const { monto } = dinero;
 
   let nombre_archivo = null, drive_file_id = null, drive_link = null;
   if (datos.archivo && datos.archivo.contenido_base64) {
@@ -48,7 +61,7 @@ async function agregarGasto(DB, garantiaId, datos, usuario, alcance, drive) {
     id: siguienteId(DB.inventario.garantia_gastos),
     garantia_id: garantia.id,
     tipo,
-    monto,
+    ...dinero,
     descripcion: datos.descripcion || "",
     nombre_archivo,
     drive_file_id,
@@ -70,6 +83,30 @@ function listarGastos(DB, garantiaId, alcance) {
   return DB.inventario.garantia_gastos.filter((g) => g.garantia_id === garantia.id);
 }
 
+function crearCobroGarantia(DB, garantiaId, datos, usuario, alcance) {
+  const garantia = buscarConGuardia(DB, garantiaId, alcance);
+  const dinero = datosDeDinero(DB, garantia, datos);
+  // La base anterior no tiene esta colección; no se reescriben gastos viejos.
+  if (!DB.inventario.garantia_cobros) DB.inventario.garantia_cobros = [];
+  const cobro = {
+    id: siguienteId(DB.inventario.garantia_cobros),
+    garantia_id: garantia.id,
+    ...dinero,
+    descripcion: datos.descripcion || "",
+    usuario: usuario?.nombre || "—",
+    fecha: new Date().toISOString(),
+  };
+  DB.inventario.garantia_cobros.push(cobro);
+  const descTxt = cobro.descripcion ? ` — ${cobro.descripcion}` : "";
+  pushMovimiento(DB, garantia, "cobro", `Cobro al cliente: $${cobro.monto.toFixed(2)}${descTxt}`, usuario);
+  return cobro;
+}
+
+function listarCobros(DB, garantiaId, alcance) {
+  const garantia = buscarConGuardia(DB, garantiaId, alcance);
+  return (DB.inventario.garantia_cobros || []).filter((c) => c.garantia_id === garantia.id);
+}
+
 function totalGastos(DB, garantiaId) {
   return DB.inventario.garantia_gastos
     .filter((g) => g.garantia_id === Number(garantiaId))
@@ -83,6 +120,7 @@ async function eliminarGasto(DB, garantiaId, gastoId, usuario, alcance, drive) {
   );
   if (idx === -1) throw new Error("Gasto no encontrado");
   const gasto = DB.inventario.garantia_gastos[idx];
+  if (gasto.corte_id != null) throw new Error("No se puede eliminar un gasto incluido en un corte cerrado");
   if (gasto.drive_file_id) await drive.eliminarArchivoDeDrive(DB, gasto.drive_file_id);
   DB.inventario.garantia_gastos.splice(idx, 1);
   pushMovimiento(DB, garantia, "gasto_eliminado",
@@ -91,6 +129,6 @@ async function eliminarGasto(DB, garantiaId, gastoId, usuario, alcance, drive) {
 }
 
 module.exports = {
-  agregarGasto, listarGastos, totalGastos, eliminarGasto,
+  agregarGasto, listarGastos, totalGastos, eliminarGasto, crearCobroGarantia, listarCobros,
   TIPOS_GASTO, ETIQUETA_TIPO, MIME_VALIDOS, TAMANO_MAXIMO_BYTES,
 };

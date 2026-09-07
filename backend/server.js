@@ -43,7 +43,7 @@ const {
   crearGarantia, marcarEnviada, actualizarUbicacion, registrarResolucion,
   recibirEnTienda, entregarACliente, listarGarantias,
 } = require("./garantias");
-const { agregarGasto, listarGastos, eliminarGasto } = require("./garantiasGastos");
+const { agregarGasto, listarGastos, eliminarGasto, crearCobroGarantia, listarCobros } = require("./garantiasGastos");
 const { obtenerConfiguracion, actualizarConfiguracion, reconciliarPedirVendedor } = require("./configuracion");
 const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
@@ -234,6 +234,7 @@ const DB = {
     garantias: [],
     garantia_movimientos: [],
     garantia_gastos: [],
+    garantia_cobros: [],
   },
   "catalogo-productos": {
     productos: [
@@ -1779,28 +1780,46 @@ app.put("/api/garantias/:id/entregar-cliente", requiereLogin, requierePermiso("g
 });
 
 // ---------- Gastos de Garantía ----------
+// Por id, el alcance depende del usuario; el encabezado solo filtra listas.
+const alcanceDineroGarantia = (req) => alcanceSucursal(
+  { usuarioToken: req.usuarioToken }, resolverPermisosDeRol(req.usuarioToken.rol_id)
+);
 app.get("/api/garantias/:id/gastos", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
   try {
-    const alcance = resolverAlcance(req);
+    const alcance = alcanceDineroGarantia(req);
     res.json(listarGastos(DB, req.params.id, alcance));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.post("/api/garantias/:id/gastos", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), async (req, res) => {
   try {
-    const alcance = resolverAlcance(req);
+    const alcance = alcanceDineroGarantia(req);
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
-    const { tipo, monto, descripcion, nombre_archivo, tipo_mime, contenido_base64 } = req.body;
+    const { tipo, monto, descripcion, forma_pago, caja_id, nombre_archivo, tipo_mime, contenido_base64 } = req.body;
     const archivo = contenido_base64 ? { nombre_archivo, tipo_mime, contenido_base64 } : undefined;
-    res.json(await agregarGasto(DB, req.params.id, { tipo, monto, descripcion, archivo }, usuario, alcance, drive));
+    res.json(await agregarGasto(DB, req.params.id, { tipo, monto, descripcion, forma_pago, caja_id, archivo }, usuario, alcance, drive));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.delete("/api/garantias/:id/gastos/:gastoId", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), async (req, res) => {
   try {
-    const alcance = resolverAlcance(req);
+    const alcance = alcanceDineroGarantia(req);
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
     res.json(await eliminarGasto(DB, req.params.id, req.params.gastoId, usuario, alcance, drive));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/garantias/:id/cobros", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json(listarCobros(DB, req.params.id, alcanceDineroGarantia(req)));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/garantias/:id/cobros", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+  try {
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    const { monto, descripcion, forma_pago, caja_id } = req.body;
+    res.json(crearCobroGarantia(DB, req.params.id, { monto, descripcion, forma_pago, caja_id }, usuario, alcanceDineroGarantia(req)));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

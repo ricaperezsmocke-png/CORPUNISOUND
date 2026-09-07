@@ -82,6 +82,19 @@ function abonosDelTurno(DB, sucursal_id, desde, caja) {
   );
 }
 
+function dineroGarantiasDelTurno(DB, lista, sucursal_id, desde, caja) {
+  return (lista || []).filter((m) =>
+    // Los gastos anteriores no declaraban sucursal ni forma: nunca se contaron
+    // en caja y no deben incorporarse retroactivamente a un corte.
+    Number(m.sucursal_id) === Number(sucursal_id) &&
+    ["EFECTIVO", "TARJETA", "TRANSFERENCIA"].includes(m.forma_pago) &&
+    esDeEstaCaja(m, caja) &&
+    (esDeLaEraSellada(m.fecha, DB)
+      ? m.corte_id == null
+      : m.corte_id == null && (!desde || m.fecha > desde))
+  );
+}
+
 /**
  * Dinero que este turno YA NO tiene, pero que un corte anterior sí contó.
  *
@@ -150,6 +163,8 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
   const caja = resolverCajaDeSucursal(DB, sucursal_id, caja_id);
   const { desde, ventas } = ventasDelTurno(DB, sucursal_id, caja);
   const abonos = abonosDelTurno(DB, sucursal_id, desde, caja);
+  const cobrosGarantia = dineroGarantiasDelTurno(DB, DB.inventario?.garantia_cobros, sucursal_id, desde, caja);
+  const gastosGarantia = dineroGarantiasDelTurno(DB, DB.inventario?.garantia_gastos, sucursal_id, desde, caja);
 
   const calculado = { EFECTIVO: 0, CHEQUE: 0, VALES: 0, TARJETA: 0 };
   let transferencias = 0;
@@ -165,6 +180,10 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
     transferencias += r.transferencias;
     credito += r.credito;
   });
+  cobrosGarantia.forEach((c) => {
+    const r = acumularPorFormaPago(calculado, c.forma_pago, Number(c.monto));
+    transferencias += r.transferencias;
+  });
 
   const redondear = (n) => Math.round(n * 100) / 100;
   FORMAS_CORTE.forEach((f) => (calculado[f] = redondear(calculado[f])));
@@ -177,6 +196,13 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
   const gastosEfectivo = gastosEfectivoDelTurno(DB, sucursal_id, desde, caja);
   const gastosIncluidos = gastosDelTurno.length;
   calculado.EFECTIVO = redondear(calculado.EFECTIVO - gastosEfectivo);
+  const efectivoGarantias = (lista) => redondear(lista
+    .filter((m) => m.forma_pago === "EFECTIVO")
+    .reduce((s, m) => s + Number(m.monto), 0));
+  const cobrosGarantiaEfectivo = efectivoGarantias(cobrosGarantia);
+  const gastosGarantiaEfectivo = efectivoGarantias(gastosGarantia);
+  // Como los gastos generales, solo el efectivo salió del cajón.
+  calculado.EFECTIVO = redondear(calculado.EFECTIVO - gastosGarantiaEfectivo);
 
   const resultado = {
     desde,
@@ -188,12 +214,16 @@ function calcularCorteEnCurso(DB, sucursal_id, caja_id, incluirMovimientos = fal
     credito: redondear(credito),
     gastos_efectivo: gastosEfectivo,
     gastos_incluidos: gastosIncluidos,
+    garantias_cobros_efectivo: cobrosGarantiaEfectivo,
+    garantias_gastos_efectivo: gastosGarantiaEfectivo,
+    garantias_cobros_incluidos: cobrosGarantia.length,
+    garantias_gastos_incluidos: gastosGarantia.length,
     // Informativo, nunca restado del calculado. Ver canceladoDeCortesAnteriores.
     cancelado_de_cortes_anteriores: redondear(
       canceladoDeCortesAnteriores(DB, sucursal_id, desde, caja)
     ),
   };
-  if (incluirMovimientos) resultado.movimientos_incluidos = { ventas, abonos, gastos: gastosDelTurno };
+  if (incluirMovimientos) resultado.movimientos_incluidos = { ventas, abonos, gastos: gastosDelTurno, cobrosGarantia, gastosGarantia };
   return resultado;
 }
 
@@ -240,6 +270,10 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
     total_calculado: enCurso.total_calculado,
     gastos_efectivo: enCurso.gastos_efectivo,
     gastos_incluidos: enCurso.gastos_incluidos,
+    garantias_cobros_efectivo: enCurso.garantias_cobros_efectivo,
+    garantias_gastos_efectivo: enCurso.garantias_gastos_efectivo,
+    garantias_cobros_incluidos: enCurso.garantias_cobros_incluidos,
+    garantias_gastos_incluidos: enCurso.garantias_gastos_incluidos,
     total_contado: redondear(FORMAS_CORTE.reduce((a, f) => a + contadoLimpio[f], 0)),
     total_retiro: redondear(FORMAS_CORTE.reduce((a, f) => a + retiroLimpio[f], 0)),
     transferencias: enCurso.transferencias,
@@ -252,6 +286,8 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
   enCurso.movimientos_incluidos.ventas.forEach((venta) => (venta.corte_id = corte.id));
   enCurso.movimientos_incluidos.abonos.forEach((abono) => (abono.corte_id = corte.id));
   enCurso.movimientos_incluidos.gastos.forEach((gasto) => (gasto.corte_id = corte.id));
+  enCurso.movimientos_incluidos.cobrosGarantia.forEach((cobro) => (cobro.corte_id = corte.id));
+  enCurso.movimientos_incluidos.gastosGarantia.forEach((gasto) => (gasto.corte_id = corte.id));
   DB.pos.cortes_caja.push(corte);
   return corte;
 }
