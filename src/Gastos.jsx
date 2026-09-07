@@ -109,7 +109,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [cajas, setCajas] = useState([]);
   const [form, setForm] = useState({
     categoria_id: "", concepto: "", descripcion: "", monto: "",
-    forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "", caja_id: "",
+    forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "", caja_id: "", origen: "CAJON",
   });
   const [archivo, setArchivo] = useState(null);
   const [comprimiendo, setComprimiendo] = useState(false);
@@ -190,7 +190,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const abrirNuevo = () => {
     if (fueraDeSuSucursal) return mostrarAviso("❌ " + MOTIVO_FUERA);
     seleccionArchivo.current++; // invalida cualquier compresión en curso de una selección anterior
-    setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "", caja_id: sugerirCaja(cajas) });
+    setForm({ categoria_id: "", concepto: "", descripcion: "", monto: "", forma_pago: "EFECTIVO", proveedor_id: "", numero_factura: "", caja_id: sugerirCaja(cajas), origen: "CAJON" });
     setArchivo(null);
     setPesoOriginal(null);
     setComprimiendo(false);
@@ -344,6 +344,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                   <th className="py-2 px-3 text-left font-medium">Concepto</th>
                   <th className="py-2 px-3 text-left font-medium">Forma de pago</th>
                   <th className="py-2 px-3 text-left font-medium">Caja</th>
+                  <th className="py-2 px-3 text-left font-medium">Origen</th>
                   <th className="py-2 px-3 text-center font-medium">Comprobante</th>
                   <th className="py-2 px-3 text-right font-medium">Monto</th>
                   <th className="py-2 px-3 text-center font-medium">Acciones</th>
@@ -351,7 +352,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               </thead>
               <tbody>
                 {gastos.length === 0 && (
-                  <tr><td colSpan={11} className={`text-center py-16 ${errorGastos ? "text-red-700" : "text-slate-400"}`}>
+                  <tr><td colSpan={12} className={`text-center py-16 ${errorGastos ? "text-red-700" : "text-slate-400"}`}>
                     {errorGastos ? `⚠ ${errorGastos}` : "Sin gastos en el periodo"}
                   </td></tr>
                 )}
@@ -372,6 +373,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                     {/* Una transferencia o una tarjeta no salieron de ningún
                         cajón: mostrar una caja ahí sería mentira. */}
                     <td className="py-2 px-3">{g.forma_pago === "EFECTIVO" ? (g.caja_nombre || "—") : "—"}</td>
+                    {/* Los gastos anteriores a este campo no traen origen: cuentan
+                        como del cajón, que es como se han comportado siempre. */}
+                    <td className="py-2 px-3">{g.forma_pago === "EFECTIVO" ? ((g.origen || "CAJON") === "CAJA_FUERTE" ? "Caja fuerte" : "Cajón") : "—"}</td>
                     <td className="py-2 px-3 text-center">
                       <a href={g.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1a7fe8] hover:underline" title={g.nombre_archivo}>
                         <FileText size={14} /> Ver
@@ -456,11 +460,33 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                     {cajas.length === 0 && <option value="">— sin cajas disponibles —</option>}
                     {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                   </select>
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-1.5">
-                    Este gasto se descontará del efectivo esperado en el corte de la caja{" "}
-                    <strong>{cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "seleccionada"}</strong>.
-                    Si el dinero salió de la otra caja, cámbialo aquí antes de guardar.
-                  </p>
+                  {/* La casilla solo la ve quien tiene el permiso. Para una cajera
+                      normal la pantalla es la de siempre: elige entre sus dos cajas
+                      y ya. Marcar un gasto como pagado desde el resguardo baja ese
+                      saldo sin descuadrarle el corte a nadie, y por eso va aparte. */}
+                  {puede("registrar_gasto_caja_fuerte") && (
+                    <label className="flex items-center gap-2 text-xs text-slate-600 mt-2">
+                      <input
+                        type="checkbox"
+                        checked={form.origen === "CAJA_FUERTE"}
+                        onChange={(e) => setForm({ ...form, origen: e.target.checked ? "CAJA_FUERTE" : "CAJON" })}
+                      />
+                      Salió de la caja fuerte, no del cajón
+                    </label>
+                  )}
+                  {form.origen === "CAJA_FUERTE" ? (
+                    <p className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1.5 mt-1.5">
+                      Este gasto <strong>no</strong> se le descuenta a nadie en su corte: baja el dinero
+                      resguardado de la caja{" "}
+                      <strong>{cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "seleccionada"}</strong>.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-1.5">
+                      Este gasto se descontará del efectivo esperado en el corte de la caja{" "}
+                      <strong>{cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "seleccionada"}</strong>.
+                      Si el dinero salió de la otra caja, cámbialo aquí antes de guardar.
+                    </p>
+                  )}
                 </div>
               )}
 
