@@ -1027,7 +1027,7 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.get("/api/productos/generar-clave", (req, res) => res.json({ clave: generarClave() }));
+app.get("/api/productos/generar-clave", requiereLogin, (req, res) => res.json({ clave: generarClave() }));
 
 // ---------- Traspasos entre sucursales ----------
 app.get("/api/traspasos", requiereLogin, requierePermiso("realizar_traspasos", resolverPermisosDeRol), (req, res) => {
@@ -1166,13 +1166,13 @@ app.get("/api/productos/:id/historial-costo", requiereLogin, requierePermiso("re
   res.json(historialCostoProducto(DB, req.params.id));
 });
 
-app.get("/api/categorias", (req, res) => res.json(listarCategorias(DB)));
+app.get("/api/categorias", requiereLogin, (req, res) => res.json(listarCategorias(DB)));
 app.post("/api/categorias", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearCategoria(DB, req.body.nombre)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.get("/api/proveedores", (req, res) => res.json(DB["catalogo-productos"].proveedores));
+app.get("/api/proveedores", requiereLogin, (req, res) => res.json(DB["catalogo-productos"].proveedores));
 app.post("/api/proveedores", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearProveedor(DB, req.body.nombre, req.body.rfc)); }
   catch (e) { res.status(400).json({ error: e.message }); }
@@ -1182,7 +1182,7 @@ app.get("/api/sat/claves", requiereLogin, (req, res) => {
   res.json(buscarClavesSat(req.query.q, req.query.pagina));
 });
 
-app.get("/api/departamentos", (req, res) => res.json(listarDepartamentos(DB)));
+app.get("/api/departamentos", requiereLogin, (req, res) => res.json(listarDepartamentos(DB)));
 app.post("/api/departamentos", requiereLogin, requierePermiso("crear_producto", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearDepartamento(DB, req.body.nombre)); }
   catch (e) { res.status(400).json({ error: e.message }); }
@@ -1262,7 +1262,7 @@ app.get("/api/auth/yo", requiereLogin, (req, res) => {
 });
 
 // ---------- Catálogo de permisos y módulos (para pintar la pantalla de Roles) ----------
-app.get("/api/permisos-catalogo", (req, res) => res.json({ permisos: listarPermisos(), modulos: listarModulosSistema() }));
+app.get("/api/permisos-catalogo", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json({ permisos: listarPermisos(), modulos: listarModulosSistema() }));
 
 // ---------- Roles ----------
 // Esta ruta respondia SIN LOGIN y devolvia el arreglo completo de permisos de
