@@ -43,14 +43,26 @@ function estadoCuenta(DB, filtros, alcance) {
 
   const porSucursal = new Map();
   const bucket = (id) => {
-    if (!porSucursal.has(id)) porSucursal.set(id, { sucursal_id: id, sucursal_nombre: nombreSucursal(id), depositado: 0, recibido: 0 });
+    if (!porSucursal.has(id)) porSucursal.set(id, { sucursal_id: id, sucursal_nombre: nombreSucursal(id), depositado: 0, recibido: 0, sin_comprobante: 0, monto_sin_comprobante: 0 });
     return porSucursal.get(id);
   };
-  for (const d of depositos) bucket(d.sucursal_id).depositado += Number(d.monto) || 0;
+  for (const d of depositos) {
+    const b = bucket(d.sucursal_id);
+    b.depositado += Number(d.monto) || 0;
+    // El depósito sin ficha SÍ cuenta como depositado: el dinero salió de la
+    // tienda igual. Lo que se lleva aparte es cuánto de ese dinero no tiene
+    // nada que pruebe que llegó al banco, para que no se pierda entre los que
+    // sí lo tienen. Se cuenta aquí, en el servidor, y no en la pantalla: es la
+    // cifra con la que Victor y su contador van a reclamar.
+    if (!d.drive_file_id) {
+      b.sin_comprobante += 1;
+      b.monto_sin_comprobante += Number(d.monto) || 0;
+    }
+  }
   for (const t of recibidos) bucket(t.sucursal_destino_id).recibido += valorTraspaso(DB, t);
 
   const resumen = [...porSucursal.values()]
-    .map((r) => ({ ...r, depositado: redondear(r.depositado), recibido: redondear(r.recibido), saldo: redondear(r.depositado - r.recibido) }))
+    .map((r) => ({ ...r, depositado: redondear(r.depositado), recibido: redondear(r.recibido), saldo: redondear(r.depositado - r.recibido), monto_sin_comprobante: redondear(r.monto_sin_comprobante) }))
     .sort((a, b) => a.sucursal_nombre.localeCompare(b.sucursal_nombre));
 
   let movimientos = null;
@@ -64,8 +76,24 @@ function estadoCuenta(DB, filtros, alcance) {
     ].sort((a, b) => a.fecha.localeCompare(b.fecha));
   }
 
-  const totales = resumen.reduce((a, r) => ({ depositado: a.depositado + r.depositado, recibido: a.recibido + r.recibido, saldo: a.saldo + r.saldo }), { depositado: 0, recibido: 0, saldo: 0 });
-  return { resumen, movimientos, totales: { depositado: redondear(totales.depositado), recibido: redondear(totales.recibido), saldo: redondear(totales.saldo) } };
+  const totales = resumen.reduce((a, r) => ({
+    depositado: a.depositado + r.depositado,
+    recibido: a.recibido + r.recibido,
+    saldo: a.saldo + r.saldo,
+    sin_comprobante: a.sin_comprobante + r.sin_comprobante,
+    monto_sin_comprobante: a.monto_sin_comprobante + r.monto_sin_comprobante,
+  }), { depositado: 0, recibido: 0, saldo: 0, sin_comprobante: 0, monto_sin_comprobante: 0 });
+  return {
+    resumen,
+    movimientos,
+    totales: {
+      depositado: redondear(totales.depositado),
+      recibido: redondear(totales.recibido),
+      saldo: redondear(totales.saldo),
+      sin_comprobante: totales.sin_comprobante,
+      monto_sin_comprobante: redondear(totales.monto_sin_comprobante),
+    },
+  };
 }
 
 module.exports = { estadoCuenta };
