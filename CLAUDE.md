@@ -31,7 +31,7 @@ un faltante que no cometió.
 ## Comandos
 
 ```bash
-cd backend && node --test          # suite completa (~1250 pruebas, ~100 s)
+cd backend && node --test          # suite completa (~1450 pruebas, ~120 s)
 cd backend && node --test x.test.js  # un archivo
 npx eslint src backend             # 0 errores; los ~455 warnings son preexistentes
 cd backend && node server.js       # backend en :4000
@@ -183,8 +183,13 @@ Las cuatro las decidió Victor el 2026-09-07:
 
 - **Nadie ha probado en navegador** el módulo de Garantías completo, los Gastos con comprobante, ni
   el reporte de Gastos de Garantías.
-- **Los gastos de garantía no entran en ningún corte** y el dinero del cliente sí pasa por la caja:
-  hay un plan escrito para arreglarlo.
-- **El dinero de un apartado cancelado** se convierte en `monedero`, un saldo que todavía no se
-  puede gastar. Ya está decidido que debe poder usarse (ver arriba); falta construirlo.
+- **El dinero de garantías YA entra al corte** (cobros suman y gastos en efectivo restan, sellados
+  con `corte_id`). Lo que sigue sin existir es el expediente: tipo de equipo, serie, accesorios,
+  fotos, y el dictamen separado de la devolución.
+- **El monedero YA se puede gastar** en el punto de venta (`venta.monedero_aplicado`). Regla que no
+  se puede romper: NO es efectivo y el corte cobra solo `total - monedero_aplicado`. Sumarlo al
+  cajón le inventaría a la cajera un faltante igual a todo el monedero aplicado.
 - **`precio_lista` del cliente no se lee nunca**: el POS usa siempre `producto.precio_venta`.
+- **Las casillas `- [ ]` de los planes NO son un medidor de avance.** Nadie las marca al implementar:
+  el plan de garantías tiene 19 sin marcar y está construido. Para saber qué falta, verifica contra
+  el código, no contra el plan.
