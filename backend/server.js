@@ -1694,7 +1694,7 @@ app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados",
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de crear un apartado — el producto se reserva en una tienda." });
     }
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
-    res.json(crearApartado(DB, req.body, sucursal_id, usuario, req.query.caja_id));
+    res.json(crearApartado(DB, req.body, sucursal_id, usuario, req.query.caja_id, { permisos: resolverPermisosDeRol(req.usuarioToken.rol_id) }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {

@@ -58,7 +58,7 @@ function esCredito(forma) {
   return normalizarForma(forma) === "CREDITO";
 }
 
-function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
+function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
   const cliente_id = Number(datos.cliente_id);
   if (!cliente_id) throw new Error("Selecciona un cliente para el apartado — no puede ser Público en General");
   if (!Array.isArray(datos.lineas) || datos.lineas.length === 0) {
@@ -86,6 +86,15 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
     throw new Error(`Forma de pago no valida para un apartado: elige una de ${permitidas.join(", ")}`);
   }
 
+  const lineasValidadas = datos.lineas.map((l) => {
+    const cantidad = Number(l.cantidad);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+      throw new Error(`La cantidad de "${l.descripcion || producto?.nombre || "el artículo"}" debe ser mayor que cero`);
+    }
+    return { ...l, cantidad };
+  });
+
   // Misma validación de existencia suficiente que crearVenta (ventas.js) —
   // respeta la configuración "Permitir Ventas de Artículos Sin Existencia":
   // si NO está activa, un producto sin registro de existencia en esta
@@ -94,9 +103,9 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
     const cantidadPedida = {};
-    datos.lineas.forEach((l) => {
+    lineasValidadas.forEach((l) => {
       if (!l.producto_id) return;
-      cantidadPedida[l.producto_id] = (cantidadPedida[l.producto_id] || 0) + (Number(l.cantidad) || 0);
+      cantidadPedida[l.producto_id] = (cantidadPedida[l.producto_id] || 0) + l.cantidad;
     });
     Object.entries(cantidadPedida).forEach(([productoId, cantidad]) => {
       const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(productoId) && e.sucursal_id === sucursal_id);
@@ -108,9 +117,35 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
     });
   }
 
+  // El servidor decide el precio y autoriza el descuento antes de validar el anticipo.
+  const permisos = Array.isArray(opciones.permisos) ? opciones.permisos : [];
+  const puedeDescontar = permisos.includes("aplicar_descuentos_articulos_venta");
+  const lineasCalculadas = lineasValidadas.map((l) => {
+    const producto = l.producto_id
+      ? DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id))
+      : null;
+    if (l.producto_id && !producto) throw new Error("Uno de los productos del apartado no existe");
+
+    let precio;
+    if (producto) {
+      precio = Number(producto.precio_venta) || 0;
+      if (precio <= 0) {
+        throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de apartarlo`);
+      }
+    } else {
+      precio = Number(l.precio_unitario) || 0;
+    }
+
+    const descPct = puedeDescontar ? Number(l.descuento_pct) || 0 : 0;
+    if (descPct < 0 || descPct > 100) {
+      throw new Error("El descuento debe estar entre 0 y 100 por ciento");
+    }
+    return { ...l, precio, descPct };
+  });
+
   const nuevoId = siguienteId(DB.pos.ventas);
-  const subtotal = datos.lineas.reduce((a, l) => a + Number(l.cantidad) * Number(l.precio_unitario), 0);
-  const descuento = datos.lineas.reduce((a, l) => a + (Number(l.cantidad) * Number(l.precio_unitario) * (Number(l.descuento_pct) || 0)) / 100, 0);
+  const subtotal = lineasCalculadas.reduce((a, l) => a + l.cantidad * l.precio, 0);
+  const descuento = lineasCalculadas.reduce((a, l) => a + (l.cantidad * l.precio * l.descPct) / 100, 0);
   const total = Math.round((subtotal - descuento) * 100) / 100;
   if (anticipoMonto > total) {
     throw new Error(`El anticipo no puede ser mayor al total del apartado ($${total.toFixed(2)})`);
@@ -146,10 +181,10 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
   DB.pos.ventas.push(venta);
 
   let siguienteDetalleId = siguienteId(DB.pos.venta_detalle);
-  datos.lineas.forEach((l) => {
-    const cantidad = Number(l.cantidad) || 0;
-    const precio = Number(l.precio_unitario) || 0;
-    const descPct = Number(l.descuento_pct) || 0;
+  lineasCalculadas.forEach((l) => {
+    const cantidad = l.cantidad;
+    const precio = l.precio;
+    const descPct = l.descPct;
     DB.pos.venta_detalle.push({
       id: siguienteDetalleId++,
       venta_id: nuevoId,

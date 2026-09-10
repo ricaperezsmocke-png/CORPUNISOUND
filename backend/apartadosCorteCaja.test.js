@@ -103,6 +103,9 @@ test("el anticipo y los abonos posteriores guardan la caja donde se cobraron", (
 test("un abono cobrado en Fiscal entra solo en el corte de Fiscal", () => {
   const DB = prepararDBConCajas();
   const { administrativa, fiscal } = cajasDe(DB);
+  // Desde el 2026-09-10 el precio lo decide el catalogo y el del cuerpo se
+  // ignora: la prueba siembra el precio que necesita para medir cajas.
+  DB["catalogo-productos"].productos.find((p) => p.id === 1).precio_venta = 2500;
   crearApartado(DB, {
     cliente_id: 1,
     lineas: [{ producto_id: 1, cantidad: 2, precio_unitario: 2500, descuento_pct: 0 }],
@@ -198,6 +201,9 @@ test("sin catalogo de cajas los abonos se guardan sin caja y el corte los conser
 test("el apartado se lista en la misma caja donde se cobro su anticipo", () => {
   const DB = prepararDBConCajas();
   const { administrativa, fiscal } = cajasDe(DB);
+  // Desde el 2026-09-10 el precio lo decide el catalogo y el del cuerpo se
+  // ignora: la prueba siembra el precio que necesita para medir cajas.
+  DB["catalogo-productos"].productos.find((p) => p.id === 1).precio_venta = 250;
 
   crearApartado(DB, {
     cliente_id: 1,
@@ -213,6 +219,9 @@ test("el apartado se lista en la misma caja donde se cobro su anticipo", () => {
 test("un apartado sin caja declarada queda en la predeterminada, como su abono", () => {
   const DB = prepararDBConCajas();
   const { administrativa, fiscal } = cajasDe(DB);
+  // Desde el 2026-09-10 el precio lo decide el catalogo y el del cuerpo se
+  // ignora: la prueba siembra el precio que necesita para medir cajas.
+  DB["catalogo-productos"].productos.find((p) => p.id === 1).precio_venta = 250;
 
   const venta = crearApartado(DB, {
     cliente_id: 1,
