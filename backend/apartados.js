@@ -16,6 +16,7 @@ const { ajustarExistencia } = require("./productos");
 const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
+const { listarCondiciones } = require("./condicionesPago");
 
 const DIAS_LIMITE_APARTADO = 60;
 const DIAS_AVISO_POR_VENCER = 7;
@@ -49,8 +50,12 @@ function diasEntre(fechaA, fechaB) {
  * dinero que no reconoce una entrada la deja pasar, que es fallar ABRIENDO.
  * Mismo defecto que ya se cerro en `crearVenta` (backend/ventas.js).
  */
+function normalizarForma(forma) {
+  return String(forma ?? "").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 function esCredito(forma) {
-  return String(forma ?? "").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "") === "CREDITO";
+  return normalizarForma(forma) === "CREDITO";
 }
 
 function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
@@ -71,6 +76,14 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
   const sucursal_id = Number(sucursalId);
   if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
     throw new Error("Falta la sucursal donde se aparta el producto");
+  }
+
+  const formaPago = normalizarForma(datos.anticipo_forma_pago);
+  const permitidas = listarCondiciones(DB, sucursal_id)
+    .map((c) => normalizarForma(c.nombre))
+    .filter((n) => !esCredito(n));
+  if (!permitidas.includes(formaPago)) {
+    throw new Error(`Forma de pago no valida para un apartado: elige una de ${permitidas.join(", ")}`);
   }
 
   // Misma validación de existencia suficiente que crearVenta (ventas.js) —
@@ -164,7 +177,7 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId) {
     fecha: fechaHoy,
     fecha_hora: new Date().toISOString(),
     monto: Math.round(anticipoMonto * 100) / 100,
-    forma_pago: String(datos.anticipo_forma_pago).toUpperCase(),
+    forma_pago: formaPago,
     usuario_nombre: usuario?.nombre || "—",
   });
 
@@ -187,6 +200,14 @@ function registrarAbono(DB, ventaId, datos, usuario, cajaId) {
     throw new Error("Un abono no puede pagarse a crédito");
   }
 
+  const formaPago = normalizarForma(datos.forma_pago);
+  const permitidas = listarCondiciones(DB, venta.sucursal_id)
+    .map((c) => normalizarForma(c.nombre))
+    .filter((n) => !esCredito(n));
+  if (!permitidas.includes(formaPago)) {
+    throw new Error(`Forma de pago no valida para un abono: elige una de ${permitidas.join(", ")}`);
+  }
+
   const saldo = saldoPendiente(DB, venta);
   if (monto > saldo) throw new Error(`El abono ($${monto.toFixed(2)}) no puede ser mayor al saldo pendiente ($${saldo.toFixed(2)})`);
   const caja = resolverCajaDeSucursal(DB, venta.sucursal_id, cajaId);
@@ -200,7 +221,7 @@ function registrarAbono(DB, ventaId, datos, usuario, cajaId) {
     fecha: hoy(),
     fecha_hora: new Date().toISOString(),
     monto: Math.round(monto * 100) / 100,
-    forma_pago: String(datos.forma_pago).toUpperCase(),
+    forma_pago: formaPago,
     usuario_nombre: usuario?.nombre || "—",
   });
 
