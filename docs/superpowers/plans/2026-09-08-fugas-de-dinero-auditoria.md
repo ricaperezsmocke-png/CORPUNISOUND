@@ -17,24 +17,32 @@ Un worktree recién creado no puede correr la suite: le faltan cuatro cosas que 
 existen en el repo principal. Sin ellas fallan ~69 pruebas con `MODULE_NOT_FOUND`, `SQLITE_CANTOPEN`
 y siembras que devuelven 400 — **ninguno de esos fallos tiene que ver con el código que estés tocando.**
 
-1. `node_modules` de la raíz → junction a `CORPUNISOUND/node_modules`. Varias pruebas de pantalla
-   cargan `../node_modules/react` por ruta relativa, así que no basta con que Node resuelva hacia arriba.
-2. `backend/node_modules` → junction a `CORPUNISOUND/backend/node_modules`. Ahí viven `bcryptjs`,
-   `@sentry/node`, `dotenv`, `better-sqlite3`, `xlsx` y `fast-xml-parser`.
-3. `backend/.env` → **copiarlo** del principal. `server.js` hace `require("dotenv").config()`; sin él,
-   sembrar un usuario devuelve 400 y caen las pruebas de expedientes.
-4. `backend/datos.sqlite` → **copiarlo, nunca enlazarlo.** Enlazarla haría que las pruebas escribieran
-   en la base real de trabajo.
+1. `node_modules` de la raíz (180 MB) — **copiarlo, NO enlazarlo.** Varias pruebas de pantalla cargan
+   `../node_modules/react` por ruta relativa, así que no basta con que Node resuelva hacia arriba.
+2. `backend/node_modules` (75 MB) — copiarlo también. Ahí viven `bcryptjs`, `@sentry/node`, `dotenv`,
+   `better-sqlite3`, `xlsx` y `fast-xml-parser`.
+3. `backend/.env` — copiarlo. `server.js` hace `require("dotenv").config()`; sin él, sembrar un
+   usuario devuelve 400 y caen las 6 pruebas de expedientes.
+4. `backend/datos.sqlite` — copiarlo. Enlazada, las pruebas escribirían en la base real de trabajo.
+
+**Por qué copia y no junction:** con un junction, Node resuelve la ruta real del módulo fuera del
+worktree y toca `C:\Users\Victor`. El sandbox de Codex lo prohíbe (`EPERM`) y entonces Codex no puede
+correr ni una sola prueba. Con copias reales, todo queda dentro del worktree y Codex trabaja normal.
+Se probó de las dos formas el 2026-09-10; la copia es la única que sirve para los dos.
 
 ```powershell
 $R = "C:\Users\Victor\Desktop\CORPUNISOUND"; $W = "$R\.claude\worktrees\<tu-worktree>"
-New-Item -ItemType Junction -Path "$W\node_modules" -Target "$R\node_modules"
-New-Item -ItemType Junction -Path "$W\backend\node_modules" -Target "$R\backend\node_modules"
+robocopy "$R\node_modules" "$W\node_modules" /E /MT:16 /NFL /NDL /NJH /NJS /NP
+robocopy "$R\backend\node_modules" "$W\backend\node_modules" /E /MT:16 /NFL /NDL /NJH /NJS /NP
 Copy-Item "$R\backend\.env" "$W\backend\.env"; Copy-Item "$R\backend\datos.sqlite" "$W\backend\datos.sqlite"
 ```
 
+**Aun así, Codex no puede correr la suite completa ni hacer `git commit` en un worktree:** el `.git`
+real vive en el repo principal, fuera de su workspace, y el sandbox le niega `index.lock`. El reparto
+que funciona: Codex implementa y corre su archivo de pruebas; Claude corre la suite completa y commitea.
+
 Las cuatro están en `.gitignore`, así que no ensucian el commit. Baseline comprobado el 2026-09-10:
-**1447/1447 en verde en el repo principal**, y 1453/1453 en el worktree ya preparado con la Task 1 dentro.
+**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1 dentro y 1457/1457 con la Task 2 dentro.
 
 **Estado de producción (Victor, 2026-09-08):** el sistema está desplegado pero **las cajeras todavía no lo usan**. Ninguna de estas fugas se ha explotado. Eso quita la urgencia de horas, no la de arreglarlo antes de que entren.
 
@@ -175,7 +183,7 @@ quien la hiciera podia sacar esa cantidad del cajon y el corte cuadraba."
 - Consume: `reporteMovimientosCaja(DB, filtros, alcance)`, misma firma.
 - Produce: las entradas de venta valen `venta.total - (venta.monedero_aplicado || 0)`, igual que en `backend/cortes.js:178`.
 
-- [ ] **Paso 1: Escribir las pruebas que fallan**
+- [x] **Paso 1: Escribir las pruebas que fallan**
 
 ```js
 test("el reporte informa lo que entro al cajon, no el valor de la venta", () => {
@@ -218,9 +226,9 @@ test("una venta pagada ENTERA con monedero no suma nada al cajon", () => {
 });
 ```
 
-- [ ] **Paso 2: Correrlas y verificar que fallan.**
+- [x] **Paso 2: Correrlas y verificar que fallan.**
 
-- [ ] **Paso 3: Implementar.** En `reporteMovimientosCaja`, donde acumula el total de cada venta, restar el monedero aplicado, con el mismo comentario de intención que lleva `cortes.js`:
+- [x] **Paso 3: Implementar.** En `reporteMovimientosCaja`, donde acumula el total de cada venta, restar el monedero aplicado, con el mismo comentario de intención que lleva `cortes.js`:
 
 ```js
 // EL MONEDERO NO ES EFECTIVO: solo se cobro el resto. Esta cifra tiene que
@@ -230,9 +238,9 @@ const entrado = redondear(Number(v.total) - (Number(v.monedero_aplicado) || 0));
 
 Las ventas anteriores no tienen el campo y valen su total completo — sin migrar nada.
 
-- [ ] **Paso 4: Barrer el resto de los reportes.** `grep -rn "\.total" backend/reportes.js` y revisar **cada** función que sume ventas: si alguna más informa dinero que se supone que entró a la caja, tiene el mismo defecto. Si encuentras otra, añádele su prueba en este mismo archivo y arréglala aquí; si no encuentras ninguna, dilo en el commit.
+- [x] **Paso 4: Barrer el resto de los reportes.** `grep -rn "\.total" backend/reportes.js` y revisar **cada** función que sume ventas: si alguna más informa dinero que se supone que entró a la caja, tiene el mismo defecto. Si encuentras otra, añádele su prueba en este mismo archivo y arréglala aquí; si no encuentras ninguna, dilo en el commit.
 
-- [ ] **Paso 5: Suite completa y commit.**
+- [x] **Paso 5: Suite completa y commit.**
 
 ```bash
 git add backend/reportes.js backend/movimientosCajaMonedero.test.js
