@@ -12,6 +12,30 @@
 
 **Base:** rama `master`, commit `d345bdf`. Suite en verde: 1447/1447. Eslint: 0 errores, 456 warnings preexistentes.
 
+**Preparar el worktree ANTES de correr la suite (deuda ambiental, resuelta y comprobada el 2026-09-10).**
+Un worktree recién creado no puede correr la suite: le faltan cuatro cosas que git ignora y que solo
+existen en el repo principal. Sin ellas fallan ~69 pruebas con `MODULE_NOT_FOUND`, `SQLITE_CANTOPEN`
+y siembras que devuelven 400 — **ninguno de esos fallos tiene que ver con el código que estés tocando.**
+
+1. `node_modules` de la raíz → junction a `CORPUNISOUND/node_modules`. Varias pruebas de pantalla
+   cargan `../node_modules/react` por ruta relativa, así que no basta con que Node resuelva hacia arriba.
+2. `backend/node_modules` → junction a `CORPUNISOUND/backend/node_modules`. Ahí viven `bcryptjs`,
+   `@sentry/node`, `dotenv`, `better-sqlite3`, `xlsx` y `fast-xml-parser`.
+3. `backend/.env` → **copiarlo** del principal. `server.js` hace `require("dotenv").config()`; sin él,
+   sembrar un usuario devuelve 400 y caen las pruebas de expedientes.
+4. `backend/datos.sqlite` → **copiarlo, nunca enlazarlo.** Enlazarla haría que las pruebas escribieran
+   en la base real de trabajo.
+
+```powershell
+$R = "C:\Users\Victor\Desktop\CORPUNISOUND"; $W = "$R\.claude\worktrees\<tu-worktree>"
+New-Item -ItemType Junction -Path "$W\node_modules" -Target "$R\node_modules"
+New-Item -ItemType Junction -Path "$W\backend\node_modules" -Target "$R\backend\node_modules"
+Copy-Item "$R\backend\.env" "$W\backend\.env"; Copy-Item "$R\backend\datos.sqlite" "$W\backend\datos.sqlite"
+```
+
+Las cuatro están en `.gitignore`, así que no ensucian el commit. Baseline comprobado el 2026-09-10:
+**1447/1447 en verde en el repo principal**, y 1453/1453 en el worktree ya preparado con la Task 1 dentro.
+
 **Estado de producción (Victor, 2026-09-08):** el sistema está desplegado pero **las cajeras todavía no lo usan**. Ninguna de estas fugas se ha explotado. Eso quita la urgencia de horas, no la de arreglarlo antes de que entren.
 
 ## Global Constraints
@@ -63,7 +87,7 @@ eliminarGasto(DB, garantiaId, gastoId, usuario, alcance, drive)
 - Consume: `crearVenta(DB, datos, opciones)` tal como está.
 - Produce: nada nuevo hacia afuera. `crearVenta` lanza `Error` ante una cantidad no positiva o no finita.
 
-- [ ] **Paso 1: Escribir las pruebas que fallan**
+- [x] **Paso 1: Escribir las pruebas que fallan**
 
 ```js
 test("una venta con cantidad negativa se rechaza", () => {
@@ -110,9 +134,9 @@ test("el corte nunca recibe un efectivo esperado negativo por una venta", () => 
 });
 ```
 
-- [ ] **Paso 2: Correrlas y verificar que fallan.** `cd backend && node --test ventaCantidadInvalida.test.js > salida.txt 2>&1`. Esperado: las cinco primeras en rojo. **No pipees a `tail`**: la salida completa va al archivo o se pierden los detalles.
+- [x] **Paso 2: Correrlas y verificar que fallan.** `cd backend && node --test ventaCantidadInvalida.test.js > salida.txt 2>&1`. Esperado en rojo: la 1, la 2, la 3, la 4 y la 6. La quinta ("la red") debe PASAR desde el principio: es la red de seguridad, no se fuerza a fallar. **No pipees a `tail`**: la salida completa va al archivo o se pierden los detalles.
 
-- [ ] **Paso 3: Implementar.** En `crearVenta`, **antes** de calcular nada, validar cada línea. Falla cerrando: se acepta solo lo que es un número finito mayor que cero.
+- [x] **Paso 3: Implementar.** En `crearVenta`, **antes** de calcular nada, validar cada línea. Falla cerrando: se acepta solo lo que es un número finito mayor que cero.
 
 ```js
 const cantidad = Number(l.cantidad);
@@ -123,9 +147,9 @@ if (!Number.isFinite(cantidad) || cantidad <= 0) {
 
 Cuidado: hoy el código usa `Number(l.cantidad) || 0` en dos lugares (la comprobación de existencia y el cálculo de líneas). El `|| 0` convierte la basura en cero **en silencio** — quítalo en ambos y usa la variable validada.
 
-- [ ] **Paso 4: Correr la suite entera.** `cd backend && node --test > salida.txt 2>&1`. Este cambio toca el archivo del dinero; si algo se rompe, sale aquí. Revisa que ninguna prueba existente dependiera de cantidad cero.
+- [x] **Paso 4: Correr la suite entera.** `cd backend && node --test > salida.txt 2>&1`. Este cambio toca el archivo del dinero; si algo se rompe, sale aquí. Revisa que ninguna prueba existente dependiera de cantidad cero. Conteo esperado al terminar: 1453/1453 (las 1447 de la base mas las 6 nuevas).
 
-- [ ] **Paso 5: Commit.**
+- [x] **Paso 5: Commit.**
 
 ```bash
 git add backend/ventas.js backend/ventaCantidadInvalida.test.js
