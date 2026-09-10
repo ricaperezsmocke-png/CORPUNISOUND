@@ -42,7 +42,7 @@ real vive en el repo principal, fuera de su workspace, y el sandbox le niega `in
 que funciona: Codex implementa y corre su archivo de pruebas; Claude corre la suite completa y commitea.
 
 Las cuatro están en `.gitignore`, así que no ensucian el commit. Baseline comprobado el 2026-09-10:
-**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1 dentro y 1457/1457 con la Task 2 dentro.
+**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 y 1462/1462 con la Task 3.
 
 **Estado de producción (Victor, 2026-09-08):** el sistema está desplegado pero **las cajeras todavía no lo usan**. Ninguna de estas fugas se ha explotado. Eso quita la urgencia de horas, no la de arreglarlo antes de que entren.
 
@@ -266,7 +266,7 @@ Hoy `crearApartado` y `registrarAbono` solo prohíben "crédito" (`apartados.js:
 - Consume: `listarCondiciones(DB, sucursal_id)` de `backend/condicionesPago.js`; el helper `esCredito` que ya vive en `apartados.js`.
 - Produce: `crearApartado` y `registrarAbono` lanzan `Error` ante una forma de pago que no esté en las condiciones configuradas de esa sucursal.
 
-- [ ] **Paso 1: Escribir las pruebas que fallan**
+- [x] **Paso 1: Escribir las pruebas que fallan**
 
 ```js
 test("un anticipo con una forma de pago inventada se rechaza", () => {
@@ -315,9 +315,9 @@ test("la red: EFECTIVO y TRANSFERENCIA siguen funcionando", () => {
 });
 ```
 
-- [ ] **Paso 2: Correrlas y verificar que fallan.**
+- [x] **Paso 2: Correrlas y verificar que fallan.**
 
-- [ ] **Paso 3: Implementar.** Copiar el patrón de `crearVenta` (`backend/ventas.js`, donde arma `permitidas`): normalizar la forma declarada, construir la lista de las condiciones configuradas de esa sucursal quitando el crédito, y **rechazar todo lo que no esté en esa lista**. No compares contra "lo prohibido".
+- [x] **Paso 3: Implementar.** Copiar el patrón de `crearVenta` (`backend/ventas.js`, donde arma `permitidas`): normalizar la forma declarada, construir la lista de las condiciones configuradas de esa sucursal quitando el crédito, y **rechazar todo lo que no esté en esa lista**. No compares contra "lo prohibido".
 
 ```js
 const condiciones = listarCondiciones(DB, sucursalId);
@@ -329,7 +329,7 @@ if (!permitidas.includes(declarada)) {
 
 `registrarAbono` no recibe `sucursalId`: sácalo de la venta que ya busca (`venta.sucursal_id`), **no** del cuerpo de la petición.
 
-- [ ] **Paso 4: Suite completa y commit.**
+- [x] **Paso 4: Suite completa y commit.**
 
 ```bash
 git add backend/apartados.js backend/apartadoFormaPago.test.js
