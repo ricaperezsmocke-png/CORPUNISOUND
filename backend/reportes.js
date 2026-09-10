@@ -372,7 +372,10 @@ function reporteMovimientosCaja(DB, filtros, alcance) {
   ventas.forEach((v) => {
     const forma = (v.metodo_pago || "EFECTIVO").toUpperCase();
     const actual = entradasMapa.get(forma) || { forma_pago: forma, total: 0 };
-    actual.total += v.total;
+    // EL MONEDERO NO ES EFECTIVO: solo se cobro el resto. Esta cifra tiene que
+    // coincidir con la del corte o se le reclama a la cajera dinero que nunca entro.
+    const entrado = redondear(Number(v.total) - (Number(v.monedero_aplicado) || 0));
+    actual.total += entrado;
     entradasMapa.set(forma, actual);
   });
 
