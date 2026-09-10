@@ -34,6 +34,15 @@ function crearVenta(DB, datos, opciones = {}) {
   }
 
 
+  const lineasValidadas = datos.lineas.map((l) => {
+    const cantidad = Number(l.cantidad);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+      throw new Error(`La cantidad de "${l.descripcion || producto?.nombre || "el artículo"}" debe ser mayor que cero`);
+    }
+    return { ...l, cantidad };
+  });
+
   // No dejar vender más de lo que hay en existencia, a menos que la
   // configuración lo permita explícitamente ("Permitir Ventas de
   // Artículos Sin Existencia"). Se valida TODO antes de crear nada,
@@ -87,11 +96,11 @@ function crearVenta(DB, datos, opciones = {}) {
 
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
-    for (const l of datos.lineas) {
+    for (const l of lineasValidadas) {
       if (!l.producto_id) continue; // productos rápidos no tienen existencia que validar
       const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(l.producto_id) && e.sucursal_id === sucursalId);
       const disponible = exist ? exist.cantidad_actual : 0;
-      const cantidadPedida = Number(l.cantidad) || 0;
+      const cantidadPedida = l.cantidad;
       if (cantidadPedida > disponible) {
         const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
         throw new Error(`No hay existencia suficiente de "${producto?.nombre || "producto"}" (disponible: ${disponible}, solicitado: ${cantidadPedida})`);
@@ -138,8 +147,8 @@ function crearVenta(DB, datos, opciones = {}) {
   const usuarioVenta = opciones.usuario || null;
   const puedeDescontar = permisos.includes("aplicar_descuentos_articulos_venta");
 
-  const lineasCalculadas = datos.lineas.map((l) => {
-    const cantidad = Number(l.cantidad) || 0;
+  const lineasCalculadas = lineasValidadas.map((l) => {
+    const cantidad = l.cantidad;
     const producto = l.producto_id
       ? DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id))
       : null;
