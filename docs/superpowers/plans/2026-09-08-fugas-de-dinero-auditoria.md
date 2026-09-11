@@ -42,7 +42,7 @@ real vive en el repo principal, fuera de su workspace, y el sandbox le niega `in
 que funciona: Codex implementa y corre su archivo de pruebas; Claude corre la suite completa y commitea.
 
 Las cuatro están en `.gitignore`, así que no ensucian el commit. Baseline comprobado el 2026-09-10:
-**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 , 1462/1462 con la Task 3 , 1467/1467 con la Task 4 y cero fallos con la Task 5 dentro.
+**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 , 1462/1462 con la Task 3 , 1467/1467 con la Task 4 , cero fallos con la Task 5 y 1477/1477 con la Task 6.
 
 **Estado de producción (Victor, 2026-09-08):** el sistema está desplegado pero **las cajeras todavía no lo usan**. Ninguna de estas fugas se ha explotado. Eso quita la urgencia de horas, no la de arreglarlo antes de que entren.
 
@@ -494,7 +494,7 @@ if (!cliente) throw new Error("El cliente del apartado no existe");
 - Consume: `alcanceSucursal(req, permisos)` y `dentroDeAlcance(sucursalId, alcance)` de `backend/auth.js`; `esDeEstaCaja` de `backend/cajas.js`.
 - Produce: `corregirOrigenGasto(DB, id, cambios, usuario, alcance)` — **quinto argumento nuevo, obligatorio**. Sin alcance válido, falla cerrando.
 
-- [ ] **Paso 1: Escribir las pruebas que fallan**
+- [x] **Paso 1: Escribir las pruebas que fallan**
 
 ```js
 test("no se puede corregir el origen de un gasto de otra sucursal", () => {
@@ -556,9 +556,9 @@ test("toda correccion deja bitacora con quien la hizo", () => {
 
 Nota sobre `crearGastoDePrueba`: **no existe en `testHelpers.js`** — escríbelo como función local en tu archivo de prueba, o usa `crearGasto` real (es `async`, firma `crearGasto(DB, datos, sucursalId, usuario, drive, cajaId)`).
 
-- [ ] **Paso 2: Correrlas y verificar que fallan.**
+- [x] **Paso 2: Correrlas y verificar que fallan.**
 
-- [ ] **Paso 3: Implementar.**
+- [x] **Paso 3: Implementar.**
   - Añadir el quinto parámetro `alcance` y buscar con guarda: si el gasto no existe **o** no está dentro del alcance, el mensaje es el mismo ("Gasto no encontrado") — no confirmes la existencia de registros de otra tienda.
   - **Validar todo antes de mutar nada:** calcular el nuevo origen y la nueva caja, comprobarlos, y solo entonces asignar.
   - Extender la protección histórica: además de `corte_id != null`, rechazar si existe un corte cerrado de esa sucursal y caja **posterior** a la fecha del gasto. Reutiliza `esDeEstaCaja` para decidir de qué caja es; no escribas una comparación suelta de `caja_id`.
@@ -569,7 +569,7 @@ const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_
 res.json(corregirOrigenGasto(DB, req.params.id, req.body, req.usuarioToken, alcance));
 ```
 
-- [ ] **Paso 4: Suite completa y commit.**
+- [x] **Paso 4: Suite completa y commit.**
 
 ---
 
