@@ -1920,7 +1920,8 @@ app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resol
  */
 app.put("/api/gastos/:id/origen", requiereLogin, requierePermiso("registrar_gasto_caja_fuerte", resolverPermisosDeRol), (req, res) => {
   try {
-    res.json(corregirOrigenGasto(DB, req.params.id, req.body, req.usuarioToken));
+    const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
+    res.json(corregirOrigenGasto(DB, req.params.id, req.body, req.usuarioToken, alcance));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

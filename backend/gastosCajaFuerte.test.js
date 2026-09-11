@@ -7,6 +7,10 @@ const { crearGasto, gastosEfectivoDelTurno } = require("./gastos");
 const { calcularCorteEnCurso } = require("./cortes");
 
 const USUARIO = { id: 1, nombre: "Victor" };
+// Desde el 2026-09-10 corregir el origen exige alcance: estas pruebas miden
+// otra cosa (bitacora, sellado, cancelado, origen invalido), asi que corren
+// como administrador que ve todas.
+const ALCANCE_ADMIN = { verTodas: true, sucursalId: null };
 const DRIVE = {
   asegurarCarpetaGastosSucursal: async () => "carpeta-1",
   subirArchivoADrive: async () => ({ id: "file-1", webViewLink: "https://drive.google.com/file/d/file-1/view" }),
@@ -118,7 +122,7 @@ test("un gasto pendiente se corrige y queda en la bitacora", async () => {
 
   assert.equal(gastosEfectivoDelTurno(DB, 1, null, caja), 800, "antes le resta al cajon");
 
-  corregirOrigenGasto(DB, gasto.id, { origen: "CAJA_FUERTE" }, { nombre: "Gerente" });
+  corregirOrigenGasto(DB, gasto.id, { origen: "CAJA_FUERTE" }, { nombre: "Gerente" }, ALCANCE_ADMIN);
 
   assert.equal(gastosEfectivoDelTurno(DB, 1, null, caja), 0, "despues ya no");
   const bitacora = DB.gastos.gasto_movimientos.filter((m) => m.gasto_id === gasto.id);
@@ -134,7 +138,7 @@ test("un gasto ya sellado por un corte no se puede corregir", async () => {
   gasto.corte_id = 7; // lo conto el corte 7
 
   assert.throws(
-    () => corregirOrigenGasto(DB, gasto.id, { origen: "CAJA_FUERTE" }, USUARIO),
+    () => corregirOrigenGasto(DB, gasto.id, { origen: "CAJA_FUERTE" }, USUARIO, ALCANCE_ADMIN),
     /cort/i
   );
   assert.equal(gasto.origen, "CAJON", "no se movio");
@@ -147,7 +151,7 @@ test("un gasto cancelado ya no se corrige", async () => {
   const gasto = await crearGasto(DB, datosBase(DB), 1, USUARIO, DRIVE, caja.id);
   gasto.estatus = "cancelado";
 
-  assert.throws(() => corregirOrigenGasto(DB, gasto.id, { origen: "CAJA_FUERTE" }, USUARIO), /cancelado/i);
+  assert.throws(() => corregirOrigenGasto(DB, gasto.id, { origen: "CAJA_FUERTE" }, USUARIO, ALCANCE_ADMIN), /cancelado/i);
 });
 
 test("un origen invalido se rechaza tambien al corregir", async () => {
@@ -156,6 +160,6 @@ test("un origen invalido se rechaza tambien al corregir", async () => {
   const caja = DB.pos.cajas.find((c) => c.sucursal_id === 1 && c.predeterminada);
   const gasto = await crearGasto(DB, datosBase(DB), 1, USUARIO, DRIVE, caja.id);
 
-  assert.throws(() => corregirOrigenGasto(DB, gasto.id, { origen: "TOMBOLA" }, USUARIO), /origen/i);
+  assert.throws(() => corregirOrigenGasto(DB, gasto.id, { origen: "TOMBOLA" }, USUARIO, ALCANCE_ADMIN), /origen/i);
   assert.equal(gasto.origen, "CAJON");
 });

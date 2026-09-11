@@ -197,31 +197,42 @@ function enRango(fecha, desde, hasta) {
  *
  * Despues de un corte cerrado NO se toca, por la misma razon que las ventas con
  * `cambiarCajaVenta`: cambiaria el calculado de un corte que alguien ya firmo.
- * La regla de "ya lo conto un corte" es la MISMA que usa
- * `gastosEfectivoDelTurnoLista` —el sello `corte_id`— y se lee de ahi en vez de
- * copiarse: en este repo, cada vez que una regla de dinero ha vivido en dos
- * sitios, las dos han acabado discrepando.
+ * Se protege tanto el sello `corte_id` como los gastos anteriores a un corte
+ * de su caja, aunque todavia no tengan sello.
  */
-function corregirOrigenGasto(DB, id, cambios, usuario) {
-  const gasto = DB.gastos.gastos.find((g) => g.id === Number(id));
-  if (!gasto) throw new Error("Gasto no encontrado");
+function corregirOrigenGasto(DB, id, cambios, usuario, alcance) {
+  if (!alcance || typeof alcance !== "object" ||
+      (alcance.verTodas !== true && !Number.isFinite(alcance.sucursalId))) {
+    throw new Error("Gasto no encontrado");
+  }
+  const gasto = buscarConGuardia(DB, id, {
+    verTodas: alcance.verTodas === true,
+    sucursalId: alcance.sucursalId,
+  });
   if (gasto.estatus !== "activo") throw new Error("Un gasto cancelado ya no se corrige");
   if (gasto.corte_id != null) {
     throw new Error("Este gasto ya entro en un corte cerrado y su origen no se puede cambiar");
   }
+  const cajaActual = resolverCajaDeSucursal(DB, gasto.sucursal_id, gasto.caja_id);
+  const tieneCortePosterior = DB.pos.cortes_caja.some((corte) =>
+    Number(corte.sucursal_id) === Number(gasto.sucursal_id) &&
+    esDeEstaCaja(corte, cajaActual) && corte.fecha_hora > gasto.fecha_hora
+  );
+  if (tieneCortePosterior) {
+    throw new Error("Este gasto ya entro en un corte cerrado y su origen no se puede cambiar");
+  }
 
   const antes = { origen: gasto.origen || "CAJON", caja_id: gasto.caja_id };
+  const nuevoOrigen = cambios.origen !== undefined
+    ? String(cambios.origen).toUpperCase() : antes.origen;
+  if (!ORIGENES_GASTO.includes(nuevoOrigen)) {
+    throw new Error("El origen del dinero debe ser el cajón o la caja fuerte");
+  }
+  const nuevaCajaId = cambios.caja_id !== undefined
+    ? resolverCajaDeSucursal(DB, gasto.sucursal_id, cambios.caja_id).id : gasto.caja_id;
 
-  if (cambios.origen !== undefined) {
-    const origen = String(cambios.origen).toUpperCase();
-    if (!ORIGENES_GASTO.includes(origen)) {
-      throw new Error("El origen del dinero debe ser el cajón o la caja fuerte");
-    }
-    gasto.origen = origen;
-  }
-  if (cambios.caja_id !== undefined) {
-    gasto.caja_id = resolverCajaDeSucursal(DB, gasto.sucursal_id, cambios.caja_id).id;
-  }
+  if (cambios.origen !== undefined) gasto.origen = nuevoOrigen;
+  if (cambios.caja_id !== undefined) gasto.caja_id = nuevaCajaId;
 
   pushMovimiento(DB, gasto, "correccion",
     `Origen: ${antes.origen} → ${gasto.origen || "CAJON"}; caja: ${antes.caja_id} → ${gasto.caja_id}`, usuario);
