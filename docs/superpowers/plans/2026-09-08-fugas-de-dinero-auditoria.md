@@ -42,7 +42,7 @@ real vive en el repo principal, fuera de su workspace, y el sandbox le niega `in
 que funciona: Codex implementa y corre su archivo de pruebas; Claude corre la suite completa y commitea.
 
 Las cuatro están en `.gitignore`, así que no ensucian el commit. Baseline comprobado el 2026-09-10:
-**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 , 1462/1462 con la Task 3 , 1467/1467 con la Task 4 , cero fallos con la Task 5, 1477/1477 con la Task 6, 1485/1485 con la Task 7 y 1490/1490 con la Task 8 (commit `ef59e51`, implementada por Claude: va a la revisión independiente de la rama).
+**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 , 1462/1462 con la Task 3 , 1467/1467 con la Task 4 , cero fallos con la Task 5, 1477/1477 con la Task 6, 1485/1485 con la Task 7 y 1490/1490 con la Task 8 (commit `ef59e51`, implementada por Claude: va a la revisión independiente de la rama) y 1496/1496 con la Task 9 (commit `04966da`, también de Claude). La Task 9 cerró además un segundo defecto en la misma espera a Drive: dos borrados simultáneos quitaban un gasto que nadie pidió borrar. Cambio de comportamiento: si Drive falla, el gasto se borra igual y la bitácora anota que el comprobante quedó en Drive.
 
 **Estado de producción (Victor, 2026-09-08):** el sistema está desplegado pero **las cajeras todavía no lo usan**. Ninguna de estas fugas se ha explotado. Eso quita la urgencia de horas, no la de arreglarlo antes de que entren.
 
