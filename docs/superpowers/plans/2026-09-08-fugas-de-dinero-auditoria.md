@@ -585,10 +585,10 @@ res.json(corregirOrigenGasto(DB, req.params.id, req.body, req.usuarioToken, alca
 - Consume: `PUT /api/gastos/:id/origen`, ya existente y ya blindada en la Tarea 6.
 - Produce: nada hacia el backend.
 
-- [ ] **Paso 1: Escribir las pruebas que fallan** — que exista el filtro por origen con sus tres opciones; que un gasto activo y sin sellar ofrezca la acción de corregir; que un gasto ya sellado en un corte **no** la ofrezca.
-- [ ] **Paso 2: Correrlas y verificar que fallan.**
-- [ ] **Paso 3: Implementar** el filtro y un modal de corrección que pida el origen y, cuando toque, la caja. El mensaje de error del servidor se muestra tal cual: ya explica por qué se rechazó.
-- [ ] **Paso 4: `npx eslint src backend`** — 0 errores, y los warnings no suben de 456. Commit.
+- [x] **Paso 1: Escribir las pruebas que fallan** — que exista el filtro por origen con sus tres opciones; que un gasto activo y sin sellar ofrezca la acción de corregir; que un gasto ya sellado en un corte **no** la ofrezca.
+- [x] **Paso 2: Correrlas y verificar que fallan.** Contra la pantalla anterior: 5 en rojo, las 3 de red en verde.
+- [x] **Paso 3: Implementar** el filtro y un modal de corrección que pida el origen y, cuando toque, la caja. El mensaje de error del servidor se muestra tal cual: ya explica por qué se rechazó.
+- [x] **Paso 4: `npx eslint src backend`** — 0 errores, y los warnings no suben de 456. Commit. Hecho en `065218d`: eslint 0 errores / 456 warnings, suite 1485/1485. **Pendiente: prueba en navegador.**
 
 ---
 
