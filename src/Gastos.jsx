@@ -97,7 +97,8 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [fechaInicial, setFechaInicial] = useState(haceDiasLocal(30));
   const [fechaFinal, setFechaFinal] = useState(hoyLocal());
   const [filtroEstatus, setFiltroEstatus] = useState("activo");
-  const [modal, setModal] = useState(null);      // null | "nuevo" | "cancelar" | "historial"
+  const [filtroOrigen, setFiltroOrigen] = useState("");
+  const [modal, setModal] = useState(null);      // null | "nuevo" | "cancelar" | "historial" | "origen"
   const [seleccionado, setSeleccionado] = useState(null);
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [aviso, setAviso] = useState(null);
@@ -105,6 +106,11 @@ export default function Gastos({ onVolver, permisos, usuario }) {
   const [cancelando, setCancelando] = useState(false);
   const gastoEnCurso = useRef(false);
   const cancelacionEnCurso = useRef(false);
+  const correccionEnCurso = useRef(false);
+  const [corrigiendo, setCorrigiendo] = useState(false);
+  const [cajasOrigen, setCajasOrigen] = useState([]);
+  const [formOrigen, setFormOrigen] = useState({ origen: "CAJON", caja_id: "" });
+  const [errorOrigen, setErrorOrigen] = useState(null);
 
   const [cajas, setCajas] = useState([]);
   const [form, setForm] = useState({
@@ -182,9 +188,17 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     return grupos.map((g) => ({ ...g, hijas: categorias.filter((c) => c.categoria_padre_id === g.id) }));
   }, [categorias]);
 
+  // El filtro sigue la columna Origen: solo el efectivo sale del cajón o del
+  // resguardo; los gastos históricos sin origen cuentan como del cajón.
+  const gastosVisibles = useMemo(
+    () => filtroOrigen
+      ? gastos.filter((g) => g.forma_pago === "EFECTIVO" && (g.origen || "CAJON") === filtroOrigen)
+      : gastos,
+    [gastos, filtroOrigen]
+  );
   const totalPeriodo = useMemo(
-    () => gastos.filter((g) => g.estatus === "activo").reduce((a, g) => a + g.monto, 0),
-    [gastos]
+    () => gastosVisibles.filter((g) => g.estatus === "activo").reduce((a, g) => a + g.monto, 0),
+    [gastosVisibles]
   );
 
   const abrirNuevo = () => {
@@ -283,6 +297,46 @@ export default function Gastos({ onVolver, permisos, usuario }) {
     setModal("historial");
   };
 
+  const abrirCorreccion = async (g) => {
+    // La lista de cajas corresponde al registro, incluso desde «Todas».
+    // El servidor resuelve el alcance de la corrección con la sesión.
+    const { datos, error } = await pedirLista(() => apiFetch(`/cajas${qSucursal(g)}`), "las cajas");
+    if (error) return mostrarAviso("❌ " + error);
+    setSeleccionado(g);
+    setCajasOrigen(datos);
+    setFormOrigen({
+      origen: g.origen || "CAJON",
+      caja_id: String(g.caja_id ?? datos.find((c) => c.predeterminada)?.id ?? ""),
+    });
+    setErrorOrigen(null);
+    setModal("origen");
+  };
+
+  const corregirOrigen = async (e) => {
+    e.preventDefault();
+    if (correccionEnCurso.current) return;
+    correccionEnCurso.current = true;
+    setCorrigiendo(true);
+    setErrorOrigen(null);
+    try {
+      const cambios = { origen: formOrigen.origen };
+      if (seleccionado.forma_pago === "EFECTIVO") cambios.caja_id = formOrigen.caja_id;
+      const r = await apiFetch(`/gastos/${seleccionado.id}/origen${qSucursal(seleccionado)}`, {
+        method: "PUT", body: JSON.stringify(cambios),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      mostrarAviso("✅ Origen del gasto corregido");
+      setModal(null);
+      cargarGastos();
+    } catch (err) {
+      setErrorOrigen(err.message);
+    } finally {
+      correccionEnCurso.current = false;
+      setCorrigiendo(false);
+    }
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
       {aviso && <div className="bg-slate-800 text-white text-xs px-4 py-2 shrink-0">{aviso}</div>}
@@ -324,6 +378,14 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 <option value="">Todos</option>
               </select>
             </div>
+            <div>
+              <label htmlFor="filtro-origen" className="text-xs text-slate-500 block mb-1">Origen</label>
+              <select id="filtro-origen" value={filtroOrigen} onChange={(e) => setFiltroOrigen(e.target.value)} className="neu-campo rounded-lg px-2 py-1.5 text-sm">
+                <option value="">Todos</option>
+                <option value="CAJON">Cajón</option>
+                <option value="CAJA_FUERTE">Caja fuerte</option>
+              </select>
+            </div>
             {puede("registrar_gastos") && (
               <button type="button" onClick={abrirNuevo} disabled={fueraDeSuSucursal} title={fueraDeSuSucursal ? MOTIVO_FUERA : "Registrar gasto"}
                 className="ml-auto flex items-center gap-1.5 bg-[#1a7fe8] text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
@@ -351,12 +413,12 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 </tr>
               </thead>
               <tbody>
-                {gastos.length === 0 && (
+                {gastosVisibles.length === 0 && (
                   <tr><td colSpan={12} className={`text-center py-16 ${errorGastos ? "text-red-700" : "text-slate-400"}`}>
                     {errorGastos ? `⚠ ${errorGastos}` : "Sin gastos en el periodo"}
                   </td></tr>
                 )}
-                {gastos.map((g) => (
+                {gastosVisibles.map((g) => (
                   <tr key={g.id} className="border-b border-slate-100">
                     <td className="py-2 px-3 font-medium">
                       {g.folio}
@@ -386,6 +448,10 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <button type="button" onClick={() => abrirHistorial(g)} className="text-slate-500 hover:text-[#1a7fe8] px-1" title="Historial"><History size={15} /></button>
+                      {g.estatus === "activo" && g.corte_id == null && puede("registrar_gasto_caja_fuerte") && (
+                        <button type="button" onClick={() => abrirCorreccion(g)}
+                          className="text-slate-500 hover:text-[#1a7fe8] px-1" title="Corregir origen">Corregir origen</button>
+                      )}
                       {g.estatus === "activo" && puede("cancelar_gastos") && (
                         <button type="button" onClick={() => { setSeleccionado(g); setMotivo(""); setModal("cancelar"); }}
                           className="text-slate-500 hover:text-red-600 px-1" title="Cancelar"><Ban size={15} /></button>
@@ -398,7 +464,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
           </div>
 
           <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
-            <span>{gastos.length} gasto(s) en el periodo</span>
+            <span>{gastosVisibles.length} gasto(s) en el periodo</span>
             <span>Total activo: <b>${totalPeriodo.toFixed(2)}</b></span>
           </div>
         </>
@@ -528,6 +594,48 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               <button type="submit" form="form-gasto" disabled={!archivo || guardando || comprimiendo}
                 className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 {guardando ? "Guardando..." : "Guardar gasto"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === "origen" && seleccionado && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-origen-gasto"
+            className="neu-panel rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between shrink-0">
+              <h3 id="titulo-origen-gasto" className="font-semibold text-slate-700">Corregir origen de {seleccionado.folio}</h3>
+              <button type="button" onClick={() => setModal(null)} disabled={corrigiendo} aria-label="Cerrar"
+                className="text-slate-400 hover:text-slate-600 disabled:opacity-40"><X size={18} /></button>
+            </div>
+            <form id="form-origen-gasto" onSubmit={corregirOrigen} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+              {errorOrigen && <p role="alert" className="text-xs text-red-700">{errorOrigen}</p>}
+              <div>
+                <label htmlFor="origen-gasto" className="text-xs text-slate-500 block mb-1">Origen del dinero *</label>
+                <select id="origen-gasto" required value={formOrigen.origen} disabled={corrigiendo}
+                  onChange={(e) => setFormOrigen({ ...formOrigen, origen: e.target.value })} className={inputCls}>
+                  <option value="CAJON">Cajón</option>
+                  <option value="CAJA_FUERTE">Caja fuerte</option>
+                </select>
+              </div>
+              {seleccionado.forma_pago === "EFECTIVO" && (
+                <div>
+                  <label htmlFor="caja-origen-gasto" className="text-xs text-slate-500 block mb-1">¿De qué caja salió el dinero? *</label>
+                  <select id="caja-origen-gasto" required value={formOrigen.caja_id} disabled={corrigiendo}
+                    onChange={(e) => setFormOrigen({ ...formOrigen, caja_id: e.target.value })} className={inputCls}>
+                    <option value="">Elige una caja</option>
+                    {cajasOrigen.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+              )}
+            </form>
+            <div className="px-4 py-3 border-t border-black/5 flex justify-end gap-2 shrink-0">
+              <button type="button" onClick={() => setModal(null)} disabled={corrigiendo}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded disabled:opacity-40">Cancelar</button>
+              <button type="submit" form="form-origen-gasto" disabled={corrigiendo}
+                className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                {corrigiendo ? "Guardando..." : "Guardar corrección"}
               </button>
             </div>
           </div>
