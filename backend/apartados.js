@@ -61,6 +61,11 @@ function esCredito(forma) {
 function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
   const cliente_id = Number(datos.cliente_id);
   if (!cliente_id) throw new Error("Selecciona un cliente para el apartado — no puede ser Público en General");
+  // Un id que no existe no es un cliente: al cancelar, el monedero no se le
+  // acredita a nadie y el anticipo que alguien pagó de verdad se evapora. El id
+  // llega como TEXTO desde HTTP, por eso se comparan números de los dos lados.
+  const cliente = DB.crm.clientes.find((c) => Number(c.id) === cliente_id);
+  if (!cliente) throw new Error("El cliente del apartado no existe");
   if (!Array.isArray(datos.lineas) || datos.lineas.length === 0) {
     throw new Error("El apartado no tiene productos");
   }
