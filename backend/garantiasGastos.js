@@ -8,9 +8,12 @@
  */
 
 const { buscarConGuardia, pushMovimiento } = require("./garantias");
-const { resolverCajaDeSucursal } = require("./cajas");
+const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
 
 const TIPOS_GASTO = ["traslado", "reparacion", "otro"];
+// Las formas con las que el dinero de una garantía entra al corte (ver
+// dineroGarantiasDelTurno en cortes.js).
+const FORMAS_PAGO = ["EFECTIVO", "TARJETA", "TRANSFERENCIA"];
 const ETIQUETA_TIPO = { traslado: "Traslado", reparacion: "Reparación", otro: "Otro" };
 const MIME_VALIDOS = ["application/pdf", "image/jpeg", "image/png"];
 const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
@@ -25,7 +28,7 @@ function datosDeDinero(DB, garantia, datos) {
     throw new Error("El monto debe ser un número mayor que cero");
   }
   const forma_pago = typeof datos.forma_pago === "string" ? datos.forma_pago.toUpperCase() : "";
-  if (!["EFECTIVO", "TARJETA", "TRANSFERENCIA"].includes(forma_pago)) throw new Error("Forma de pago inválida");
+  if (!FORMAS_PAGO.includes(forma_pago)) throw new Error("Forma de pago inválida");
   const sucursal_id = garantia.sucursal_origen_id;
   const caja = resolverCajaDeSucursal(DB, sucursal_id, datos.caja_id);
   return { monto, forma_pago, sucursal_id, caja_id: caja?.id ?? null, corte_id: null };
@@ -113,6 +116,23 @@ function totalGastos(DB, garantiaId) {
     .reduce((s, g) => s + Number(g.monto || 0), 0);
 }
 
+/**
+ * ¿Ya contó este gasto un corte? "Ya lo contó un corte" es la misma frontera
+ * que usa corregirOrigenGasto: con sello lo dice el sello; sin sello, un gasto
+ * que declaraba dinero y es anterior a un corte de su caja lo contó la ventana
+ * de tiempo de la era histórica. Uno viejo sin forma de pago nunca entró a un
+ * corte, y bloquearlo solo le quitaría la herramienta a quien lo capturó mal.
+ */
+function yaLoContoUnCorte(DB, gasto) {
+  if (gasto.corte_id != null) return true;
+  if (!FORMAS_PAGO.includes(gasto.forma_pago) || !Number(gasto.sucursal_id)) return false;
+  const caja = resolverCajaDeSucursal(DB, gasto.sucursal_id, gasto.caja_id);
+  return DB.pos.cortes_caja.some((corte) =>
+    Number(corte.sucursal_id) === Number(gasto.sucursal_id) &&
+    esDeEstaCaja(corte, caja) && corte.fecha_hora > gasto.fecha
+  );
+}
+
 async function eliminarGasto(DB, garantiaId, gastoId, usuario, alcance, drive) {
   const garantia = buscarConGuardia(DB, garantiaId, alcance);
   const idx = DB.inventario.garantia_gastos.findIndex(
@@ -120,11 +140,26 @@ async function eliminarGasto(DB, garantiaId, gastoId, usuario, alcance, drive) {
   );
   if (idx === -1) throw new Error("Gasto no encontrado");
   const gasto = DB.inventario.garantia_gastos[idx];
-  if (gasto.corte_id != null) throw new Error("No se puede eliminar un gasto incluido en un corte cerrado");
-  if (gasto.drive_file_id) await drive.eliminarArchivoDeDrive(DB, gasto.drive_file_id);
+  if (yaLoContoUnCorte(DB, gasto)) {
+    throw new Error("No se puede eliminar un gasto incluido en un corte cerrado: ese corte ya descontó este dinero");
+  }
+  // Revisar y quitar el registro van juntos, SIN ningún await en medio. Con la
+  // espera a Drive entre los dos, un corte podía cerrarse ahí y sellar un gasto
+  // que un instante después desaparecía, y un segundo borrado simultáneo usaba
+  // un índice viejo y quitaba otro gasto.
   DB.inventario.garantia_gastos.splice(idx, 1);
   pushMovimiento(DB, garantia, "gasto_eliminado",
     `Gasto eliminado: ${ETIQUETA_TIPO[gasto.tipo]} $${Number(gasto.monto).toFixed(2)}`, usuario);
+  if (gasto.drive_file_id) {
+    try {
+      await drive.eliminarArchivoDeDrive(DB, gasto.drive_file_id);
+    } catch (e) {
+      // El registro ya no está. El comprobante sobra en Drive, pero no se
+      // pierde, y la bitácora deja dicho dónde quedó.
+      pushMovimiento(DB, garantia, "gasto_eliminado",
+        `El comprobante ${gasto.nombre_archivo || gasto.drive_file_id} quedó en Drive: no se pudo borrar (${e.message})`, usuario);
+    }
+  }
   return { ok: true };
 }
 
