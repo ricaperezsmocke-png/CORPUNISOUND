@@ -42,7 +42,7 @@ real vive en el repo principal, fuera de su workspace, y el sandbox le niega `in
 que funciona: Codex implementa y corre su archivo de pruebas; Claude corre la suite completa y commitea.
 
 Las cuatro están en `.gitignore`, así que no ensucian el commit. Baseline comprobado el 2026-09-10:
-**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 , 1462/1462 con la Task 3 y 1467/1467 con la Task 4.
+**1447/1447 en verde en el repo principal**; 1453/1453 con la Task 1, 1457/1457 con la Task 2 , 1462/1462 con la Task 3 , 1467/1467 con la Task 4 y cero fallos con la Task 5 dentro.
 
 **Estado de producción (Victor, 2026-09-08):** el sistema está desplegado pero **las cajeras todavía no lo usan**. Ninguna de estas fugas se ha explotado. Eso quita la urgencia de horas, no la de arreglarlo antes de que entren.
 
@@ -431,7 +431,7 @@ Un articulo de 32 se apartaba en 1. Mismo blindaje que ventas recibio el 04."
 - Consume: `DB.crm.clientes`.
 - Produce: `crearApartado` lanza `Error` si el cliente no existe.
 
-- [ ] **Paso 1: Escribir las pruebas que fallan**
+- [x] **Paso 1: Escribir las pruebas que fallan**
 
 ```js
 test("un apartado a nombre de un cliente inexistente se rechaza", () => {
@@ -465,16 +465,16 @@ test("cancelar un apartado real SI acredita el monedero a su dueno", () => {
 });
 ```
 
-- [ ] **Paso 2: Correrlas y verificar que fallan.**
+- [x] **Paso 2: Correrlas y verificar que fallan.**
 
-- [ ] **Paso 3: Implementar.** Junto a la comprobación que ya existe, buscar al cliente y rechazar si no aparece. Normaliza con `Number(...)` antes de comparar — el id llega como texto desde HTTP.
+- [x] **Paso 3: Implementar.** Junto a la comprobación que ya existe, buscar al cliente y rechazar si no aparece. Normaliza con `Number(...)` antes de comparar — el id llega como texto desde HTTP.
 
 ```js
 const cliente = DB.crm.clientes.find((c) => Number(c.id) === cliente_id);
 if (!cliente) throw new Error("El cliente del apartado no existe");
 ```
 
-- [ ] **Paso 4: Suite completa y commit.**
+- [x] **Paso 4: Suite completa y commit.**
 
 ---
 
