@@ -9,6 +9,9 @@
 const { dentroDeAlcance } = require("./auth");
 const { fechaLocal } = require("./fechas");
 
+// El CEDIS es quien compra con la cuenta común (ver sucursales.js).
+const ID_CEDIS = 6;
+
 function redondear(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function enRango(fecha, desde, hasta) {
   if (desde && fecha < desde) return false;
@@ -37,6 +40,10 @@ function estadoCuenta(DB, filtros, alcance) {
 
   const recibidos = (DB.inventario.traspasos || [])
     .filter((t) => t.estatus === "recibido")
+    // La deuda con la cuenta común nace de lo que compró el CEDIS, no de mover
+    // mercancía entre tiendas: esa ya se cobró cuando salió del CEDIS, y
+    // contarla otra vez carga el mismo recorrido a dos tiendas.
+    .filter((t) => Number(t.sucursal_origen_id) === ID_CEDIS)
     .filter((t) => dentroDeAlcance(t.sucursal_destino_id, alcance))
     .filter((t) => enRango(fechaLocal(t.fecha_recepcion), fecha_inicio, fecha_fin))
     .filter((t) => !soloUna || t.sucursal_destino_id === soloUna);
