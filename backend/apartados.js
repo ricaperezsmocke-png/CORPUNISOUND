@@ -155,7 +155,25 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
       if (!permisos.includes("agregar_articulo_rapido")) {
         throw new Error("No tienes permiso para apartar un artículo rápido (una línea sin producto del catálogo)");
       }
-      precio = Number(l.precio_unitario) || 0;
+      // El precio de una linea rapida no lo respalda ningun catalogo, asi que este
+      // es el unico sitio donde se puede validar. Sin piso, una linea rapida
+      // NEGATIVA compensa el precio de un producto real y el total del ticket se
+      // desploma: reproducido con un producto de $32 y una linea rapida de -22,
+      // el documento quedo en $10, marcado como pagado y con la existencia
+      // descontada. Para rebajar un importe ya existe `descuento_pct`, que tiene
+      // su propio permiso y su tope de 0 a 100; una linea negativa seria un
+      // descuento sin permiso, sin tope y sin rastro.
+      //
+      // El CERO si se permite a proposito: es la cortesia o el accesorio de
+      // regalo, y hoy se usa.
+      const precioCrudo = l.precio_unitario;
+      precio = precioCrudo === undefined ? 0 : Number(precioCrudo);
+      if (precioCrudo === null || !Number.isFinite(precio)) {
+        throw new Error("El precio de un artículo rápido tiene que ser un número");
+      }
+      if (precio < 0) {
+        throw new Error("El precio de un artículo rápido no puede ser negativo — para rebajar el importe usa el descuento, que tiene su propio permiso");
+      }
     }
 
     const descPct = puedeDescontar ? Number(l.descuento_pct) || 0 : 0;
