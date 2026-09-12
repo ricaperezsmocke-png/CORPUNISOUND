@@ -94,7 +94,7 @@ export default function Login({ onIngreso }) {
 
   return (
     <div
-      className="w-full h-screen flex items-center justify-center"
+      className="w-full h-pantalla flex items-center justify-center"
       style={{ background: "linear-gradient(135deg, #1a7fe8 0%, #0f4c8a 100%)" }}
     >
       <Card className="w-full max-w-sm shadow-2xl border-0">
