@@ -138,6 +138,23 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
         throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de apartarlo`);
       }
     } else {
+      // ARTICULO RAPIDO: sin producto no hay catalogo contra el cual recalcular,
+      // asi que conserva el precio que le pongan — a proposito, para servicios y
+      // piezas especiales.
+      //
+      // Pero eso deja una puerta doble: mandar la mercancia real como articulo
+      // rapido a $1 se salta el recalculo entero Y ADEMAS no descuenta
+      // existencia (abajo, `if (l.producto_id)` es lo que dispara
+      // `ajustarExistencia`). La guitarra sale de la tienda y en los reportes se
+      // ve como un apartado barato legitimo.
+      //
+      // Es la misma puerta que `crearVenta` (ventas.js) cerro el 2026-09-06 con
+      // este mismo permiso; apartados era la otra ruta al mismo riesgo y da el
+      // mismo error. La guarda va ANTES de tocar la base: si falla, no se creo
+      // venta, ni renglones, ni abono, ni se movio inventario.
+      if (!permisos.includes("agregar_articulo_rapido")) {
+        throw new Error("No tienes permiso para apartar un artículo rápido (una línea sin producto del catálogo)");
+      }
       precio = Number(l.precio_unitario) || 0;
     }
 
