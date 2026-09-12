@@ -50,7 +50,7 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
 
       <div className="flex-1 overflow-y-auto flex flex-col md:flex-row">
         <div className="flex-1 overflow-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[720px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Clave</th>

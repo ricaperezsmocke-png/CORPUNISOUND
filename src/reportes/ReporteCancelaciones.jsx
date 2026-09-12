@@ -87,7 +87,7 @@ export default function ReporteCancelaciones({ onVolver }) {
         ) : !datos ? (
           <p className="text-center text-slate-400 py-16">Sin datos</p>
         ) : (
-          <table className="w-full min-w-[850px] text-sm">
+          <table className="w-full min-w-[850px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>

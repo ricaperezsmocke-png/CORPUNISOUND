@@ -408,7 +408,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
               <div>
                 <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Caja: {cajaNombre || "–"}</div>
                 <div className="w-full overflow-x-auto">
-                <table className="w-full min-w-[420px] text-sm">
+                <table className="w-full min-w-[420px] lg:min-w-0 text-sm">
                   <thead>
                     <tr className="text-slate-500">
                       <th className="text-left font-medium py-1"></th>
@@ -538,7 +538,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
             <div className="p-4">
               {cortes.length === 0 ? <p className="text-center text-slate-400 py-8">Sin cortes registrados todavía</p> : (
                 <div className="w-full overflow-x-auto">
-                <table className="w-full min-w-[560px] text-sm">
+                <table className="w-full min-w-[560px] lg:min-w-0 text-sm">
                   <thead className="text-slate-500 border-b border-black/5">
                     <tr>
                       <th className="text-left py-2 font-medium">#</th>

@@ -29,7 +29,7 @@ export default function EncabezadoModulo({ vista, usuario, onSalir, onAbrirMenu,
     <header
       // flex-wrap: a 360px la fila no cabe entera con los dos selectores; que
       // envuelva a un segundo renglón en vez de apretar o esconder algo.
-      className="shrink-0 shadow-md flex flex-wrap items-center justify-between px-4 py-2 gap-x-3 gap-y-2"
+      className="shrink-0 shadow-md flex flex-wrap lg:flex-nowrap items-center justify-between px-4 py-2 gap-x-3 gap-y-2"
       style={{ background: "var(--encabezado-fondo)" }}
     >
       {/* Izquierda: botón de menú (solo celular) + logo + título. */}

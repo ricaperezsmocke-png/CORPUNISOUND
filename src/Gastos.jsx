@@ -399,7 +399,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
               con scroll (vertical y horizontal), asi que el encabezado
               sticky sigue funcionando igual que antes. */}
           <div className="flex-1 overflow-auto">
-            <table className="w-full min-w-[1150px] text-sm">
+            <table className="w-full min-w-[1150px] lg:min-w-0 text-sm">
               <thead className="bg-[#1a7fe8] text-white sticky top-0">
                 <tr>
                   <th className="py-2 px-3 text-left font-medium">Folio</th>

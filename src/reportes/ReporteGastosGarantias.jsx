@@ -175,7 +175,7 @@ export default function ReporteGastosGarantias({ onVolver }) {
         ) : !datos ? (
           <p className="text-center text-slate-400 py-16">Sin datos</p>
         ) : tab === "general" ? (
-          <table className="w-full min-w-[1200px] text-sm">
+          <table className="w-full min-w-[1200px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>

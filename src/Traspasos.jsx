@@ -253,7 +253,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[650px] text-sm neu rounded-xl overflow-hidden">
+          <table className="w-full min-w-[650px] lg:min-w-0 text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Producto</th>

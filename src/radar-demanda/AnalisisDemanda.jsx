@@ -21,7 +21,7 @@ function Tarjeta({ etiqueta, valor, detalle }) {
 }
 
 function Tabla({ titulo, columnas, filas, vacio }) {
-  return <section className="min-w-0 rounded-2xl neu shadow-sm"><h2 className="border-b border-slate-100 px-4 py-3 font-bold text-slate-800">{titulo}</h2><div className="overflow-x-auto">{filas.length ? <table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{columnas.map((c) => <th key={c.clave} className="px-4 py-3">{c.titulo}</th>)}</tr></thead><tbody>{filas.map((fila, i) => <tr key={`${titulo}-${i}`} className="border-t border-slate-100">{columnas.map((c) => <td key={c.clave} className="px-4 py-3 text-slate-700">{c.render ? c.render(fila[c.clave], fila) : fila[c.clave]}</td>)}</tr>)}</tbody></table> : <p className="px-4 py-10 text-center text-sm text-slate-500">{vacio}</p>}</div></section>;
+  return <section className="min-w-0 rounded-2xl neu shadow-sm"><h2 className="border-b border-slate-100 px-4 py-3 font-bold text-slate-800">{titulo}</h2><div className="overflow-x-auto">{filas.length ? <table className="w-full min-w-[680px] lg:min-w-0 text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{columnas.map((c) => <th key={c.clave} className="px-4 py-3">{c.titulo}</th>)}</tr></thead><tbody>{filas.map((fila, i) => <tr key={`${titulo}-${i}`} className="border-t border-slate-100">{columnas.map((c) => <td key={c.clave} className="px-4 py-3 text-slate-700">{c.render ? c.render(fila[c.clave], fila) : fila[c.clave]}</td>)}</tr>)}</tbody></table> : <p className="px-4 py-10 text-center text-sm text-slate-500">{vacio}</p>}</div></section>;
 }
 
 function FormasEscritas({ total, formas = [] }) {

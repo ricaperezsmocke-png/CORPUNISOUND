@@ -409,7 +409,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
           )}
           <div className="neu rounded-xl overflow-hidden">
             <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[480px] text-sm">
+            <table className="w-full min-w-[480px] lg:min-w-0 text-sm">
               <thead className="bg-[#1a7fe8] text-white">
                 <tr>
                   <th className="py-2 px-3 text-left font-medium">Sucursal</th>
@@ -453,7 +453,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
             <div className="neu rounded-xl overflow-hidden">
               <div className="px-3 py-2 border-b border-black/5 font-medium text-slate-700">Detalle de movimientos</div>
               <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[560px] text-sm">
+              <table className="w-full min-w-[560px] lg:min-w-0 text-sm">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="py-2 px-3 text-left font-medium text-slate-500">Fecha</th>
@@ -489,7 +489,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="w-full min-w-[900px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>

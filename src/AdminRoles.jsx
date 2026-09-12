@@ -163,7 +163,7 @@ function IntentosBloqueados() {
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <div className="w-full overflow-x-auto">
-      <table className="w-full min-w-[600px] text-sm neu rounded-xl overflow-hidden">
+      <table className="w-full min-w-[600px] lg:min-w-0 text-sm neu rounded-xl overflow-hidden">
         <thead className="bg-[#1a7fe8] text-white">
           <tr>
             <th className="py-2 px-3 text-left font-medium">Usuario</th>
@@ -651,7 +651,7 @@ Esta acción no se puede deshacer.`,
           ) : vistaRoles === "personal" ? (
             <div className="flex-1 overflow-y-auto p-4">
               <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[1000px] text-sm neu rounded-xl overflow-hidden">
+              <table className="w-full min-w-[1000px] lg:min-w-0 text-sm neu rounded-xl overflow-hidden">
                 <thead className="bg-[#1a7fe8] text-white">
                   <tr>
                     <th className="py-2 px-3 text-left font-medium">Nombre</th>

@@ -67,7 +67,7 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo, abierta, 
     } lg:static lg:translate-x-0 ${
       encogida ? "lg:w-16" : "lg:w-64"
     }`}>
-      <div className="shrink-0 px-3 pt-3 pb-1 flex justify-end">
+      <div className="shrink-0 px-3 pt-3 pb-1 hidden lg:flex justify-end">
         <button
           type="button"
           onClick={() => setEncogida((v) => !v)}
