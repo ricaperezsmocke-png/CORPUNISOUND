@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { apiFetch, cajaActiva, sinSucursalElegida } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
+import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 
 const FORMAS = ["EFECTIVO", "CHEQUE", "VALES", "TARJETA"];
 const ETIQUETAS = { EFECTIVO: "Efectivo", CHEQUE: "* Cheque", VALES: "Vales", TARJETA: "* Tarjeta" };
@@ -274,7 +275,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const infoCorte = ultimoCorteGuardado;
 
   return (
-    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       {/* Con "Todas" no se muestra ningún corte: un corte de la tienda
           equivocada le inventa un faltante a la cajera. */}
       {sinSucursal && (
@@ -297,6 +298,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
           </span>
         </div>
       )}
+
+      <AvisoPantallaMostrador />
 
       {/* Barra de herramientas */}
       <div className="neu rounded-none flex overflow-x-auto shrink-0">

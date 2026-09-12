@@ -1,0 +1,17 @@
+{
+  "name": "CORPUNISOUND",
+  "short_name": "CORPUNISOUND",
+  "description": "Punto de venta CORPUNISOUND",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1a7fe8",
+  "icons": [
+    {
+      "src": "/logo-unisound.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

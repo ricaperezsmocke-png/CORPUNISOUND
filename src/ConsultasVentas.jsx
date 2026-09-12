@@ -267,7 +267,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const totalPeriodo = useMemo(() => ventas.filter((v) => v.estatus === "cerrada").reduce((a, v) => a + v.total, 0), [ventas]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       <div className="neu rounded-none flex overflow-x-auto shrink-0">
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
@@ -407,7 +407,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
               <button type="button" onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>
             <div className="p-4">
-              <div className="grid grid-cols-2 gap-3 text-xs mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-4">
                 <div><span className="text-slate-400">Fecha:</span> {detalle.fecha}</div>
                 <div><span className="text-slate-400">Documento:</span> {detalle.tipo_documento}</div>
                 <div><span className="text-slate-400">Cliente:</span> {detalle.cliente_nombre}</div>

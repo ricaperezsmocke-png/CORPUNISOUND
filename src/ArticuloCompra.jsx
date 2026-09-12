@@ -150,7 +150,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
         <div className="p-5 flex flex-col gap-4">
           <div>
             <div className="text-xs font-semibold text-slate-500 mb-2">Información del Artículo</div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <Campo label="Clave"><div className="text-sm font-medium">{producto.sku}</div></Campo>
               <Campo label="Clave SAT">
                 <div className="flex gap-1.5">
@@ -162,7 +162,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
               </Campo>
             </div>
             <Campo label="Descripción" className="mb-3"><div className="text-sm">{producto.nombre}</div></Campo>
-            <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <Campo label="Existencia"><div className="text-sm">{producto.existencia ?? 0}</div></Campo>
               <Campo label="Factor"><div className="text-sm">{producto.factor ?? 1}</div></Campo>
               <Campo label="Localización">
@@ -203,7 +203,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
             <label className="flex items-center gap-2 text-sm mb-3">
               <input type="checkbox" checked={aplicaIva} onChange={(e) => setAplicaIva(e.target.checked)} /> Aplica IVA (16%)
             </label>
-            <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
               <Campo label="Cantidad"><input type="number" className={inputCls} value={cantidad} onChange={(e) => setCantidad(e.target.value)} /></Campo>
               <Campo label="Costo (neto)"><input type="number" className={inputCls} value={costo} onChange={(e) => setCosto(e.target.value)} /></Campo>
               <Campo label=" ">
@@ -212,7 +212,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
                 </label>
               </Campo>
             </div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <Campo label="Desc $"><input type="number" className={inputCls} value={descuentoPesos} onChange={(e) => setDescuentoPesos(e.target.value)} /></Campo>
               <Campo label="Desc %"><input type="number" className={inputCls} value={descuentoPorcentaje} onChange={(e) => setDescuentoPorcentaje(e.target.value)} /></Campo>
             </div>
@@ -224,7 +224,7 @@ export default function ArticuloCompra({ producto, renglonExistente, onCancelar,
 
           <div className="border-t border-black/5 pt-3">
             <div className="text-xs font-semibold text-slate-500 mb-2">Precios de Venta (después de esta compra)</div>
-            <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {precios.map((t, idx) => (
                 <div key={idx} className="border border-slate-200 rounded-lg p-2.5">
                   <div className="text-[11px] font-semibold text-slate-500 mb-1.5">Precio {idx + 1}</div>

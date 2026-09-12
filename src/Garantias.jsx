@@ -728,7 +728,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
             </div>
 
             <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Campo label="Tipo">
                   <select className={inputCls} value={formGasto.tipo} onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}>
                     {TIPOS_GASTO.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}

@@ -49,8 +49,8 @@ export default function ReporteEstadoCuentaClientes({ onVolver }) {
       <BarraAccionesReporte onConsultar={consultar} onExportarExcel={exportarExcel} />
 
       <div className="flex-1 overflow-y-auto flex flex-col md:flex-row">
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-sm">
+        <div className="flex-1 overflow-auto">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Clave</th>

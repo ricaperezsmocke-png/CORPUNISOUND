@@ -8,6 +8,7 @@ import { apiFetch } from "./api";
 import { pedirLista } from "./cargaSegura";
 import ArticuloCompra from "./ArticuloCompra";
 import { sugerirProducto } from "./sugerirProducto";
+import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick }) {
   return (
@@ -480,6 +481,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+      <AvisoPantallaMostrador />
       <div className="neu rounded-none flex items-center justify-between shrink-0 px-2">
         <div className="flex">
           <button onClick={() => setTab("nueva")} className={`px-4 py-2.5 text-xs font-medium border-b-2 ${tab === "nueva" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}>
@@ -546,7 +548,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                   <label className="text-xs text-slate-500 flex items-center gap-1.5 neu-campo rounded-lg px-2 py-1.5">Neto <input type="checkbox" disabled className="opacity-50" /></label>
                   <span className="text-xs text-slate-500 px-2 py-1.5">MXN</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Campo label="Proveedor">
                     <div className="flex gap-1.5">
                       <select id="select-proveedor" className={inputCls} value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>

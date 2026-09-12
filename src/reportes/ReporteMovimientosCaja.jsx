@@ -71,7 +71,8 @@ export default function ReporteMovimientosCaja({ onVolver }) {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col md:flex-row gap-4">
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-slate-700 mb-2">Entradas (ventas por forma de pago)</h3>
-          <table className="w-full text-sm neu-panel rounded border border-slate-200">
+          <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm neu-panel rounded border border-slate-200">
             <thead className="bg-emerald-600 text-white">
               <tr><th className="py-2 px-3 text-left font-medium">Forma de Pago</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
             </thead>
@@ -86,11 +87,13 @@ export default function ReporteMovimientosCaja({ onVolver }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-slate-700 mb-2">Salidas (retiros de corte de caja)</h3>
-          <table className="w-full text-sm neu-panel rounded border border-slate-200">
+          <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm neu-panel rounded border border-slate-200">
             <thead className="bg-red-500 text-white">
               <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Sucursal</th><th className="py-2 px-3 text-left font-medium">Usuario</th><th className="py-2 px-3 text-right font-medium">Retiro</th></tr>
             </thead>
@@ -107,6 +110,7 @@ export default function ReporteMovimientosCaja({ onVolver }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 

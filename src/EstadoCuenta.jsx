@@ -5,6 +5,7 @@ import { hoyLocal, haceDiasLocal } from "./fechas";
 import { comprimirImagen } from "./comprimirImagen";
 import { descargarCSV } from "./reportes/exportarCSV.js";
 import { pedirLista, pedirDato } from "./cargaSegura";
+import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 
 /** Forma que el render da por hecha cuando todavía no hay datos que pintar. */
 const RESUMEN_VACIO = { resumen: [], movimientos: null, totales: { depositado: 0, recibido: 0, saldo: 0, sin_comprobante: 0, monto_sin_comprobante: 0 } };
@@ -330,6 +331,8 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
         <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 shrink-0">{MOTIVO_FUERA}</div>
       )}
 
+      <AvisoPantallaMostrador />
+
       <div className="neu rounded-none flex shrink-0">
         <button type="button" onClick={() => setTab("resumen")}
           className={`px-4 py-2 border-b-2 ${tab === "resumen" ? "border-[#1a7fe8] text-[#1a7fe8] font-medium" : "border-transparent text-slate-500"}`}>
@@ -570,7 +573,7 @@ export default function EstadoCuenta({ onVolver, permisos, usuario }) {
             </div>
 
             <form id="form-deposito" onSubmit={guardar} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Monto *</label>
                   <input required type="number" step="0.01" min="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} className={inputCls} />

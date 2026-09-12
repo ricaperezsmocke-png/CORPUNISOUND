@@ -106,7 +106,7 @@ function UbicacionesTiendas({ mostrarAviso }) {
           return (
             <div key={s.id} className="neu rounded-xl p-4">
               <div className="font-semibold mb-2">{s.nombre}</div>
-              <div className="grid grid-cols-2 gap-3 mb-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Latitud</label>
                   <input
@@ -651,7 +651,7 @@ Esta acción no se puede deshacer.`,
           ) : vistaRoles === "personal" ? (
             <div className="flex-1 overflow-y-auto p-4">
               <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[600px] text-sm neu rounded-xl overflow-hidden">
+              <table className="w-full min-w-[1000px] text-sm neu rounded-xl overflow-hidden">
                 <thead className="bg-[#1a7fe8] text-white">
                   <tr>
                     <th className="py-2 px-3 text-left font-medium">Nombre</th>

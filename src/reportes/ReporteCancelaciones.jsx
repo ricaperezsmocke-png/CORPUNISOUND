@@ -81,13 +81,13 @@ export default function ReporteCancelaciones({ onVolver }) {
         sucursales={sucursales} sucursalId={sucursalId} onCambiarSucursal={setSucursalId}
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto">
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Consultando...</p>
         ) : !datos ? (
           <p className="text-center text-slate-400 py-16">Sin datos</p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[850px] text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>

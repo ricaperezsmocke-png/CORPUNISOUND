@@ -120,7 +120,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
               className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-slate-500 block mb-1">ID Categoría ML *</label>
               <input
@@ -141,7 +141,7 @@ function ModalPublicar({ productos, onPublicar, onCerrar }) {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-slate-500 block mb-1">Precio (MXN) *</label>
               <input
@@ -272,7 +272,7 @@ function ModalEditar({ item, onGuardar, onCerrar }) {
               className="w-full neu-campo rounded-lg px-3 py-1.5 text-sm" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-slate-500 block mb-1">Precio (MXN) *</label>
               <input required type="number" step="0.01" min="0"

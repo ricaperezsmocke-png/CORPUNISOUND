@@ -128,6 +128,13 @@ html, body, #root {
   height: 100dvh;
 }
 
+@media (max-width: 639px) {
+  .crm-contenido { padding: 12px !important; }
+  .crm-estadisticas { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .crm-hoy, .crm-clientes { grid-template-columns: minmax(0, 1fr) !important; }
+  .crm-hoy > :last-child { width: auto !important; display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Neumorfismo: dos sombras opuestas, una luz arriba-izquierda y una sombra
    abajo-derecha, sobre un fondo del mismo tono. Solo para el mobiliario
    (barra, tarjetas, botones de navegación) — nunca para tablas ni cifras,
