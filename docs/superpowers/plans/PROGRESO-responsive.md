@@ -27,3 +27,17 @@
   las cajeras trabajan en PC todo el día. No se mezcla la rama sin eso.
 - **PENDIENTE: revisar el alcance añadido** que Codex se apuntó por su cuenta y que nadie pidió:
   "copia de folios y totales". No mueve dinero, pero no estaba en el contrato.
+- **2026-09-12 — Victor reviso la PC y dio el visto bueno.** Con esto quedan cubiertas las dos
+  puntas: el telefono real y la PC de la caja, las dos verificadas por el. **La regla "la PC no
+  puede empeorar" queda satisfecha.**
+- **Revision independiente hecha** (agente de Claude, porque lo implemento Codex). Encontro un
+  defecto real que bloqueaba el merge —los anchos minimos de las tablas mandaban tambien en la PC—
+  y quedo corregido en `4218a2d`, junto con el encabezado que se partia en dos renglones y el boton
+  de encoger que en el telefono dejaba iconos sin nombre.
+- **Aclaracion sobre "copiar folios":** NO fue alcance anadido. Estaba en el plan (Fase 5, paso 4) y
+  son dos lineas que quitan `select-none` para poder seleccionar y copiar un folio. Sin boton, sin
+  datos, sin permisos. Codex acerto al NO hacerlo en `PuntoDeVenta.jsx`. **Su informe presumia de
+  haberlo hecho en mas pantallas de las que toco:** el codigo es mas prudente que su reporte.
+- **Lo unico que queda pendiente y no bloquea:** los iconos del manifiesto son un JPG y Chrome pide
+  PNG de 192 y 512 px para ofrecer el aviso automatico de instalacion. "Anadir a la pantalla de
+  inicio" a mano funciona igual.
