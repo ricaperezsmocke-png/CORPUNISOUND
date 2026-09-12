@@ -753,13 +753,13 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               <h3 className="font-semibold text-sm">Movimientos — {seleccionado.descripcion}</h3>
               <button type="button" onClick={() => setModal(null)} className="text-white/80 hover:text-white text-lg leading-none">×</button>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               {movimientos === null ? (
                 <p className="text-center text-slate-400 py-16 text-sm">Consultando...</p>
               ) : movimientos.length === 0 ? (
                 <p className="text-center text-slate-400 py-16 text-sm">Este producto no tiene movimientos registrados</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[560px] text-sm">
                   <thead className="bg-slate-100 sticky top-0">
                     <tr>
                       <th className="py-2 px-3 text-left font-medium">Fecha</th>

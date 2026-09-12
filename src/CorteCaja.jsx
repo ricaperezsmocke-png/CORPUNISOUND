@@ -404,7 +404,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   real, sin él, ceros. */}
               <div>
                 <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Caja: {cajaNombre || "–"}</div>
-                <table className="w-full text-sm">
+                <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[420px] text-sm">
                   <thead>
                     <tr className="text-slate-500">
                       <th className="text-left font-medium py-1"></th>
@@ -451,6 +452,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                     </tr>
                   </tbody>
                 </table>
+                </div>
 
                 {/* Información adicional — mismos ceros que arriba cuando no
                     hay permiso; siempre visible, como en SICAR. */}
@@ -532,7 +534,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
             </div>
             <div className="p-4">
               {cortes.length === 0 ? <p className="text-center text-slate-400 py-8">Sin cortes registrados todavía</p> : (
-                <table className="w-full text-sm">
+                <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
                   <thead className="text-slate-500 border-b border-black/5">
                     <tr>
                       <th className="text-left py-2 font-medium">#</th>
@@ -565,6 +568,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>

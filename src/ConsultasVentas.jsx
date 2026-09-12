@@ -346,11 +346,14 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      {/* overflow-auto (no solo -y): con min-w abajo, el scroll horizontal
+          queda dentro de esta misma caja, que ya es donde el encabezado
+          sticky se ancla — no hace falta un div nuevo. */}
+      <div className="flex-1 overflow-auto">
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Consultando...</p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[820px] text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>

@@ -572,8 +572,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto">
-                <table className="w-full text-sm">
+              <div className="flex-1 overflow-auto">
+                <table className="w-full min-w-[680px] text-sm">
                   <thead className="bg-[#1a7fe8] text-white sticky top-0">
                     <tr>
                       <th className="py-2 px-2 text-left font-medium">Cant</th>
@@ -634,7 +634,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         )
       ) : (
         <div className="flex-1 overflow-y-auto p-5">
-          <table className="w-full text-sm neu rounded-xl overflow-hidden">
+          <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[600px] text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Proveedor</th>
@@ -664,6 +665,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
