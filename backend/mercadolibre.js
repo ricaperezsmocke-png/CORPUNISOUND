@@ -329,6 +329,32 @@ function validarExistenciaDeOrden(DB, lineas) {
   }
 }
 
+/**
+ * Decision de Victor del 2026-09-12: una orden con el SKU sin vincular SI se
+ * importa —el dinero ya entro en ML y el corte de la sucursal 5 lo espera— pero
+ * deja de ser invisible. Aqui es donde deja de serlo.
+ *
+ * Sin esta lista, la unica huella de que salio mercancia sin descontar era un
+ * `console.error` que nadie lee.
+ */
+function registrarPendientesDeVinculo(DB, { ordenId, ventaId, sinVincular }) {
+  if (!Array.isArray(DB.ml.pendientes_vinculo)) DB.ml.pendientes_vinculo = [];
+  let sigId = DB.ml.pendientes_vinculo.length
+    ? Math.max(...DB.ml.pendientes_vinculo.map((p) => p.id)) + 1 : 1;
+  for (const s of sinVincular || []) {
+    DB.ml.pendientes_vinculo.push({
+      id: sigId++,
+      orden_id: ordenId,
+      venta_id: ventaId,
+      sku: s.sku,
+      nombre: s.nombre,
+      cantidad: s.cantidad,
+      fecha: new Date().toISOString(),
+      resuelto: false,
+    });
+  }
+}
+
 async function importarOrdenComoVenta(DB, ordenId) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${ML_API}/orders/${ordenId}`, { headers: mlHeaders(token) });
@@ -450,15 +476,20 @@ async function importarOrdenComoVenta(DB, ordenId) {
         });
       } catch (e) {
         console.error(`[inventario] la orden ML ${ordenId} no pudo descontar el producto ${l.producto_id}: ${e.message}`);
+        registrarPendientesDeVinculo(DB, {
+          ordenId, ventaId: venta.id,
+          sinVincular: [{ sku: l.ml_item_id, nombre: `${l.nombre} — no se pudo descontar: ${e.message}`, cantidad: l.cantidad }],
+        });
       }
     }
   }
   DB.ml.ordenes_importadas.push(ordenId);
+  registrarPendientesDeVinculo(DB, { ordenId, ventaId: venta.id, sinVincular });
   return venta;
 }
 
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
-  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden, validarExistenciaDeOrden,
+  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden, validarExistenciaDeOrden, registrarPendientesDeVinculo,
 };

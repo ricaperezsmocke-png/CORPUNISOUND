@@ -266,6 +266,7 @@ const DB = {
     cuenta: null,
     publicaciones: [],
     ordenes_importadas: [],
+    pendientes_vinculo: [],
   },
   drive: {
     cuenta: null,

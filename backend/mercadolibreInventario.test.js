@@ -88,3 +88,36 @@ test("dos renglones del MISMO producto se suman antes de comparar", () => {
     "2 + 2 = 4 pasa de las 3 que hay: tiene que rechazar"
   );
 });
+
+const { registrarPendientesDeVinculo } = require("./mercadolibre");
+
+test("cada renglon sin vincular deja un pendiente con su orden y su venta", () => {
+  const DB = prepararDB();
+  registrarPendientesDeVinculo(DB, {
+    ordenId: 555, ventaId: 90,
+    sinVincular: [{ sku: "NO-EXISTE", nombre: "Bajo electrico", cantidad: 2 }],
+  });
+  assert.equal(DB.ml.pendientes_vinculo.length, 1);
+  const p = DB.ml.pendientes_vinculo[0];
+  assert.equal(p.orden_id, 555);
+  assert.equal(p.venta_id, 90);
+  assert.equal(p.sku, "NO-EXISTE");
+  assert.equal(p.cantidad, 2);
+  assert.equal(p.resuelto, false);
+  assert.ok(p.id, "cada pendiente necesita id propio para poder resolverlo");
+  assert.ok(p.fecha, "sin fecha no se sabe cuanto lleva sin descontarse");
+});
+
+test("una orden sin renglones sueltos no deja pendientes", () => {
+  const DB = prepararDB();
+  registrarPendientesDeVinculo(DB, { ordenId: 1, ventaId: 2, sinVincular: [] });
+  assert.equal(DB.ml.pendientes_vinculo.length, 0);
+});
+
+test("los ids de los pendientes no se repiten entre ordenes", () => {
+  const DB = prepararDB();
+  registrarPendientesDeVinculo(DB, { ordenId: 1, ventaId: 1, sinVincular: [{ sku: "A", nombre: "A", cantidad: 1 }] });
+  registrarPendientesDeVinculo(DB, { ordenId: 2, ventaId: 2, sinVincular: [{ sku: "B", nombre: "B", cantidad: 1 }] });
+  const ids = DB.ml.pendientes_vinculo.map((p) => p.id);
+  assert.equal(new Set(ids).size, 2, "dos pendientes no pueden compartir id");
+});
