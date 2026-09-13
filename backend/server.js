@@ -78,7 +78,7 @@ const { analizarFacturaImagen } = require("./facturaIA");
 const {
   intercambiarCodigo, urlAutorizacion, listarPublicaciones,
   publicarProducto, actualizarStockML, actualizarPublicacion,
-  listarOrdenes, importarOrdenComoVenta,
+  listarOrdenes, importarOrdenComoVenta, resolverPendienteVinculo,
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
@@ -2500,6 +2500,20 @@ app.get("/api/ml/ordenes", requiereLogin, async (req, res) => {
 app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), async (req, res) => {
   try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId)); }
   catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/ml/pendientes-vinculo", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), (req, res) => {
+  try {
+    res.json((DB.ml.pendientes_vinculo || []).filter((p) => !p.resuelto));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/ml/pendientes-vinculo/:id/vincular", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), (req, res) => {
+  try {
+    const p = resolverPendienteVinculo(DB, req.params.id, req.body?.producto_id, req.usuarioToken);
+    guardar(DB);
+    res.json(p);
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // Obtiene thumbnail/imágenes de cualquier ítem público de ML (sin necesitar token de vendedor)
