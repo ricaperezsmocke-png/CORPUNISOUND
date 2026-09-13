@@ -169,6 +169,10 @@ const DB = {
       { id: 4, nombre: "Pedro L.", sucursal_id: 3, meta_mensual: 50000 },
       { id: 5, nombre: "Ana G.", sucursal_id: 4, meta_mensual: 50000 }
     ],
+    objetivos: [],
+    objetivo_capturas: [],
+    objetivo_cierres: [],
+    objetivo_plantilla: [],
     // Tareas sugeridas al vendedor para alcanzar su meta. Ver gerenteVentas.js.
     tareas_venta: { tareas: [], ultimo_id: 0 },
     sucursales: [
