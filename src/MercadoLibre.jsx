@@ -371,6 +371,10 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const [publicaciones, setPublicaciones] = useState([]);
   const [ordenes, setOrdenes]           = useState([]);
   const [productos, setProductos]       = useState([]);
+  const [pendientesVinculo, setPendientesVinculo] = useState([]);
+  const [productoPorPendiente, setProductoPorPendiente] = useState({});
+  const [vinculandoPendiente, setVinculandoPendiente] = useState(null);
+  const [errorPendiente, setErrorPendiente] = useState({});
   const [errorPublicaciones, setErrorPublicaciones] = useState(null);
   const [errorOrdenes, setErrorOrdenes] = useState(null);
   const [cargando, setCargando]         = useState(false);
@@ -434,7 +438,19 @@ export default function MercadoLibre({ onVolver, permisos }) {
     setProductos(datos);
   }, []);
 
-  useEffect(() => { cargarEstado(); cargarProductos(); }, [cargarEstado, cargarProductos]);
+  const cargarPendientesVinculo = useCallback(async () => {
+    const { datos } = await pedirLista(
+      () => apiFetch("/ml/pendientes-vinculo"),
+      "las ventas de MercadoLibre sin descontar"
+    );
+    setPendientesVinculo(datos);
+  }, []);
+
+  useEffect(() => {
+    cargarEstado();
+    cargarProductos();
+    if (!permisos || permisos.includes("importar_ordenes_ml")) cargarPendientesVinculo();
+  }, [permisos, cargarEstado, cargarProductos, cargarPendientesVinculo]);
 
   const pubsFiltradas = useMemo(() => {
     let r = [...publicaciones];
@@ -509,6 +525,27 @@ export default function MercadoLibre({ onVolver, permisos }) {
       if (r.ok) mostrarAviso("✅ Orden importada como venta en el sistema");
       else { const d = await r.json(); mostrarAviso("❌ " + d.error); }
     } finally { importacionEnCurso.current = false; setImportando(null); }
+  };
+
+  const vincularPendiente = async (pendienteId) => {
+    const productoId = productoPorPendiente[pendienteId];
+    if (!productoId || vinculandoPendiente !== null) return;
+    setVinculandoPendiente(pendienteId);
+    setErrorPendiente((prev) => ({ ...prev, [pendienteId]: null }));
+    try {
+      const r = await apiFetch(`/ml/pendientes-vinculo/${pendienteId}/vincular`, {
+        method: "POST",
+        body: JSON.stringify({ producto_id: Number(productoId) }),
+      });
+      if (!r.ok) {
+        const d = await r.json();
+        setErrorPendiente((prev) => ({ ...prev, [pendienteId]: d.error }));
+        return;
+      }
+      await cargarPendientesVinculo();
+    } finally {
+      setVinculandoPendiente(null);
+    }
   };
 
   const editarPublicacion = async (itemId, cambios) => {
@@ -591,6 +628,68 @@ export default function MercadoLibre({ onVolver, permisos }) {
 
       {/* Contenido */}
       <div className="flex-1 overflow-auto p-6">
+
+        {pendientesVinculo.length > 0 && (
+          <section className="mb-6">
+            <h2 className="font-semibold text-slate-800 mb-3">Ventas sin descontar</h2>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4 flex items-start gap-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <p>Estas ventas salieron de MercadoLibre pero la mercancía no se descontó del inventario, porque su producto no está vinculado al catálogo. Vincula cada una para que la existencia cuadre.</p>
+            </div>
+            <div className="space-y-3">
+              {pendientesVinculo.map((pendiente) => (
+                <div key={pendiente.id} className="neu rounded-xl p-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4 text-xs">
+                    <div>
+                      <span className="block text-slate-400 mb-0.5">Fecha</span>
+                      <span className="text-slate-700">{fmtFecha(pendiente.fecha)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 mb-0.5">Orden</span>
+                      <span className="font-mono text-slate-700 break-all">{pendiente.orden_id}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 mb-0.5">SKU</span>
+                      <span className="font-mono text-slate-700 break-all">{pendiente.sku}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 mb-0.5">Nombre</span>
+                      <span className="text-slate-700 break-words">{pendiente.nombre}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400 mb-0.5">Cantidad</span>
+                      <span className="font-semibold text-slate-700">{pendiente.cantidad}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <select
+                      value={productoPorPendiente[pendiente.id] || ""}
+                      onChange={(e) => setProductoPorPendiente((prev) => ({ ...prev, [pendiente.id]: e.target.value }))}
+                      className="w-full neu-campo rounded-lg px-3 py-2 text-sm min-w-0"
+                    >
+                      <option value="">— Seleccionar —</option>
+                      {productos.map((p) => (
+                        <option key={p.id} value={p.id}>{p.nombre} (SKU: {p.sku})</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => vincularPendiente(pendiente.id)}
+                      disabled={!productoPorPendiente[pendiente.id] || vinculandoPendiente !== null}
+                      className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                    >
+                      {vinculandoPendiente === pendiente.id ? "Vinculando..." : "Vincular y descontar"}
+                    </button>
+                  </div>
+                  {errorPendiente[pendiente.id] && (
+                    <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2 mt-3">
+                      {errorPendiente[pendiente.id]}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── Publicaciones ── */}
         {tab === "publicaciones" && (
