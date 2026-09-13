@@ -278,7 +278,7 @@ function mapearLineasDeOrden(DB, orden) {
       (p) => p.sku === sku || String(p.id) === sku
     );
     if (!prod) {
-      sinVincular.push({ sku, nombre: item.item?.title, cantidad: item.quantity });
+      sinVincular.push({ sku, ml_item_id: item.item?.id, nombre: item.item?.title, cantidad: item.quantity });
     }
     lineas.push({
       producto_id:     prod ? prod.id : null,
@@ -347,6 +347,7 @@ function registrarPendientesDeVinculo(DB, { ordenId, ventaId, sinVincular }) {
       orden_id: ordenId,
       venta_id: ventaId,
       sku: s.sku,
+      ml_item_id: s.ml_item_id,
       nombre: s.nombre,
       cantidad: s.cantidad,
       fecha: new Date().toISOString(),
@@ -382,6 +383,15 @@ function resolverPendienteVinculo(DB, pendienteId, productoId, usuario) {
     );
   }
 
+  const detalle = DB.pos.venta_detalle.find(
+    (d) => d.venta_id === pendiente.venta_id
+      && d.producto_id === null
+      && pendiente.ml_item_id != null
+      && d.ml_item_id != null
+      && String(d.ml_item_id) === String(pendiente.ml_item_id)
+  );
+  if (!detalle) throw new Error("No se encontró el renglón exacto de la venta para este pendiente");
+
   ajustarExistencia(DB, Number(productoId), {
     cantidad: -Number(pendiente.cantidad),
     motivo: `Venta MercadoLibre — orden ${pendiente.orden_id} (vinculada después)`,
@@ -389,9 +399,7 @@ function resolverPendienteVinculo(DB, pendienteId, productoId, usuario) {
     usuario: usuario || { nombre: "MercadoLibre" },
   });
 
-  for (const d of DB.pos.venta_detalle) {
-    if (d.venta_id === pendiente.venta_id && d.producto_id === null) d.producto_id = Number(productoId);
-  }
+  detalle.producto_id = Number(productoId);
 
   pendiente.resuelto = true;
   pendiente.resuelto_fecha = new Date().toISOString();
@@ -500,7 +508,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
   for (const l of lineas) {
     DB.pos.venta_detalle.push({
       id: sigDetId++, venta_id: sigId,
-      producto_id: l.producto_id, cantidad: l.cantidad,
+      producto_id: l.producto_id, ml_item_id: l.ml_item_id, cantidad: l.cantidad,
       precio_unitario: l.precio_unitario, descuento: 0, subtotal: l.subtotal,
     });
     // Descontar inventario ML por el MISMO camino que todo lo demas.
@@ -523,7 +531,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
         console.error(`[inventario] la orden ML ${ordenId} no pudo descontar el producto ${l.producto_id}: ${e.message}`);
         registrarPendientesDeVinculo(DB, {
           ordenId, ventaId: venta.id,
-          sinVincular: [{ sku: l.ml_item_id, nombre: `${l.nombre} — no se pudo descontar: ${e.message}`, cantidad: l.cantidad }],
+          sinVincular: [{ sku: l.ml_item_id, ml_item_id: l.ml_item_id, nombre: `${l.nombre} — no se pudo descontar: ${e.message}`, cantidad: l.cantidad }],
         });
       }
     }

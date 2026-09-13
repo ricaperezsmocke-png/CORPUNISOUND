@@ -375,6 +375,7 @@ export default function MercadoLibre({ onVolver, permisos }) {
   const [productoPorPendiente, setProductoPorPendiente] = useState({});
   const [vinculandoPendiente, setVinculandoPendiente] = useState(null);
   const [errorPendiente, setErrorPendiente] = useState({});
+  const [errorPendientesVinculo, setErrorPendientesVinculo] = useState(null);
   const [errorPublicaciones, setErrorPublicaciones] = useState(null);
   const [errorOrdenes, setErrorOrdenes] = useState(null);
   const [cargando, setCargando]         = useState(false);
@@ -439,11 +440,12 @@ export default function MercadoLibre({ onVolver, permisos }) {
   }, []);
 
   const cargarPendientesVinculo = useCallback(async () => {
-    const { datos } = await pedirLista(
+    const { datos, error } = await pedirLista(
       () => apiFetch("/ml/pendientes-vinculo"),
       "las ventas de MercadoLibre sin descontar"
     );
     setPendientesVinculo(datos);
+    setErrorPendientesVinculo(error);
   }, []);
 
   useEffect(() => {
@@ -629,14 +631,20 @@ export default function MercadoLibre({ onVolver, permisos }) {
       {/* Contenido */}
       <div className="flex-1 overflow-auto p-6">
 
-        {pendientesVinculo.length > 0 && (
+        {(pendientesVinculo.length > 0 || errorPendientesVinculo) && (
           <section className="mb-6">
             <h2 className="font-semibold text-slate-800 mb-3">Ventas sin descontar</h2>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4 flex items-start gap-2">
-              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-              <p>Estas ventas salieron de MercadoLibre pero la mercancía no se descontó del inventario, porque su producto no está vinculado al catálogo. Vincula cada una para que la existencia cuadre.</p>
-            </div>
-            <div className="space-y-3">
+            {pendientesVinculo.length === 0 && errorPendientesVinculo ? (
+              <div className="text-center py-12 px-4 text-red-700">
+                <AlertTriangle size={36} className="mx-auto mb-3 opacity-40" />
+                <p>⚠ {errorPendientesVinculo}</p>
+              </div>
+            ) : <>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4 flex items-start gap-2">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                <p>Estas ventas salieron de MercadoLibre pero la mercancía no se descontó del inventario, porque su producto no está vinculado al catálogo. Vincula cada una para que la existencia cuadre.</p>
+              </div>
+              <div className="space-y-3">
               {pendientesVinculo.map((pendiente) => (
                 <div key={pendiente.id} className="neu rounded-xl p-4">
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4 text-xs">
@@ -687,7 +695,8 @@ export default function MercadoLibre({ onVolver, permisos }) {
                   )}
                 </div>
               ))}
-            </div>
+              </div>
+            </>}
           </section>
         )}
 

@@ -2511,7 +2511,6 @@ app.get("/api/ml/pendientes-vinculo", requiereLogin, requierePermiso("importar_o
 app.post("/api/ml/pendientes-vinculo/:id/vincular", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), (req, res) => {
   try {
     const p = resolverPendienteVinculo(DB, req.params.id, req.body?.producto_id, req.usuarioToken);
-    guardar(DB);
     res.json(p);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
