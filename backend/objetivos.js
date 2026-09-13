@@ -99,10 +99,62 @@ function plantillaDelMes(DB, mes, sucursal_id) {
   );
 }
 
+function repartoSugerido(DB, { mes, sucursal_id }) {
+  const metaTienda = objetivoVigente(DB, {
+    tipo: "venta",
+    mes,
+    sucursal_id,
+    vendedor_id: null,
+  });
+  const plantilla = plantillaDelMes(DB, mes, sucursal_id);
+
+  if (!metaTienda || plantilla.length === 0) return [];
+
+  const montoBase = Math.floor(metaTienda.monto / plantilla.length);
+  return plantilla.map((linea, indice) => ({
+    vendedor_id: linea.vendedor_id,
+    monto: indice === plantilla.length - 1
+      ? metaTienda.monto - (montoBase * (plantilla.length - 1))
+      : montoBase,
+  }));
+}
+
+function estadoDelReparto(DB, { mes, sucursal_id }) {
+  const metaTienda = objetivoVigente(DB, {
+    tipo: "venta",
+    mes,
+    sucursal_id,
+    vendedor_id: null,
+  });
+  const lineas = plantillaDelMes(DB, mes, sucursal_id).map((linea) => {
+    const objetivo = objetivoVigente(DB, {
+      tipo: "venta",
+      mes,
+      sucursal_id,
+      vendedor_id: linea.vendedor_id,
+    });
+    return {
+      vendedor_id: linea.vendedor_id,
+      monto: objetivo ? objetivo.monto : 0,
+    };
+  });
+  const meta_tienda = metaTienda ? metaTienda.monto : 0;
+  const asignado = lineas.reduce((total, linea) => total + linea.monto, 0);
+
+  return {
+    meta_tienda,
+    asignado,
+    sin_asignar: meta_tienda - asignado,
+    lineas,
+  };
+}
+
 module.exports = {
   fijarObjetivo,
   objetivoVigente,
   historialObjetivo,
   registrarEnPlantilla,
   plantillaDelMes,
+  repartoSugerido,
+  estadoDelReparto,
 };

@@ -128,3 +128,61 @@ test("la misma persona no se registra dos veces en el mismo mes y tienda", () =>
   assert.throws(() => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 }), /ya (esta|está)/i);
   assert.equal(DB.pos.objetivo_plantilla.length, 1);
 });
+
+const { repartoSugerido, estadoDelReparto } = require("./objetivos");
+
+test("el reparto sugerido divide en partes iguales entre los que estan", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 2 });
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 300000 }, VICTOR);
+  const r = repartoSugerido(DB, { mes: "2026-09", sucursal_id: 1 });
+  assert.equal(r.length, 2);
+  assert.equal(r[0].monto + r[1].monto, 300000, "el reparto sugerido tiene que sumar la meta exacta");
+});
+
+test("LO QUE FALTA POR REPARTIR SE VE: no desaparece", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 2 });
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 300000 }, VICTOR);
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 1, monto: 100000 }, VICTOR);
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 2, monto: 100000 }, VICTOR);
+  const e = estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 });
+  assert.equal(e.meta_tienda, 300000);
+  assert.equal(e.asignado, 200000);
+  assert.equal(e.sin_asignar, 100000, "los $100,000 que faltan tienen que verse, no esfumarse");
+});
+
+test("EL CASO DE CODEX: bajar las metas al final del mes deja el hueco a la vista", () => {
+  const DB = prepararDB();
+  for (const id of [1, 2]) registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: id });
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 160000 }, VICTOR);
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 1, monto: 80000 }, VICTOR);
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 2, monto: 80000 }, VICTOR);
+  assert.equal(estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 }).sin_asignar, 0);
+
+  // el dia 28 alguien baja las dos metas
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 1, monto: 50000, motivo: "ajuste" }, VICTOR);
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 2, monto: 50000, motivo: "ajuste" }, VICTOR);
+
+  const e = estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 });
+  assert.equal(e.meta_tienda, 160000, "la meta de tienda NO baja porque se bajen las individuales");
+  assert.equal(e.sin_asignar, 60000, "los $60,000 rebajados tienen que aparecer sin asignar");
+});
+
+test("sobre-repartir tambien se ve: sin_asignar queda en negativo", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 100000 }, VICTOR);
+  fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 1, monto: 150000 }, VICTOR);
+  assert.equal(estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 }).sin_asignar, -50000);
+});
+
+test("sin meta de tienda, el estado lo dice en vez de reventar", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  const e = estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 });
+  assert.equal(e.meta_tienda, 0);
+  assert.equal(e.asignado, 0);
+});
