@@ -258,6 +258,39 @@ function validarOrdenImportable(orden) {
   return orden;
 }
 
+/**
+ * Mapea los items de una orden de ML a lineas de venta, y REPORTA cuales no
+ * encontraron producto en el catalogo.
+ *
+ * Antes esto vivia dentro de `importarOrdenComoVenta` y hacia
+ * `producto_id: prod ? prod.id : null` sin decirselo a nadie. Un SKU sin
+ * vincular quedaba en null, y mas abajo `if (l.producto_id)` es lo que dispara
+ * el descuento: la mercancia salia y la existencia no bajaba. Sacarlo aqui
+ * permite probarlo sin tocar la red y, sobre todo, DEVOLVER los que fallaron.
+ */
+function mapearLineasDeOrden(DB, orden) {
+  const lineas = [];
+  const sinVincular = [];
+  for (const item of orden.order_items || []) {
+    const sku = item.item?.seller_sku || item.item?.id;
+    const prod = DB["catalogo-productos"].productos.find(
+      (p) => p.sku === sku || String(p.id) === sku
+    );
+    if (!prod) {
+      sinVincular.push({ sku, nombre: item.item?.title, cantidad: item.quantity });
+    }
+    lineas.push({
+      producto_id:     prod ? prod.id : null,
+      ml_item_id:      item.item?.id,
+      nombre:          item.item?.title,
+      cantidad:        item.quantity,
+      precio_unitario: item.unit_price,
+      subtotal:        item.quantity * item.unit_price,
+    });
+  }
+  return { lineas, sinVincular };
+}
+
 async function importarOrdenComoVenta(DB, ordenId) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${ML_API}/orders/${ordenId}`, { headers: mlHeaders(token) });
@@ -272,21 +305,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
   validarOrdenImportable(orden);
 
   // Mapear ítems ML → productos locales por SKU
-  const lineas = [];
-  for (const item of orden.order_items) {
-    const sku   = item.item?.seller_sku || item.item?.id;
-    const prod  = DB["catalogo-productos"].productos.find(
-      (p) => p.sku === sku || String(p.id) === sku
-    );
-    lineas.push({
-      producto_id:     prod ? prod.id : null,
-      ml_item_id:      item.item?.id,
-      nombre:          item.item?.title,
-      cantidad:        item.quantity,
-      precio_unitario: item.unit_price,
-      subtotal:        item.quantity * item.unit_price,
-    });
-  }
+  const { lineas } = mapearLineasDeOrden(DB, orden);
 
   // Buscar o crear comprador en el CRM (sucursal ML = 5)
   let clienteId = 0;
@@ -402,5 +421,5 @@ async function importarOrdenComoVenta(DB, ordenId) {
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
-  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable,
+  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden,
 };
