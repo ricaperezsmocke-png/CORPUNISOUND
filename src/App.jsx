@@ -38,6 +38,9 @@ function App() {
   const [usuario, setUsuario] = useState(null);
   const [cargandoSesion, setCargandoSesion] = useState(true);
   const [vista, setVista] = useState("dashboard");
+  // Menú deslizable en celular. En PC no se usa: la barra queda fija con
+  // lg:translate-x-0 pase lo que pase aquí.
+  const [menuAbierto, setMenuAbierto] = useState(false);
 
   useEffect(() => {
     const guardado = localStorage.getItem("usuario");
@@ -82,17 +85,36 @@ function App() {
   const esDashboard = !MODULOS.includes(vista);
 
   return (
-    <div className="w-full h-screen flex bg-background">
+    <div className="w-full h-pantalla flex bg-background">
       <BarraLateral
         usuario={usuario}
         vista={vista}
         onEntrarModulo={(id) => setVista(id)}
+        abierta={menuAbierto}
+        onCerrar={() => setMenuAbierto(false)}
       />
+
+      {/* Capa oscura detrás del menú abierto en celular, mismo tono que ya
+          usan los modales del sistema (bg-black/40). Tocarla lo cierra. En
+          PC no se dibuja nunca (lg:hidden). */}
+      {menuAbierto && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={() => setMenuAbierto(false)}
+          aria-hidden="true"
+        />
+      )}
 
       {/* min-w-0 es obligatorio: sin él, una tabla ancha estira el flex y
           empuja la barra fuera de la pantalla. */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <EncabezadoModulo vista={vista} usuario={usuario} onSalir={salir} />
+        <EncabezadoModulo
+          vista={vista}
+          usuario={usuario}
+          onSalir={salir}
+          onAbrirMenu={() => setMenuAbierto(true)}
+          menuAbierto={menuAbierto}
+        />
 
         <div className="flex-1 min-h-0 overflow-auto">
         {vista === "pos" && (

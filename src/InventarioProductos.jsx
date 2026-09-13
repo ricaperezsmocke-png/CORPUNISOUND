@@ -480,12 +480,12 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
       {/* Cuerpo: lista + panel de detalle */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0 border-r border-slate-300">
-          <div className="p-3 border-b border-black/5 flex gap-2 neu-panel">
+          <div className="p-3 border-b border-black/5 flex flex-wrap gap-2 neu-panel">
             <Search size={16} className="text-slate-400 mt-2" />
             <input
               value={filtro} onChange={(e) => setFiltro(e.target.value)}
               placeholder="Buscar por clave o descripción..."
-              className="flex-1 neu-campo rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+              className="min-w-0 flex-1 neu-campo rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
             />
             <label className="text-xs text-slate-500 flex items-center gap-1.5 whitespace-nowrap self-center">
               <input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} />
@@ -535,8 +535,12 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
         </div>
 
         {/* Panel de artículo seleccionado */}
-        <div className="w-80 neu-panel border-l border-black/10 flex flex-col shrink-0">
-          <div className="px-4 py-3 border-b border-black/5 font-semibold text-slate-600">Artículo Seleccionado</div>
+        {seleccionado && <button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setSeleccionadoId(null)} aria-label="Cerrar ficha del artículo" />}
+        <div className={`${seleccionado ? "flex" : "hidden lg:flex"} fixed inset-x-0 bottom-0 z-30 max-h-[75dvh] flex-col overflow-y-auto rounded-t-2xl neu-panel border-l border-black/10 shadow-2xl lg:static lg:z-auto lg:w-80 lg:max-h-none lg:shrink-0 lg:rounded-none lg:shadow-none`}>
+          <div className="px-4 py-3 border-b border-black/5 font-semibold text-slate-600 flex items-center justify-between">
+            <span>Artículo Seleccionado</span>
+            <button type="button" onClick={() => setSeleccionadoId(null)} className="lg:hidden flex h-11 w-11 items-center justify-center rounded-lg text-slate-500" aria-label="Cerrar ficha del artículo"><X size={18} /></button>
+          </div>
           {!seleccionado ? (
             <div className="flex-1 flex items-center justify-center text-slate-500 text-center px-6">Selecciona un producto de la lista</div>
           ) : (
@@ -605,7 +609,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               <button type="button" onClick={() => setModal(null)} className="hover:bg-slate-100 rounded-lg p-1.5 text-slate-400 transition-colors"><X size={16} /></button>
             </div>
             <div className="p-5 flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Campo label="Clave">
                   <div className="flex gap-2">
                     <input className={inputCls} value={form.clave} onChange={(e) => setForm({ ...form, clave: e.target.value })} />
@@ -620,7 +624,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                 <input autoFocus className={inputCls} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Nombre del producto" />
               </Campo>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <Campo label="Categoría">
                   <div className="flex gap-1">
                     <select className={inputCls} value={form.categoria_id} onChange={(e) => setForm({ ...form, categoria_id: e.target.value })}>
@@ -650,7 +654,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                 </Campo>
               </div>
 
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <Campo label="Unidad de compra"><input className={inputCls} value={form.unidad_compra} onChange={(e) => setForm({ ...form, unidad_compra: e.target.value })} /></Campo>
                 <Campo label="Unidad de venta"><input className={inputCls} value={form.unidad_venta} onChange={(e) => setForm({ ...form, unidad_venta: e.target.value })} /></Campo>
                 <Campo label="Factor"><input type="number" className={inputCls} value={form.factor} onChange={(e) => setForm({ ...form, factor: e.target.value })} /></Campo>
@@ -663,7 +667,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
 
               <div className="border-t border-black/5 pt-3">
                 <div className="text-xs font-semibold text-slate-500 mb-2">Precios de venta</div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
                   <Campo label="Precio de compra">
                     <input type="number" className={inputCls} value={form.precio_compra} onChange={(e) => recalcularTodosLosTiers(e.target.value)} />
                   </Campo>
@@ -679,7 +683,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
                   </Campo>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {form.precios.map((tier, idx) => (
                     <div key={idx} className="border border-slate-200 rounded-lg p-2.5">
                       <div className="text-[11px] font-semibold text-slate-500 mb-1.5">Precio {idx + 1}</div>
@@ -700,7 +704,7 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               {modoForm === "crear" && (
                 <div className="border-t border-black/5 pt-3">
                   <div className="text-xs font-semibold text-slate-500 mb-2">Inventario inicial</div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <Campo label="Existencia inicial"><input type="number" className={inputCls} value={form.existencia_inicial} onChange={(e) => setForm({ ...form, existencia_inicial: e.target.value })} /></Campo>
                     <Campo label="Existencia mínima"><input type="number" className={inputCls} value={form.existencia_minima} onChange={(e) => setForm({ ...form, existencia_minima: e.target.value })} /></Campo>
                     <Campo label="Existencia máxima"><input type="number" className={inputCls} value={form.existencia_maxima} onChange={(e) => setForm({ ...form, existencia_maxima: e.target.value })} /></Campo>
@@ -753,13 +757,13 @@ export default function InventarioProductos({ onVolver, permisos, usuario }) {
               <h3 className="font-semibold text-sm">Movimientos — {seleccionado.descripcion}</h3>
               <button type="button" onClick={() => setModal(null)} className="text-white/80 hover:text-white text-lg leading-none">×</button>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               {movimientos === null ? (
                 <p className="text-center text-slate-400 py-16 text-sm">Consultando...</p>
               ) : movimientos.length === 0 ? (
                 <p className="text-center text-slate-400 py-16 text-sm">Este producto no tiene movimientos registrados</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[560px] lg:min-w-0 text-sm">
                   <thead className="bg-slate-100 sticky top-0">
                     <tr>
                       <th className="py-2 px-3 text-left font-medium">Fecha</th>

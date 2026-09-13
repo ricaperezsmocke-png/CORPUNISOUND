@@ -394,8 +394,12 @@ export default function Gastos({ onVolver, permisos, usuario }) {
             )}
           </div>
 
+          {/* min-w-[...] fuerza el scroll horizontal DENTRO de esta caja en vez
+              de apachurrar las 12 columnas; el div ya era el unico contenedor
+              con scroll (vertical y horizontal), asi que el encabezado
+              sticky sigue funcionando igual que antes. */}
           <div className="flex-1 overflow-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[1150px] lg:min-w-0 text-sm">
               <thead className="bg-[#1a7fe8] text-white sticky top-0">
                 <tr>
                   <th className="py-2 px-3 text-left font-medium">Folio</th>
@@ -504,7 +508,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 <input required value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className={inputCls} placeholder="Garrafón de agua" />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Monto *</label>
                   <input required type="number" step="0.01" min="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} className={inputCls} />
@@ -561,7 +565,7 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 <textarea rows={2} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} className={inputCls} />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-500 block mb-1">Proveedor</label>
                   <select value={form.proveedor_id} onChange={(e) => setForm({ ...form, proveedor_id: e.target.value })} className={inputCls}>
@@ -575,9 +579,12 @@ export default function Gastos({ onVolver, permisos, usuario }) {
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Comprobante * (PDF, JPG o PNG, máx. 10 MB)</label>
-                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={elegirArchivo} className="text-sm" />
+              <div className="rounded-xl border border-slate-200 p-3">
+                <label className="text-xs text-slate-500 block mb-2">Comprobante * (PDF, JPG o PNG, máx. 10 MB)</label>
+                <label className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg bg-[#1a7fe8] px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                  Tomar foto o elegir comprobante
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={elegirArchivo} className="sr-only" />
+                </label>
                 {comprimiendo && <p className="text-xs text-slate-500 mt-1">Preparando la imagen...</p>}
                 {archivo && !comprimiendo && (
                   <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1">
@@ -590,9 +597,9 @@ export default function Gastos({ onVolver, permisos, usuario }) {
 
             <div className="px-4 py-3 border-t border-black/5 flex items-center justify-end gap-2 shrink-0">
               {!archivo && <span className="text-xs text-slate-500 mr-auto">Adjunta el comprobante para poder guardar</span>}
-              <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
+              <button type="button" onClick={() => setModal(null)} className="min-h-11 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
               <button type="submit" form="form-gasto" disabled={!archivo || guardando || comprimiendo}
-                className="px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                className="min-h-11 px-4 py-1.5 text-sm bg-[#1a7fe8] text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 {guardando ? "Guardando..." : "Guardar gasto"}
               </button>
             </div>

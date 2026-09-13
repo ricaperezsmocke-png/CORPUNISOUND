@@ -1,5 +1,5 @@
 import React from "react";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SelectorSucursal from "./SelectorSucursal.jsx";
@@ -24,14 +24,25 @@ const TITULOS = {
   configuracion: "Configuración",
 };
 
-export default function EncabezadoModulo({ vista, usuario, onSalir }) {
+export default function EncabezadoModulo({ vista, usuario, onSalir, onAbrirMenu, menuAbierto }) {
   return (
     <header
-      className="shrink-0 shadow-md flex items-center justify-between px-4 py-2 gap-3"
+      // flex-wrap: a 360px la fila no cabe entera con los dos selectores; que
+      // envuelva a un segundo renglón en vez de apretar o esconder algo.
+      className="shrink-0 shadow-md flex flex-wrap lg:flex-nowrap items-center justify-between px-4 py-2 gap-x-3 gap-y-2"
       style={{ background: "var(--encabezado-fondo)" }}
     >
-      {/* Izquierda: logo + título. El botón de volver se mudó a la barra. */}
-      <div className="flex items-center gap-3 min-w-0">
+      {/* Izquierda: botón de menú (solo celular) + logo + título. */}
+      <div className="flex items-center gap-2 min-w-0 sm:gap-3">
+        <button
+          type="button"
+          onClick={onAbrirMenu}
+          className="lg:hidden shrink-0 flex h-11 w-11 items-center justify-center rounded-lg text-white hover:bg-white/10"
+          aria-label="Abrir el menú"
+          aria-expanded={!!menuAbierto}
+        >
+          <Menu size={20} />
+        </button>
         <img
           src="/logo-unisound.jpg"
           alt="Unisound"

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { apiFetch, cajaActiva, sinSucursalElegida } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
+import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 
 const FORMAS = ["EFECTIVO", "CHEQUE", "VALES", "TARJETA"];
 const ETIQUETAS = { EFECTIVO: "Efectivo", CHEQUE: "* Cheque", VALES: "Vales", TARJETA: "* Tarjeta" };
@@ -274,7 +275,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
   const infoCorte = ultimoCorteGuardado;
 
   return (
-    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       {/* Con "Todas" no se muestra ningún corte: un corte de la tienda
           equivocada le inventa un faltante a la cajera. */}
       {sinSucursal && (
@@ -297,6 +298,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
           </span>
         </div>
       )}
+
+      <AvisoPantallaMostrador />
 
       {/* Barra de herramientas */}
       <div className="neu rounded-none flex overflow-x-auto shrink-0">
@@ -404,7 +407,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   real, sin él, ceros. */}
               <div>
                 <div className="text-center text-sm font-medium text-slate-600 border-b border-black/5 pb-2 mb-3">Caja: {cajaNombre || "–"}</div>
-                <table className="w-full text-sm">
+                <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[420px] lg:min-w-0 text-sm">
                   <thead>
                     <tr className="text-slate-500">
                       <th className="text-left font-medium py-1"></th>
@@ -451,6 +455,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                     </tr>
                   </tbody>
                 </table>
+                </div>
 
                 {/* Información adicional — mismos ceros que arriba cuando no
                     hay permiso; siempre visible, como en SICAR. */}
@@ -532,7 +537,8 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
             </div>
             <div className="p-4">
               {cortes.length === 0 ? <p className="text-center text-slate-400 py-8">Sin cortes registrados todavía</p> : (
-                <table className="w-full text-sm">
+                <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[560px] lg:min-w-0 text-sm">
                   <thead className="text-slate-500 border-b border-black/5">
                     <tr>
                       <th className="text-left py-2 font-medium">#</th>
@@ -565,6 +571,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>

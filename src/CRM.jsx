@@ -345,9 +345,9 @@ export default function CRM({ onVolver, permisos }) {
 
       {error && <div style={{ background: "#fef2f2", color: "#b91c1c", fontSize: 12, padding: "8px 24px", borderBottom: "1px solid #fecaca" }}>{error}</div>}
 
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "20px 24px", boxSizing: "border-box" }}>
+      <div className="crm-contenido" style={{ maxWidth: 1280, margin: "0 auto", padding: "20px 24px", boxSizing: "border-box" }}>
         {/* STATS */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 18 }}>
+        <div className="crm-estadisticas" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 18 }}>
           {[{ l: "Clientes", v: rich.length }, { l: "Ventas", v: $(totalV) }, { l: "Conversión", v: tasa + "%" }, { l: "Alertas", v: alerts.length }, { l: "Compras", v: rich.reduce((a, c) => a + (c.compras || []).length, 0) }].map((x, i) => (
             <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
               <div style={{ fontSize: 10, color: T.sub, textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 4, fontWeight: 600 }}>{x.l}</div>
@@ -410,7 +410,7 @@ export default function CRM({ onVolver, permisos }) {
               {alerts.slice(0, 6).map((c) => <button key={c.id} onClick={() => { setSelId(c.id); setTab("clientes"); }} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", color: T.text, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>{c.nombre}</button>)}
             </div>
           </div>}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14, alignItems: "start" }}>
+          <div className="crm-hoy" style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14, alignItems: "start" }}>
             <Sec title={`Contactar hoy · ${urgentes.length}`}>
               {urgentes.length === 0 ? <div style={{ padding: 28, textAlign: "center", color: T.muted, fontSize: 13 }}>¡Todo al día! Sin pendientes.</div> :
                 urgentes.slice(0, 8).map((c) => {
@@ -442,7 +442,7 @@ export default function CRM({ onVolver, permisos }) {
         </div>}
 
         {/* TAB CLIENTES */}
-        {tab === "clientes" && <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 14, alignItems: "start" }}>
+        {tab === "clientes" && <div className="crm-clientes" style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 14, alignItems: "start" }}>
           <Sec title={`Clientes · ${filtered.length}`} action={<div style={{ display: "flex", gap: 7 }}>
             <input placeholder="Buscar..." style={{ ...inp, width: 160, padding: "5px 10px", fontSize: 12 }} value={search} onChange={(e) => setSearch(e.target.value)} />
             {puede("crear_cliente") && <Btn sm v="blue" onClick={() => setModal("cliente")}>+ Nuevo</Btn>}
@@ -487,7 +487,7 @@ export default function CRM({ onVolver, permisos }) {
 
         {/* TAB DASHBOARD */}
         {tab === "dashboard" && <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+          <div className="crm-estadisticas" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
             {[{ l: "Tasa de Conversión", v: tasa + "%" }, { l: "Ticket Promedio", v: $(compraron ? Math.round(totalV / compraron) : 0) }, { l: "En Pipeline", v: rich.filter((c) => c.estado !== "perdido").length }, { l: "En Riesgo", v: rich.filter((c) => c.sg === "en_riesgo").length }].map((x, i) => (
               <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: 16, borderTop: `3px solid ${T.blue}` }}>
                 <div style={{ fontSize: 10, color: T.sub, textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 4, fontWeight: 600 }}>{x.l}</div>

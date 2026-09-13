@@ -490,7 +490,8 @@ export default function Garantias({ onVolver, permisos, usuario }) {
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Cargando...</p>
         ) : (
-          <table className="w-full text-sm neu rounded-xl overflow-hidden">
+          <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1100px] lg:min-w-0 text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>
@@ -551,6 +552,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -726,7 +728,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
             </div>
 
             <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Campo label="Tipo">
                   <select className={inputCls} value={formGasto.tipo} onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}>
                     {TIPOS_GASTO.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}

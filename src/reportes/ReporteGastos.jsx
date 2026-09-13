@@ -5,6 +5,7 @@ import FiltroReporte from "./FiltroReporte.jsx";
 import BarraAccionesReporte from "./BarraAccionesReporte.jsx";
 import { descargarCSV } from "./exportarCSV.js";
 import { hoyLocal, haceDiasLocal } from "../fechas";
+import AvisoPantallaMostrador from "../AvisoPantallaMostrador.jsx";
 
 const TABS = [
   { id: "general", etiqueta: "General" },
@@ -117,6 +118,7 @@ export default function ReporteGastos({ onVolver }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
+      <AvisoPantallaMostrador />
       <div className="neu rounded-none px-4 py-2 flex items-center gap-2">
         <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
@@ -180,7 +182,7 @@ export default function ReporteGastos({ onVolver }) {
         ) : !datos ? (
           <p className="text-center text-slate-400 py-16">Sin datos</p>
         ) : tab === "general" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1100px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>

@@ -102,13 +102,13 @@ export default function ReporteCompras({ onVolver }) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto">
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Consultando...</p>
         ) : !datos ? (
           <p className="text-center text-slate-400 py-16">Sin datos</p>
         ) : tab === "general" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[650px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Folio</th><th className="py-2 px-3 text-left font-medium">Proveedor</th><th className="py-2 px-3 text-left font-medium">Factura</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
             </thead>
@@ -126,7 +126,7 @@ export default function ReporteCompras({ onVolver }) {
             </tbody>
           </table>
         ) : tab === "porProveedor" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Proveedor</th><th className="py-2 px-3 text-right font-medium">No. Compras</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
             </thead>
@@ -142,7 +142,7 @@ export default function ReporteCompras({ onVolver }) {
             </tbody>
           </table>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Producto</th><th className="py-2 px-3 text-right font-medium">Cantidad</th><th className="py-2 px-3 text-right font-medium">Importe</th></tr>
             </thead>

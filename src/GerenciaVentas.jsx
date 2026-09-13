@@ -321,7 +321,7 @@ export default function GerenciaVentas({ onVolver, permisos, usuario }) {
           </h2>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[560px]">
+            <table className="w-full text-sm min-w-[560px] lg:min-w-0">
               <thead>
                 <tr className="text-left text-slate-500 border-b border-black/5">
                   <th className="py-2 font-medium">Vendedor</th>

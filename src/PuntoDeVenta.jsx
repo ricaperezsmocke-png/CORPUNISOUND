@@ -13,6 +13,7 @@ import ConsultasVentas from "./ConsultasVentas.jsx";
 import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
 import ModalConfirmar from "./ModalConfirmar";
+import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 
 /**
  * Vendedor de respaldo, SOLO para que la caja nunca se quede sin poder cobrar.
@@ -689,6 +690,8 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           </span>
         </div>
       )}
+
+      <AvisoPantallaMostrador />
 
       {/* ===== BARRA DE HERRAMIENTAS F2-F12 ===== */}
       <div className="neu rounded-none flex overflow-x-auto shrink-0">

@@ -267,7 +267,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const totalPeriodo = useMemo(() => ventas.filter((v) => v.estatus === "cerrada").reduce((a, v) => a + v.total, 0), [ventas]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm select-none">
+    <div className="w-full h-full flex flex-col bg-background text-slate-800 font-sans text-sm">
       <div className="neu rounded-none flex overflow-x-auto shrink-0">
         <BotonBarra icono={Eye} etiqueta="Mostrar" atajo="F4" tono="verde" onClick={consultar} />
         <BotonBarra icono={RefreshCw} etiqueta="Recargar" atajo="F5" onClick={consultar} />
@@ -346,11 +346,14 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      {/* overflow-auto (no solo -y): con min-w abajo, el scroll horizontal
+          queda dentro de esta misma caja, que ya es donde el encabezado
+          sticky se ancla — no hace falta un div nuevo. */}
+      <div className="flex-1 overflow-auto">
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Consultando...</p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[820px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>
@@ -404,7 +407,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
               <button type="button" onClick={() => setModal(null)} className="hover:bg-blue-800 rounded p-1"><X size={18} /></button>
             </div>
             <div className="p-4">
-              <div className="grid grid-cols-2 gap-3 text-xs mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-4">
                 <div><span className="text-slate-400">Fecha:</span> {detalle.fecha}</div>
                 <div><span className="text-slate-400">Documento:</span> {detalle.tipo_documento}</div>
                 <div><span className="text-slate-400">Cliente:</span> {detalle.cliente_nombre}</div>

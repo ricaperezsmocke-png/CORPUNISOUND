@@ -252,7 +252,8 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
             <button onClick={enviarTraspaso} disabled={moviendoInventario === "enviar"} className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded font-semibold mt-2 disabled:opacity-50 disabled:cursor-not-allowed">{moviendoInventario === "enviar" ? "Enviando..." : "Enviar traspaso"}</button>
           </div>
         ) : (
-          <table className="w-full text-sm neu rounded-xl overflow-hidden">
+          <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[650px] lg:min-w-0 text-sm neu rounded-xl overflow-hidden">
             <thead className="bg-[#1a7fe8] text-white">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Producto</th>
@@ -291,6 +292,7 @@ export default function Traspasos({ onVolver, permisos, usuario }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

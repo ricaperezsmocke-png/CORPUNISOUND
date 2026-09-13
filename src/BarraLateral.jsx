@@ -38,22 +38,36 @@ const ICONOS = {
   configuracion: Settings,
 };
 
-export default function BarraLateral({ usuario, vista, onEntrarModulo }) {
+export default function BarraLateral({ usuario, vista, onEntrarModulo, abierta, onCerrar }) {
   const categorias = categoriasVisibles(usuario);
   const [desplegado, setDesplegado] = useState({});
 
   /** Encogida = solo iconos. NO se recuerda entre sesiones a propósito: Victor
    *  la quiso siempre abierta al entrar, y que encogerla sea una decisión del
-   *  momento, no un estado en el que te encuentras sin saber por qué. */
+   *  momento, no un estado en el que te encuentras sin saber por qué.
+   *  En celular no aplica: ahí el menú está fuera o dentro, nunca encogido. */
   const [encogida, setEncogida] = useState(false);
+
+  /** Elegir un destino navega Y cierra el menú en celular. En PC `onCerrar`
+   *  no hace nada visible porque el menú nunca estuvo flotando encima. */
+  const elegir = (id) => {
+    onEntrarModulo(id);
+    onCerrar?.();
+  };
 
   return (
     // El scroll va en la lista de categorías, NO aquí: con overflow en el
     // <nav>, el logo y el botón Inicio se iban con el desplazamiento.
-    <nav className={`neu shrink-0 h-full flex flex-col rounded-r-2xl overflow-hidden transition-[width] duration-200 ${
-      encogida ? "w-16" : "w-64"
+    //
+    // En celular es un cajón que se desliza (`fixed` + `-translate-x-full`);
+    // en PC (`lg:`) vuelve a ser parte del flujo, fijo, con su ancho de
+    // siempre. Mismo patrón que ya usan los modales del Radar.
+    <nav className={`neu fixed inset-y-0 left-0 z-40 flex h-full w-64 shrink-0 flex-col overflow-hidden rounded-r-2xl transition-[width,transform] duration-200 ${
+      abierta ? "translate-x-0" : "-translate-x-full"
+    } lg:static lg:translate-x-0 ${
+      encogida ? "lg:w-16" : "lg:w-64"
     }`}>
-      <div className="shrink-0 px-3 pt-3 pb-1 flex justify-end">
+      <div className="shrink-0 px-3 pt-3 pb-1 hidden lg:flex justify-end">
         <button
           type="button"
           onClick={() => setEncogida((v) => !v)}
@@ -71,7 +85,7 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo }) {
       <div className="shrink-0 px-3 pb-3">
         <button
           type="button"
-          onClick={() => onEntrarModulo("dashboard")}
+          onClick={() => elegir("dashboard")}
           title={encogida ? "Inicio" : undefined}
           className={`w-full flex items-center gap-2.5 rounded-xl py-2 text-left text-[13px] transition-colors ${
             encogida ? "justify-center px-0" : "px-3"
@@ -110,7 +124,7 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo }) {
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => onEntrarModulo(m.id)}
+                        onClick={() => elegir(m.id)}
                         // Encogida, el nombre solo vive en el title: es la única
                         // forma de saber qué es cada icono.
                         title={encogida ? m.nombre : undefined}
@@ -151,7 +165,7 @@ export default function BarraLateral({ usuario, vista, onEntrarModulo }) {
                           <button
                             key={h.id}
                             type="button"
-                            onClick={() => onEntrarModulo(m.id)}
+                            onClick={() => elegir(m.id)}
                             className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
                           >
                             {h.nombre}

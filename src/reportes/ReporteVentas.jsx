@@ -5,6 +5,7 @@ import FiltroReporte from "./FiltroReporte.jsx";
 import BarraAccionesReporte from "./BarraAccionesReporte.jsx";
 import { descargarCSV } from "./exportarCSV.js";
 import { hoyLocal, haceDiasLocal } from "../fechas";
+import AvisoPantallaMostrador from "../AvisoPantallaMostrador.jsx";
 
 const TIPOS_DOCUMENTO = ["Todos", "Ticket", "Factura", "Nota de Venta", "Factura CFDI", "Remisión", "Apartado"];
 
@@ -81,6 +82,7 @@ export default function ReporteVentas({ onVolver }) {
 
   return (
     <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">
+      <AvisoPantallaMostrador />
       <div className="neu rounded-none px-4 py-2 flex items-center gap-2">
         <button onClick={onVolver} className="flex items-center gap-1 text-sm text-[#1a7fe8] hover:underline no-imprimir">
           <ChevronLeft size={16} /> Reportes
@@ -124,13 +126,13 @@ export default function ReporteVentas({ onVolver }) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto">
         {cargando ? (
           <p className="text-center text-slate-400 py-16">Consultando...</p>
         ) : !datos ? (
           <p className="text-center text-slate-400 py-16">Sin datos</p>
         ) : tab === "general" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[900px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr>
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>
@@ -162,7 +164,7 @@ export default function ReporteVentas({ onVolver }) {
             </tbody>
           </table>
         ) : tab === "porArticulo" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Producto</th><th className="py-2 px-3 text-right font-medium">Cantidad</th><th className="py-2 px-3 text-right font-medium">Importe</th></tr>
             </thead>
@@ -178,7 +180,7 @@ export default function ReporteVentas({ onVolver }) {
             </tbody>
           </table>
         ) : tab === "porVendedor" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Vendedor</th><th className="py-2 px-3 text-right font-medium">No. Ventas</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
             </thead>
@@ -194,7 +196,7 @@ export default function ReporteVentas({ onVolver }) {
             </tbody>
           </table>
         ) : tab === "canceladas" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[720px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Folio</th><th className="py-2 px-3 text-left font-medium">Sucursal</th><th className="py-2 px-3 text-left font-medium">Cliente</th><th className="py-2 px-3 text-left font-medium">Vendedor</th><th className="py-2 px-3 text-right font-medium">Total</th></tr>
             </thead>
@@ -213,7 +215,7 @@ export default function ReporteVentas({ onVolver }) {
             </tbody>
           </table>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[650px] lg:min-w-0 text-sm">
             <thead className="bg-[#1a7fe8] text-white sticky top-0">
               <tr><th className="py-2 px-3 text-left font-medium">Fecha</th><th className="py-2 px-3 text-left font-medium">Folio Apartado</th><th className="py-2 px-3 text-left font-medium">Cliente</th><th className="py-2 px-3 text-left font-medium">Forma de Pago</th><th className="py-2 px-3 text-right font-medium">Monto</th></tr>
             </thead>
