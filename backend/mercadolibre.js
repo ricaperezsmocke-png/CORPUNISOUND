@@ -317,7 +317,7 @@ function validarExistenciaDeOrden(DB, lineas) {
     const exist = DB.inventario.existencias.find(
       (e) => e.producto_id === Number(productoId) && e.sucursal_id === SUCURSAL_ML
     );
-    const hay = exist ? Number(exist.cantidad) : 0;
+    const hay = exist ? Number(exist.cantidad_actual) : 0;
     if (hay < pedida) {
       const prod = DB["catalogo-productos"].productos.find((p) => p.id === Number(productoId));
       const nombre = prod ? prod.nombre : `producto ${productoId}`;
@@ -353,6 +353,51 @@ function registrarPendientesDeVinculo(DB, { ordenId, ventaId, sinVincular }) {
       resuelto: false,
     });
   }
+}
+
+/**
+ * Cierra un pendiente: liga el renglon al producto y descuenta lo que la venta
+ * saco de la bodega.
+ *
+ * Todo se valida ANTES de mutar y el orden es sincrono (validar -> descontar ->
+ * marcar). Es la misma leccion de la Task 9 de las fugas del 2026-09-08: alli un
+ * `await` a Drive entre revisar y borrar dejaba pasar dos borrados simultaneos.
+ * Aqui no hay nada externo en medio, y no debe haberlo.
+ */
+function resolverPendienteVinculo(DB, pendienteId, productoId, usuario) {
+  const pendiente = (DB.ml.pendientes_vinculo || []).find((p) => p.id === Number(pendienteId));
+  if (!pendiente) throw new Error("Ese pendiente de MercadoLibre no existe");
+  if (pendiente.resuelto) throw new Error("Ese pendiente ya fue resuelto: la mercancía ya se descontó");
+
+  const prod = DB["catalogo-productos"].productos.find((p) => p.id === Number(productoId));
+  if (!prod) throw new Error("El producto al que quieres vincular no existe en el catálogo");
+
+  const exist = DB.inventario.existencias.find(
+    (e) => e.producto_id === Number(productoId) && e.sucursal_id === SUCURSAL_ML
+  );
+  const hay = exist ? Number(exist.cantidad_actual) : 0;
+  if (hay < Number(pendiente.cantidad)) {
+    throw new Error(
+      `No alcanza la existencia de "${prod.nombre}" en MercadoLibre: hacen falta ${pendiente.cantidad} y hay ${hay}.`
+    );
+  }
+
+  ajustarExistencia(DB, Number(productoId), {
+    cantidad: -Number(pendiente.cantidad),
+    motivo: `Venta MercadoLibre — orden ${pendiente.orden_id} (vinculada después)`,
+    sucursal_id: SUCURSAL_ML,
+    usuario: usuario || { nombre: "MercadoLibre" },
+  });
+
+  for (const d of DB.pos.venta_detalle) {
+    if (d.venta_id === pendiente.venta_id && d.producto_id === null) d.producto_id = Number(productoId);
+  }
+
+  pendiente.resuelto = true;
+  pendiente.resuelto_fecha = new Date().toISOString();
+  pendiente.resuelto_por = (usuario && usuario.nombre) || "desconocido";
+  pendiente.producto_id = Number(productoId);
+  return pendiente;
 }
 
 async function importarOrdenComoVenta(DB, ordenId) {
@@ -491,5 +536,5 @@ async function importarOrdenComoVenta(DB, ordenId) {
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
-  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden, validarExistenciaDeOrden, registrarPendientesDeVinculo,
+  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden, validarExistenciaDeOrden, registrarPendientesDeVinculo, resolverPendienteVinculo,
 };

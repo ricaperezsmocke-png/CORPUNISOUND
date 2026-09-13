@@ -5,7 +5,7 @@ const { mapearLineasDeOrden } = require("./mercadolibre");
 function prepararDB() {
   return {
     "catalogo-productos": { productos: [{ id: 7, sku: "GTR-001", nombre: "Guitarra", precio: 12000 }] },
-    inventario: { existencias: [{ producto_id: 7, sucursal_id: 5, cantidad: 3 }], movimientos_inventario: [] },
+    inventario: { existencias: [{ producto_id: 7, sucursal_id: 5, cantidad_actual: 3 }], movimientos_inventario: [] },
     pos: { ventas: [], venta_detalle: [] },
     crm: { clientes: [] },
     ml: { ordenes_importadas: [], publicaciones: [], pendientes_vinculo: [] },
