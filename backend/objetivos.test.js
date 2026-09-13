@@ -92,3 +92,39 @@ test("un vendedor de otra sucursal no puede llevar meta de esta tienda", () => {
   );
   assert.equal(DB.pos.objetivos.length, 0);
 });
+
+const { registrarEnPlantilla, plantillaDelMes } = require("./objetivos");
+
+test("quien estuvo el mes aparece aunque hoy este inactivo", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 2 });
+  DB.pos.vendedores.find((v) => v.id === 2).activo = false;   // Maria se fue
+  const p = plantillaDelMes(DB, "2026-09", 1);
+  assert.equal(p.length, 2, "Maria trabajo ese mes: no puede desaparecer del cierre");
+  assert.ok(p.some((x) => x.vendedor_id === 2));
+});
+
+test("quien entro a mitad de mes queda con su fecha", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-16", motivo: "alta" });
+  const p = plantillaDelMes(DB, "2026-09", 1);
+  assert.equal(p[0].desde, "2026-09-16");
+  assert.equal(p[0].motivo, "alta");
+});
+
+test("la plantilla no mezcla tiendas ni meses", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 9 });
+  registrarEnPlantilla(DB, { mes: "2026-10", sucursal_id: 1, vendedor_id: 2 });
+  assert.equal(plantillaDelMes(DB, "2026-09", 1).length, 1);
+  assert.equal(plantillaDelMes(DB, "2026-10", 1).length, 1);
+});
+
+test("la misma persona no se registra dos veces en el mismo mes y tienda", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  assert.throws(() => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 }), /ya (esta|está)/i);
+  assert.equal(DB.pos.objetivo_plantilla.length, 1);
+});

@@ -59,4 +59,50 @@ function fijarObjetivo(DB, { tipo, mes, sucursal_id, vendedor_id, monto, motivo 
   return nuevo;
 }
 
-module.exports = { fijarObjetivo, objetivoVigente, historialObjetivo };
+function registrarEnPlantilla(DB, { mes, sucursal_id, vendedor_id, desde, hasta, motivo }) {
+  if (typeof mes !== "string" || mes.length !== 7 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
+    throw new Error("El mes debe tener formato AAAA-MM, con mes entre 01 y 12");
+  }
+
+  const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
+  if (!vendedor) throw new Error("El vendedor no existe");
+  if (vendedor.sucursal_id !== sucursal_id) {
+    throw new Error("El vendedor no pertenece a esta sucursal");
+  }
+
+  const yaRegistrado = DB.pos.objetivo_plantilla.some((linea) =>
+    linea.mes === mes &&
+    linea.sucursal_id === sucursal_id &&
+    linea.vendedor_id === vendedor_id
+  );
+  if (yaRegistrado) {
+    throw new Error("El vendedor ya está registrado en la plantilla de este mes y sucursal");
+  }
+
+  const linea = {
+    id: DB.pos.objetivo_plantilla.reduce((maximo, item) => Math.max(maximo, item.id), 0) + 1,
+    mes,
+    sucursal_id,
+    vendedor_id,
+    desde: desde ?? `${mes}-01`,
+    hasta: hasta ?? null,
+    motivo: motivo ?? null,
+  };
+
+  DB.pos.objetivo_plantilla.push(linea);
+  return linea;
+}
+
+function plantillaDelMes(DB, mes, sucursal_id) {
+  return DB.pos.objetivo_plantilla.filter((linea) =>
+    linea.mes === mes && linea.sucursal_id === sucursal_id
+  );
+}
+
+module.exports = {
+  fijarObjetivo,
+  objetivoVigente,
+  historialObjetivo,
+  registrarEnPlantilla,
+  plantillaDelMes,
+};
