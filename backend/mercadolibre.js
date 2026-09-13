@@ -16,6 +16,7 @@ const { ajustarExistencia } = require("./productos");
 
 const ML_API  = "https://api.mercadolibre.com";
 const ML_AUTH = "https://auth.mercadolibre.com.mx/authorization";
+const SUCURSAL_ML = 5;
 
 function mlHeaders(token) {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
@@ -291,6 +292,43 @@ function mapearLineasDeOrden(DB, orden) {
   return { lineas, sinVincular };
 }
 
+/**
+ * Decision de Victor del 2026-09-12: si el producto YA esta vinculado y no hay
+ * existencia suficiente, la orden se RECHAZA y no se escribe nada.
+ *
+ * Se asume la consecuencia: esa venta, cobrada en ML, no queda registrada y el
+ * corte de la sucursal 5 no la cuenta mientras dure el rechazo. Lo que lo hace
+ * aceptable es que sea RECUPERABLE: la orden no se marca como importada, asi
+ * que en cuanto se ajuste la existencia se vuelve a importar sola.
+ *
+ * Un producto vinculado sin existencia quiere decir que el inventario ya estaba
+ * mal antes de la venta. El sistema lo senala en vez de hundirlo en negativo.
+ *
+ * Los renglones sin `producto_id` se saltan a proposito: esos se importan y van
+ * a la lista de pendientes (Task 3).
+ */
+function validarExistenciaDeOrden(DB, lineas) {
+  const pedidoPorProducto = new Map();
+  for (const l of lineas) {
+    if (!l.producto_id) continue;
+    pedidoPorProducto.set(l.producto_id, (pedidoPorProducto.get(l.producto_id) || 0) + Number(l.cantidad || 0));
+  }
+  for (const [productoId, pedida] of pedidoPorProducto) {
+    const exist = DB.inventario.existencias.find(
+      (e) => e.producto_id === Number(productoId) && e.sucursal_id === SUCURSAL_ML
+    );
+    const hay = exist ? Number(exist.cantidad) : 0;
+    if (hay < pedida) {
+      const prod = DB["catalogo-productos"].productos.find((p) => p.id === Number(productoId));
+      const nombre = prod ? prod.nombre : `producto ${productoId}`;
+      throw new Error(
+        `No alcanza la existencia de "${nombre}" en MercadoLibre: la orden pide ${pedida} y hay ${hay}. ` +
+        `Ajusta la existencia y vuelve a importar la orden — no se guardó nada.`
+      );
+    }
+  }
+}
+
 async function importarOrdenComoVenta(DB, ordenId) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${ML_API}/orders/${ordenId}`, { headers: mlHeaders(token) });
@@ -305,7 +343,8 @@ async function importarOrdenComoVenta(DB, ordenId) {
   validarOrdenImportable(orden);
 
   // Mapear ítems ML → productos locales por SKU
-  const { lineas } = mapearLineasDeOrden(DB, orden);
+  const { lineas, sinVincular } = mapearLineasDeOrden(DB, orden);
+  validarExistenciaDeOrden(DB, lineas);   // lanza y corta aqui: nada escrito todavia
 
   // Buscar o crear comprador en el CRM (sucursal ML = 5)
   let clienteId = 0;
@@ -421,5 +460,5 @@ async function importarOrdenComoVenta(DB, ordenId) {
 module.exports = {
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
-  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden,
+  listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden, validarExistenciaDeOrden,
 };

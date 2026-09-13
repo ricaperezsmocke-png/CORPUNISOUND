@@ -58,6 +58,7 @@ function responderOrden(t, orden) {
 
 test("una venta importada entra al turno abierto de la caja ML como transferencia", async (t) => {
   const DB = prepararDB();
+  DB.inventario.existencias.push({ producto_id: 1, sucursal_id: 5, cantidad: 3 });
   const caja = DB.pos.cajas.find((c) => c.sucursal_id === 5 && c.predeterminada);
   const fechaOrden = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
   const frontera = new Date(Date.now() - 60_000).toISOString();
@@ -92,6 +93,7 @@ test("una venta importada entra al turno abierto de la caja ML como transferenci
 
 test("una importacion sin catalogo de cajas no se impide y guarda caja_id null", async (t) => {
   const DB = prepararDB({ conCajas: false });
+  DB.inventario.existencias.push({ producto_id: 1, sucursal_id: 5, cantidad: 3 });
   responderOrden(t, ordenDePrueba(7002, "2026-08-29T18:00:00.000-06:00"));
 
   const venta = await importarOrdenComoVenta(DB, 7002);

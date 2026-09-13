@@ -46,3 +46,45 @@ test("una orden mixta reporta solo el renglon sin vincular", () => {
   assert.equal(sinVincular.length, 1);
   assert.equal(sinVincular[0].sku, "NO-EXISTE");
 });
+
+const { validarExistenciaDeOrden } = require("./mercadolibre");
+
+test("si alcanza la existencia, no se queja", () => {
+  const DB = prepararDB(); // Guitarra id 7: 3 piezas en sucursal 5
+  assert.doesNotThrow(() => validarExistenciaDeOrden(DB, [
+    { producto_id: 7, cantidad: 3, nombre: "Guitarra" },
+  ]));
+});
+
+test("si NO alcanza la existencia, se rechaza y el mensaje dice que falta", () => {
+  const DB = prepararDB();
+  assert.throws(
+    () => validarExistenciaDeOrden(DB, [{ producto_id: 7, cantidad: 4, nombre: "Guitarra" }]),
+    /existencia|alcanza/i
+  );
+});
+
+test("un producto sin renglon de existencia en la sucursal 5 cuenta como cero", () => {
+  const DB = prepararDB();
+  DB.inventario.existencias = [];
+  assert.throws(() => validarExistenciaDeOrden(DB, [{ producto_id: 7, cantidad: 1, nombre: "Guitarra" }]), /existencia|alcanza/i);
+});
+
+test("los renglones SIN producto vinculado no se validan aqui: son el otro caso", () => {
+  const DB = prepararDB();
+  assert.doesNotThrow(() => validarExistenciaDeOrden(DB, [
+    { producto_id: null, cantidad: 99, nombre: "Bajo sin vincular" },
+  ]));
+});
+
+test("dos renglones del MISMO producto se suman antes de comparar", () => {
+  const DB = prepararDB(); // 3 piezas
+  assert.throws(
+    () => validarExistenciaDeOrden(DB, [
+      { producto_id: 7, cantidad: 2, nombre: "Guitarra" },
+      { producto_id: 7, cantidad: 2, nombre: "Guitarra" },
+    ]),
+    /existencia|alcanza/i,
+    "2 + 2 = 4 pasa de las 3 que hay: tiene que rechazar"
+  );
+});
