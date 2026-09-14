@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const { fijarObjetivo, registrarEnPlantilla } = require("./objetivos");
 const { capturarDia, corregirCaptura } = require("./objetivosCaptura");
-const { previoCierre, cerrarMes, estaCerrado } = require("./objetivosCierre");
+const { previoCierre, cerrarMes, estaCerrado, rectificarCierre } = require("./objetivosCierre");
 
 function prepararDB() {
   return {
@@ -252,4 +252,84 @@ test("queda constancia de quien sello y cuando", () => {
   assert.deepEqual(DB.pos.objetivos, antes.objetivos);
   assert.deepEqual(DB.pos.objetivo_capturas, antes.objetivo_capturas);
   assert.deepEqual(DB.pos.objetivo_plantilla, antes.objetivo_plantilla);
+});
+
+/**
+ * Task 6 — rectificar despues del cierre, SIN reabrirlo.
+ *
+ * El caso real: el mes esta cerrado, Victor ya pago la comision, y una semana
+ * despues el cliente devuelve el teclado de $12,000. Esa comision se pago sobre
+ * una venta que ya no existe.
+ *
+ * La tentacion es entrar al cierre y corregir el numero. Eso DESTRUYE el sello:
+ * si el cierre de septiembre puede cambiar en octubre, la cifra con la que
+ * Victor pago deja de ser demostrable. Por eso el cierre no se toca jamas y el
+ * efecto tardio se apila aparte, como hacen los cortes de caja.
+ */
+
+test("una rectificacion NO cambia el cierre original", () => {
+  const DB = prepararMes();
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const lineasAntes = JSON.stringify(cierre.lineas);
+  const fotoAntes = JSON.stringify(cierre.foto);
+
+  rectificarCierre(DB, cierre.id, {
+    vendedor_id: 1, campo: "real_sicar", valor_nuevo: 73000, motivo: "Error de dedo al teclear SICAR",
+  }, ADMINISTRADORA);
+
+  assert.equal(JSON.stringify(cierre.lineas), lineasAntes, "las lineas del cierre no se tocan");
+  assert.equal(JSON.stringify(cierre.foto), fotoAntes, "la foto sellada no se toca");
+  assert.equal(cierre.rectificaciones.length, 1, "la rectificacion se apila aparte");
+});
+
+test("la rectificacion guarda valor anterior, nuevo, motivo, quien y cuando", () => {
+  const DB = prepararMes();
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+
+  const r = rectificarCierre(DB, cierre.id, {
+    vendedor_id: 1, campo: "real_sicar", valor_nuevo: 73000, motivo: "Error de dedo al teclear SICAR",
+  }, ADMINISTRADORA);
+
+  assert.equal(r.vendedor_id, 1);
+  assert.equal(r.campo, "real_sicar");
+  assert.equal(r.valor_anterior, 85000, "el valor anterior se lee del cierre, no se recibe de fuera");
+  assert.equal(r.valor_nuevo, 73000);
+  assert.equal(r.motivo, "Error de dedo al teclear SICAR");
+  assert.equal(r.rectificado_por, "Administración");
+  assert.ok(r.rectificado_en, "sin fecha no se sabe cuando se rectifico");
+});
+
+test("una venta cancelada despues del cierre se registra como rectificacion", () => {
+  const DB = prepararMes();
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+
+  // el cliente devolvio un teclado de $12,000 que ya conto para la comision
+  const r = rectificarCierre(DB, cierre.id, {
+    vendedor_id: 1, campo: "real_sicar", valor_nuevo: 73000,
+    motivo: "Venta cancelada en SICAR, folio 4471: devolucion de teclado",
+  }, ADMINISTRADORA);
+
+  assert.equal(r.valor_anterior - r.valor_nuevo, 12000, "queda claro cuanto se fue");
+  assert.match(r.motivo, /4471/, "el folio tiene que quedar en el motivo para poder rastrearlo");
+  assert.equal(cierre.lineas.find((l) => l.vendedor_id === 1).real_sicar, 85000,
+    "el mes pagado conserva su cifra: el ajuste va en la siguiente comision");
+});
+
+test("no se rectifica un cierre que no existe", () => {
+  const DB = prepararMes();
+  cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  assert.throws(() => rectificarCierre(DB, 9999, {
+    vendedor_id: 1, campo: "real_sicar", valor_nuevo: 1, motivo: "x",
+  }, ADMINISTRADORA), /no existe/i);
+});
+
+test("no se rectifica sin motivo", () => {
+  const DB = prepararMes();
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  for (const motivo of [undefined, null, "", "   "]) {
+    assert.throws(() => rectificarCierre(DB, cierre.id, {
+      vendedor_id: 1, campo: "real_sicar", valor_nuevo: 73000, motivo,
+    }, ADMINISTRADORA), /motivo/i, `dejo pasar motivo ${JSON.stringify(motivo)}`);
+  }
+  assert.equal(cierre.rectificaciones.length, 0, "un numero cambiado sin explicacion es lo que estamos evitando");
 });

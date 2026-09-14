@@ -87,4 +87,62 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
   return cierre;
 }
 
-module.exports = { previoCierre, cerrarMes, estaCerrado };
+
+/**
+ * Rectifica un cierre YA SELLADO, sin reabrirlo.
+ *
+ * El caso real: el mes esta cerrado, Victor ya pago la comision, y una semana
+ * despues el cliente devuelve el teclado de $12,000. La venta se cancela en
+ * SICAR. Esa comision se pago sobre una venta que ya no existe.
+ *
+ * La tentacion es entrar al cierre y corregir el numero. Eso DESTRUYE el sello:
+ * si el cierre de septiembre puede cambiar en octubre, la cifra con la que
+ * Victor pago deja de ser demostrable, y el trabajo del sello no sirvio de nada.
+ *
+ * Por eso `lineas` y `foto` NO se tocan jamas. El efecto tardio se apila en
+ * `rectificaciones`, con valor anterior, nuevo, motivo, quien y cuando, y
+ * aparece en la siguiente decision de comision. Es como este sistema trata los
+ * movimientos que llegan tarde a un corte de caja ya cerrado.
+ *
+ * El motivo es OBLIGATORIO: una rectificacion sin explicacion es exactamente el
+ * numero cambiado a oscuras que estamos evitando.
+ */
+const CAMPOS_RECTIFICABLES = ["meta", "capturado", "real_sicar"];
+
+function rectificarCierre(DB, cierreId, { vendedor_id, campo, valor_nuevo, motivo }, usuario) {
+  const cierre = (DB.pos.objetivo_cierres || []).find((c) => c.id === Number(cierreId));
+  if (!cierre) throw new Error("Ese cierre no existe");
+
+  if (!CAMPOS_RECTIFICABLES.includes(campo)) {
+    throw new Error(`Solo se puede rectificar: ${CAMPOS_RECTIFICABLES.join(", ")}`);
+  }
+
+  const linea = cierre.lineas.find((l) => l.vendedor_id === Number(vendedor_id));
+  if (!linea) throw new Error("Esa persona no esta en el cierre");
+
+  if (typeof motivo !== "string" || motivo.trim() === "") {
+    throw new Error("La rectificación necesita un motivo: sin él, es un número cambiado sin explicación");
+  }
+
+  if (!Number.isFinite(valor_nuevo) || valor_nuevo < 0) {
+    throw new Error("El valor nuevo debe ser un número finito mayor o igual a cero");
+  }
+
+  // El valor anterior se LEE del cierre; no se acepta de fuera, para que nadie
+  // pueda declarar un punto de partida que no fue el real.
+  const rectificacion = {
+    id: (cierre.rectificaciones.length
+      ? Math.max(...cierre.rectificaciones.map((r) => r.id)) : 0) + 1,
+    vendedor_id: Number(vendedor_id),
+    campo,
+    valor_anterior: linea[campo],
+    valor_nuevo,
+    motivo: motivo.trim(),
+    rectificado_por: (usuario && usuario.nombre) || "desconocido",
+    rectificado_en: new Date().toISOString(),
+  };
+  cierre.rectificaciones.push(rectificacion);
+  return rectificacion;
+}
+
+module.exports = { previoCierre, cerrarMes, estaCerrado, rectificarCierre };
