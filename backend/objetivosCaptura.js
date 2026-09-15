@@ -80,6 +80,9 @@ function capturarDia(DB, datos, usuario) {
 
 function corregirCaptura(DB, capturaId, monto, motivo, usuario) {
   validarMonto(monto);
+  if (typeof motivo !== "string" || motivo.trim() === "") {
+    throw new Error("Corregir una captura requiere un motivo; no puede estar vacío");
+  }
 
   const anterior = DB.pos.objetivo_capturas.find((captura) => captura.id === capturaId);
   if (!anterior) throw new Error("La captura que se quiere corregir no existe");
@@ -98,11 +101,10 @@ function corregirCaptura(DB, capturaId, monto, motivo, usuario) {
     capturado_por: usuario?.nombre || "desconocido",
     capturado_en: new Date().toISOString(),
     corrige_a: anterior.id,
+    motivo: motivo.trim(),
     vigente: true,
   };
 
-  // La interfaz reserva el motivo, pero la forma exacta de captura no define dónde guardarlo.
-  void motivo;
   anterior.vigente = false;
   DB.pos.objetivo_capturas.push(nueva);
   return nueva;

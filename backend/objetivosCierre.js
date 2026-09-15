@@ -12,7 +12,20 @@ function validarPeriodo(mes, sucursal_id) {
 
 function previoCierre(DB, { mes, sucursal_id }) {
   validarPeriodo(mes, sucursal_id);
-  return plantillaDelMes(DB, mes, sucursal_id).map(({ vendedor_id }) => {
+  const participantes = new Set(plantillaDelMes(DB, mes, sucursal_id).map(({ vendedor_id }) => vendedor_id));
+  for (const objetivo of DB.pos.objetivos) {
+    if (objetivo.vigente && objetivo.tipo === "venta" && objetivo.mes === mes &&
+        objetivo.sucursal_id === sucursal_id && objetivo.vendedor_id !== null) {
+      participantes.add(objetivo.vendedor_id);
+    }
+  }
+  for (const captura of DB.pos.objetivo_capturas) {
+    if (captura.vigente && captura.mes === mes && captura.sucursal_id === sucursal_id) {
+      participantes.add(captura.vendedor_id);
+    }
+  }
+
+  return [...participantes].sort((a, b) => a - b).map((vendedor_id) => {
     const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
     const objetivo = objetivoVigente(DB, { tipo: "venta", mes, sucursal_id, vendedor_id });
     return {

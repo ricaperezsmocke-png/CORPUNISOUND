@@ -136,7 +136,7 @@ test("un vendedor solo captura LO SUYO: capturar para otro se rechaza", async ()
   assert.equal(corregida.cuerpo.vendedor_id, 1);
   assert.equal(corregida.cuerpo.monto, 80);
   assert.equal(app.DB.pos.objetivo_capturas.find((c) => c.id === alta.cuerpo.id).vigente, false);
-  const otro = await pedir("POST", "/api/objetivos/captura/2/corregir", companero, { monto: 90 });
+  const otro = await pedir("POST", "/api/objetivos/captura/2/corregir", companero, { monto: 90, motivo: "Importe correcto" });
   estado(otro, 200);
   assert.equal(otro.cuerpo.vendedor_id, 2);
 });
@@ -174,7 +174,7 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
   estado(sugerencia, 200);
   assert.deepEqual(sugerencia.cuerpo, [{ vendedor_id: 3, monto: 1000 }]);
   estado(await pedir("POST", "/api/objetivos/captura", global, { ...CAPTURA, sucursal_id: "2", vendedor_id: "3" }), 200);
-  estado(await pedir("POST", "/api/objetivos/captura/3/corregir", global, { monto: 70 }), 200);
+  estado(await pedir("POST", "/api/objetivos/captura/3/corregir", global, { monto: 70, motivo: "Importe correcto" }), 200);
   const previo = await pedir("GET", `/api/objetivos/${MES}/2/previo-cierre`, global);
   estado(previo, 200);
   assert.deepEqual(previo.cuerpo.map(({ vendedor_id, meta, capturado }) => ({ vendedor_id, meta, capturado })), [{ vendedor_id: 3, meta: 600, capturado: 170 }]);

@@ -136,6 +136,36 @@ test("corregir REEMPLAZA, no suma", () => {
   });
 });
 
+test("corregir exige un motivo de texto sin mutar la captura rechazada", () => {
+  for (const motivo of [undefined, null, "", "   ", 123, {}, []]) {
+    const DB = prepararDB();
+    const primera = conRelojEn("2026-09-13T18:30:00.000Z", () => capturarDia(DB, {
+      mes: "2026-09", fecha: "2026-09-13", sucursal_id: 1,
+      vendedor_id: 1, tipo: "venta", monto: 12000,
+    }, VICTOR));
+    const antes = structuredClone(DB.pos.objetivo_capturas);
+
+    assert.throws(
+      () => corregirCaptura(DB, primera.id, 9000, motivo, VICTOR),
+      /motivo/i,
+      `dejó pasar motivo ${JSON.stringify(motivo)}`
+    );
+    assert.deepEqual(DB.pos.objetivo_capturas, antes);
+  }
+});
+
+test("corregir guarda el motivo recortado en la captura nueva", () => {
+  const DB = prepararDB();
+  const primera = conRelojEn("2026-09-13T18:30:00.000Z", () => capturarDia(DB, {
+    mes: "2026-09", fecha: "2026-09-13", sucursal_id: 1,
+    vendedor_id: 1, tipo: "venta", monto: 12000,
+  }, VICTOR));
+
+  const nueva = corregirCaptura(DB, primera.id, 9000, "  Importe correcto  ", VICTOR);
+
+  assert.equal(nueva.motivo, "Importe correcto");
+});
+
 test("no se puede corregir dos veces la misma captura", () => {
   const DB = prepararDB();
 

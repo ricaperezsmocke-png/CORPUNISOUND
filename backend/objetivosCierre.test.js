@@ -91,6 +91,52 @@ test("el previo muestra meta y capturado de cada persona de la plantilla", () =>
   ]);
 });
 
+test("alguien con capturas fuera de plantilla participa, exige real y queda en lineas", () => {
+  const DB = prepararMes();
+  DB.pos.vendedores.push({ id: 3, nombre: "Luisa", sucursal_id: 2, activo: false });
+  DB.pos.objetivo_capturas.push({
+    id: 3, mes: MES.mes, fecha: `${MES.mes}-05`, sucursal_id: MES.sucursal_id,
+    vendedor_id: 3, tipo: "venta", monto: 7000, capturado_por: "Luisa",
+    capturado_en: "2026-09-05T18:30:00.000Z", corrige_a: null, vigente: true,
+  });
+
+  assert.deepEqual(previoCierre(DB, MES).map((linea) => linea.vendedor_id), [1, 2, 3]);
+  assert.throws(
+    () => cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA),
+    /falta.*real|SICAR/i
+  );
+  const cierre = cerrarMes(DB, {
+    ...MES, reales: [...realesDelMes(), { vendedor_id: 3, real_sicar: 6500 }],
+  }, ADMINISTRADORA);
+  assert.deepEqual(cierre.lineas[2], {
+    vendedor_id: 3, meta: 0, capturado: 7000, real_sicar: 6500, diferencia: 500,
+  });
+  assert.deepEqual(cierre.foto.plantilla.map((linea) => linea.vendedor_id), [1, 2]);
+});
+
+test("alguien que solo tiene meta personal participa en el cierre", () => {
+  const DB = prepararMes();
+  DB.pos.vendedores.push({ id: 3, nombre: "Luisa", sucursal_id: 1, activo: false });
+  fijar(DB, 3, 30000);
+
+  assert.deepEqual(previoCierre(DB, MES)[2], {
+    vendedor_id: 3, nombre: "Luisa", meta: 30000, capturado: 0,
+  });
+  const cierre = cerrarMes(DB, {
+    ...MES, reales: [...realesDelMes(), { vendedor_id: 3, real_sicar: 0 }],
+  }, ADMINISTRADORA);
+  assert.equal(cierre.lineas.filter((linea) => linea.vendedor_id === 3).length, 1);
+});
+
+test("alguien en plantilla y con capturas aparece una sola vez", () => {
+  const DB = prepararMes();
+  capturar(DB, 1, 5000, MES, "04");
+
+  const previo = previoCierre(DB, MES);
+  assert.equal(previo.filter((linea) => linea.vendedor_id === 1).length, 1);
+  assert.equal(previo.find((linea) => linea.vendedor_id === 1).capturado, 105000);
+});
+
 test("cerrar guarda la diferencia entre lo capturado y lo real de SICAR", () => {
   const DB = prepararMes();
   const reales = realesDelMes().reverse();
