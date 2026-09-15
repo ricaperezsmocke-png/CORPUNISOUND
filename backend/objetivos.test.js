@@ -93,7 +93,7 @@ test("un vendedor de otra sucursal no puede llevar meta de esta tienda", () => {
   assert.equal(DB.pos.objetivos.length, 0);
 });
 
-const { registrarEnPlantilla, plantillaDelMes } = require("./objetivos");
+const { registrarEnPlantilla, plantillaDelMes, registroDelDia, tienePlantillaEnMes } = require("./objetivos");
 
 test("quien estuvo el mes aparece aunque hoy este inactivo", () => {
   const DB = prepararDB();
@@ -306,4 +306,28 @@ test("sin meta de tienda, el estado lo dice en vez de reventar", () => {
   const e = estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 });
   assert.equal(e.meta_tienda, 0);
   assert.equal(e.asignado, 0);
+});
+
+test("un traslado permite reingresar a la misma tienda sin duplicar el reparto", () => {
+  const DB = prepararDB();
+  const ana = DB.pos.vendedores.find((v) => v.id === 1);
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-01", hasta: "2026-09-10" });
+  ana.sucursal_id = 2;
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 1, desde: "2026-09-11", hasta: "2026-09-19" });
+  ana.sucursal_id = 1;
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-20" });
+  assert.equal(registroDelDia(DB, { mes: "2026-09", vendedor_id: 1, fecha: "2026-09-15" }).sucursal_id, 2);
+  assert.equal(tienePlantillaEnMes(DB, "2026-09", 1), true);
+  assert.equal(estadoDelReparto(DB, { mes: "2026-09", sucursal_id: 1 }).lineas.length, 1);
+});
+
+test("un alta solapada en la misma tienda se rechaza sin escribir", () => {
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  const antes = structuredClone(DB.pos.objetivo_plantilla);
+  assert.throws(
+    () => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-20" }),
+    /plantilla de esta tienda en esas fechas/i
+  );
+  assert.deepEqual(DB.pos.objetivo_plantilla, antes);
 });

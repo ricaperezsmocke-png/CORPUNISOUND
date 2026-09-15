@@ -1,6 +1,7 @@
 // "Hoy" siempre en hora de Chiapas: Render corre en UTC y un hoy con la hora del
 // proceso adelanta el dia desde las 18:00, justo cuando se captura.
 const { fechaLocal } = require("./fechas");
+const { registroDelDia, tienePlantillaEnMes } = require("./objetivos");
 
 function mesValido(mes) {
   return typeof mes === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mes);
@@ -49,7 +50,12 @@ function validarDatosCaptura(DB, { mes, fecha, sucursal_id, vendedor_id, tipo, m
 
   const vendedor = DB.pos.vendedores.find((item) => item.id === vendedor_id);
   if (!vendedor) throw new Error("El vendedor no existe");
-  if (vendedor.sucursal_id !== sucursal_id) {
+  const registro = registroDelDia(DB, { mes, vendedor_id, fecha });
+  if (tienePlantillaEnMes(DB, mes, vendedor_id)) {
+    if (!registro || registro.sucursal_id !== sucursal_id) {
+      throw new Error("Ese día no estás en la plantilla de esta tienda");
+    }
+  } else if (vendedor.sucursal_id !== sucursal_id) {
     throw new Error("El vendedor no pertenece a esta sucursal");
   }
 }
@@ -142,22 +148,19 @@ function diasSinCapturar(DB, { mes, sucursal_id, vendedor_id, hasta }) {
       captura.sucursal_id === sucursal_id &&
       captura.vendedor_id === vendedor_id)
     .map((captura) => captura.fecha));
-  const registro = DB.pos.objetivo_plantilla.find((linea) =>
-    linea.mes === mes &&
-    linea.sucursal_id === sucursal_id &&
-    linea.vendedor_id === vendedor_id
+  const registros = DB.pos.objetivo_plantilla.filter((linea) =>
+    linea.mes === mes && linea.sucursal_id === sucursal_id && linea.vendedor_id === vendedor_id
   );
-  const desde = registro?.desde ?? `${mes}-01`;
-  const limite = registro?.hasta && registro.hasta < hasta ? registro.hasta : hasta;
-  const primerDia = Number(desde.slice(8, 10));
-  const ultimoDia = Number(limite.slice(8, 10));
   const faltantes = [];
-
-  for (let dia = primerDia; dia <= ultimoDia; dia += 1) {
-    const fecha = `${mes}-${String(dia).padStart(2, "0")}`;
-    if (!fechasCapturadas.has(fecha)) faltantes.push(fecha);
+  const intervalos = registros.length ? registros : [{ desde: `${mes}-01`, hasta: null }];
+  for (const registro of intervalos) {
+    const limite = registro.hasta && registro.hasta < hasta ? registro.hasta : hasta;
+    for (let dia = Number(registro.desde.slice(8, 10)); dia <= Number(limite.slice(8, 10)); dia += 1) {
+      const fecha = `${mes}-${String(dia).padStart(2, "0")}`;
+      if (!fechasCapturadas.has(fecha)) faltantes.push(fecha);
+    }
   }
-  return faltantes;
+  return [...new Set(faltantes)].sort();
 }
 
 module.exports = {

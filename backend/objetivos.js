@@ -32,7 +32,10 @@ function fijarObjetivo(DB, { tipo, mes, sucursal_id, vendedor_id, monto, motivo 
   if (vendedor_id !== null) {
     const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
     if (!vendedor) throw new Error("El vendedor no existe");
-    if (vendedor.sucursal_id !== sucursal_id) {
+    const estuvoEnSucursal = DB.pos.objetivo_plantilla.some((linea) =>
+      linea.mes === mes && linea.vendedor_id === vendedor_id && linea.sucursal_id === sucursal_id
+    );
+    if (tienePlantillaEnMes(DB, mes, vendedor_id) ? !estuvoEnSucursal : vendedor.sucursal_id !== sucursal_id) {
       throw new Error("El vendedor no pertenece a esta sucursal");
     }
   }
@@ -70,14 +73,6 @@ function registrarEnPlantilla(DB, { mes, sucursal_id, vendedor_id, desde, hasta,
     throw new Error("El vendedor no pertenece a esta sucursal");
   }
 
-  const yaRegistrado = DB.pos.objetivo_plantilla.some((linea) =>
-    linea.mes === mes &&
-    linea.sucursal_id === sucursal_id &&
-    linea.vendedor_id === vendedor_id
-  );
-  if (yaRegistrado) {
-    throw new Error("El vendedor ya está registrado en la plantilla de este mes y sucursal");
-  }
 
   // diasSinCapturar cuenta desde/hasta de este registro: una fecha fuera del mes
   // o mal escrita inventaria o esconderia dias pendientes.
@@ -93,14 +88,16 @@ function registrarEnPlantilla(DB, { mes, sucursal_id, vendedor_id, desde, hasta,
   // Un dia de trabajo es de UNA sola tienda. Si la persona sigue (o se encima)
   // en la plantilla de otra tienda, el dia compartido saldria "sin capturar" en
   // una de las dos sin forma de llenarlo.
-  const encimada = DB.pos.objetivo_plantilla.some((otra) =>
+  const encimada = DB.pos.objetivo_plantilla.find((otra) =>
     otra.mes === mes &&
     otra.vendedor_id === vendedor_id &&
-    otra.sucursal_id !== sucursal_id &&
     (otra.hasta === null || otra.hasta >= desdeFinal) &&
     (hastaFinal === null || otra.desde <= hastaFinal)
   );
   if (encimada) {
+    if (encimada.sucursal_id === sucursal_id) {
+      throw new Error("Esta persona ya está en la plantilla de esta tienda en esas fechas");
+    }
     throw new Error(
       "Esta persona sigue en la plantilla de otra tienda en esas fechas. " +
       "Primero hay que darla de baja allá con un último día anterior a su alta aquí."
@@ -125,6 +122,21 @@ function plantillaDelMes(DB, mes, sucursal_id) {
   return DB.pos.objetivo_plantilla.filter((linea) =>
     linea.mes === mes && linea.sucursal_id === sucursal_id
   );
+}
+
+function registroDelDia(DB, { mes, vendedor_id, fecha }) {
+  return DB.pos.objetivo_plantilla.find((linea) =>
+    linea.mes === mes && linea.vendedor_id === vendedor_id &&
+    linea.desde <= fecha && (linea.hasta === null || linea.hasta >= fecha)
+  ) || null;
+}
+
+function tienePlantillaEnMes(DB, mes, vendedor_id) {
+  return DB.pos.objetivo_plantilla.some((linea) => linea.mes === mes && linea.vendedor_id === vendedor_id);
+}
+
+function vendedoresUnicosDePlantilla(DB, mes, sucursal_id) {
+  return [...new Set(plantillaDelMes(DB, mes, sucursal_id).map((linea) => linea.vendedor_id))];
 }
 
 function fechaValida(fecha) {
@@ -165,15 +177,15 @@ function repartoSugerido(DB, { mes, sucursal_id }) {
     sucursal_id,
     vendedor_id: null,
   });
-  const plantilla = plantillaDelMes(DB, mes, sucursal_id);
+  const vendedores = vendedoresUnicosDePlantilla(DB, mes, sucursal_id);
 
-  if (!metaTienda || plantilla.length === 0) return [];
+  if (!metaTienda || vendedores.length === 0) return [];
 
-  const montoBase = Math.floor(metaTienda.monto / plantilla.length);
-  return plantilla.map((linea, indice) => ({
-    vendedor_id: linea.vendedor_id,
-    monto: indice === plantilla.length - 1
-      ? metaTienda.monto - (montoBase * (plantilla.length - 1))
+  const montoBase = Math.floor(metaTienda.monto / vendedores.length);
+  return vendedores.map((vendedor_id, indice) => ({
+    vendedor_id,
+    monto: indice === vendedores.length - 1
+      ? metaTienda.monto - (montoBase * (vendedores.length - 1))
       : montoBase,
   }));
 }
@@ -185,15 +197,15 @@ function estadoDelReparto(DB, { mes, sucursal_id }) {
     sucursal_id,
     vendedor_id: null,
   });
-  const lineas = plantillaDelMes(DB, mes, sucursal_id).map((linea) => {
+  const lineas = vendedoresUnicosDePlantilla(DB, mes, sucursal_id).map((vendedor_id) => {
     const objetivo = objetivoVigente(DB, {
       tipo: "venta",
       mes,
       sucursal_id,
-      vendedor_id: linea.vendedor_id,
+      vendedor_id,
     });
     return {
-      vendedor_id: linea.vendedor_id,
+      vendedor_id,
       monto: objetivo ? objetivo.monto : 0,
     };
   });
@@ -217,4 +229,6 @@ module.exports = {
   darDeBajaEnPlantilla,
   repartoSugerido,
   estadoDelReparto,
+  registroDelDia,
+  tienePlantillaEnMes,
 };

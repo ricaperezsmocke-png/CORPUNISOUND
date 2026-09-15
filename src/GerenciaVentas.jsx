@@ -12,6 +12,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   const [mes, setMes] = useState(mesActual());
   const [sucursalId, setSucursalId] = useState(veTodas ? "" : String(usuario?.sucursal_id || ""));
   const [sucursales, setSucursales] = useState([]);
+  const [misTiendas, setMisTiendas] = useState([]);
   const [miVendedorId, setMiVendedorId] = useState(null);
   const [identificado, setIdentificado] = useState(false);
   const [equipo, setEquipo] = useState([]);
@@ -49,6 +50,26 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
     });
     return () => { vigente = false; };
   }, [esJefatura, veTodas]);
+
+  useEffect(() => {
+    if (!identificado || miVendedorId == null || !mes) {
+      setMisTiendas([]);
+      return;
+    }
+    let vigente = true;
+    apiFetch(`/objetivos/mis-tiendas/${mes}`)
+      .then((r) => leer(r, "No se pudieron cargar tus tiendas del mes"))
+      .then((tiendas) => {
+        if (!vigente) return;
+        setMisTiendas(tiendas);
+        if (new Set(tiendas.map((t) => Number(t.sucursal_id))).size > 1) {
+          const predeterminada = tiendas.find((t) => Number(t.sucursal_id) === Number(usuario?.sucursal_id)) || tiendas[0];
+          setSucursalId(String(predeterminada.sucursal_id));
+        }
+      })
+      .catch((e) => { if (vigente) setError(e.message); });
+    return () => { vigente = false; };
+  }, [identificado, miVendedorId, mes, usuario?.sucursal_id]);
 
   const cargar = useCallback(async () => {
     if (!identificado || !sucursalId || !mes || (!esJefatura && miVendedorId == null)) {
@@ -190,6 +211,13 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
 
   const nombres = new Map(equipo.map((v) => [Number(v.id), v.nombre]));
   const nombre = (id) => nombres.get(Number(id)) || `Vendedor #${id}`;
+  const tiendasDisponibles = [...misTiendas.reduce((porSucursal, tienda) => {
+    const id = Number(tienda.sucursal_id);
+    const existente = porSucursal.get(id) || { ...tienda, periodos: [] };
+    existente.periodos.push(`${tienda.desde} a ${tienda.hasta || "fin de mes"}`);
+    porSucursal.set(id, existente);
+    return porSucursal;
+  }, new Map()).values()];
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto">
@@ -210,6 +238,19 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
               className="block neu-campo rounded-lg px-3 py-2 mt-1">
               <option value="">Selecciona una sucursal</option>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+        )}
+        {tiendasDisponibles.length > 1 && (
+          <label className="text-sm text-slate-600">
+            Tienda
+            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}
+              className="block neu-campo rounded-lg px-3 py-2 mt-1">
+              {tiendasDisponibles.map((tienda) => (
+                <option key={tienda.sucursal_id} value={tienda.sucursal_id}>
+                  {tienda.sucursal_nombre} ({tienda.periodos.join(", ")})
+                </option>
+              ))}
             </select>
           </label>
         )}
@@ -240,7 +281,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
               fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
           )}
-          {esJefatura && objetivos && (
+          {esJefatura && objetivos && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id)) && (
             <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
               objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
               historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}

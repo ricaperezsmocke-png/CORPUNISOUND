@@ -378,3 +378,34 @@ test("no se captura para un vendedor de otra sucursal", () => {
   });
   assert.equal(DB.pos.objetivo_capturas.length, 0);
 });
+
+test("la plantilla del traslado decide la tienda de cada dia y conserva la regla sin plantilla", () => {
+  const DB = prepararDB();
+  DB.pos.vendedores.find((v) => v.id === 1).sucursal_id = 2;
+  DB.pos.objetivo_plantilla.push(
+    { id: 1, mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-01", hasta: "2026-09-15" },
+    { id: 2, mes: "2026-09", sucursal_id: 2, vendedor_id: 1, desde: "2026-09-16", hasta: null }
+  );
+  conRelojEn("2026-09-20T18:30:00.000Z", () => {
+    assert.equal(capturarDia(DB, { mes: "2026-09", fecha: "2026-09-10", sucursal_id: 1, vendedor_id: 1, tipo: "venta", monto: 100 }, VICTOR).sucursal_id, 1);
+    assert.throws(() => capturarDia(DB, { mes: "2026-09", fecha: "2026-09-11", sucursal_id: 2, vendedor_id: 1, tipo: "venta", monto: 100 }, VICTOR), /Ese d.a no est.s en la plantilla de esta tienda/);
+    assert.equal(capturarDia(DB, { mes: "2026-09", fecha: "2026-09-16", sucursal_id: 2, vendedor_id: 1, tipo: "venta", monto: 100 }, VICTOR).sucursal_id, 2);
+    assert.throws(() => capturarDia(DB, { mes: "2026-09", fecha: "2026-09-17", sucursal_id: 1, vendedor_id: 1, tipo: "venta", monto: 100 }, VICTOR), /Ese d.a no est.s en la plantilla de esta tienda/);
+  });
+  assert.equal(diasSinCapturar(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, hasta: "2026-09-20" }).includes("2026-09-10"), false);
+  assert.equal(diasSinCapturar(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 1, hasta: "2026-09-20" }).some((f) => f < "2026-09-16"), false);
+  assert.throws(() => capturarDia(DB, { mes: "2026-08", fecha: "2026-08-10", sucursal_id: 1, vendedor_id: 1, tipo: "venta", monto: 1 }, VICTOR), /sucursal|tienda/i);
+});
+
+test("diasSinCapturar une dos periodos de la misma tienda", () => {
+  const DB = prepararDB();
+  DB.pos.objetivo_plantilla.push(
+    { id: 1, mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-01", hasta: "2026-09-10" },
+    { id: 2, mes: "2026-09", sucursal_id: 2, vendedor_id: 1, desde: "2026-09-11", hasta: "2026-09-19" },
+    { id: 3, mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-20", hasta: null }
+  );
+  assert.deepEqual(diasSinCapturar(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, hasta: "2026-09-22" }), [
+    ...Array.from({ length: 10 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`),
+    "2026-09-20", "2026-09-21", "2026-09-22",
+  ]);
+});

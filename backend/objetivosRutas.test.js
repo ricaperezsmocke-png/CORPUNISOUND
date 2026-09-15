@@ -58,6 +58,8 @@ before(async () => {
 });
 
 beforeEach(() => {
+  app.DB.pos.vendedores.find((v) => v.id === 1).sucursal_id = 1;
+  app.DB.admin.usuarios.find((u) => u.id === 50).sucursal_id = 1;
   for (const coleccion of ["objetivos", "objetivo_capturas", "objetivo_cierres", "objetivo_plantilla"]) app.DB.pos[coleccion] = [];
   // Fixtures con el motor real; cada prueba empieza con dos tiendas con datos.
   for (const [sucursal_id, vendedores] of [[1, [1, 2]], [2, [3]]]) {
@@ -212,11 +214,11 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
   assert.deepEqual(sugerencia.cuerpo, [{ vendedor_id: 3, monto: 1000 }]);
   estado(await pedir("POST", "/api/objetivos/captura", global, {
     ...CAPTURA, fecha: "2026-08-02", sucursal_id: "2", vendedor_id: "3",
-  }), 200);
-  estado(await pedir("POST", "/api/objetivos/captura/3/corregir", global, { monto: 70, motivo: "Importe correcto" }), 200);
+  }), 404);
+  estado(await pedir("POST", "/api/objetivos/captura/3/corregir", global, { monto: 70, motivo: "Importe correcto" }), 404);
   const previo = await pedir("GET", `/api/objetivos/${MES}/2/previo-cierre`, global);
   estado(previo, 200);
-  assert.deepEqual(previo.cuerpo.map(({ vendedor_id, meta, capturado }) => ({ vendedor_id, meta, capturado })), [{ vendedor_id: 3, meta: 600, capturado: 170 }]);
+  assert.deepEqual(previo.cuerpo.map(({ vendedor_id, meta, capturado }) => ({ vendedor_id, meta, capturado })), [{ vendedor_id: 3, meta: 600, capturado: 100 }]);
   // IDs inválidos: no se convierten silenciosamente en una consulta vacía.
   for (const invalido of ["abc", "0", "-1", "1.5", "", null, true, [], {}]) {
     const antes = structuredClone(app.DB.pos);
@@ -238,7 +240,7 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
   assert.equal(cierre.cuerpo.cerrado_por, "Global");
   assert.ok(cierre.cuerpo.cerrado_en);
   assert.equal(cierre.cuerpo.lineas[0].vendedor_id, 3);
-  assert.equal(cierre.cuerpo.lineas[0].diferencia, 20);
+  assert.equal(cierre.cuerpo.lineas[0].diferencia, -50);
   const foto = structuredClone(cierre.cuerpo.foto);
   estado(await pedir("POST", `/api/objetivos/cierre/${cierre.cuerpo.id}/rectificar`, global, { ...RECTIFICACION, vendedor_id: "abc" }), 400);
   const rectificada = await pedir("POST", `/api/objetivos/cierre/${cierre.cuerpo.id}/rectificar`, global, { ...RECTIFICACION, vendedor_id: "3" });
@@ -248,15 +250,15 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
   assert.deepEqual(app.DB.pos.objetivo_cierres[0].foto, foto);
   // Un mes sellado solo admite rectificaciones; se mantiene el motor intacto.
   const antes = structuredClone(app.DB.pos);
-  for (const [ruta, datos] of [
-    ["/api/objetivos", { ...META, sucursal_id: "2" }],
-    ["/api/objetivos/plantilla", { mes: MES, sucursal_id: "2", vendedor_id: "3" }],
-    ["/api/objetivos/captura", { ...CAPTURA, sucursal_id: "2", vendedor_id: "3" }],
-    ["/api/objetivos/captura/4/corregir", { monto: 5 }],
+  for (const [ruta, datos, esperado] of [
+    ["/api/objetivos", { ...META, sucursal_id: "2" }, 400],
+    ["/api/objetivos/plantilla", { mes: MES, sucursal_id: "2", vendedor_id: "3" }, 400],
+    ["/api/objetivos/captura", { ...CAPTURA, sucursal_id: "2", vendedor_id: "3" }, 404],
+    ["/api/objetivos/captura/4/corregir", { monto: 5 }, 404],
   ]) {
     const r = await pedir("POST", ruta, global, datos);
-    estado(r, 400);
-    assert.match(r.cuerpo.error, /cerrado/i);
+    estado(r, esperado);
+    if (esperado === 400) assert.match(r.cuerpo.error, /cerrado/i);
   }
   assert.deepEqual(app.DB.pos, antes);
 });
@@ -479,4 +481,50 @@ test("fijar una meta por primera vez no exige motivo", async () => {
     assert.equal(r.cuerpo.version, 1);
     assert.equal(r.cuerpo.motivo, null);
   }
+});
+
+test("una trasladada obtiene alcance extra solo por su plantilla guardada", async () => {
+  app.DB.pos.objetivo_plantilla = app.DB.pos.objetivo_plantilla.filter((p) => p.vendedor_id !== 1);
+  app.DB.pos.objetivo_plantilla.push(
+    { id: 20, mes: MES, sucursal_id: 1, vendedor_id: 1, desde: `${MES}-01`, hasta: `${MES}-15` },
+    { id: 21, mes: MES, sucursal_id: 2, vendedor_id: 1, desde: `${MES}-16`, hasta: null }
+  );
+  app.DB.pos.vendedores.find((v) => v.id === 1).sucursal_id = 2;
+  const cuenta = app.DB.admin.usuarios.find((u) => u.id === 50);
+  cuenta.sucursal_id = 2;
+  const anaTrasladada = firmarToken(cuenta);
+  app.DB.pos.objetivo_capturas = app.DB.pos.objetivo_capturas.filter((c) => c.vendedor_id !== 1);
+  const capturaVieja = await pedir("POST", "/api/objetivos/captura", anaTrasladada, { ...CAPTURA, fecha: `${MES}-10`, sucursal_id: "1" });
+  estado(capturaVieja, 200);
+  estado(await pedir("POST", "/api/objetivos/captura", anaTrasladada, { ...CAPTURA, fecha: `${MES}-16`, sucursal_id: "1" }), 400);
+  estado(await pedir("POST", "/api/objetivos/captura", anaTrasladada, { ...CAPTURA, fecha: `${MES}-17`, sucursal_id: "3" }), 404);
+  const propia = await pedir("GET", `/api/objetivos/${MES}/1`, anaTrasladada);
+  estado(propia, 200);
+  assert.deepEqual(propia.cuerpo.lineas.map((l) => l.vendedor_id), [1]);
+  assert.deepEqual(propia.cuerpo.plantilla.map((l) => l.vendedor_id), [1]);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, anaTrasladada), 200);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/capturas/2`, anaTrasladada), 404);
+  estado(await pedir("POST", "/api/objetivos", anaTrasladada, { ...META, sucursal_id: "1" }), 403);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/historial/1`, anaTrasladada), 403);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/cierre`, anaTrasladada), 403);
+  estado(await pedir("GET", `/api/objetivos/${MES}/3?sucursal_id=1`, anaTrasladada), 404);
+  const tiendas = await pedir("GET", `/api/objetivos/mis-tiendas/${MES}`, anaTrasladada);
+  estado(tiendas, 200);
+  assert.deepEqual(tiendas.cuerpo.map(({ sucursal_id, desde, hasta }) => ({ sucursal_id, desde, hasta })), [
+    { sucursal_id: 1, desde: `${MES}-01`, hasta: `${MES}-15` },
+    { sucursal_id: 2, desde: `${MES}-16`, hasta: null },
+  ]);
+  const sinVendedor = await pedir("GET", `/api/objetivos/mis-tiendas/${MES}`, sinLigar);
+  estado(sinVendedor, 200);
+  assert.deepEqual(sinVendedor.cuerpo, []);
+  sellarFixture(1);
+  estado(await pedir("POST", "/api/objetivos/captura", anaTrasladada, { ...CAPTURA, fecha: `${MES}-11`, sucursal_id: "1" }), 400);
+  estado(await pedir("POST", `/api/objetivos/captura/${capturaVieja.cuerpo.id}/corregir`, anaTrasladada, { monto: 80, motivo: "Error" }), 400);
+});
+
+test("jefatura revisa capturas de una trasladada que estuvo en su tienda pero no captura por ella", async () => {
+  app.DB.pos.objetivo_plantilla.find((p) => p.vendedor_id === 1).hasta = `${MES}-15`;
+  app.DB.pos.vendedores.find((v) => v.id === 1).sucursal_id = 2;
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, gerente), 200);
+  estado(await pedir("POST", "/api/objetivos/captura", gerente, { ...CAPTURA, vendedor_id: "1", fecha: `${MES}-02` }), 404);
 });
