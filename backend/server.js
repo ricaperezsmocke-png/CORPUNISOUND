@@ -2221,14 +2221,18 @@ app.get("/api/objetivos/:mes/:sucursalId", requiereLogin, requierePermiso("usar_
     if (!esJefatura && propio == null) return res.status(404).json({ error: "Objetivo no encontrado" });
     const reparto = estadoDelReparto(DB, { mes, sucursal_id });
     const plantilla = plantillaDelMes(DB, mes, sucursal_id);
+    // Vendedor y gerente no tienen el permiso de leer el cierre, pero su pantalla
+    // tiene que saber si el mes ya se selló para no ofrecer capturar ni cambiar metas.
+    const cerrado = estaCerrado(DB, mes, sucursal_id);
     if (!esJefatura) {
       // Tampoco los totales permiten deducir la meta de un compañero.
       return res.json({
         lineas: reparto.lineas.filter((linea) => linea.vendedor_id === propio),
         plantilla: plantilla.filter((linea) => linea.vendedor_id === propio),
+        cerrado,
       });
     }
-    res.json({ ...reparto, plantilla });
+    res.json({ ...reparto, plantilla, cerrado });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

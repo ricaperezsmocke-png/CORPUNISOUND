@@ -371,6 +371,23 @@ test("el cierre sellado se lee completo con sus rectificaciones sin modificar la
   assert.deepEqual(app.DB.pos, antes);
 });
 
+test("vendedor y gerente saben si el mes de SU tienda está cerrado, sin el permiso de cierre", async () => {
+  // Sin este dato la pantalla invitaría a capturar o cambiar metas en un mes
+  // sellado, y el rechazo llegaría hasta después de teclear.
+  sellarFixture(2);
+  for (const token of [vendedor, gerente]) {
+    const r = await pedir("GET", `/api/objetivos/${MES}/1`, token);
+    estado(r, 200);
+    assert.equal(r.cuerpo.cerrado, false, "cerrar la tienda 2 no cierra la tienda 1");
+  }
+  sellarFixture(1);
+  for (const token of [vendedor, gerente]) {
+    const r = await pedir("GET", `/api/objetivos/${MES}/1`, token);
+    estado(r, 200);
+    assert.equal(r.cuerpo.cerrado, true);
+  }
+});
+
 test("un mes sin cerrar devuelve 404 con explicación", async () => {
   sellarFixture(2);
   const r = await pedir("GET", `/api/objetivos/${MES}/1/cierre`, soloCierre);
