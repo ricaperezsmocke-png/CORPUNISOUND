@@ -136,6 +136,59 @@ test("corregir REEMPLAZA, no suma", () => {
   });
 });
 
+test("una segunda captura vigente del mismo dia se rechaza sin escribir", () => {
+  const DB = prepararDB();
+  conRelojEn("2026-09-13T18:30:00.000Z", () => {
+    const datos = {
+      mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1,
+      vendedor_id: 1, tipo: "venta", monto: 100,
+    };
+    capturarDia(DB, datos, VICTOR);
+    const antes = structuredClone(DB.pos.objetivo_capturas);
+
+    assert.throws(
+      () => capturarDia(DB, { ...datos, monto: 200 }, VICTOR),
+      /Ya hay una captura de ese d.a; si el monto est. mal, usa Corregir/
+    );
+    assert.deepEqual(DB.pos.objetivo_capturas, antes);
+  });
+});
+
+test("el mismo dia se puede capturar para otra persona", () => {
+  const DB = prepararDB();
+  conRelojEn("2026-09-13T18:30:00.000Z", () => {
+    capturarDia(DB, {
+      mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1,
+      vendedor_id: 1, tipo: "venta", monto: 100,
+    }, VICTOR);
+    const otra = capturarDia(DB, {
+      mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1,
+      vendedor_id: 2, tipo: "venta", monto: 200,
+    }, VICTOR);
+
+    assert.equal(otra.vendedor_id, 2);
+    assert.equal(DB.pos.objetivo_capturas.length, 2);
+  });
+});
+
+test("la correccion vigente tambien impide recapturar ese dia", () => {
+  const DB = prepararDB();
+  conRelojEn("2026-09-13T18:30:00.000Z", () => {
+    const primera = capturarDia(DB, {
+      mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1,
+      vendedor_id: 1, tipo: "venta", monto: 100,
+    }, VICTOR);
+    corregirCaptura(DB, primera.id, 200, "Importe correcto", VICTOR);
+    const antes = structuredClone(DB.pos.objetivo_capturas);
+
+    assert.throws(() => capturarDia(DB, {
+      mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1,
+      vendedor_id: 1, tipo: "venta", monto: 300,
+    }, VICTOR), /Ya hay una captura/);
+    assert.deepEqual(DB.pos.objetivo_capturas, antes);
+  });
+});
+
 test("corregir exige un motivo de texto sin mutar la captura rechazada", () => {
   for (const motivo of [undefined, null, "", "   ", 123, {}, []]) {
     const DB = prepararDB();
@@ -199,6 +252,32 @@ test("diasSinCapturar dice quien no ha llenado", () => {
   assert.deepEqual(diasSinCapturar(DB, {
     mes: "2026-09", sucursal_id: 1, vendedor_id: 1, hasta: "2026-09-05",
   }), ["2026-09-02", "2026-09-04", "2026-09-05"]);
+});
+
+test("diasSinCapturar empieza cuando la persona entro a la plantilla", () => {
+  const DB = prepararDB();
+  DB.pos.objetivo_plantilla.push({
+    id: 1, mes: "2026-09", sucursal_id: 1, vendedor_id: 1,
+    desde: "2026-09-10", hasta: null,
+  });
+
+  assert.deepEqual(diasSinCapturar(DB, {
+    mes: "2026-09", sucursal_id: 1, vendedor_id: 1, hasta: "2026-09-12",
+  }), ["2026-09-10", "2026-09-11", "2026-09-12"]);
+});
+
+test("diasSinCapturar termina cuando la persona salio de la plantilla", () => {
+  const DB = prepararDB();
+  DB.pos.objetivo_plantilla.push({
+    id: 1, mes: "2026-09", sucursal_id: 1, vendedor_id: 1,
+    desde: "2026-09-01", hasta: "2026-09-20",
+  });
+
+  const faltantes = diasSinCapturar(DB, {
+    mes: "2026-09", sucursal_id: 1, vendedor_id: 1, hasta: "2026-09-25",
+  });
+  assert.equal(faltantes.at(-1), "2026-09-20");
+  assert.equal(faltantes.includes("2026-09-21"), false);
 });
 
 test("una captura marca si llego tarde", () => {

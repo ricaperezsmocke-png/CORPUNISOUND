@@ -60,6 +60,17 @@ function validarDatosCaptura(DB, { mes, fecha, sucursal_id, vendedor_id, tipo, m
 function capturarDia(DB, datos, usuario) {
   validarDatosCaptura(DB, datos);
 
+  const yaCapturado = DB.pos.objetivo_capturas.some((captura) =>
+    captura.vigente &&
+    captura.vendedor_id === datos.vendedor_id &&
+    captura.sucursal_id === datos.sucursal_id &&
+    captura.tipo === datos.tipo &&
+    captura.fecha === datos.fecha
+  );
+  if (yaCapturado) {
+    throw new Error("Ya hay una captura de ese día; si el monto está mal, usa Corregir");
+  }
+
   const nueva = {
     id: siguienteId(DB.pos.objetivo_capturas),
     mes: datos.mes,
@@ -133,10 +144,18 @@ function diasSinCapturar(DB, { mes, sucursal_id, vendedor_id, hasta }) {
       captura.sucursal_id === sucursal_id &&
       captura.vendedor_id === vendedor_id)
     .map((captura) => captura.fecha));
-  const ultimoDia = Number(hasta.slice(8, 10));
+  const registro = DB.pos.objetivo_plantilla.find((linea) =>
+    linea.mes === mes &&
+    linea.sucursal_id === sucursal_id &&
+    linea.vendedor_id === vendedor_id
+  );
+  const desde = registro?.desde ?? `${mes}-01`;
+  const limite = registro?.hasta && registro.hasta < hasta ? registro.hasta : hasta;
+  const primerDia = Number(desde.slice(8, 10));
+  const ultimoDia = Number(limite.slice(8, 10));
   const faltantes = [];
 
-  for (let dia = 1; dia <= ultimoDia; dia += 1) {
+  for (let dia = primerDia; dia <= ultimoDia; dia += 1) {
     const fecha = `${mes}-${String(dia).padStart(2, "0")}`;
     if (!fechasCapturadas.has(fecha)) faltantes.push(fecha);
   }

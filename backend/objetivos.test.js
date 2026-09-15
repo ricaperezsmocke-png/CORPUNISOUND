@@ -131,6 +131,82 @@ test("la misma persona no se registra dos veces en el mismo mes y tienda", () =>
 
 const { repartoSugerido, estadoDelReparto } = require("./objetivos");
 
+const { darDeBajaEnPlantilla } = require("./objetivos");
+
+test("dar de baja conserva el registro y guarda fecha, motivo y auditoria", () => {
+  const DB = prepararDB();
+  const linea = registrarEnPlantilla(DB, {
+    mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-10", motivo: "Entra a cubrir vacaciones",
+  });
+  const baja = darDeBajaEnPlantilla(
+    DB,
+    linea.id,
+    { hasta: "2026-09-20", motivo: "  Cambio de tienda  " },
+    VICTOR
+  );
+
+  assert.equal(baja, linea);
+  assert.equal(linea.hasta, "2026-09-20");
+  // La baja no sobrescribe el motivo del alta: los dos quedan.
+  assert.equal(linea.motivo, "Entra a cubrir vacaciones");
+  assert.equal(linea.motivo_baja, "Cambio de tienda");
+  assert.equal(linea.baja_por, "Victor");
+  assert.ok(linea.baja_en);
+  assert.equal(DB.pos.objetivo_plantilla.length, 1);
+});
+
+test("dar de baja valida todo antes de modificar el registro", () => {
+  for (const datos of [
+    { hasta: "2026-08-31", motivo: "Antes del mes" },
+    { hasta: "2026-09-09", motivo: "Antes del alta" },
+    { hasta: "2026-09-31", motivo: "Fecha inexistente" },
+    { hasta: "2026-10-01", motivo: "Otro mes" },
+    { hasta: "2026-09-20", motivo: "   " },
+    { hasta: "2026-09-20", motivo: 123 },
+  ]) {
+    const DB = prepararDB();
+    const linea = registrarEnPlantilla(DB, {
+      mes: "2026-09", sucursal_id: 1, vendedor_id: 1, desde: "2026-09-10",
+    });
+    const antes = structuredClone(linea);
+    assert.throws(() => darDeBajaEnPlantilla(DB, linea.id, datos, VICTOR));
+    assert.deepEqual(linea, antes);
+  }
+});
+
+test("no se puede dar de baja dos veces ni dar de baja un registro inexistente", () => {
+  const DB = prepararDB();
+  const linea = registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  darDeBajaEnPlantilla(DB, linea.id, { hasta: "2026-09-20", motivo: "Salida" }, VICTOR);
+  const antes = structuredClone(DB.pos);
+
+  assert.throws(
+    () => darDeBajaEnPlantilla(DB, linea.id, { hasta: "2026-09-21", motivo: "Otra" }, VICTOR),
+    /baja|hasta/i
+  );
+  assert.throws(
+    () => darDeBajaEnPlantilla(DB, 999, { hasta: "2026-09-20", motivo: "Salida" }, VICTOR),
+    /existe|encontr/i
+  );
+  assert.deepEqual(DB.pos, antes);
+});
+
+test("dar de baja no toca metas ni capturas", () => {
+  const DB = prepararDB();
+  const linea = registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  fijarObjetivo(DB, {
+    tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 1, monto: 500,
+  }, VICTOR);
+  DB.pos.objetivo_capturas.push({ id: 1, vendedor_id: 1, monto: 100, vigente: true });
+  const objetivos = structuredClone(DB.pos.objetivos);
+  const capturas = structuredClone(DB.pos.objetivo_capturas);
+
+  darDeBajaEnPlantilla(DB, linea.id, { hasta: "2026-09-20", motivo: "Salida" }, VICTOR);
+
+  assert.deepEqual(DB.pos.objetivos, objetivos);
+  assert.deepEqual(DB.pos.objetivo_capturas, capturas);
+});
+
 test("el reparto sugerido divide en partes iguales entre los que estan", () => {
   const DB = prepararDB();
   registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });

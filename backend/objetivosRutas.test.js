@@ -125,7 +125,9 @@ test("un vendedor solo captura LO SUYO: capturar para otro se rechaza", async ()
   // Aunque el cuerpo mienta, la corrección se autoriza por el registro original.
   estado(await pedir("POST", "/api/objetivos/captura/2/corregir", vendedor, { monto: 1, vendedor_id: "1", sucursal_id: "1" }), 404);
   assert.deepEqual(app.DB.pos.objetivo_capturas, antes);
-  const alta = await pedir("POST", "/api/objetivos/captura", vendedor, { ...CAPTURA, capturado_por: "Victor" });
+  const alta = await pedir("POST", "/api/objetivos/captura", vendedor, {
+    ...CAPTURA, fecha: "2026-08-02", capturado_por: "Victor",
+  });
   estado(alta, 200);
   assert.equal(alta.cuerpo.vendedor_id, 1);
   assert.equal(alta.cuerpo.sucursal_id, 1);
@@ -139,6 +141,41 @@ test("un vendedor solo captura LO SUYO: capturar para otro se rechaza", async ()
   const otro = await pedir("POST", "/api/objetivos/captura/2/corregir", companero, { monto: 90, motivo: "Importe correcto" });
   estado(otro, 200);
   assert.equal(otro.cuerpo.vendedor_id, 2);
+});
+
+test("una segunda captura vigente del mismo dia responde 400 y no escribe", async () => {
+  const antes = structuredClone(app.DB.pos.objetivo_capturas);
+  const respuesta = await pedir("POST", "/api/objetivos/captura", vendedor, CAPTURA);
+
+  estado(respuesta, 400);
+  assert.match(respuesta.cuerpo.error, /Ya hay una captura de ese d.a/);
+  assert.deepEqual(app.DB.pos.objetivo_capturas, antes);
+});
+
+test("la baja de plantilla aplica permiso, alcance, mes abierto y auditoria", async () => {
+  estado(await pedir("POST", "/api/objetivos/plantilla/1/baja", vendedor, {
+    hasta: "2026-08-20", motivo: "Salida",
+  }), 403);
+  estado(await pedir("POST", "/api/objetivos/plantilla/3/baja", gerente, {
+    hasta: "2026-08-20", motivo: "Salida",
+  }), 404);
+
+  sellarFixture();
+  estado(await pedir("POST", "/api/objetivos/plantilla/1/baja", gerente, {
+    hasta: "2026-08-20", motivo: "Salida",
+  }), 400);
+
+  const linea = registrarEnPlantilla(app.DB, {
+    mes: "2026-07", sucursal_id: 1, vendedor_id: 1,
+  });
+  const respuesta = await pedir("POST", `/api/objetivos/plantilla/${linea.id}/baja`, gerente, {
+    hasta: "2026-07-20", motivo: "  Cambio de tienda  ", sucursal_id: "2",
+  });
+  estado(respuesta, 200);
+  assert.equal(respuesta.cuerpo.hasta, "2026-07-20");
+  assert.equal(respuesta.cuerpo.motivo_baja, "Cambio de tienda");
+  assert.equal(respuesta.cuerpo.baja_por, "Gerente");
+  assert.ok(respuesta.cuerpo.baja_en);
 });
 
 test("un gerente de la sucursal 1 no ve ni cierra la sucursal 2", async () => {
@@ -173,7 +210,9 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
   const sugerencia = await pedir("GET", `/api/objetivos/${MES}/2/sugerencia`, global);
   estado(sugerencia, 200);
   assert.deepEqual(sugerencia.cuerpo, [{ vendedor_id: 3, monto: 1000 }]);
-  estado(await pedir("POST", "/api/objetivos/captura", global, { ...CAPTURA, sucursal_id: "2", vendedor_id: "3" }), 200);
+  estado(await pedir("POST", "/api/objetivos/captura", global, {
+    ...CAPTURA, fecha: "2026-08-02", sucursal_id: "2", vendedor_id: "3",
+  }), 200);
   estado(await pedir("POST", "/api/objetivos/captura/3/corregir", global, { monto: 70, motivo: "Importe correcto" }), 200);
   const previo = await pedir("GET", `/api/objetivos/${MES}/2/previo-cierre`, global);
   estado(previo, 200);
@@ -246,7 +285,7 @@ test("sin cerrar_mes_objetivos no se llega al previo ni al cierre", async () => 
 
 test("el selector de sucursal del encabezado NO amplía el alcance", async () => {
   const cierreAjeno = sellarFixture(2);
-  for (const selector of ["1", "2", "todas"]) {
+  for (const [selector, fecha] of [["1", "2026-08-02"], ["2", "2026-08-03"], ["todas", "2026-08-04"]]) {
     const query = `?sucursal_id=${selector}`;
     const antes = structuredClone(app.DB.pos);
     estado(await pedir("GET", `/api/objetivos/${MES}/2${query}`, gerenteCierre), 404);
@@ -258,7 +297,7 @@ test("el selector de sucursal del encabezado NO amplía el alcance", async () =>
     const propios = await pedir("GET", `/api/objetivos/${MES}/1${query}`, gerenteCierre);
     estado(propios, 200);
     assert.deepEqual(propios.cuerpo.lineas.map((l) => l.vendedor_id), [1, 2]);
-    estado(await pedir("POST", `/api/objetivos/captura${query}`, vendedor, CAPTURA), 200);
+    estado(await pedir("POST", `/api/objetivos/captura${query}`, vendedor, { ...CAPTURA, fecha }), 200);
     const ajenos = await pedir("GET", `/api/objetivos/${MES}/2${query}`, global);
     estado(ajenos, 200);
     assert.deepEqual(ajenos.cuerpo.lineas, [{ vendedor_id: 3, monto: 400 }]);

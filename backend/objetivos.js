@@ -99,6 +99,37 @@ function plantillaDelMes(DB, mes, sucursal_id) {
   );
 }
 
+function fechaValida(fecha) {
+  if (typeof fecha !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return false;
+  const [anio, mes, dia] = fecha.split("-").map(Number);
+  const valor = new Date(Date.UTC(anio, mes - 1, dia));
+  return valor.getUTCFullYear() === anio &&
+    valor.getUTCMonth() === mes - 1 &&
+    valor.getUTCDate() === dia;
+}
+
+function darDeBajaEnPlantilla(DB, plantillaId, { hasta, motivo }, usuario) {
+  const linea = DB.pos.objetivo_plantilla.find((item) => item.id === plantillaId);
+  if (!linea) throw new Error("El registro de plantilla no existe");
+  if (linea.hasta) throw new Error("El registro de plantilla ya tiene una baja");
+  if (!fechaValida(hasta) || !hasta.startsWith(`${linea.mes}-`)) {
+    throw new Error("La fecha de baja debe ser válida y estar dentro del mes del registro");
+  }
+  if (hasta < linea.desde) {
+    throw new Error("La fecha de baja no puede ser anterior a la fecha de alta");
+  }
+  if (typeof motivo !== "string" || motivo.trim() === "") {
+    throw new Error("Dar de baja requiere un motivo; no puede estar vacío");
+  }
+
+  linea.hasta = hasta;
+  // Campo propio: `motivo` es el del alta y no se sobrescribe.
+  linea.motivo_baja = motivo.trim();
+  linea.baja_por = usuario?.nombre || "desconocido";
+  linea.baja_en = new Date().toISOString();
+  return linea;
+}
+
 function repartoSugerido(DB, { mes, sucursal_id }) {
   const metaTienda = objetivoVigente(DB, {
     tipo: "venta",
@@ -155,6 +186,7 @@ module.exports = {
   historialObjetivo,
   registrarEnPlantilla,
   plantillaDelMes,
+  darDeBajaEnPlantilla,
   repartoSugerido,
   estadoDelReparto,
 };

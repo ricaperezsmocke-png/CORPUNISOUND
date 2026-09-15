@@ -50,7 +50,10 @@ const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
-const { fijarObjetivo, objetivoVigente, historialObjetivo, registrarEnPlantilla, plantillaDelMes, repartoSugerido, estadoDelReparto } = require("./objetivos");
+const {
+  fijarObjetivo, objetivoVigente, historialObjetivo, registrarEnPlantilla,
+  plantillaDelMes, darDeBajaEnPlantilla, repartoSugerido, estadoDelReparto,
+} = require("./objetivos");
 const { capturarDia, corregirCaptura, capturadoDelMes, diasSinCapturar } = require("./objetivosCaptura");
 const { previoCierre, cerrarMes, estaCerrado, rectificarCierre } = require("./objetivosCierre");
 const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
@@ -2275,6 +2278,18 @@ app.post("/api/objetivos/plantilla", requiereLogin, requierePermiso("editar_obje
     if (!sucursalObjetivosPermitida(req, datos.sucursal_id)) return res.status(404).json({ error: "Plantilla no encontrada" });
     validarMesObjetivosAbierto(datos.mes, datos.sucursal_id);
     res.json(registrarEnPlantilla(DB, datos));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/objetivos/plantilla/:id/baja", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), (req, res) => {
+  try {
+    const id = idDeObjetivos(req.params.id, "plantilla_id");
+    const registro = DB.pos.objetivo_plantilla.find((linea) => linea.id === id);
+    if (!registro || !sucursalObjetivosPermitida(req, registro.sucursal_id)) {
+      return res.status(404).json({ error: "Plantilla no encontrada" });
+    }
+    validarMesObjetivosAbierto(registro.mes, registro.sucursal_id);
+    res.json(darDeBajaEnPlantilla(DB, id, req.body || {}, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
