@@ -135,8 +135,10 @@ function actualizarVendedor(DB, id, datos, alcance) {
   // si el mismo PUT lo mueve de tienda, el homónimo que importa es el de la
   // tienda destino.
   const sucursalFinal = datos.sucursal_id !== undefined ? Number(datos.sucursal_id) : vendedor.sucursal_id;
-  if (datos.nombre !== undefined) vendedor.nombre = validarNombre(DB, datos.nombre, sucursalFinal, vendedor.id);
-  if (datos.meta_mensual !== undefined) vendedor.meta_mensual = validarMeta(datos.meta_mensual);
+  const nombreFinal = datos.nombre !== undefined
+    ? validarNombre(DB, datos.nombre, sucursalFinal, vendedor.id)
+    : vendedor.nombre;
+  const metaFinal = datos.meta_mensual !== undefined ? validarMeta(datos.meta_mensual) : vendedor.meta_mensual;
 
   if (datos.sucursal_id !== undefined) {
     const nueva = validarSucursal(DB, datos.sucursal_id);
@@ -152,8 +154,22 @@ function actualizarVendedor(DB, id, datos, alcance) {
         "Cambia primero la sucursal de esa cuenta en Personal."
       );
     }
-    vendedor.sucursal_id = nueva;
+    if (nueva !== Number(vendedor.sucursal_id)) {
+      const clientesAsignados = (DB.crm?.clientes || []).filter(
+        (cliente) => Number(cliente.vendedor_asignado_id) === Number(vendedor.id)
+      ).length;
+      if (clientesAsignados > 0) {
+        throw new Error(
+          `Este vendedor tiene ${clientesAsignados} clientes asignados. ` +
+          "Primero hay que reasignarlos antes de trasladarlo de sucursal."
+        );
+      }
+    }
   }
+
+  vendedor.nombre = nombreFinal;
+  vendedor.meta_mensual = metaFinal;
+  if (datos.sucursal_id !== undefined) vendedor.sucursal_id = Number(datos.sucursal_id);
 
   if (datos.activo !== undefined) {
     // Desactivar POR AQUÍ tiene que pasar por el mismo guard que

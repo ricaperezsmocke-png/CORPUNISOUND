@@ -29,11 +29,29 @@ function obtenerCliente(DB, id) {
   return { ...c, credito_disponible: Math.max(0, (c.limite_credito || 0) - (c.saldo || 0)) };
 }
 
+function idVendedorAsignado(valor) {
+  return valor === null || valor === undefined || valor === "" || Number(valor) === 0
+    ? null
+    : Number(valor);
+}
+
+function validarVendedorDelCliente(DB, vendedorId, sucursalId) {
+  if (vendedorId === null) return;
+  const vendedor = DB.pos.vendedores.find((item) => item.id === vendedorId);
+  if (!vendedor) throw new Error("El vendedor asignado no existe");
+  if (Number(vendedor.sucursal_id) !== Number(sucursalId)) {
+    throw new Error("El vendedor asignado debe pertenecer a la misma sucursal del cliente");
+  }
+}
+
 function crearCliente(DB, datos) {
   if (!datos.nombre || !datos.nombre.trim()) {
     throw new Error("El nombre del cliente es obligatorio");
   }
   const nuevoId = siguienteId(DB.crm.clientes);
+  const vendedor_asignado_id = idVendedorAsignado(datos.vendedor_asignado_id);
+  const sucursal_id = datos.sucursal_id ? Number(datos.sucursal_id) : 1;
+  validarVendedorDelCliente(DB, vendedor_asignado_id, sucursal_id);
   const cliente = {
     id: nuevoId,
     clave: datos.clave || "",
@@ -53,8 +71,8 @@ function crearCliente(DB, datos) {
     saldo_vencido: 0,
     fecha_vencimiento: null,
     fecha_alta: fechaLocal(),
-    vendedor_asignado_id: datos.vendedor_asignado_id ? Number(datos.vendedor_asignado_id) : null,
-    sucursal_id: datos.sucursal_id ? Number(datos.sucursal_id) : 1,
+    vendedor_asignado_id,
+    sucursal_id,
     estado: datos.estado || "contactado",
     origen: datos.origen || "",
     ultimo_contacto: null,
@@ -97,6 +115,19 @@ function actualizarCliente(DB, id, datos) {
   const cambios = {};
   for (const campo of CAMPOS_EDITABLES) {
     if (Object.prototype.hasOwnProperty.call(datos, campo)) cambios[campo] = datos[campo];
+  }
+  const tocaVendedor = Object.prototype.hasOwnProperty.call(datos, "vendedor_asignado_id");
+  const tocaSucursal = Object.prototype.hasOwnProperty.call(datos, "sucursal_id");
+  if (tocaVendedor || tocaSucursal) {
+    const vendedorFinal = tocaVendedor
+      ? idVendedorAsignado(datos.vendedor_asignado_id)
+      : idVendedorAsignado(DB.crm.clientes[idx].vendedor_asignado_id);
+    const sucursalFinal = tocaSucursal
+      ? Number(datos.sucursal_id)
+      : Number(DB.crm.clientes[idx].sucursal_id);
+    validarVendedorDelCliente(DB, vendedorFinal, sucursalFinal);
+    cambios.vendedor_asignado_id = vendedorFinal;
+    cambios.sucursal_id = sucursalFinal;
   }
   DB.crm.clientes[idx] = { ...DB.crm.clientes[idx], ...cambios, id: Number(id) };
   return DB.crm.clientes[idx];
