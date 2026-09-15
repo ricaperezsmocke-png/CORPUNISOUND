@@ -163,7 +163,7 @@ test("un gerente de la sucursal 1 no ve ni cierra la sucursal 2", async () => {
 });
 
 test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
-  const meta = await pedir("POST", "/api/objetivos", global, { ...META, sucursal_id: "2", vendedor_id: "3", monto: 600 });
+  const meta = await pedir("POST", "/api/objetivos", global, { ...META, sucursal_id: "2", vendedor_id: "3", monto: 600, motivo: "Ajuste de reparto" });
   estado(meta, 200);
   assert.equal(meta.cuerpo.vendedor_id, 3);
   assert.equal(meta.cuerpo.sucursal_id, 2);
@@ -262,5 +262,165 @@ test("el selector de sucursal del encabezado NO amplía el alcance", async () =>
     const ajenos = await pedir("GET", `/api/objetivos/${MES}/2${query}`, global);
     estado(ajenos, 200);
     assert.deepEqual(ajenos.cuerpo.lineas, [{ vendedor_id: 3, monto: 400 }]);
+  }
+});
+
+test("un vendedor lee sus capturas y no obtiene las de otro ni con el selector", async () => {
+  const antes = structuredClone(app.DB.pos);
+  const propia = await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, vendedor);
+  estado(propia, 200);
+  assert.deepEqual(propia.cuerpo.capturas.map((c) => c.vendedor_id), [1]);
+  assert.equal(propia.cuerpo.total_capturado, 100);
+  for (const selector of ["1", "2", "todas"]) {
+    const ajena = await pedir("GET", `/api/objetivos/${MES}/1/capturas/2?sucursal_id=${selector}`, vendedor);
+    estado(ajena, 404);
+    assert.equal(ajena.cuerpo.capturas, undefined);
+    estado(await pedir("GET", `/api/objetivos/${MES}/2/capturas/3?sucursal_id=${selector}`, vendedor), 404);
+  }
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, sinLigar), 404);
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("las capturas incluyen las corregidas, se ordenan por fecha y solo suman las vigentes", async () => {
+  estado(await pedir("POST", "/api/objetivos/captura", vendedor, { ...CAPTURA, fecha: "2026-08-03", monto: 50 }), 200);
+  estado(await pedir("POST", "/api/objetivos/captura/1/corregir", vendedor, { monto: 80, motivo: "Error de captura" }), 200);
+  estado(await pedir("POST", "/api/objetivos/captura", vendedor, { ...CAPTURA, fecha: "2026-08-02", monto: 0 }), 200);
+  capturarDia(app.DB, { ...CAPTURA, mes: "2026-07", fecha: "2026-07-01", sucursal_id: 1, vendedor_id: 1, monto: 999 }, { nombre: "Fixture" });
+  const antes = structuredClone(app.DB.pos);
+  const r = await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, vendedor);
+  estado(r, 200);
+  assert.deepEqual(r.cuerpo.capturas.map(({ fecha, monto, vigente, corrige_a }) => ({ fecha, monto, vigente, corrige_a })), [
+    { fecha: "2026-08-01", monto: 100, vigente: false, corrige_a: null },
+    { fecha: "2026-08-01", monto: 80, vigente: true, corrige_a: 1 },
+    { fecha: "2026-08-02", monto: 0, vigente: true, corrige_a: null },
+    { fecha: "2026-08-03", monto: 50, vigente: true, corrige_a: null },
+  ]);
+  assert.equal(r.cuerpo.total_capturado, 130);
+  assert.deepEqual(r.cuerpo.dias_sin_capturar, Array.from({ length: 28 }, (_, i) => `2026-08-${String(i + 4).padStart(2, "0")}`));
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("los días pendientes llegan hasta hoy en Chiapas y no existen en meses futuros", async (t) => {
+  // En UTC ya es día 15; en Chiapas aún es el 14.
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-15T02:00:00Z") });
+  const token = firmarToken(app.DB.admin.usuarios.find((u) => u.id === 50));
+  const actual = await pedir("GET", "/api/objetivos/2026-09/1/capturas/1", token);
+  estado(actual, 200);
+  assert.deepEqual(actual.cuerpo.capturas, []);
+  assert.equal(actual.cuerpo.total_capturado, 0);
+  assert.deepEqual(actual.cuerpo.dias_sin_capturar, Array.from({ length: 14 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`));
+  const futuro = await pedir("GET", "/api/objetivos/2026-10/1/capturas/1", token);
+  estado(futuro, 200);
+  assert.deepEqual(futuro.cuerpo.dias_sin_capturar, []);
+});
+
+test("el gerente lee capturas de su equipo; solo el permiso global permite otra tienda", async () => {
+  for (const id of [1, 2]) {
+    const r = await pedir("GET", `/api/objetivos/${MES}/1/capturas/${id}`, gerente);
+    estado(r, 200);
+    assert.deepEqual(r.cuerpo.capturas.map((c) => c.vendedor_id), [id]);
+  }
+  estado(await pedir("GET", `/api/objetivos/${MES}/2/capturas/3`, gerente), 404);
+  const ajena = await pedir("GET", `/api/objetivos/${MES}/2/capturas/3`, global);
+  estado(ajena, 200);
+  assert.deepEqual(ajena.cuerpo.capturas.map((c) => c.vendedor_id), [3]);
+});
+
+test("el gerente no lee historial ni cierre de otra sucursal aunque cambie el selector", async () => {
+  sellarFixture(2);
+  const antes = structuredClone(app.DB.pos);
+  for (const sufijo of ["historial/3", "historial/tienda", "cierre"]) {
+    for (const selector of ["1", "2", "todas"]) {
+      estado(await pedir("GET", `/api/objetivos/${MES}/2/${sufijo}?sucursal_id=${selector}`, gerenteCierre), 404);
+    }
+    const r = await pedir("GET", `/api/objetivos/${MES}/2/${sufijo}`, global);
+    estado(r, 200);
+    if (sufijo === "cierre") assert.equal(r.cuerpo.sucursal_id, 2);
+    else assert.deepEqual(r.cuerpo.map((o) => o.sucursal_id), [2]);
+  }
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("historial/tienda usa vendedor nulo y el historial personal conserva versiones y motivo", async () => {
+  for (const vendedor_id of [null, 1]) {
+    fijarObjetivo(app.DB, { ...META, sucursal_id: 1, vendedor_id, monto: 700, motivo: "Ajuste del día 28" }, { nombre: "Gerente" });
+    const r = await pedir("GET", `/api/objetivos/${MES}/1/historial/${vendedor_id ?? "tienda"}`, gerente);
+    estado(r, 200);
+    assert.deepEqual(r.cuerpo.map((o) => o.vendedor_id), [vendedor_id, vendedor_id]);
+    assert.deepEqual(r.cuerpo.map((o) => o.version), [1, 2]);
+    assert.deepEqual(r.cuerpo.map((o) => o.vigente), [false, true]);
+    assert.equal(r.cuerpo[1].reemplaza_a, r.cuerpo[0].id);
+    assert.equal(r.cuerpo[1].motivo, "Ajuste del día 28");
+    assert.equal(r.cuerpo[1].creado_por, "Gerente");
+  }
+});
+
+test("el cierre sellado se lee completo con sus rectificaciones sin modificar la foto", async () => {
+  const cierre = sellarFixture();
+  const foto = structuredClone(cierre.foto);
+  estado(await pedir("POST", `/api/objetivos/cierre/${cierre.id}/rectificar`, soloCierre, RECTIFICACION), 200);
+  const antes = structuredClone(app.DB.pos);
+  const r = await pedir("GET", `/api/objetivos/${MES}/1/cierre`, soloCierre);
+  estado(r, 200);
+  assert.deepEqual(r.cuerpo, cierre);
+  assert.equal(r.cuerpo.cerrado_por, "Fixture");
+  assert.ok(r.cuerpo.cerrado_en);
+  assert.equal(r.cuerpo.rectificaciones[0].valor_nuevo, 80);
+  assert.equal(r.cuerpo.lineas[0].real_sicar, 100);
+  assert.deepEqual(r.cuerpo.foto, foto);
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("un mes sin cerrar devuelve 404 con explicación", async () => {
+  sellarFixture(2);
+  const r = await pedir("GET", `/api/objetivos/${MES}/1/cierre`, soloCierre);
+  estado(r, 404);
+  assert.match(r.cuerpo.error, /no está cerrado/i);
+});
+
+test("las nuevas lecturas exigen sesión y su permiso específico", async () => {
+  const rutas = ["capturas/1", "historial/1", "historial/tienda", "cierre"];
+  for (const sufijo of rutas) estado(await pedir("GET", `/api/objetivos/${MES}/1/${sufijo}`, null), 401);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, soloCierre), 403);
+  for (const sufijo of ["historial/1", "historial/tienda"]) {
+    for (const token of [vendedor, soloCierre]) estado(await pedir("GET", `/api/objetivos/${MES}/1/${sufijo}`, token), 403);
+  }
+  for (const token of [vendedor, gerente]) estado(await pedir("GET", `/api/objetivos/${MES}/1/cierre`, token), 403);
+});
+
+test("las nuevas lecturas rechazan meses e identificadores inválidos", async () => {
+  for (const sufijo of ["capturas/1", "historial/1", "cierre"]) {
+    estado(await pedir("GET", `/api/objetivos/2026-13/1/${sufijo}`, global), 400);
+    for (const id of ["abc", "0", "-1", "1.5"]) {
+      estado(await pedir("GET", `/api/objetivos/${MES}/${id}/${sufijo}`, global), 400);
+    }
+  }
+  for (const id of ["abc", "0", "-1", "1.5", "null"]) {
+    for (const lectura of ["capturas", "historial"]) estado(await pedir("GET", `/api/objetivos/${MES}/1/${lectura}/${id}`, global), 400);
+  }
+});
+
+test("cambiar una meta vigente exige motivo de texto y no modifica datos al rechazar", async () => {
+  for (const vendedor_id of [null, "1"]) {
+    for (const motivo of [undefined, null, "", "   \t\n", 123, true, {}]) {
+      const antes = structuredClone(app.DB.pos);
+      const r = await pedir("POST", "/api/objetivos", gerente, { ...META, vendedor_id, monto: 700, motivo });
+      estado(r, 400);
+      assert.match(r.cuerpo.error, /motivo/i);
+      assert.deepEqual(app.DB.pos, antes);
+    }
+    const r = await pedir("POST", "/api/objetivos", gerente, { ...META, vendedor_id, monto: 700, motivo: "Ajuste del reparto" });
+    estado(r, 200);
+    assert.equal(r.cuerpo.version, 2);
+    assert.equal(r.cuerpo.motivo, "Ajuste del reparto");
+  }
+});
+
+test("fijar una meta por primera vez no exige motivo", async () => {
+  for (const vendedor_id of [null, "1"]) {
+    const r = await pedir("POST", "/api/objetivos", gerente, { ...META, mes: "2026-09", vendedor_id });
+    estado(r, 200);
+    assert.equal(r.cuerpo.version, 1);
+    assert.equal(r.cuerpo.motivo, null);
   }
 });
