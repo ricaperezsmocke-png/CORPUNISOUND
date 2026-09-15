@@ -191,6 +191,51 @@ test("no se puede dar de baja dos veces ni dar de baja un registro inexistente",
   assert.deepEqual(DB.pos, antes);
 });
 
+test("un traslado no deja a la persona en dos plantillas el mismo dia", () => {
+  // Si se solapan, el dia compartido sale "sin capturar" en una tienda y no se
+  // puede llenar: la captura ya existe en la otra. Un faltante inventado.
+  const DB = prepararDB();
+  const origen = registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });
+  DB.pos.vendedores.find((v) => v.id === 1).sucursal_id = 2;
+  const antes = structuredClone(DB.pos.objetivo_plantilla);
+
+  // Sin baja en la tienda de origen: rechazado.
+  assert.throws(
+    () => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 1, desde: "2026-09-16" }),
+    /otra tienda/
+  );
+  darDeBajaEnPlantilla(DB, origen.id, { hasta: "2026-09-15", motivo: "Traslado" }, VICTOR);
+  // "Desde" vacío = día 1: se encima con los días 1 a 15 de la otra tienda.
+  assert.throws(
+    () => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 1 }),
+    /otra tienda/
+  );
+  // El mismo día de la baja tampoco.
+  assert.throws(
+    () => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 1, desde: "2026-09-15" }),
+    /otra tienda/
+  );
+  assert.deepEqual(DB.pos.objetivo_plantilla.filter((l) => l.sucursal_id === 2), []);
+  assert.equal(antes.length, 1);
+
+  const destino = registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 1, desde: "2026-09-16" });
+  assert.equal(destino.desde, "2026-09-16");
+});
+
+test("la plantilla solo acepta fechas validas dentro de su mes", () => {
+  const DB = prepararDB();
+  for (const datos of [
+    { desde: "2026-10-05" },
+    { desde: "2026-09-31" },
+    { desde: "16/09/2026" },
+    { desde: "2026-09-10", hasta: "2026-09-05" },
+    { hasta: "2026-10-01" },
+  ]) {
+    assert.throws(() => registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1, ...datos }));
+  }
+  assert.equal(DB.pos.objetivo_plantilla.length, 0);
+});
+
 test("dar de baja no toca metas ni capturas", () => {
   const DB = prepararDB();
   const linea = registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 });

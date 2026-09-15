@@ -79,13 +79,41 @@ function registrarEnPlantilla(DB, { mes, sucursal_id, vendedor_id, desde, hasta,
     throw new Error("El vendedor ya está registrado en la plantilla de este mes y sucursal");
   }
 
+  // diasSinCapturar cuenta desde/hasta de este registro: una fecha fuera del mes
+  // o mal escrita inventaria o esconderia dias pendientes.
+  const desdeFinal = desde ?? `${mes}-01`;
+  const hastaFinal = hasta ?? null;
+  if (!fechaValida(desdeFinal) || !desdeFinal.startsWith(`${mes}-`)) {
+    throw new Error("La fecha de alta debe ser válida y estar dentro del mes");
+  }
+  if (hastaFinal !== null && (!fechaValida(hastaFinal) || !hastaFinal.startsWith(`${mes}-`) || hastaFinal < desdeFinal)) {
+    throw new Error("La fecha de baja debe ser válida, estar dentro del mes y no ser anterior al alta");
+  }
+
+  // Un dia de trabajo es de UNA sola tienda. Si la persona sigue (o se encima)
+  // en la plantilla de otra tienda, el dia compartido saldria "sin capturar" en
+  // una de las dos sin forma de llenarlo.
+  const encimada = DB.pos.objetivo_plantilla.some((otra) =>
+    otra.mes === mes &&
+    otra.vendedor_id === vendedor_id &&
+    otra.sucursal_id !== sucursal_id &&
+    (otra.hasta === null || otra.hasta >= desdeFinal) &&
+    (hastaFinal === null || otra.desde <= hastaFinal)
+  );
+  if (encimada) {
+    throw new Error(
+      "Esta persona sigue en la plantilla de otra tienda en esas fechas. " +
+      "Primero hay que darla de baja allá con un último día anterior a su alta aquí."
+    );
+  }
+
   const linea = {
     id: DB.pos.objetivo_plantilla.reduce((maximo, item) => Math.max(maximo, item.id), 0) + 1,
     mes,
     sucursal_id,
     vendedor_id,
-    desde: desde ?? `${mes}-01`,
-    hasta: hasta ?? null,
+    desde: desdeFinal,
+    hasta: hastaFinal,
     motivo: motivo ?? null,
   };
 
