@@ -1,467 +1,286 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Target, RefreshCw, Check, X, Users } from "lucide-react";
-import { apiFetch, sinSucursalElegida } from "./api";
+﻿import { useCallback, useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { apiFetch } from "./api";
+import CapturaVendedor from "./objetivos/CapturaVendedor";
+import RepartoGerente from "./objetivos/RepartoGerente";
+import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
+import { cuentaMalLigada, finDelMes, hoyLocal, leer, mesActual } from "./objetivos/datos";
 
-const pesos = (n) =>
-  Number(n || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
-
-/**
- * Gerencia de Ventas — el objetivo del vendedor y sus tareas del mes.
- *
- * Dos caras en la misma pantalla:
- *  - VENDEDOR: su meta, su avance y su lista de tareas.
- *  - JEFATURA (permiso editar_objetivos_venta): la tabla de todo su personal,
- *    con la meta editable.
- *
- * Todo lo que se muestra viene calculado del backend (gerenteVentas.js) a
- * partir de datos reales: ventas cerradas del mes, clientes que el CRM marca
- * en riesgo, y demanda proyectada. Aquí no se calcula ninguna cifra.
- */
-export default function GerenciaVentas({ onVolver, permisos, usuario }) {
-  const puede = (clave) => !permisos || permisos.includes(clave);
-  const esJefatura = puede("editar_objetivos_venta");
-
+export default function GerenciaVentas({ permisos = [], usuario }) {
+  const esJefatura = permisos.includes("editar_objetivos_venta");
+  const veTodas = permisos.includes("ver_todas_las_sucursales") || usuario?.ver_todas;
+  const [mes, setMes] = useState(mesActual());
+  const [sucursalId, setSucursalId] = useState(veTodas ? "" : String(usuario?.sucursal_id || ""));
+  const [sucursales, setSucursales] = useState([]);
   const [miVendedorId, setMiVendedorId] = useState(null);
-  const [tablero, setTablero] = useState(null);
+  const [identificado, setIdentificado] = useState(false);
   const [equipo, setEquipo] = useState([]);
-  const [verVendedorId, setVerVendedorId] = useState(null);
+  const [objetivos, setObjetivos] = useState(null);
+  const [capturas, setCapturas] = useState(null);
   const [cargando, setCargando] = useState(true);
-  const [aviso, setAviso] = useState(null);
-  const [editandoMeta, setEditandoMeta] = useState(null); // { vendedor_id, valor }
-  const [sugerencia, setSugerencia] = useState(null);     // { vendedor_id, ...datos }
-  const [pidiendoSugerencia, setPidiendoSugerencia] = useState(null); // vendedor_id
-  // Un fallo al cargar tiene que VERSE. Antes se tragaba el error y se dejaba
-  // `tablero` en null: una cuenta ligada a un vendedor que ya no existe (id mal
-  // capturado, o un respaldo restaurado sin ese vendedor) no entraba al aviso
-  // ámbar —porque sí tiene vendedor_id— y no renderizaba absolutamente nada.
-  // Para quien no programa, una pantalla en blanco es "el sistema no sirve".
-  const [errorCarga, setErrorCarga] = useState(null);
-  const [errorEquipo, setErrorEquipo] = useState(null);
-
-  const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 4000); };
-
-  const cargarTablero = useCallback(async (vendedorId) => {
-    if (vendedorId == null) { setTablero(null); return; }
-    try {
-      const r = await apiFetch(`/gerente-ventas/${vendedorId}`);
-      if (r.ok) {
-        setTablero(await r.json());
-        setErrorCarga(null);
-        return;
-      }
-      const data = await r.json().catch(() => ({}));
-      setTablero(null);
-      setErrorCarga(
-        data.error === "Tablero no encontrado" || r.status === 404
-          ? "Tu cuenta está ligada a un vendedor que ya no existe en el catálogo. " +
-            "Pídele a quien administra el personal que la vuelva a ligar desde Roles y Personal."
-          : data.error || "No se pudo cargar tu objetivo de venta. Intenta recargar la página."
-      );
-    } catch (_) {
-      setTablero(null);
-      setErrorCarga("No se pudo conectar con el sistema. Revisa tu internet y recarga la página.");
-    }
-  }, []);
-
-  const cargarEquipo = useCallback(async () => {
-    if (!esJefatura) return;
-    // Una lista vacía por fallo se ve idéntica a una lista vacía de verdad, y
-    // la pantalla decía "No hay vendedores en tu alcance" — o sea, mentía. El
-    // error se guarda aparte para poder distinguirlos.
-    try {
-      const r = await apiFetch("/gerente-ventas");
-      if (r.ok) {
-        setEquipo(await r.json());
-        setErrorEquipo(null);
-        return;
-      }
-      const data = await r.json().catch(() => ({}));
-      setEquipo([]);
-      setErrorEquipo(data.error || "No se pudo cargar a tu equipo. Intenta recargar la página.");
-    } catch (_) {
-      setEquipo([]);
-      setErrorEquipo("No se pudo conectar con el sistema. Revisa tu internet y recarga la página.");
-    }
-  }, [esJefatura]);
+  const [error, setError] = useState("");
+  const [errorInicial, setErrorInicial] = useState("");
+  const [exito, setExito] = useState("");
+  const [fecha, setFecha] = useState(hoyLocal());
+  const [monto, setMonto] = useState("");
+  const [corrigiendo, setCorrigiendo] = useState(null);
+  const [editando, setEditando] = useState(null);
+  const [historial, setHistorial] = useState(null);
+  const [sugerencia, setSugerencia] = useState(null);
+  const [baja, setBaja] = useState(null);
 
   useEffect(() => {
-    (async () => {
-      setCargando(true);
-      try {
-        const r = await apiFetch("/gerente-ventas/mi/vendedor");
-        // Si la consulta FALLA no se concluye "no está ligada": eso mandaba a
-        // la vendedora a pedirle al administrador que arreglara algo que no
-        // estaba roto. Sin try/catch, además, un error de red escapaba de este
-        // efecto y `cargando` se quedaba en true: "Cargando…" para siempre.
-        if (!r.ok) {
-          setErrorCarga("No se pudo consultar tu objetivo de venta. Intenta recargar la página.");
-          setCargando(false);
-          return;
-        }
-        const mio = (await r.json()).vendedor_id;
-        setMiVendedorId(mio);
-        setVerVendedorId(mio);
-        await Promise.all([cargarTablero(mio), cargarEquipo()]);
-      } catch (_) {
-        setErrorCarga("No se pudo conectar con el sistema. Revisa tu internet y recarga la página.");
-      } finally {
-        setCargando(false);
-      }
-    })();
-  }, [cargarTablero, cargarEquipo]);
-
-  const cerrarTarea = async (tareaId, estado) => {
-    const r = await apiFetch(`/gerente-ventas/${verVendedorId}/tareas/${tareaId}`, {
-      method: "PUT",
-      body: JSON.stringify({ estado }),
+    let vigente = true;
+    Promise.all([
+      apiFetch("/gerente-ventas/mi/vendedor").then((r) => leer(r, "No se pudo identificar tu vendedor")),
+      esJefatura ? apiFetch("/vendedores").then((r) => leer(r, "No se pudo cargar el equipo")) : Promise.resolve([]),
+      veTodas ? apiFetch("/sucursales").then((r) => leer(r, "No se pudieron cargar las sucursales")) : Promise.resolve([]),
+    ]).then(([mio, lista, tiendas]) => {
+      if (!vigente) return;
+      setMiVendedorId(mio.vendedor_id);
+      setEquipo(lista);
+      setSucursales(tiendas);
+      setIdentificado(true);
+      if (veTodas && tiendas.length) setSucursalId((actual) => actual || String(tiendas[0].id));
+    }).catch((e) => {
+      if (!vigente) return;
+      setErrorInicial(e.message);
+      setCargando(false);
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) return mostrarAviso("❌ " + (data.error || "No se pudo actualizar la tarea"));
-    mostrarAviso(estado === "hecha" ? "✅ Tarea marcada como hecha" : "Tarea descartada");
-    cargarTablero(verVendedorId);
-    cargarEquipo();
-  };
+    return () => { vigente = false; };
+  }, [esJefatura, veTodas]);
 
-  const guardarMeta = async (vendedorId, valor) => {
-    const r = await apiFetch(`/gerente-ventas/${vendedorId}/meta`, {
-      method: "PUT",
-      body: JSON.stringify({ meta: Number(valor) }),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) return mostrarAviso("❌ " + (data.error || "No se pudo guardar la meta"));
-    setEditandoMeta(null);
-    mostrarAviso("✅ Objetivo actualizado");
-    cargarEquipo();
-    if (vendedorId === verVendedorId) cargarTablero(vendedorId);
-  };
-
-  // Contador de petición: si se piden dos sugerencias seguidas, la respuesta
-  // lenta de la primera ya no apaga el "Calculando…" de la segunda ni pisa su
-  // resultado. Sin esto el estado quedaba inconsistente (las cifras no se
-  // cruzaban, porque el vendedor_id viaja con el dato, pero la pantalla mentía
-  // sobre qué se estaba calculando).
-  const peticionSugerencia = useRef(0);
-
-  const pedirSugerencia = async (vendedorId) => {
-    const miTurno = ++peticionSugerencia.current;
-    setPidiendoSugerencia(vendedorId);
+  const cargar = useCallback(async () => {
+    if (!identificado || !sucursalId || !mes || (!esJefatura && miVendedorId == null)) {
+      setCargando(false);
+      setObjetivos(null);
+      setCapturas(null);
+      return;
+    }
+    setCargando(true);
+    setError("");
+    setHistorial(null);
     setSugerencia(null);
+    setEditando(null);
+    setCorrigiendo(null);
     try {
-      const r = await apiFetch(`/gerente-ventas/${vendedorId}/sugerencia-meta`);
-      const data = await r.json().catch(() => ({}));
-      if (miTurno !== peticionSugerencia.current) return; // llegó tarde: se descarta
-      if (!r.ok) throw new Error(data.error || "No se pudo calcular la sugerencia");
-      setSugerencia({ vendedor_id: vendedorId, ...data });
-    } catch (err) {
-      if (miTurno === peticionSugerencia.current) mostrarAviso("❌ " + err.message);
+      const estado = await apiFetch(`/objetivos/${mes}/${sucursalId}`)
+        .then((r) => leer(r, "No se pudieron cargar los objetivos"));
+      setObjetivos(estado);
+      if (miVendedorId != null) {
+        try {
+          setCapturas(await apiFetch(`/objetivos/${mes}/${sucursalId}/capturas/${miVendedorId}`)
+            .then((r) => leer(r, "No se pudieron cargar tus capturas")));
+        } catch (e) {
+          setCapturas(null);
+          setError(e.status === 404 ? `${cuentaMalLigada} (${e.message})` : e.message);
+        }
+      } else {
+        setCapturas(null);
+      }
+    } catch (e) {
+      setError(e.status === 404 && miVendedorId != null ? `${cuentaMalLigada} (${e.message})` : e.message);
+      setObjetivos(null);
+      setCapturas(null);
     } finally {
-      if (miTurno === peticionSugerencia.current) setPidiendoSugerencia(null);
+      setCargando(false);
+    }
+  }, [mes, sucursalId, miVendedorId, identificado, esJefatura]);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const ejecutar = async (accion, mensaje) => {
+    setError("");
+    setExito("");
+    try {
+      await accion();
+      setExito(mensaje);
+      await cargar();
+      return true;
+    } catch (e) {
+      setError(e.message);
+      return false;
     }
   };
 
-  const barra = (porcentaje) => {
-    // Se dibuja topada al 100% para que la barra no se salga de la caja, pero
-    // el número de arriba sí muestra el real (rebasar la meta debe verse).
-    const ancho = Math.min(100, Math.max(0, porcentaje || 0));
-    const color = ancho >= 100 ? "bg-emerald-500" : ancho >= 60 ? "bg-blue-500" : "bg-amber-500";
-    return (
-      <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
-        <div className={`h-full ${color} transition-all`} style={{ width: `${ancho}%` }} />
-      </div>
-    );
+  const capturar = (valor) => ejecutar(async () => {
+    if (!objetivos || objetivos.cerrado) throw new Error("Este mes no está disponible para capturar.");
+    if (!fecha || fecha.slice(0, 7) !== mes || fecha > hoyLocal()) {
+      throw new Error("Elige una fecha del mes seleccionado que no sea futura.");
+    }
+    await apiFetch("/objetivos/captura", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta", mes, fecha, sucursal_id: Number(sucursalId), vendedor_id: miVendedorId, monto: Number(valor),
+      }),
+    }).then((r) => leer(r, "No se pudo guardar la captura"));
+    setMonto("");
+    // Misma regla que al cambiar de mes: hoy solo si el mes elegido es el actual.
+    setFecha(mes === mesActual() ? hoyLocal() : `${mes}-01`);
+  }, Number(valor) === 0 ? `Se registró que no vendiste nada el ${fecha}.` : `Venta del ${fecha} registrada.`);
+
+  const corregir = () => ejecutar(async () => {
+    // El motivo explica el cambio y queda junto a la nueva versión de la captura.
+    await apiFetch(`/objetivos/captura/${corrigiendo.id}/corregir`, {
+      method: "POST",
+      body: JSON.stringify({ monto: Number(corrigiendo.monto), motivo: corrigiendo.motivo }),
+    }).then((r) => leer(r, "No se pudo corregir la captura"));
+    setCorrigiendo(null);
+  }, "Captura corregida; la versión anterior quedó en el historial.");
+
+  const agregar = (vendedorId, desde) => ejecutar(async () => {
+    await apiFetch("/objetivos/plantilla", {
+      method: "POST",
+      body: JSON.stringify({
+        mes, sucursal_id: Number(sucursalId), vendedor_id: Number(vendedorId), desde: desde || undefined,
+      }),
+    }).then((r) => leer(r, "No se pudo agregar a la plantilla"));
+  }, "Persona agregada a la plantilla del mes.");
+
+  const darDeBaja = () => ejecutar(async () => {
+    await apiFetch(`/objetivos/plantilla/${baja.id}/baja`, {
+      method: "POST",
+      body: JSON.stringify({ hasta: baja.hasta, motivo: baja.motivo }),
+    }).then((r) => leer(r, "No se pudo dar de baja a la persona"));
+    setBaja(null);
+  }, "La baja quedó registrada en la plantilla del mes.");
+
+  const guardarMeta = () => ejecutar(async () => {
+    await apiFetch("/objetivos", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta", mes, sucursal_id: Number(sucursalId), vendedor_id: editando.vendedor_id,
+        monto: Number(editando.monto), motivo: editando.existente ? editando.motivo : undefined,
+      }),
+    }).then((r) => leer(r, "No se pudo guardar la meta"));
+    setEditando(null);
+  }, "Meta guardada.");
+
+  const leerHistorial = (id) => apiFetch(`/objetivos/${mes}/${sucursalId}/historial/${id == null ? "tienda" : id}`)
+    .then((r) => leer(r, "No se pudo cargar el historial"));
+
+  const editarMeta = async (id, valor) => {
+    setError("");
+    try {
+      // Una meta existente puede valer cero; el monto no indica si hay una versión anterior.
+      const versiones = await leerHistorial(id);
+      setEditando({ vendedor_id: id, monto: valor, motivo: "", existente: versiones.length > 0 });
+    } catch (e) {
+      setError(e.message);
+    }
   };
 
-  if (cargando) {
-    return <div className="p-6 text-slate-500 text-sm">Cargando tu objetivo…</div>;
-  }
+  const abrirHistorial = async (id) => {
+    setError("");
+    try {
+      setHistorial({ vendedor_id: id, datos: await leerHistorial(id) });
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
-  // Ni vendedor ligado ni jefatura: no hay nada que mostrarle a esta cuenta.
-  if (miVendedorId == null && !esJefatura) {
-    return (
-      <div className="p-6">
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900 max-w-xl">
-          <p className="font-medium mb-1">Tu cuenta todavía no está ligada a un vendedor.</p>
-          <p>
-            Para ver tu objetivo de venta, pídele a quien administra el personal que
-            enlace tu cuenta con tu nombre en el catálogo de vendedores, desde
-            <strong> Roles y Personal</strong>.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const pedirSugerencia = async () => {
+    setError("");
+    try {
+      setSugerencia(await apiFetch(`/objetivos/${mes}/${sucursalId}/sugerencia`)
+        .then((r) => leer(r, "No se pudo calcular el reparto sugerido")));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const nombres = new Map(equipo.map((v) => [Number(v.id), v.nombre]));
+  const nombre = (id) => nombres.get(Number(id)) || `Vendedor #${id}`;
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto">
-      {aviso && (
-        <div className="bg-slate-800 text-white text-sm rounded px-3 py-2 inline-block">{aviso}</div>
-      )}
-
-      {errorCarga && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-900">
-          {errorCarga}
+      <div className="flex flex-wrap gap-3 items-end">
+        <label className="text-sm text-slate-600">
+          Mes
+          <input type="month" value={mes} onChange={(e) => {
+            const elegido = e.target.value;
+            setMes(elegido);
+            setFecha(elegido === mesActual() ? hoyLocal() : `${elegido}-01`);
+            setMonto("");
+          }} className="block neu-campo rounded-lg px-3 py-2 mt-1" />
+        </label>
+        {veTodas && (
+          <label className="text-sm text-slate-600">
+            Sucursal
+            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}
+              className="block neu-campo rounded-lg px-3 py-2 mt-1">
+              <option value="">Selecciona una sucursal</option>
+              {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+        )}
+        <button type="button" onClick={cargar} className="px-3 py-2 text-sm text-slate-600 flex gap-2 items-center">
+          <RefreshCw size={16} />
+          Actualizar
+        </button>
+      </div>
+      {(errorInicial || error) && (
+        <div role="alert" className="bg-red-50 border border-red-200 text-red-900 rounded-lg p-3 text-sm">
+          {errorInicial || error}
         </div>
       )}
-
-      {/* El alcance de esta pantalla sale de QUIÉN eres, no del selector de
-          arriba — a propósito: así nadie ve el desempeño de otra tienda por
-          cambiar un menú. Pero sin decirlo, "Objetivos del equipo" con el
-          encabezado puesto en una tienda se lee como el equipo de esa tienda. */}
-      {esJefatura && !sinSucursalElegida() && equipo.length > 0 && (
-        <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded px-3 py-2">
-          Esta pantalla muestra a todo tu personal, sin importar la tienda seleccionada arriba.
-        </p>
+      {exito && <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg p-3 text-sm">{exito}</div>}
+      {identificado && miVendedorId == null && !esJefatura && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+          Tu cuenta no tiene un vendedor ligado. Pídele a quien administra el personal que la ligue desde Roles y Personal.
+        </div>
       )}
-
-      {/* ---------- Mi objetivo ---------- */}
-      {tablero && (
-        <section className="neu rounded-xl p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-slate-700 flex items-center gap-2">
-              <Target size={18} className="text-blue-600" />
-              Objetivo de {tablero.vendedor_nombre}
-            </h2>
-            <button
-              type="button"
-              onClick={() => cargarTablero(verVendedorId)}
-              className="text-slate-400 hover:text-slate-600"
-              title="Actualizar"
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-
-          {tablero.sin_meta ? (
-            <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded px-3 py-2">
-              Sin objetivo asignado todavía. Llevas <strong>{pesos(tablero.vendido_mes)}</strong> vendidos
-              este mes.
-              {esJefatura && " Puedes fijar la meta abajo, en la tabla del equipo."}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
-                <span className="text-slate-500">
-                  Meta del mes: <strong className="text-slate-800">{pesos(tablero.meta)}</strong>
-                </span>
-                <span className="text-slate-500">
-                  Llevas: <strong className="text-slate-800">{pesos(tablero.vendido_mes)}</strong>
-                </span>
-                <span className="text-slate-500">
-                  Te faltan: <strong className="text-slate-800">{pesos(tablero.faltante)}</strong>
-                </span>
-                <span className="text-slate-500">
-                  Días que quedan: <strong className="text-slate-800">{tablero.dias_restantes_del_mes}</strong>
-                </span>
-              </div>
-              {barra(tablero.porcentaje)}
-              <p className="text-xs text-slate-500">{tablero.porcentaje}% de tu objetivo</p>
-            </div>
-          )}
-        </section>
+      {objetivos?.cerrado && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+          Este mes está cerrado. Ya no se pueden capturar ventas ni cambiar metas.
+        </div>
       )}
-
-      {/* ---------- Tareas ---------- */}
-      {tablero && (
-        <section className="neu rounded-xl p-4 shadow-sm">
-          <h2 className="font-semibold text-slate-700 mb-3">Tareas para llegar a la meta</h2>
-
-          {tablero.tareas.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No hay tareas pendientes. Aparecen solas cuando hay clientes que llevan tiempo sin
-              comprar, o productos con demanda al alza en tu tienda.
-            </p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {tablero.tareas.map((t) => (
-                <li key={t.id} className="py-2.5 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <span
-                      className={
-                        "inline-block text-[11px] px-1.5 py-0.5 rounded mr-2 align-middle " +
-                        (t.tipo === "contactar_cliente"
-                          ? "bg-violet-100 text-violet-700"
-                          : "bg-emerald-100 text-emerald-700")
-                      }
-                    >
-                      {t.tipo === "contactar_cliente" ? "Cliente" : "Producto"}
-                    </span>
-                    <span className="text-sm text-slate-700">{t.descripcion}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => cerrarTarea(t.id, "hecha")}
-                      className="p-1.5 rounded text-emerald-600 hover:bg-emerald-50"
-                      title="Ya la hice"
-                    >
-                      <Check size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => cerrarTarea(t.id, "descartada")}
-                      className="p-1.5 rounded text-slate-400 hover:bg-slate-100"
-                      title="No aplica"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+      {cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
+        <>
+          {miVendedorId != null && objetivos && capturas && (
+            <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
+              fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
           )}
-        </section>
+          {esJefatura && objetivos && (
+            <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
+              objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
+              historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}
+              darBaja={setBaja} />
+          )}
+        </>
       )}
-
-      {/* ---------- Equipo (solo jefatura) ---------- */}
-      {esJefatura && (
-        <section className="neu rounded-xl p-4 shadow-sm">
-          <h2 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Users size={18} className="text-blue-600" />
-            Objetivos del equipo
-          </h2>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[560px] lg:min-w-0">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-black/5">
-                  <th className="py-2 font-medium">Vendedor</th>
-                  <th className="py-2 font-medium text-right">Meta</th>
-                  <th className="py-2 font-medium text-right">Vendido</th>
-                  <th className="py-2 font-medium text-right">Avance</th>
-                  <th className="py-2 font-medium text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {equipo.map((v) => (
-                  <tr key={v.vendedor_id} className="border-b border-slate-100">
-                    <td className="py-2">{v.vendedor_nombre}</td>
-                    <td className="py-2 text-right">
-                      {editandoMeta?.vendedor_id === v.vendedor_id ? (
-                        <input
-                          type="number"
-                          min="0"
-                          autoFocus
-                          value={editandoMeta.valor}
-                          onChange={(e) => setEditandoMeta({ ...editandoMeta, valor: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") guardarMeta(v.vendedor_id, editandoMeta.valor);
-                            if (e.key === "Escape") setEditandoMeta(null);
-                          }}
-                          className="w-28 neu-campo rounded-lg px-2 py-1 text-right text-sm"
-                        />
-                      ) : (
-                        <span className={v.sin_meta ? "text-slate-400" : ""}>
-                          {v.sin_meta ? "sin objetivo" : pesos(v.meta)}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 text-right">{pesos(v.vendido_mes)}</td>
-                    <td className="py-2 text-right">
-                      {v.sin_meta ? "—" : `${v.porcentaje}%`}
-                    </td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      {editandoMeta?.vendedor_id === v.vendedor_id ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => guardarMeta(v.vendedor_id, editandoMeta.valor)}
-                            className="text-blue-600 hover:underline mr-3"
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditandoMeta(null)}
-                            className="text-slate-500 hover:underline"
-                          >
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setEditandoMeta({ vendedor_id: v.vendedor_id, valor: v.meta || "" })}
-                            className="text-blue-600 hover:underline mr-3"
-                          >
-                            Fijar meta
-                          </button>
-                          <button
-                            type="button"
-                            disabled={pidiendoSugerencia === v.vendedor_id}
-                            onClick={() => pedirSugerencia(v.vendedor_id)}
-                            className="text-violet-600 hover:underline mr-3 disabled:opacity-40 disabled:no-underline"
-                          >
-                            {pidiendoSugerencia === v.vendedor_id ? "Calculando…" : "Sugerir meta"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setVerVendedorId(v.vendedor_id); cargarTablero(v.vendedor_id); }}
-                            className="text-slate-600 hover:underline"
-                          >
-                            Ver tareas
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {equipo.length === 0 && (
-            <p className="text-sm text-slate-500">
-              {errorEquipo || "No hay vendedores en tu alcance."}
-            </p>
-          )}
-
-          {sugerencia && (
-            <div className="mt-4 border border-violet-200 bg-violet-50 rounded-lg p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-violet-900 mb-1">
-                    Sugerencia para {sugerencia.vendedor_nombre}
-                    {sugerencia.sugerencia != null && (
-                      <span className="ml-2 text-violet-700">{pesos(sugerencia.sugerencia)}</span>
-                    )}
-                  </p>
-                  <p className="text-sm text-slate-700">{sugerencia.redaccion}</p>
-                  <p className="text-[11px] text-slate-500 mt-1.5">
-                    {/* La cifra SIEMPRE sale del historial; solo el texto puede
-                        venir de la IA. Decirlo evita que Victor crea que una IA
-                        le está poniendo metas a su personal. */}
-                    Calculada con {sugerencia.meses_de_historial} mes(es) de ventas reales · confianza{" "}
-                    {sugerencia.confianza}
-                    {sugerencia.redactado_por_ia ? " · explicación redactada por la IA" : ""}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  {sugerencia.sugerencia != null && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditandoMeta({ vendedor_id: sugerencia.vendedor_id, valor: sugerencia.sugerencia });
-                        setSugerencia(null);
-                      }}
-                      className="text-sm bg-violet-600 text-white px-2.5 py-1 rounded hover:bg-violet-700"
-                    >
-                      Usar esta meta
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setSugerencia(null)}
-                    className="text-xs text-slate-500 hover:underline"
-                  >
-                    Cerrar
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
+      {corrigiendo && objetivos && !objetivos.cerrado && (
+        <Modal titulo="Corregir captura" cerrar={() => setCorrigiendo(null)} guardar={corregir}
+          deshabilitado={corrigiendo.monto === "" || !corrigiendo.motivo.trim()}>
+          <Campo etiqueta="Monto correcto" tipo="number" valor={corrigiendo.monto}
+            cambiar={(valor) => setCorrigiendo({ ...corrigiendo, monto: valor })} />
+          <Campo etiqueta="Motivo obligatorio" valor={corrigiendo.motivo}
+            cambiar={(motivo) => setCorrigiendo({ ...corrigiendo, motivo })} area />
+        </Modal>
       )}
+      {editando && objetivos && !objetivos.cerrado && (
+        <Modal titulo={editando.vendedor_id == null ? "Meta de la tienda" : `Meta de ${nombre(editando.vendedor_id)}`}
+          cerrar={() => setEditando(null)} guardar={guardarMeta}
+          deshabilitado={editando.monto === "" || (editando.existente && !editando.motivo.trim())}>
+          <Campo etiqueta="Monto" tipo="number" valor={editando.monto}
+            cambiar={(valor) => setEditando({ ...editando, monto: valor })} />
+          {editando.existente && (
+            <Campo etiqueta="Motivo obligatorio" valor={editando.motivo}
+              cambiar={(motivo) => setEditando({ ...editando, motivo })} area />
+          )}
+        </Modal>
+      )}
+      {baja && objetivos && !objetivos.cerrado && (
+        <Modal titulo={`Dar de baja a ${nombre(baja.vendedor_id)}`}
+          cerrar={() => setBaja(null)} guardar={darDeBaja}
+          deshabilitado={!baja.hasta || !baja.motivo.trim()}>
+          <Campo etiqueta="Último día en la plantilla" tipo="date" valor={baja.hasta}
+            min={baja.desde} max={finDelMes(mes)}
+            cambiar={(hasta) => setBaja({ ...baja, hasta })} />
+          <Campo etiqueta="Motivo obligatorio" valor={baja.motivo}
+            cambiar={(motivo) => setBaja({ ...baja, motivo })} area />
+        </Modal>
+      )}
+      {historial && <HistorialMetas historial={historial} nombre={nombre} cerrar={() => setHistorial(null)} />}
     </div>
   );
 }
