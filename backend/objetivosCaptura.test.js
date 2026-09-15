@@ -154,6 +154,56 @@ test("una segunda captura vigente del mismo dia se rechaza sin escribir", () => 
   });
 });
 
+test("de noche en Chiapas, con el servidor en UTC (Render), el dia de MAÑANA sigue siendo futuro", () => {
+  // 02:00 UTC del 15 = 20:00 del 14 en Chiapas. Un "hoy" calculado con la hora
+  // del proceso dice 15 y dejaba capturar mañana todas las noches.
+  const tzOriginal = process.env.TZ;
+  process.env.TZ = "UTC";
+  try {
+    const DB = prepararDB();
+    conRelojEn("2026-09-15T02:00:00.000Z", () => {
+      assert.throws(
+        () => capturarDia(DB, {
+          mes: "2026-09", fecha: "2026-09-15", sucursal_id: 1,
+          vendedor_id: 1, tipo: "venta", monto: 100,
+        }, VICTOR),
+        /futura|adelant/i
+      );
+      const deHoy = capturarDia(DB, {
+        mes: "2026-09", fecha: "2026-09-14", sucursal_id: 1,
+        vendedor_id: 1, tipo: "venta", monto: 100,
+      }, VICTOR);
+      assert.equal(deHoy.fecha, "2026-09-14");
+    });
+    assert.equal(DB.pos.objetivo_capturas.length, 1);
+  } finally {
+    if (tzOriginal === undefined) delete process.env.TZ;
+    else process.env.TZ = tzOriginal;
+  }
+});
+
+test("un traslado de sucursal no abre una segunda captura del mismo dia", () => {
+  // Un dia de trabajo de una persona es uno solo, este en la tienda que este.
+  const DB = prepararDB();
+  conRelojEn("2026-09-13T18:30:00.000Z", () => {
+    capturarDia(DB, {
+      mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1,
+      vendedor_id: 1, tipo: "venta", monto: 5000,
+    }, VICTOR);
+    DB.pos.vendedores.find((v) => v.id === 1).sucursal_id = 2;
+    const antes = structuredClone(DB.pos.objetivo_capturas);
+
+    assert.throws(
+      () => capturarDia(DB, {
+        mes: "2026-09", fecha: "2026-09-03", sucursal_id: 2,
+        vendedor_id: 1, tipo: "venta", monto: 4000,
+      }, VICTOR),
+      /Ya hay una captura de ese d.a/
+    );
+    assert.deepEqual(DB.pos.objetivo_capturas, antes);
+  });
+});
+
 test("el mismo dia se puede capturar para otra persona", () => {
   const DB = prepararDB();
   conRelojEn("2026-09-13T18:30:00.000Z", () => {

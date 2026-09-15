@@ -1,3 +1,7 @@
+// "Hoy" siempre en hora de Chiapas: Render corre en UTC y un hoy con la hora del
+// proceso adelanta el dia desde las 18:00, justo cuando se captura.
+const { fechaLocal } = require("./fechas");
+
 function mesValido(mes) {
   return typeof mes === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mes);
 }
@@ -10,13 +14,6 @@ function fechaValida(fecha) {
   return fechaUTC.getUTCFullYear() === anio &&
     fechaUTC.getUTCMonth() === mes - 1 &&
     fechaUTC.getUTCDate() === dia;
-}
-
-function fechaLocal(date) {
-  const anio = String(date.getFullYear()).padStart(4, "0");
-  const mes = String(date.getMonth() + 1).padStart(2, "0");
-  const dia = String(date.getDate()).padStart(2, "0");
-  return `${anio}-${mes}-${dia}`;
 }
 
 function siguienteId(capturas) {
@@ -60,10 +57,11 @@ function validarDatosCaptura(DB, { mes, fecha, sucursal_id, vendedor_id, tipo, m
 function capturarDia(DB, datos, usuario) {
   validarDatosCaptura(DB, datos);
 
+  // Sin sucursal a proposito: si trasladan a la persona a mitad de mes, el mismo
+  // dia no puede quedar capturado en dos tiendas.
   const yaCapturado = DB.pos.objetivo_capturas.some((captura) =>
     captura.vigente &&
     captura.vendedor_id === datos.vendedor_id &&
-    captura.sucursal_id === datos.sucursal_id &&
     captura.tipo === datos.tipo &&
     captura.fecha === datos.fecha
   );
