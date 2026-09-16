@@ -122,7 +122,22 @@ function validarProductoSolicitado(DB, datos) {
   return { productoId, producto, productoBuscado };
 }
 
+// SOLO REGLAS: la clasificacion la deciden las reglas, no quien manda la
+// peticion. El PATCH ya rechazaba estos campos; el POST los ignoraba en
+// silencio y devolvia 200, asi que quien consume la API podia creer que su
+// clasificacion quedo guardada.
+const CAMPOS_CLASIFICACION = ["necesidades", "familia", "familias", "tipo", "clasificacion"];
+
+function rechazarClasificacionManual(datos) {
+  for (const clave of CAMPOS_CLASIFICACION) {
+    if (datos && Object.prototype.hasOwnProperty.call(datos, clave)) {
+      throw new ErrorRadar(`El campo ${clave} no se puede enviar: la clasificación la deciden las reglas`, 400);
+    }
+  }
+}
+
 function crearDemanda(DB, datos, contexto) {
+  rechazarClasificacionManual(datos);
   const radar = normalizarRadarDemanda(DB);
   const usuario = buscarUsuario(DB, contexto?.usuarioId);
   const sucursalId = validarSucursal(DB, contexto?.sucursalId);

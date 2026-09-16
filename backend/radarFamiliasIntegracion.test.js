@@ -160,15 +160,15 @@ const datosDemanda = (extra = {}) => ({
   consentimiento_aviso: false, ...extra,
 });
 
-test("crear una demanda no guarda una clasificacion mandada a mano", () => {
+test("crear una demanda RECHAZA una clasificacion mandada a mano", () => {
   const DB = baseEscritura();
-  const creada = crearDemanda(
-    DB,
-    datosDemanda({ necesidades: [{ familia: "Baterias", cantidad: 9 }] }),
-    { usuarioId: 100, sucursalId: 1 },
+  // Antes devolvia 200 y la creaba ignorando el campo: quien consume la API
+  // podia creer que su clasificacion quedo aceptada. Se rechaza, como el PATCH.
+  assert.throws(
+    () => crearDemanda(DB, datosDemanda({ necesidades: [{ familia: "Baterias", cantidad: 9 }] }), { usuarioId: 100, sucursalId: 1 }),
+    /necesidades/,
   );
-  assert.equal(creada.necesidades, undefined);
-  assert.equal(DB.radar_demanda.registros[0].necesidades, undefined);
+  assert.equal(DB.radar_demanda.registros.length, 0, "no se crea nada a medias");
 });
 
 test("actualizar una demanda RECHAZA una clasificacion mandada a mano", () => {
