@@ -73,7 +73,7 @@ function Tipo({ tipo }) {
     </summary>
     {tipo.caracteristicas?.length > 0 && <p className="mt-2 text-sm text-slate-600">
       De esas, {tipo.caracteristicas.map((caracteristica) =>
-        `${numero.format(caracteristica.unidades_conocidas)} ${caracteristica.etiqueta}`).join(", ")}.
+        `${numero.format(caracteristica.unidades_conocidas)} de ${caracteristica.etiqueta}`).join(", ")}.
     </p>}
     <ul className="mt-3 space-y-2">
       {(tipo.marcas || []).map((marca) => <Marca key={marca.clave} marca={marca} />)}

@@ -32,6 +32,7 @@ const TIPOS = {
     ["electroacustica", "Electroacústica", ["electroacustica", "electroacustico"]],
     ["electrica", "Eléctrica", ["electrica", "electrico"]],
     ["acustica", "Acústica", ["acustica", "acustico"]],
+    ["clasica", "Clásica", ["clasica", "clasico"]],
   ],
   microfonos: [["inalambrico", "Inalámbrico", ["inalambrico", "inalambrica"]]],
 };
@@ -189,6 +190,15 @@ function extraerIdentidad(fragmento, registro, unica, diagnosticos) {
     }
   }
   for (const m of fragmento.matchAll(/\$\s*[\d,.]+|\b[\d,.]+\s*pesos?\b/gi)) ocupar(m.index, m.index + m[0].length);
+  // Una palabra sobrante NO basta para llamarla marca: el spec prohíbe
+  // convertir el descarte en marca ("guitarra económica para principiante" no
+  // es marca Principiante). El único indicio disponible es que el vendedor la
+  // escribió con mayúscula inicial. Si el texto viene TODO en mayúsculas ese
+  // indicio no existe y no se propone ningún candidato; el texto original
+  // siempre queda visible en la evidencia.
+  const todoMayusculas = fragmento === fragmento.toLocaleUpperCase("es");
+  const pareceNombrePropio = (original) => !todoMayusculas
+    && original.slice(0, 1) !== original.slice(0, 1).toLocaleLowerCase("es");
   const candidatos = tokens.filter((t, i) => {
     if (ocupados.has(i) || DESCRIPTORES.has(t.normalizado) || !/[\p{L}]/u.test(t.original)) return false;
     if (modelo && normalizarGrafiaRadar(t.original) === normalizarGrafiaRadar(modelo)) return false;
@@ -204,7 +214,7 @@ function extraerIdentidad(fragmento, registro, unica, diagnosticos) {
       }
       return false;
     }
-    return true;
+    return pareceNombrePropio(t.original);
   });
   if (!marca && candidatos.length) {
     const candidato = fragmento.slice(candidatos[0].inicio, candidatos.at(-1).fin);

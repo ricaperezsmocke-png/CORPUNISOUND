@@ -356,3 +356,34 @@ test("fecha de solo día no depende de la zona horaria del proceso", () => {
     else process.env.TZ = zonaAnterior;
   }
 });
+
+/**
+ * Hallazgos de la prueba en navegador del 2026-09-15 (Claude).
+ * El sobrante del texto se estaba convirtiendo en marca por simple descarte,
+ * justo lo que el spec prohíbe: "guitarra acústica para principiante" salía
+ * con marca no identificada "principiante". Eso mete ruido en el desglose de
+ * marcas, que es donde Victor decide de qué marca comprar.
+ */
+test("un descriptor en minúsculas NO se convierte en marca por descarte", () => {
+  for (const texto of ["guitarra acustica para principiante", "guitarra roja bonita", "guitarra chica"]) {
+    const articulo = clasificar(registro(texto))[0];
+    assert.equal(articulo.marca.estado, "NO_INFORMADA", `"${texto}" no debe inventar marca`);
+  }
+});
+
+test("una palabra con mayúscula inicial sí queda como marca no identificada", () => {
+  const articulo = clasificar(registro("guitarra Zurbarana"))[0];
+  assert.equal(articulo.marca.estado, "NO_IDENTIFICADA");
+  assert.equal(articulo.marca.candidato, "Zurbarana");
+});
+
+test("una marca conocida sigue reconociéndose aunque venga en minúsculas", () => {
+  const articulo = clasificar(registro("guitarra ibanez"))[0];
+  assert.equal(articulo.marca.estado, "RECONOCIDA");
+});
+
+test("guitarra clásica es un tipo, no un sobrante de texto", () => {
+  const articulo = clasificar(registro("guitarra clasica"))[0];
+  assert.equal(articulo.tipo, "Clásica");
+  assert.equal(articulo.marca.estado, "NO_INFORMADA");
+});
