@@ -40,6 +40,26 @@ function fechaLocal(instante) {
   return formateador.format(isNaN(d.getTime()) ? new Date() : d);
 }
 
+/**
+ * Igual que `fechaLocal`, pero idempotente: si el valor YA es un día suelto
+ * (YYYY-MM-DD) lo devuelve tal cual.
+ *
+ * `fechaLocal("2026-08-01")` devuelve "2026-07-31", porque `new Date` lee ese
+ * texto como medianoche UTC y en Chiapas todavía es el día anterior. Un día
+ * suelto ya ES el día de la tienda: pasarlo por una zona horaria solo puede
+ * correrlo. Esto se usa donde el dato guardado puede ser un instante completo
+ * o un día suelto, según de qué época venga el registro.
+ *
+ * Se agrega aparte y no se corrige `fechaLocal` porque ese helper lo usan
+ * ventas, cortes y gastos: la corrección de raíz merece su propia rama.
+ */
+function diaLocal(valor) {
+  if (typeof valor === "string" && /^\d{4}-\d{2}-\d{2}$/.test(valor.trim())) {
+    return valor.trim();
+  }
+  return fechaLocal(valor);
+}
+
 /** Marca de tiempo completa, en UTC. Se mantiene tal cual a propósito. */
 function ahora() {
   return new Date().toISOString();
@@ -75,4 +95,4 @@ function momentoLocal(instante) {
   };
 }
 
-module.exports = { fechaLocal, ahora, momentoLocal, ZONA_TIENDA };
+module.exports = { fechaLocal, diaLocal, ahora, momentoLocal, ZONA_TIENDA };

@@ -85,6 +85,7 @@ function demanda(id, productoId, sucursalId, cambios = {}) {
     telefono_contacto: "555-SECRETO", nombre_contacto: "CLIENTE SECRETO",
     motivo_no_venta: "PRECIO", producto_buscado: "", marca_solicitada: "",
     modelo_solicitado: "", variante_solicitada: "", categoria_solicitada: "",
+    estado: "REGISTRADA",
     ...cambios,
   };
 }
@@ -160,7 +161,8 @@ test("fecha_fin inválida responde 400", async () => {
 test("contrato superior es exacto", async () => {
   prepararCompra();
   const r = await pedir(tokenLimitado, "?fecha_fin=2026-08-20");
-  assert.deepEqual(Object.keys(r.cuerpo), ["periodo", "resumen", "oportunidades", "productos_no_manejados", "capacidades"]);
+  assert.deepEqual(Object.keys(r.cuerpo), ["periodo", "resumen", "oportunidades", "productos_no_manejados", "familias", "capacidades"]);
+  assert.equal(r.cuerpo.familias.universo, "PENDIENTE");
 });
 
 test("respuesta no contiene score, confidence, prioridad ni cantidad sugerida", async () => {

@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRightLeft, BrainCircuit, HelpCircle, PackageSearch,
 import { hoyLocal } from "../fechas";
 import { sucursalActiva } from "../api";
 import { cargarSucursalesRadar, consultarInteligenciaCompras } from "./radarDemandaApi";
+import FamiliasDemanda from "./FamiliasDemanda";
 
 const numero = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 });
 const dinero = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
@@ -194,6 +195,7 @@ export default function InteligenciaCompras({ permisos = [] }) {
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertTriangle size={18} />{error}</div>}
     {cargando && !datos ? <div className="py-16 text-center text-sm text-slate-500">Cargando inteligencia...</div> : datos && <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"><Tarjeta titulo="Revisar traspaso" valor={datos.resumen.revisar_traspaso} color="border-violet-200" /><Tarjeta titulo="Revisar compra" valor={datos.resumen.revisar_compra} color="border-blue-200" /><Tarjeta titulo="Observar" valor={datos.resumen.observar} color="border-orange-200" /><Tarjeta titulo="Evidencia insuficiente" valor={datos.resumen.evidencia_insuficiente} color="border-slate-300" /><Tarjeta titulo="Evaluar incorporación" valor={datos.resumen.evaluar_incorporacion} color="border-amber-200" /></div>
+      <FamiliasDemanda datos={datos.familias} periodo={datos.periodo} />
       <Seccion titulo="Atención prioritaria" icono={BrainCircuit} descripcion="Vista combinada de oportunidades para revisar por traspaso o compra." vacio="No hay oportunidades prioritarias en este momento." tieneDatos={prioritarias.length}><Tabla columnas={columnasPrioridad} filas={prioritarias} onExplicar={setExplicacion} minWidth="1100px" /></Seccion>
       <Seccion titulo="Revisar para compra" icono={ShoppingCart} descripcion={CLASIFICACIONES.REVISAR_COMPRA[1]} vacio="No hay productos para revisar por compra." tieneDatos={compras.length}><Tabla columnas={columnasCompra} filas={compras} onExplicar={setExplicacion} minWidth={hayCostos ? "1350px" : "1100px"} /></Seccion>
       <Seccion titulo="Revisar para traspaso" icono={ArrowRightLeft} descripcion={CLASIFICACIONES.REVISAR_TRASPASO[1]} vacio="No hay oportunidades de traspaso detectadas." tieneDatos={traspasos.length}><Tabla columnas={columnasTraspaso} filas={traspasos} onExplicar={setExplicacion} minWidth={global ? "1050px" : "760px"} /></Seccion>

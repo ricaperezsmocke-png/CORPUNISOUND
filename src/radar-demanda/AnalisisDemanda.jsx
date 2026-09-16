@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Too
 import { haceDiasLocal, hoyLocal } from "../fechas";
 import { sucursalActiva } from "../api";
 import { cargarSucursalesRadar, consultarAnalisisDemanda, mensajeErrorRadar, MOTIVOS } from "./radarDemandaApi";
+import FamiliasDemanda from "./FamiliasDemanda";
 
 const ETIQUETAS_MOTIVO = Object.fromEntries(MOTIVOS);
 const dinero = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
@@ -38,6 +39,7 @@ export default function AnalisisDemanda({ permisos = [] }) {
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
+  const [universo, setUniverso] = useState("HISTORICA");
 
   const cargar = useCallback(async () => {
     setCargando(true); setError("");
@@ -87,9 +89,23 @@ export default function AnalisisDemanda({ permisos = [] }) {
 
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertTriangle size={18} />{error}</div>}
     {cargando && !datos ? <div className="py-16 text-center text-sm text-slate-500">Calculando análisis…</div> : datos && <>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8"><Tarjeta etiqueta="Solicitudes" valor={numero.format(r.total)} /><Tarjeta etiqueta="Pendientes" valor={numero.format(r.pendientes)} /><Tarjeta etiqueta="Convertidas" valor={numero.format(r.convertidas)} /><Tarjeta etiqueta="No convertidas" valor={numero.format(r.no_convertidas)} /><Tarjeta etiqueta="Seguimientos vencidos" valor={numero.format(r.seguimientos_vencidos)} /><Tarjeta etiqueta="Conversión" valor={`${numero.format(r.tasa_conversion)}%`} detalle="Convertidas entre cierres válidos" /><Tarjeta etiqueta="Recuperación" valor={`${numero.format(r.tasa_recuperacion)}%`} detalle="Convertidas entre oportunidades válidas" /><Tarjeta etiqueta="Valor recuperado" valor={dinero.format(datos.recuperacion.valor_recuperado)} /></div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8"><Tarjeta etiqueta="Solicitudes" valor={numero.format(r.total)} detalle={r.canceladas ? `Incluye ${numero.format(r.canceladas)} cancelada${r.canceladas === 1 ? "" : "s"}, que no cuentan abajo` : undefined} /><Tarjeta etiqueta="Pendientes" valor={numero.format(r.pendientes)} /><Tarjeta etiqueta="Convertidas" valor={numero.format(r.convertidas)} /><Tarjeta etiqueta="No convertidas" valor={numero.format(r.no_convertidas)} /><Tarjeta etiqueta="Seguimientos vencidos" valor={numero.format(r.seguimientos_vencidos)} /><Tarjeta etiqueta="Conversión" valor={`${numero.format(r.tasa_conversion)}%`} detalle="Convertidas entre cierres válidos" /><Tarjeta etiqueta="Recuperación" valor={`${numero.format(r.tasa_recuperacion)}%`} detalle="Convertidas entre oportunidades válidas" /><Tarjeta etiqueta="Valor recuperado" valor={dinero.format(datos.recuperacion.valor_recuperado)} /></div>
       {r.total === 0 ? <div className="rounded-2xl neu py-14 text-center text-sm text-slate-500">No hay demandas registradas en este periodo.</div> : <div className="grid min-w-0 gap-5 xl:grid-cols-2"><section className="min-w-0 rounded-2xl border neu-panel p-4 shadow-sm"><h2 className="mb-4 flex items-center gap-2 font-bold text-slate-800"><BarChart3 size={18} />Motivos de demanda</h2><div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={datos.motivos}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="motivo" tickFormatter={(v) => ETIQUETAS_MOTIVO[v] || v} fontSize={10} interval={0} angle={-20} textAnchor="end" height={70} /><YAxis allowDecimals={false} /><Tooltip labelFormatter={(v) => ETIQUETAS_MOTIVO[v] || v} /><Bar dataKey="cantidad" fill="#2563eb" radius={[6,6,0,0]} /></BarChart></ResponsiveContainer></div></section><section className="min-w-0 rounded-2xl border neu-panel p-4 shadow-sm"><h2 className="mb-4 font-bold text-slate-800">Evolución diaria</h2><div className="h-72"><ResponsiveContainer width="100%" height="100%"><LineChart data={datos.evolucion}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="fecha" fontSize={11} /><YAxis allowDecimals={false} /><Tooltip /><Line type="monotone" dataKey="demandas" stroke="#0f766e" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div></section></div>}
       <div className="grid gap-3 md:grid-cols-2">{Object.values(datos.comparaciones).map((c) => <div key={c.dias} className="rounded-2xl border neu-panel p-4 shadow-sm"><div className="flex items-center gap-2">{c.clasificacion === "crecimiento" ? <TrendingUp className="text-emerald-600" /> : <TrendingDown className="text-slate-500" />}<p className="font-bold text-slate-800">Últimos {c.dias} días</p></div><p className="mt-2 text-sm text-slate-600">{c.muestra_suficiente ? `${c.actual} solicitudes vs. ${c.anterior} anteriores · ${c.variacion_porcentual == null ? "sin base comparable" : `${c.variacion_porcentual}%`}` : "Muestra insuficiente"}</p></div>)}</div>
+      <section className="min-w-0 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {[["HISTORICA", "Todo lo que pidieron"], ["PENDIENTE", "Solo lo pendiente"]].map(([id, label]) =>
+            <button key={id} onClick={() => setUniverso(id)} className={`min-h-10 rounded-xl border px-3 text-sm font-semibold ${universo === id ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 text-slate-600"}`}>{label}</button>)}
+        </div>
+        <FamiliasDemanda datos={universo === "PENDIENTE" ? datos.familias_pendientes : datos.familias} periodo={datos.periodo} />
+      </section>
+      {/* Estas tres tablas SIEMPRE son el histórico, no cambian con el botón de
+          arriba. Sin decirlo, alguien que eligió "solo lo pendiente" las lee
+          como pendientes y compra de más. */}
+      <p className="text-xs text-slate-500">
+        Las tablas de abajo muestran <strong>todo lo que pidieron</strong> en el periodo, se haya
+        vendido o no. No incluyen demandas canceladas.
+      </p>
       <Tabla titulo="Productos más solicitados" columnas={columnasProductos} filas={datos.productos} vacio="No hay productos solicitados en este periodo." />
       <Tabla titulo="Productos que no manejamos" columnas={columnasNo} filas={datos.productos_no_manejados} vacio="No hay solicitudes clasificadas como productos no manejados." />
       <Tabla titulo="Demanda por sucursal" columnas={columnasSucursal} filas={datos.sucursales} vacio="No hay demanda por sucursal en este periodo." />
