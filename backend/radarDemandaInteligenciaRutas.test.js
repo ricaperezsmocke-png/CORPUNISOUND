@@ -160,7 +160,8 @@ test("fecha_fin inválida responde 400", async () => {
 test("contrato superior es exacto", async () => {
   prepararCompra();
   const r = await pedir(tokenLimitado, "?fecha_fin=2026-08-20");
-  assert.deepEqual(Object.keys(r.cuerpo), ["periodo", "resumen", "oportunidades", "productos_no_manejados", "capacidades"]);
+  assert.deepEqual(Object.keys(r.cuerpo), ["periodo", "resumen", "oportunidades", "productos_no_manejados", "familias", "capacidades"]);
+  assert.equal(r.cuerpo.familias.universo, "PENDIENTE");
 });
 
 test("respuesta no contiene score, confidence, prioridad ni cantidad sugerida", async () => {

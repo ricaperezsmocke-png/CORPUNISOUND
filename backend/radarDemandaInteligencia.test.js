@@ -37,7 +37,7 @@ function ejecutar(DB, alcance = global) {
 
 test("contrato superior no contiene clasificación, score ni recomendación", () => {
   const resultado = ejecutar(base());
-  assert.deepEqual(Object.keys(resultado), ["periodo", "productos", "productos_no_manejados", "capacidades"]);
+  assert.deepEqual(Object.keys(resultado), ["periodo", "productos", "productos_no_manejados", "familias", "capacidades"]);
   assert.deepEqual(resultado.periodo.ventanas_dias, VENTANAS);
   assert.equal(resultado.capacidades.pedidos_proveedor_disponibles, false);
   const serializado = JSON.stringify(resultado);

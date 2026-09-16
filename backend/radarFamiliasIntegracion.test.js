@@ -200,3 +200,17 @@ test("las familias respetan el alcance por sucursal", () => {
   );
   assert.equal(resultado.familias.familias[0].unidades_conocidas, 3);
 });
+
+// La pantalla de compras solo puede ver la oportunidad viva.
+test("la inteligencia de compras entrega familias del universo PENDIENTE", () => {
+  const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
+  const DB = base([
+    registro(1, { cantidad: 4, fecha_registro: "2026-08-10T18:00:00.000Z" }),
+    registro(2, { cantidad: 9, estado: "CONVERTIDA", fecha_registro: "2026-08-10T18:00:00.000Z" }),
+    registro(3, { cantidad: 7, estado: "CANCELADA", fecha_registro: "2026-08-10T18:00:00.000Z" }),
+  ]);
+  DB["catalogo-productos"] = { productos: [], proveedores: [] };
+  const evidencia = obtenerEvidenciaCompras(DB, alcanceGlobal, { fecha_fin: "2026-08-31" });
+  assert.equal(evidencia.familias.universo, "PENDIENTE");
+  assert.equal(evidencia.familias.familias[0].unidades_conocidas, 4);
+});
