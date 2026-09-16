@@ -3,7 +3,7 @@ const { normalizarTextoRadar, normalizarGrafiaRadar, palabrasCompatibles } = req
 const { seleccionarUniversoDemanda } = require("./metricas");
 const { diaLocal } = require("../fechas");
 
-const VERSION = 2;
+const VERSION = 3;
 const REGLAS = [
   ["reparacion", "Reparación", ["reparacion", "reparar", "servicio tecnico"]],
   ["pastillas", "Pastillas", ["pastilla"]],
@@ -24,8 +24,51 @@ const REGLAS = [
   ["saxofones", "Saxofones", ["saxofon", "saxofone"]],
   ["trompetas", "Trompetas", ["trompeta"]],
   ["microfonos", "Micrófonos", ["microfono"]],
-  ["amplificadores", "Amplificadores", ["amplificador", "amplificadore"]],
+  ["amplificadores", "Amplificadores", ["amplificador", "amplificadore", "combo"]],
   ["bocinas", "Bocinas", ["bocina", "bafle"]],
+  ["estereos", "Estéreos", ["estereo"]],
+  ["arneses", "Arneses", ["arne", "arnese"]],
+  ["diafragmas", "Diafragmas", ["diafragma"]],
+  ["tweeters", "Tweeters", ["tweeter", "agudo"]],
+  ["woofers", "Woofers", ["woofer"]],
+  ["subwoofers", "Subwoofers", ["subwoofer"]],
+  ["columnas_activas", "Columnas activas", ["columna activa"]],
+  ["line_arrays", "Line arrays", ["line array", "mini lineal"]],
+  ["cornetas", "Cornetas", ["corneta"]],
+  ["monitoreo_in_ear", "Monitoreo in-ear", ["in ear"]],
+  ["buffers", "Buffers", ["buffer"]],
+  ["unidades_audio", "Unidades de audio", ["unidad", "unidade"]],
+  ["timbales", "Timbales", ["timbal", "timbale"]],
+  ["tambores", "Tambores", ["tambor", "tambore"]],
+  ["bombos", "Bombos", ["bombo"]],
+  ["parches", "Parches", ["parche"]],
+  ["patas_bombo", "Patas para bombo", ["pata para bombo", "pata de bombo"]],
+  ["bancos_bateria", "Bancos para batería", ["banco para bateria", "banco de bateria"]],
+  ["platillos", "Platillos", ["platillo"]],
+  ["ahogadores", "Ahogadores", ["ahogador", "ahogadore"]],
+  ["entorchados", "Entorchados", ["entorchado"]],
+  ["panderos", "Panderos", ["pandero"]],
+  ["guiros", "Güiros", ["guiro"]],
+  ["boquillas", "Boquillas", ["boquilla"]],
+  ["pilas", "Pilas y baterías eléctricas", ["pila", "bateria"], (palabras, indice) =>
+    palabras[indice] === "pila" || /\b(?:\d+(?:\.\d+)?v|aaa?|recargable)\b/.test(palabras.slice(indice).join(" ").split(/\bpara\b/)[0])],
+  ["cargadores", "Cargadores", ["cargador", "cargadore"]],
+  ["fusibles", "Fusibles", ["fusible"]],
+  ["reguladores", "Reguladores", ["regulador", "reguladore"]],
+  ["inversores", "Inversores", ["inversor", "inversore"]],
+  ["no_break", "No break", ["no break"]],
+  ["centros_carga", "Centros de carga", ["centro de carga"]],
+  ["chicharras", "Chicharras", ["chicharra"]],
+  ["led", "LED", ["led"]],
+  ["pistas_led", "Pistas LED", ["pista led"]],
+  // Protoboar es la grafía sin d; el comparador compartido tolera protowar.
+  ["protoboards", "Protoboards", ["protoboard", "protoboar"]],
+  ["imanes", "Imanes", ["iman", "imane"]],
+  ["radios", "Radios", ["radio"]],
+  ["acordeones", "Acordeones", ["acordeon", "acordeone"]],
+  ["sintetizadores", "Sintetizadores", ["sintetizador", "sintetizadore"]],
+  ["liquido_humo", "Líquido de humo", ["liquido de humo"]],
+  ["metodos", "Cuadernillos y métodos", ["cuadernillo", "metodo"]],
 ];
 const TIPOS = {
   guitarras: [
@@ -33,6 +76,7 @@ const TIPOS = {
     ["electrica", "Eléctrica", ["electrica", "electrico"]],
     ["acustica", "Acústica", ["acustica", "acustico"]],
     ["clasica", "Clásica", ["clasica", "clasico"]],
+    ["infantil", "Infantil", ["infantil"]],
   ],
   microfonos: [["inalambrico", "Inalámbrico", ["inalambrico", "inalambrica"]]],
 };
@@ -40,7 +84,7 @@ const TIPOS = {
 const MARCAS = [
   "Fender", "Pure GEWA", "GEWA", "Tagima", "Yamaha", "Steren", "Shure", "Radox",
   "Eminence", "Harden", "Sony", "Sevillana", "Duracell", "BKL", "JR",
-  "Ibanez", "Epiphone", "Takamine", "Casio", "Roland",
+  "Ibanez", "Epiphone", "Takamine", "Casio", "Roland", "Azteca",
 ];
 const DESCRIPTORES = new Set([
   "de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas", "para", "con", "y", "e", "o", "a", "en",
@@ -73,7 +117,7 @@ function tokensOriginales(valor) {
 function coincidencia(palabras, indice) {
   // Exactas primero: guitarrón nunca se convierte en guitarra por parecido.
   for (const difusa of [false, true]) {
-    const candidatas = REGLAS.filter(([, , variantes]) => variantes.some((variante) => {
+    const candidatas = REGLAS.filter(([, , variantes, contexto]) => (!contexto || contexto(palabras, indice)) && variantes.some((variante) => {
       const partes = variante.split(" ");
       return partes.every((parte, desplazamiento) => {
         const palabra = palabras[indice + desplazamiento];
@@ -91,7 +135,9 @@ function articuloPrincipal(valor) {
   const palabras = normalizarTextoRadar(valor).split(" ");
   for (let indice = 0; indice < palabras.length; indice += 1) {
     // Los valores de marca/modelo no son vocabulario de artículos.
-    if (palabras[indice] === "marca" || palabras[indice] === "modelo") break;
+    // Después de «para» hay compatibilidad/destinatario, no el artículo pedido.
+    // Las reglas compuestas (banco para batería) se comprueban desde la izquierda.
+    if (["marca", "modelo", "para"].includes(palabras[indice])) break;
     const regla = coincidencia(palabras, indice);
     if (regla) return regla;
   }
@@ -146,7 +192,9 @@ function tipoDe(familiaId, atributos, diagnosticos) {
     palabras.some((p) => p === v || (p.length >= 5 && !/\d/.test(p) && palabrasCompatibles(p, v)))
   ));
   if (tipos.length === 1) return tipos[0];
-  diagnosticos.push({ motivo: tipos.length > 1 ? "TIPO_AMBIGUO" : "TIPO_NO_IDENTIFICADO" });
+  // Una guitarra sin tipo informado es una solicitud legítima, sin ruido.
+  if (tipos.length > 1) diagnosticos.push({ motivo: "TIPO_AMBIGUO" });
+  else if (familiaId !== "guitarras") diagnosticos.push({ motivo: "TIPO_NO_IDENTIFICADO" });
   return ["no_identificado", "Tipo no identificado"];
 }
 
@@ -269,6 +317,10 @@ function clasificarSolicitud(entrada) {
     const degradar = danado || diagnosticos.some((d) => d.motivo === "CANTIDAD_INVALIDA");
     const [familia_id, familia] = !degradar && regla ? regla : ["por_clasificar", "Por clasificar"];
     if (!regla) diagnosticos.push({ motivo: "FAMILIA_NO_IDENTIFICADA" });
+    if (!regla && normalizarTextoRadar(parte.fragmento).split(/\bpara\b/)[0].split(" ")
+      .some((p) => p.length >= 5 && palabrasCompatibles(p, "bateria"))) {
+      diagnosticos.push({ motivo: "BATERIA_AMBIGUA" });
+    }
     const { semantica, ...identidad } = extraerIdentidad(parte.fragmento, registro, unica, diagnosticos);
     const atributos = [semantica, unica ? texto(registro.variante_solicitada) : ""].join(" ");
     const [tipo_id, tipo] = tipoDe(familia_id, atributos, diagnosticos);

@@ -38,7 +38,7 @@ const global = { verTodas: true, sucursalId: null };
 const sucursal1 = { verTodas: false, sucursalId: 1 };
 const analizar = (registros, filtros = { fecha_inicio: "2026-08-01", fecha_fin: "2026-08-20" }, alcance = global) => obtenerAnalisis(base(registros), alcance, filtros);
 
-test("contrato superior exacto", () => assert.deepEqual(Object.keys(analizar([])), ["periodo","resumen","productos","productos_no_manejados","sucursales","motivos","recuperacion","evolucion","comparaciones","familias","familias_pendientes"]));
+test("contrato superior exacto", () => assert.deepEqual(Object.keys(analizar([])), ["periodo","resumen","productos","productos_no_manejados","sucursales","motivos","motivos_no_conversion","recuperacion","evolucion","comparaciones","familias","familias_pendientes"]));
 test("rango incluye fecha inicial", () => assert.equal(analizar([registro(1, { fecha_registro: "2026-08-01T23:59:59Z" })]).resumen.total, 1));
 test("rango incluye todo el día final", () => assert.equal(analizar([registro(1, { fecha_registro: "2026-08-20T23:59:59Z" })]).resumen.total, 1));
 test("rango excluye fecha anterior", () => assert.equal(analizar([registro(1, { fecha_registro: "2026-07-31T23:59:59Z" })]).resumen.total, 0));
