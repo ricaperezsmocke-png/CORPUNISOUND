@@ -41,4 +41,36 @@ function calcularMetricas(registros) {
   };
 }
 
-module.exports = { ESTADOS_PENDIENTES, porcentaje, calcularMetricas };
+// Proyección comercial independiente de las métricas operativas anteriores.
+function clasificarEstadoDemanda(estado) {
+  if (ESTADOS_PENDIENTES.has(estado)) return "PENDIENTE";
+  if (estado === "CONVERTIDA" || estado === "NO_CONVERTIDA") return estado;
+  if (estado === "CANCELADA") return "DESCARTADA";
+  return "NO_CLASIFICABLE";
+}
+
+function seleccionarUniversoDemanda(registros, universo) {
+  if (universo !== "PENDIENTE" && universo !== "HISTORICA") {
+    throw new TypeError("El universo debe ser PENDIENTE o HISTORICA");
+  }
+  const seleccionados = [], diagnosticos = [];
+  for (const registro of registros) {
+    const estado = clasificarEstadoDemanda(registro?.estado);
+    if (estado === "DESCARTADA") continue;
+    if (estado === "NO_CLASIFICABLE") {
+      diagnosticos.push({
+        demanda_id: registro?.id ?? null,
+        estado_original: registro?.estado ?? null,
+        motivo: "ESTADO_NO_CLASIFICABLE",
+      });
+    } else if (estado === "PENDIENTE" || universo === "HISTORICA") {
+      seleccionados.push(registro);
+    }
+  }
+  return { registros: seleccionados, diagnosticos };
+}
+
+module.exports = {
+  ESTADOS_PENDIENTES, porcentaje, calcularMetricas,
+  clasificarEstadoDemanda, seleccionarUniversoDemanda,
+};
