@@ -12,7 +12,8 @@
 const { crearCliente } = require("./clientes");
 const { booleanoEstricto } = require("./radar/entrada");
 const { ErrorRadar } = require("./radar/errores");
-const { calcularMetricas, porcentaje, ESTADOS_PENDIENTES } = require("./radar/metricas");
+const { calcularMetricas, porcentaje, ESTADOS_PENDIENTES, seleccionarUniversoDemanda } = require("./radar/metricas");
+const { agruparFamilias } = require("./radar/familias");
 const { agruparRegistrosLibres, crearBolsaPalabras, calcularSimilitud } = require("./radar/identidad");
 const {
   exigirVentaParaConvertir,
@@ -478,7 +479,14 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     const fecha = fechaLocal(item.fecha_registro);
     return (!fechaInicio || fecha >= fechaInicio) && fecha <= fechaFin;
   });
+  // `resumen` son las métricas operativas de conversión: reportan las canceladas
+  // a propósito y no se tocan. Todo lo que orienta una compra —ranking, motivos,
+  // sucursales, evolución y comparaciones— usa el universo HISTÓRICA, sin
+  // canceladas ni estados inválidos, porque una demanda que el cliente retiró no
+  // es mercancía que haya que ir a comprar.
   const resumen = metricasRegistros(registros);
+  const comerciales = seleccionarUniversoDemanda(registros, "HISTORICA").registros;
+  const comercialesAlcance = seleccionarUniversoDemanda(todosAlcance, "HISTORICA").registros;
   resumen.seguimientos_vencidos = registros.filter((item) =>
     item.requiere_seguimiento && ESTADOS_PENDIENTES.has(item.estado)
       && item.fecha_seguimiento && texto(item.fecha_seguimiento).slice(0, 10) < fechaLocal()
@@ -486,19 +494,19 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
 
   const sucursalesPorId = new Map((DB.pos?.sucursales || []).map((item) => [Number(item.id), item]));
   const productos = new Map(), noManejados = new Map(), sucursales = new Map();
-  const gruposLibres = agruparRegistrosLibres(registros.filter((item) => item.producto_id == null));
+  const gruposLibres = agruparRegistrosLibres(comerciales.filter((item) => item.producto_id == null));
   const grupoLibrePorRegistro = new Map(gruposLibres.flatMap((grupo, indice) => grupo.registros.map((item) => [item, { grupo, indice }])));
-  const candidatosNoManejados = registros.filter((item) => item.motivo_no_venta === "NO_MANEJAMOS" && item.producto_id == null);
+  const candidatosNoManejados = comerciales.filter((item) => item.motivo_no_venta === "NO_MANEJAMOS" && item.producto_id == null);
   const gruposLibresNoManejados = agruparRegistrosLibres(candidatosNoManejados);
   const grupoNoManejadoPorRegistro = new Map(gruposLibresNoManejados.flatMap((grupo, indice) => grupo.registros.map((item) => [item, { grupo, indice }])));
-  const catalogados = agruparPor(registros.filter((item) => item.producto_id != null), (item) => Number(item.producto_id));
+  const catalogados = agruparPor(comerciales.filter((item) => item.producto_id != null), (item) => Number(item.producto_id));
   const formasCatalogadas = new Map([...catalogados].map(([id, items]) => [id, resumirFormasCatalogadas(items)]));
-  const catalogadosNoManejados = agruparPor(registros.filter((item) => item.producto_id != null && item.motivo_no_venta === "NO_MANEJAMOS"), (item) => Number(item.producto_id));
+  const catalogadosNoManejados = agruparPor(comerciales.filter((item) => item.producto_id != null && item.motivo_no_venta === "NO_MANEJAMOS"), (item) => Number(item.producto_id));
   const formasCatalogadasNoManejadas = new Map([...catalogadosNoManejados].map(([id, items]) => [id, resumirFormasCatalogadas(items)]));
   const motivosConteo = new Map(MOTIVOS_DEMANDA.map((motivo) => [motivo, 0]));
   const evolucionConteo = new Map();
 
-  for (const item of registros) {
+  for (const item of comerciales) {
     motivosConteo.set(item.motivo_no_venta, (motivosConteo.get(item.motivo_no_venta) || 0) + 1);
     const fecha = fechaLocal(item.fecha_registro);
     const dia = evolucionConteo.get(fecha) || { fecha, demandas: 0, cantidad_solicitada: 0, convertidas: 0 };
@@ -555,7 +563,7 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
 
   const ventasPorId = new Map((DB.pos?.ventas || []).map((venta) => [Number(venta.id), venta]));
   const ventasRecuperadas = new Map();
-  for (const item of registros) {
+  for (const item of comerciales) {
     if (item.estado !== "CONVERTIDA" || item.venta_recuperada_id == null) continue;
     const venta = ventasPorId.get(Number(item.venta_recuperada_id));
     if (venta && Number(venta.sucursal_id) === Number(item.sucursal_id) && estaDentroDeAlcance(venta, alcance)) {
@@ -576,8 +584,10 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     const inicioActual = sumarDias(fechaFin, -(dias - 1));
     const finAnterior = sumarDias(inicioActual, -1);
     const inicioAnterior = sumarDias(finAnterior, -(dias - 1));
-    const actuales = todosAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioActual && fechaLocal(item.fecha_registro) <= fechaFin).length;
-    const anteriores = todosAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioAnterior && fechaLocal(item.fecha_registro) <= finAnterior).length;
+    // Los dos periodos se filtran igual y con el mismo universo: comparar un
+    // periodo con canceladas contra otro sin ellas inventa una tendencia.
+    const actuales = comercialesAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioActual && fechaLocal(item.fecha_registro) <= fechaFin).length;
+    const anteriores = comercialesAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioAnterior && fechaLocal(item.fecha_registro) <= finAnterior).length;
     const muestraSuficiente = actuales + anteriores >= 5;
     const variacion = anteriores ? Math.round(((actuales - anteriores) / anteriores) * 10000) / 100 : null;
     return {
@@ -592,9 +602,15 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     productos: [...productos.values()].map(({ contactos, sucursales: ids, ...item }) => ({ ...item, contactos_identificados: contactos.size, sucursales: ids.size })).sort((a, b) => b.solicitudes - a.solicitudes),
     productos_no_manejados: [...noManejados.values()].map(({ contactos, sucursales: ids, ...item }) => ({ ...item, contactos_interesados: contactos.size, sucursales: ids.size })).sort((a, b) => b.solicitudes - a.solicitudes),
     sucursales: [...sucursales].map(([id, items]) => { const m = metricasRegistros(items); return { sucursal_id: id, sucursal_nombre: sucursalesPorId.get(id)?.nombre || `Sucursal ${id}`, demandas: m.total, cantidad_solicitada: m.cantidad_solicitada, pendientes: m.pendientes, convertidas: m.convertidas, no_convertidas: m.no_convertidas, tasa_recuperacion: m.tasa_recuperacion }; }).sort((a, b) => b.demandas - a.demandas),
-    motivos: MOTIVOS_DEMANDA.map((motivo) => ({ motivo, cantidad: motivosConteo.get(motivo) || 0, porcentaje: porcentaje(motivosConteo.get(motivo) || 0, registros.length) })),
+    motivos: MOTIVOS_DEMANDA.map((motivo) => ({ motivo, cantidad: motivosConteo.get(motivo) || 0, porcentaje: porcentaje(motivosConteo.get(motivo) || 0, comerciales.length) })),
     recuperacion: { demandas_convertidas: resumen.convertidas, demandas_no_convertidas: resumen.no_convertidas, pendientes: resumen.pendientes, tasa_recuperacion: resumen.tasa_recuperacion, ventas_recuperadas: ventasRecuperadas.size, valor_recuperado: [...ventasRecuperadas.values()].reduce((total, venta) => total + (Number(venta.total) || 0), 0) },
     evolucion, comparaciones: { ultimos_7_dias: comparar(7), ultimos_30_dias: comparar(30) },
+    // Dos universos distintos que NUNCA se suman: `familias` es todo lo que le
+    // pidieron a la tienda (vendido o no) y sirve para ver tendencia;
+    // `familias_pendientes` es la oportunidad viva y es la unica que debe
+    // alimentar una decision de compra.
+    familias: agruparFamilias(registros, { universo: "HISTORICA" }),
+    familias_pendientes: agruparFamilias(registros, { universo: "PENDIENTE" }),
   });
 }
 
