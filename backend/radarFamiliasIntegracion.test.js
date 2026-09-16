@@ -214,3 +214,60 @@ test("la inteligencia de compras entrega familias del universo PENDIENTE", () =>
   assert.equal(evidencia.familias.universo, "PENDIENTE");
   assert.equal(evidencia.familias.familias[0].unidades_conocidas, 4);
 });
+
+/**
+ * Hallazgo 1 de la revision de Codex (2026-09-16), el mas caro:
+ * las senales de compra de Inteligencia contaban TODA demanda de los ultimos
+ * 180 dias, canceladas incluidas. Tres cancelaciones del mismo producto
+ * bastaban para que el sistema dijera "revisar compra". El plan exige que las
+ * senales de compra consuman EXCLUSIVAMENTE la demanda pendiente.
+ */
+test("las senales de compra de Inteligencia ignoran las canceladas", () => {
+  const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
+  const DB = base([
+    registro(1, { estado: "CANCELADA", cantidad: 3, nombre_contacto: "Ana", telefono_contacto: "9611111111" }),
+    registro(2, { estado: "CANCELADA", cantidad: 3, nombre_contacto: "Beto", telefono_contacto: "9612222222" }),
+    registro(3, { estado: "CANCELADA", cantidad: 3, nombre_contacto: "Cruz", telefono_contacto: "9613333333" }),
+  ]);
+  DB["catalogo-productos"] = { productos: [], proveedores: [] };
+  const evidencia = obtenerEvidenciaCompras(DB, alcanceGlobal, { fecha_fin: "2026-08-31" });
+  const solicitudes = evidencia.productos_no_manejados.reduce((total, item) => total + item.solicitudes, 0);
+  assert.equal(solicitudes, 0, "una cancelada no es una oportunidad de compra");
+  assert.equal(evidencia.productos_no_manejados.length, 0);
+});
+
+test("las senales de compra de Inteligencia tampoco cuentan las ya vendidas", () => {
+  const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
+  const DB = base([
+    registro(1, { estado: "CONVERTIDA", cantidad: 4, nombre_contacto: "Ana", telefono_contacto: "9611111111" }),
+    registro(2, { cantidad: 2, nombre_contacto: "Beto", telefono_contacto: "9612222222" }),
+  ]);
+  DB["catalogo-productos"] = { productos: [], proveedores: [] };
+  const evidencia = obtenerEvidenciaCompras(DB, alcanceGlobal, { fecha_fin: "2026-08-31" });
+  const cantidad = evidencia.productos_no_manejados.reduce((total, item) => total + item.cantidad_solicitada, 0);
+  assert.equal(cantidad, 2, "solo la pendiente alimenta la compra");
+});
+
+/**
+ * Hallazgo 4 de la revision de Codex (2026-09-16): una demanda cuya
+ * fecha_registro ya viene como dia suelto ("2026-08-01") se corria al dia
+ * anterior al filtrar el periodo, y desaparecia del primer dia del rango.
+ * Un dia suelto YA es el dia de la tienda: pasarlo por zona horaria solo
+ * puede correrlo.
+ */
+test("una demanda con fecha de dia suelto cuenta en su propio dia", () => {
+  const resultado = analizar(
+    [registro(1, { fecha_registro: "2026-08-01", cantidad: 3 })],
+    { fecha_inicio: "2026-08-01", fecha_fin: "2026-08-01" },
+  );
+  assert.equal(resultado.resumen.total, 1, "la demanda del dia 1 no se puede perder");
+  assert.equal(resultado.familias.familias[0].unidades_conocidas, 3);
+});
+
+test("una demanda con fecha de dia suelto no se adelanta al periodo anterior", () => {
+  const resultado = analizar(
+    [registro(1, { fecha_registro: "2026-07-31", cantidad: 3 })],
+    { fecha_inicio: "2026-08-01", fecha_fin: "2026-08-31" },
+  );
+  assert.equal(resultado.resumen.total, 0, "la del 31 de julio no es de agosto");
+});

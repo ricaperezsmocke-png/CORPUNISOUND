@@ -85,6 +85,7 @@ function demanda(id, productoId, sucursalId, cambios = {}) {
     telefono_contacto: "555-SECRETO", nombre_contacto: "CLIENTE SECRETO",
     motivo_no_venta: "PRECIO", producto_buscado: "", marca_solicitada: "",
     modelo_solicitado: "", variante_solicitada: "", categoria_solicitada: "",
+    estado: "REGISTRADA",
     ...cambios,
   };
 }

@@ -358,26 +358,40 @@ test("fecha de solo día no depende de la zona horaria del proceso", () => {
 });
 
 /**
- * Hallazgos de la prueba en navegador del 2026-09-15 (Claude).
- * El sobrante del texto se estaba convirtiendo en marca por simple descarte,
- * justo lo que el spec prohíbe: "guitarra acústica para principiante" salía
- * con marca no identificada "principiante". Eso mete ruido en el desglose de
- * marcas, que es donde Victor decide de qué marca comprar.
+ * Marca: como se decide si un sobrante del texto es marca o no.
+ *
+ * Historia de este bloque. Codex lo dejo contando CUALQUIER sobrante como
+ * marca, asi que "guitarra acustica para principiante" salia con marca
+ * "principiante". Claude lo arreglo exigiendo mayuscula inicial, y la revision
+ * de Codex del 2026-09-16 demostro que eso era peor: la MISMA demanda escrita
+ * "Cort" o "cort" caia en categorias distintas, y cinco unidades se movian de
+ * "marca no identificada" a "marca no informada" solo por como se teclearon.
+ *
+ * Regla vigente: las mayusculas NO deciden nada. Lo que descarta un sobrante es
+ * que sea un descriptor, y eso se reconoce por la palabra y por su contexto
+ * ("para X" describe, no es marca).
  */
-test("un descriptor en minúsculas NO se convierte en marca por descarte", () => {
-  for (const texto of ["guitarra acustica para principiante", "guitarra roja bonita", "guitarra chica"]) {
+test("la misma marca desconocida cae igual sin importar mayusculas", () => {
+  const estados = ["guitarra Cort", "guitarra cort", "GUITARRA CORT", "guitarra cOrT"]
+    .map((texto) => clasificar(registro(texto))[0].marca.estado);
+  assert.deepEqual(estados, Array(4).fill("NO_IDENTIFICADA"),
+    "el mismo pedido no puede contarse distinto por como se escribio");
+});
+
+test("un descriptor NO se convierte en marca, lleve mayuscula o no", () => {
+  for (const texto of ["guitarra acustica para principiante", "guitarra para Principiante", "guitarra economica"]) {
     const articulo = clasificar(registro(texto))[0];
     assert.equal(articulo.marca.estado, "NO_INFORMADA", `"${texto}" no debe inventar marca`);
   }
 });
 
-test("una palabra con mayúscula inicial sí queda como marca no identificada", () => {
-  const articulo = clasificar(registro("guitarra Zurbarana"))[0];
+test("un candidato de dos palabras se conserva completo", () => {
+  const articulo = clasificar(registro("guitarra Music man"))[0];
   assert.equal(articulo.marca.estado, "NO_IDENTIFICADA");
-  assert.equal(articulo.marca.candidato, "Zurbarana");
+  assert.equal(articulo.marca.candidato, "Music man");
 });
 
-test("una marca conocida sigue reconociéndose aunque venga en minúsculas", () => {
+test("una marca conocida sigue reconociendose aunque venga en minusculas", () => {
   const articulo = clasificar(registro("guitarra ibanez"))[0];
   assert.equal(articulo.marca.estado, "RECONOCIDA");
 });
@@ -386,4 +400,25 @@ test("guitarra clásica es un tipo, no un sobrante de texto", () => {
   const articulo = clasificar(registro("guitarra clasica"))[0];
   assert.equal(articulo.tipo, "Clásica");
   assert.equal(articulo.marca.estado, "NO_INFORMADA");
+});
+
+/**
+ * Hallazgo 2 de la revision de Codex (2026-09-16): el backend toleraba un
+ * producto_buscado que no era texto y lo guardaba tal cual en la evidencia.
+ * La pantalla lo entregaba a React como hijo, React lo rechazaba, y se caia
+ * el reporte completo: Victor perdia tambien los registros buenos.
+ * La evidencia se conserva, pero SIEMPRE como texto legible.
+ */
+test("la evidencia siempre es texto, aunque el dato venga corrupto", () => {
+  for (const valor of [{ raro: true }, [1, 2], 42, true]) {
+    const articulo = clasificar(registro(valor))[0];
+    assert.equal(typeof articulo.evidencia.texto_original, "string",
+      `un ${typeof valor} no puede llegar a la pantalla sin convertir`);
+  }
+});
+
+test("la evidencia corrupta conserva algo legible, no se borra", () => {
+  const articulo = clasificar(registro({ raro: true }))[0];
+  assert.match(articulo.evidencia.texto_original, /raro/);
+  assert.equal(articulo.familia, "Por clasificar");
 });

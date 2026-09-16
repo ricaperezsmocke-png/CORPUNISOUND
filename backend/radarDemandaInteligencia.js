@@ -6,9 +6,10 @@
  * catalogado es exclusivamente producto_id.
  */
 
-const { fechaLocal } = require("./fechas");
+const { fechaLocal, diaLocal } = require("./fechas");
 const { agruparRegistrosLibres } = require("./radar/identidad");
 const { agruparFamilias } = require("./radar/familias");
+const { clasificarEstadoDemanda } = require("./radar/metricas");
 
 const VENTANAS = Object.freeze([7, 30, 60, 90, 180]);
 
@@ -45,7 +46,8 @@ function estaEnVentana(fecha, fechaFin, dias) {
 }
 
 function fechaDeRegistro(valor) {
-  return fechaLocal(valor);
+  // Un dia suelto ya es el dia de la tienda; convertirlo lo correria un dia.
+  return diaLocal(valor);
 }
 
 function fechaDeVenta(venta) {
@@ -126,6 +128,12 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     const fecha = fechaDeRegistro(registro.fecha_registro);
     if (!estaEnVentana(fecha, fechaFin, 180)) continue;
     registrosVentana.push(registro);
+    // TODA senal de compra sale SOLO de la demanda pendiente. Sin esto, tres
+    // demandas canceladas del mismo producto bastaban para que el sistema
+    // dijera "revisar compra", y se compraba mercancia que nadie espera.
+    // Una convertida ya se vendio y una no convertida ya se cerro: ninguna es
+    // oportunidad viva. Quedan visibles en Analisis, que es donde se ve historia.
+    if (clasificarEstadoDemanda(registro.estado) !== "PENDIENTE") continue;
     const productoId = registro.producto_id == null ? null : Number(registro.producto_id);
     if (productoId != null) {
       if (productoPorId.has(productoId)) {

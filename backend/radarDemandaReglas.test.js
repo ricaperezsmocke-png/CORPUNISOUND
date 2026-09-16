@@ -252,6 +252,7 @@ function DBIntegracion() {
       id: sucursalId * 10 + n, producto_id: 10, sucursal_id: sucursalId > 2 ? 2 : sucursalId,
       cantidad: 1, fecha_registro: "2026-08-20T12:00:00Z", cliente_id: n,
       telefono_contacto: "", nombre_contacto: "", motivo_no_venta: "PRECIO",
+      estado: "REGISTRADA",
     }))).filter((r) => r.sucursal_id <= 2), seguimientos: [] },
   };
 }

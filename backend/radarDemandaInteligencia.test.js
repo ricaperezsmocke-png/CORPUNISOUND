@@ -12,7 +12,7 @@ function demanda(id, cambios = {}) {
     fecha_registro: "2026-08-20T12:00:00.000Z", cliente_id: null,
     telefono_contacto: "", nombre_contacto: "", motivo_no_venta: "SIN_EXISTENCIA",
     producto_buscado: "", marca_solicitada: "", modelo_solicitado: "",
-    variante_solicitada: "", categoria_solicitada: "", ...cambios,
+    variante_solicitada: "", categoria_solicitada: "", estado: "REGISTRADA", ...cambios,
   };
 }
 

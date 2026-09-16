@@ -464,7 +464,7 @@ function agruparPor(registros, obtenerClave) {
 }
 
 function obtenerAnalisis(DB, alcance, filtros = {}) {
-  const { fechaLocal } = require("./fechas");
+  const { fechaLocal, diaLocal } = require("./fechas");
   const fechaInicio = validarFechaAnalisis(filtros.fecha_inicio, "fecha_inicio");
   const fechaFin = validarFechaAnalisis(filtros.fecha_fin, "fecha_fin") || fechaLocal();
   if (fechaInicio && fechaInicio > fechaFin) throw new Error("fecha_inicio debe ser anterior o igual a fecha_fin");
@@ -476,7 +476,7 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
   const registros = todosAlcance.filter((item) => {
     // fecha_registro es un instante ISO UTC; se convierte primero al día que
     // vivió la tienda y luego se compara como YYYY-MM-DD (orden lexicográfico).
-    const fecha = fechaLocal(item.fecha_registro);
+    const fecha = diaLocal(item.fecha_registro);
     return (!fechaInicio || fecha >= fechaInicio) && fecha <= fechaFin;
   });
   // `resumen` son las métricas operativas de conversión: reportan las canceladas
@@ -508,7 +508,7 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
 
   for (const item of comerciales) {
     motivosConteo.set(item.motivo_no_venta, (motivosConteo.get(item.motivo_no_venta) || 0) + 1);
-    const fecha = fechaLocal(item.fecha_registro);
+    const fecha = diaLocal(item.fecha_registro);
     const dia = evolucionConteo.get(fecha) || { fecha, demandas: 0, cantidad_solicitada: 0, convertidas: 0 };
     dia.demandas += 1; dia.cantidad_solicitada += Number(item.cantidad) || 0;
     if (item.estado === "CONVERTIDA") dia.convertidas += 1;
@@ -586,8 +586,8 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     const inicioAnterior = sumarDias(finAnterior, -(dias - 1));
     // Los dos periodos se filtran igual y con el mismo universo: comparar un
     // periodo con canceladas contra otro sin ellas inventa una tendencia.
-    const actuales = comercialesAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioActual && fechaLocal(item.fecha_registro) <= fechaFin).length;
-    const anteriores = comercialesAlcance.filter((item) => fechaLocal(item.fecha_registro) >= inicioAnterior && fechaLocal(item.fecha_registro) <= finAnterior).length;
+    const actuales = comercialesAlcance.filter((item) => diaLocal(item.fecha_registro) >= inicioActual && diaLocal(item.fecha_registro) <= fechaFin).length;
+    const anteriores = comercialesAlcance.filter((item) => diaLocal(item.fecha_registro) >= inicioAnterior && diaLocal(item.fecha_registro) <= finAnterior).length;
     const muestraSuficiente = actuales + anteriores >= 5;
     const variacion = anteriores ? Math.round(((actuales - anteriores) / anteriores) * 10000) / 100 : null;
     return {

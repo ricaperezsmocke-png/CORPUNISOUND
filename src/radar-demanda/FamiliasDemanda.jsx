@@ -15,6 +15,12 @@ import { Layers, AlertTriangle } from "lucide-react";
 
 const numero = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 });
 
+function comoTexto(valor) {
+  if (typeof valor === "string") return valor;
+  if (valor == null) return "";
+  try { return JSON.stringify(valor).slice(0, 200); } catch { return ""; }
+}
+
 const TEXTO_UNIVERSO = {
   HISTORICA: "Todo lo que pidieron en el periodo, se haya vendido o no. Sirve para ver tendencia.",
   PENDIENTE: "Solo la demanda viva. Es la única que debe decidir una compra.",
@@ -71,9 +77,17 @@ function Tipo({ tipo }) {
       <span className="font-semibold text-slate-800">{tipo.etiqueta}</span>
       <Cifras nodo={tipo} />
     </summary>
+    {/* Una caracteristica con cantidad desconocida decia "0 de 12 cuerdas", y
+        cero se lee como "nadie las pidio". Se dice cuantas sin cantidad hay. */}
     {tipo.caracteristicas?.length > 0 && <p className="mt-2 text-sm text-slate-600">
-      De esas, {tipo.caracteristicas.map((caracteristica) =>
-        `${numero.format(caracteristica.unidades_conocidas)} de ${caracteristica.etiqueta}`).join(", ")}.
+      De esas, {tipo.caracteristicas.map((caracteristica) => {
+        const sinCantidad = caracteristica.articulos_cantidad_desconocida || 0;
+        if (!caracteristica.unidades_conocidas && sinCantidad) {
+          return `${numero.format(sinCantidad)} ${sinCantidad === 1 ? "pedida" : "pedidas"} de ${caracteristica.etiqueta} sin cantidad`;
+        }
+        return `${numero.format(caracteristica.unidades_conocidas)} de ${caracteristica.etiqueta}`
+          + (sinCantidad ? ` (y ${numero.format(sinCantidad)} sin cantidad)` : "");
+      }).join(", ")}.
     </p>}
     <ul className="mt-3 space-y-2">
       {(tipo.marcas || []).map((marca) => <Marca key={marca.clave} marca={marca} />)}
@@ -95,7 +109,9 @@ function Evidencia({ registros = [] }) {
         {registro.cantidad_original != null && <span> · pidió {numero.format(registro.cantidad_original)}</span>}
         <ul className="mt-1 space-y-0.5">
           {(registro.articulos || []).map((articulo, posicion) => <li key={posicion} className="italic text-slate-500">
-            “{articulo.evidencia?.texto_original || "sin texto"}”
+            {/* Nunca se entrega un valor sin convertir: un dato corrupto en una
+                sola demanda tumbaria el reporte completo. */}
+            “{comoTexto(articulo.evidencia?.texto_original) || "sin texto"}”
           </li>)}
         </ul>
       </li>)}
@@ -119,13 +135,19 @@ function Familia({ familia }) {
 function Diagnosticos({ diagnosticos = [] }) {
   if (!diagnosticos.length) return null;
   const porMotivo = new Map();
+  // Una sola demanda puede generar varios avisos (tipo y marca, por ejemplo).
+  // Contar avisos como si fueran demandas exagera cuantos registros tienen
+  // problema y lleva a priorizar mal que regla corregir.
+  const demandas = new Set();
   for (const aviso of diagnosticos) {
     porMotivo.set(aviso.motivo, (porMotivo.get(aviso.motivo) || 0) + 1);
+    demandas.add(aviso.demanda_id ?? Symbol());
   }
   return <details className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
     <summary className="flex cursor-pointer items-center gap-2 font-semibold text-amber-900">
       <AlertTriangle size={18} />
-      {numero.format(diagnosticos.length)} {diagnosticos.length === 1 ? "demanda" : "demandas"} que las reglas no pudieron leer del todo
+      {numero.format(demandas.size)} {demandas.size === 1 ? "demanda" : "demandas"} que las reglas no pudieron leer del todo
+      {diagnosticos.length !== demandas.size && <span className="font-normal"> ({numero.format(diagnosticos.length)} avisos)</span>}
     </summary>
     <p className="mt-2 text-sm text-amber-900">
       No se pierden ni se corrigen a mano: sirven para mejorar las reglas y volver a agrupar todo parejo.
@@ -151,8 +173,12 @@ export default function FamiliasDemanda({ datos, periodo }) {
         </span>
       </h2>
       <p className="mt-2 text-sm text-slate-600">{TEXTO_UNIVERSO[datos.universo]}</p>
+      {/* Inteligencia no manda `fecha_inicio`: su ventana es de 180 dias y la
+          nombra `fecha_inicio_180d`. Decir "desde el inicio" cuando en realidad
+          son seis meses hace que Victor crea que ve todo su historial. */}
       {periodo && <p className="mt-1 text-xs text-slate-500">
-        Periodo: {periodo.fecha_inicio || "desde el inicio"} a {periodo.fecha_fin}
+        Periodo: {periodo.fecha_inicio || periodo.fecha_inicio_180d || "desde el inicio"} a {periodo.fecha_fin}
+        {!periodo.fecha_inicio && periodo.fecha_inicio_180d && " (ultimos 180 dias)"}
       </p>}
       <p className="mt-3 text-sm font-semibold text-slate-800"><Cifras nodo={datos} /> en total</p>
     </div>

@@ -1,7 +1,7 @@
 // Proyección pura: ninguna regla consulta ni modifica catálogo o persistencia.
 const { normalizarTextoRadar, normalizarGrafiaRadar, palabrasCompatibles } = require("./identidad");
 const { seleccionarUniversoDemanda } = require("./metricas");
-const { fechaLocal } = require("../fechas");
+const { diaLocal } = require("../fechas");
 
 const VERSION = 2;
 const REGLAS = [
@@ -49,6 +49,20 @@ const DESCRIPTORES = new Set([
 ]);
 const esTexto = (valor) => valor == null || typeof valor === "string";
 const texto = (valor) => typeof valor === "string" ? valor : "";
+
+// La evidencia se guarda SIEMPRE como texto legible. Si el dato vino corrupto
+// no se borra —Victor necesita verlo para entender por que no se clasifico—,
+// pero tampoco puede viajar como objeto: la pantalla lo entrega a React y
+// tumba el reporte entero, incluidos los registros buenos.
+function textoEvidencia(valor) {
+  if (typeof valor === "string") return valor;
+  if (valor == null) return "";
+  try {
+    return JSON.stringify(valor).slice(0, 200);
+  } catch {
+    return String(valor).slice(0, 200);
+  }
+}
 
 function tokensOriginales(valor) {
   return [...valor.matchAll(/[\p{L}\p{N}]+(?:[-/.][\p{L}\p{N}]+)*/gu)].map((m) => ({
@@ -190,17 +204,16 @@ function extraerIdentidad(fragmento, registro, unica, diagnosticos) {
     }
   }
   for (const m of fragmento.matchAll(/\$\s*[\d,.]+|\b[\d,.]+\s*pesos?\b/gi)) ocupar(m.index, m.index + m[0].length);
-  // Una palabra sobrante NO basta para llamarla marca: el spec prohíbe
-  // convertir el descarte en marca ("guitarra económica para principiante" no
-  // es marca Principiante). El único indicio disponible es que el vendedor la
-  // escribió con mayúscula inicial. Si el texto viene TODO en mayúsculas ese
-  // indicio no existe y no se propone ningún candidato; el texto original
-  // siempre queda visible en la evidencia.
-  const todoMayusculas = fragmento === fragmento.toLocaleUpperCase("es");
-  const pareceNombrePropio = (original) => !todoMayusculas
-    && original.slice(0, 1) !== original.slice(0, 1).toLocaleLowerCase("es");
+  // Un sobrante NO se convierte en marca por simple descarte: el spec lo
+  // prohíbe expresamente ("guitarra económica para principiante" no es marca
+  // Principiante). Lo que descarta un sobrante es que sea un DESCRIPTOR, y eso
+  // se decide por la palabra y por su contexto, NUNCA por las mayúsculas: la
+  // misma demanda escrita "Cort" o "cort" tiene que contarse igual.
+  const describe = (i) => DESCRIPTORES.has(tokens[i].normalizado)
+    // "para X" describe a quién va dirigido, no dice marca.
+    || (i > 0 && tokens[i - 1].normalizado === "para");
   const candidatos = tokens.filter((t, i) => {
-    if (ocupados.has(i) || DESCRIPTORES.has(t.normalizado) || !/[\p{L}]/u.test(t.original)) return false;
+    if (ocupados.has(i) || describe(i) || !/[\p{L}]/u.test(t.original)) return false;
     if (modelo && normalizarGrafiaRadar(t.original) === normalizarGrafiaRadar(modelo)) return false;
     if (coincidencia(tokens.map((token) => token.normalizado), i)) return false;
     // Segundo término de expresiones controladas, por ejemplo «bajo quinto».
@@ -214,7 +227,7 @@ function extraerIdentidad(fragmento, registro, unica, diagnosticos) {
       }
       return false;
     }
-    return pareceNombrePropio(t.original);
+    return true;
   });
   if (!marca && candidatos.length) {
     const candidato = fragmento.slice(candidatos[0].inicio, candidatos.at(-1).fin);
@@ -265,7 +278,7 @@ function clasificarSolicitud(entrada) {
       regla: regla && !degradar ? `articulo_principal:${regla[0]}` : "sin_regla_segura",
       version: VERSION, diagnosticos,
       evidencia: {
-        texto_original: fuente ?? "", ...parte,
+        texto_original: textoEvidencia(fuente), ...parte,
         marca_solicitada: registro.marca_solicitada ?? null,
         modelo_solicitado: registro.modelo_solicitado ?? null,
         variante_solicitada: registro.variante_solicitada ?? null,
@@ -341,10 +354,7 @@ function agruparFamilias(registros, opciones = {}) {
     const articulos = clasificarSolicitud(registro);
     const fecha = registro.fecha_registro;
     const fechaValida = typeof fecha === "string" && fecha.trim() && !Number.isNaN(Date.parse(fecha));
-    // Una fecha que ya viene como dia suelto YA es el dia: pasarla por una zona
-    // horaria solo puede correrla. Render corre en UTC y el proceso local no.
-    const esSoloDia = fechaValida && /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim());
-    const fechaDia = !fechaValida ? null : esSoloDia ? fecha.trim() : fechaLocal(fecha);
+    const fechaDia = fechaValida ? diaLocal(fecha) : null;
     if (!fechaValida) diagnosticos.push({ demanda_id: registro.id ?? null, motivo: "FECHA_INVALIDA" });
     const evidenciaPorFamilia = new Map();
     articulos.forEach((articulo, indice) => {
