@@ -18,6 +18,13 @@ un faltante que no cometió.
 
 - **No agregar dependencias.** Ninguna. Las pruebas usan el runner integrado de Node (`node --test`).
   Si crees que necesitas una, detente y pregunta.
+- **No escribir líneas de más de 200 caracteres** en `.js` ni `.jsx` de `src/` o `backend/`. Ni una.
+  Esto aplica a **todo agente que toque código aquí**, no solo a quien tenga el bloqueo puesto:
+  Claude lo tiene bloqueado por un hook, Codex escribe por su cuenta y tiene que respetarlo solo.
+  Este repo llegó a tener una línea de **2,658 caracteres** —una pantalla entera de React en un solo
+  renglón— y ahí es donde se esconden los errores que le cuestan dinero a Victor. Si una línea no
+  cabe, se parte; si de verdad no se puede partir, se reporta y se explica por qué, no se escribe
+  igual. Un `className` de Tailwind largo tampoco es excusa: se extrae a una constante.
 - **No `git add .`** — el repo tiene ~527 archivos sin seguimiento (`.agents/`, `graphify-out/`,
   `skills-lock.json`). Siempre staging por rutas explícitas.
 - **No push, no merge, no rebase.** Eso lo hace Victor, siempre. Commits en la rama de trabajo, sí.
