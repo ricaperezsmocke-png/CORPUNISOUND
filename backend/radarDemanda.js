@@ -478,6 +478,32 @@ function agruparPor(registros, obtenerClave) {
   return grupos;
 }
 
+// El comentario de CAMBIO_ESTADO es la fuente que guarda DetalleDemanda.
+// No se infiere una causa a partir del motivo inicial ni de notas de seguimiento.
+function desglosarMotivosNoConversion(registros, seguimientos) {
+  const motivos = [
+    "Cliente compró en otro lugar", "Precio", "Tiempo de entrega", "No respondió", "Perdió interés", "Otro",
+  ];
+  const conteo = new Map([...motivos, "Sin motivo registrado", "Motivo no identificado"].map((motivo) => [motivo, 0]));
+  const cerradas = registros.filter((item) => item.estado === "NO_CONVERTIDA");
+  const ids = new Set(cerradas.map((item) => String(item.id)));
+  const ultimoCierre = new Map();
+  const historial = (Array.isArray(seguimientos) ? seguimientos : [])
+    .filter((item) => item && ids.has(String(item.demanda_id)) && item.tipo === "CAMBIO_ESTADO"
+      && item.estado_nuevo === "NO_CONVERTIDA" && item.estado_anterior !== "NO_CONVERTIDA")
+    // filter crea un array nuevo: ordenar no cambia el historial persistido.
+    .sort((a, b) => ((Date.parse(a.fecha_hora) || 0) - (Date.parse(b.fecha_hora) || 0))
+      || (Number(a.id) || 0) - (Number(b.id) || 0));
+  for (const entrada of historial) ultimoCierre.set(String(entrada.demanda_id), entrada);
+  for (const demanda of cerradas) {
+    const comentario = ultimoCierre.get(String(demanda.id))?.comentario;
+    const literal = typeof comentario === "string" ? comentario.trim() : "";
+    const motivo = !literal ? "Sin motivo registrado" : motivos.includes(literal) ? literal : "Motivo no identificado";
+    conteo.set(motivo, conteo.get(motivo) + 1);
+  }
+  return [...conteo].map(([motivo, cantidad]) => ({ motivo, cantidad, porcentaje: porcentaje(cantidad, cerradas.length) }));
+}
+
 function obtenerAnalisis(DB, alcance, filtros = {}) {
   const { fechaLocal, diaLocal } = require("./fechas");
   const fechaInicio = validarFechaAnalisis(filtros.fecha_inicio, "fecha_inicio");
@@ -618,6 +644,7 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
     productos_no_manejados: [...noManejados.values()].map(({ contactos, sucursales: ids, ...item }) => ({ ...item, contactos_interesados: contactos.size, sucursales: ids.size })).sort((a, b) => b.solicitudes - a.solicitudes),
     sucursales: [...sucursales].map(([id, items]) => { const m = metricasRegistros(items); return { sucursal_id: id, sucursal_nombre: sucursalesPorId.get(id)?.nombre || `Sucursal ${id}`, demandas: m.total, cantidad_solicitada: m.cantidad_solicitada, pendientes: m.pendientes, convertidas: m.convertidas, no_convertidas: m.no_convertidas, tasa_recuperacion: m.tasa_recuperacion }; }).sort((a, b) => b.demandas - a.demandas),
     motivos: MOTIVOS_DEMANDA.map((motivo) => ({ motivo, cantidad: motivosConteo.get(motivo) || 0, porcentaje: porcentaje(motivosConteo.get(motivo) || 0, comerciales.length) })),
+    motivos_no_conversion: desglosarMotivosNoConversion(comerciales, DB.radar_demanda?.seguimientos),
     recuperacion: { demandas_convertidas: resumen.convertidas, demandas_no_convertidas: resumen.no_convertidas, pendientes: resumen.pendientes, tasa_recuperacion: resumen.tasa_recuperacion, ventas_recuperadas: ventasRecuperadas.size, valor_recuperado: [...ventasRecuperadas.values()].reduce((total, venta) => total + (Number(venta.total) || 0), 0) },
     evolucion, comparaciones: { ultimos_7_dias: comparar(7), ultimos_30_dias: comparar(30) },
     // Dos universos distintos que NUNCA se suman: `familias` es todo lo que le

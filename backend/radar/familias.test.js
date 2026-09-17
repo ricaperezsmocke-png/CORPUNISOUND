@@ -9,6 +9,296 @@ const registro = (producto_buscado, extra = {}) => ({
   sucursal_id: 1, fecha_registro: "2026-09-15T01:00:00Z", ...extra,
 });
 
+// Transcripción literal del despacho: 60 textos, 65 registros (no 65/70).
+// Las familias esperadas son independientes de las reglas de producción.
+const evidenciaReal = [
+  [4, "ESTEREO", ["estereos"]],
+  [2, "estereo sony", ["estereos"]],
+  [1, "esterio sony", ["estereos"]],
+  [1, "arnes de  esterio", ["arneses"]],
+  [2, "DIAFRAGMA", ["diafragmas"]],
+  [1, "DIAFRAGMA MITZU", ["diafragmas"]],
+  [1, "TWEETER", ["tweeters"]],
+  [1, "SUBWOOFER", ["subwoofers"]],
+  [1, "Woofeer para Auto", ["woofers"]],
+  [1, "Columna Activa", ["columnas_activas"]],
+  [1, "MINI LINE ARRAY", ["line_arrays"]],
+  [1, "SISTEMA MINI LINE ARRAY", ["line_arrays"]],
+  [1, "COBRA PACK MINI LINEAL", ["line_arrays"]],
+  [1, "CORNETA PARA BANDA", ["cornetas"]],
+  [1, "COMBO PARA BAJO", ["amplificadores"]],
+  [1, "SISTEMA DE MONITOREO IN EARS", ["monitoreo_in_ear"]],
+  [1, "AGUDO", ["tweeters"]],
+  [1, "bufer", ["buffers"]],
+  [1, "unidad 300", ["unidades_audio"]],
+  [1, "dbx pa2", ["por_clasificar"]],
+  [1, "pro40", ["por_clasificar"]],
+  [1, "KSB20", ["por_clasificar"]],
+  [1, "TIMBAL", ["timbales"]],
+  [1, "tambor escolar", ["tambores"]],
+  [1, "TAMBOR REGLAMENTARIO, CORNETA ,ENTORCHADO", ["tambores", "cornetas", "entorchados"]],
+  [1, "parche 22 para bobo", ["parches"]],
+  [1, "PATA PARA BONBO", ["patas_bombo"]],
+  [1, "BANCO PARA BATERIA", ["bancos_bateria"]],
+  [1, "Platillos para bateria", ["platillos"]],
+  [1, "AHOGADOR EN CINTA PARA BATERÍA", ["ahogadores"]],
+  [1, "PANDERO JR 8", ["panderos"]],
+  [1, "Guiros chicos y pandero media Luna", ["guiros", "panderos"]],
+  [1, "COQUILLA  7C", ["boquillas"]],
+  [1, "PILA 9V  NORMAL", ["pilas"]],
+  [1, "baterias 9v", ["pilas"]],
+  [1, "BATEREIA DE 9V", ["pilas"]],
+  [1, "bateria recargable AAA", ["pilas"]],
+  [1, "CARGADOR DE PILA DE 9V", ["cargadores"]],
+  [1, "fusible de ceramica", ["fusibles"]],
+  [1, "REGULADOR PARA REFRIGERADOR", ["reguladores"]],
+  [1, "regulador 5000", ["reguladores"]],
+  [1, "inversor de corriente", ["inversores"]],
+  [1, "no breake", ["no_break"]],
+  [1, "CENTRO DE CARGA", ["centros_carga"]],
+  [1, "CHICHARRA", ["chicharras"]],
+  [1, "LED", ["led"]],
+  [1, "PISTA LED", ["pistas_led"]],
+  [1, "PROTOBOAR", ["protoboards"]],
+  [1, "protowar", ["protoboards"]],
+  [1, "IMANES PARA PROYECTO", ["imanes"]],
+  [1, "ACCESORIO DE ELECTRONICA", ["por_clasificar"]],
+  [1, "radios", ["radios"]],
+  [1, "CONTROL", ["por_clasificar"]],
+  [1, "Acordeón 34 TECLAS", ["acordeones"]],
+  [1, "Sintetizador", ["sintetizadores"]],
+  [1, "LIQUIDO DE HUMO POR GALON", ["liquido_humo"]],
+  [1, "CUADERNILLOS DE NOTAS MUSICALES DE UKULELE", ["metodos"]],
+  [1, "maquinariametalico", ["por_clasificar"]],
+  [1, "Instrumentos en General", ["por_clasificar"]],
+  [1, "iouoi", ["por_clasificar"]],
+];
+
+for (const [, textoReal, familias] of evidenciaReal) {
+  test(`despacho real: ${textoReal}`, () => {
+    const entrada = Object.freeze(registro(textoReal));
+    const articulos = clasificar(entrada);
+    assert.deepEqual(articulos.map((a) => a.familia_id), familias);
+    for (const articulo of articulos) {
+      assert.equal(articulo.evidencia.texto_original, textoReal);
+      if (articulo.familia_id === "por_clasificar") {
+        assert.ok(articulo.diagnosticos.some((d) => d.motivo === "FAMILIA_NO_IDENTIFICADA"));
+      }
+    }
+  });
+}
+
+test("cobertura del bloque real: 52 textos / 57 registros reconocidos, 8 sin clasificar", (t) => {
+  const reconocidos = evidenciaReal.filter(([, textoReal]) =>
+    clasificar(registro(textoReal)).every((a) => a.familia_id !== "por_clasificar"));
+  const registros = reconocidos.reduce((suma, [veces]) => suma + veces, 0);
+  t.diagnostic(`${reconocidos.length}/60 textos y ${registros}/65 registros reconocidos; ${60 - reconocidos.length} textos sin clasificar`);
+  assert.equal(reconocidos.length, 52);
+  assert.equal(registros, 57);
+});
+
+for (const [textoReal, marca] of [
+  ["GUITARRA AZTECA", "AZTECA"], ["GUITARRA GEWA", "GEWA"],
+  ["guitarra fender", "fender"], ["GUITARRA SEVILLANA", "SEVILLANA"],
+]) {
+  test(`marca real, nunca tipo: ${textoReal}`, () => {
+    const [articulo] = clasificar(registro(textoReal));
+    assert.equal(articulo.familia_id, "guitarras");
+    assert.equal(articulo.tipo_id, "no_identificado");
+    assert.equal(articulo.marca.estado, "RECONOCIDA");
+    assert.equal(articulo.marca.texto, marca);
+  });
+}
+
+test("GUITARRA DOCEROLA y GUITARRA 12 CUERDAS comparten familia, tipo y característica", () => {
+  const articulos = ["GUITARRA DOCEROLA", "GUITARRA 12 CUERDAS"].map((s) => clasificar(registro(s))[0]);
+  for (const a of articulos) {
+    assert.equal(a.familia_id, "guitarras");
+    assert.equal(a.tipo_id, "no_identificado");
+    assert.deepEqual(a.caracteristicas, [{ clave: "cuerdas_12", etiqueta: "12 cuerdas" }]);
+  }
+});
+
+test("GUITARRA INFANTIL identifica un tipo de compra y no una marca", () => {
+  const [a] = clasificar(registro("GUITARRA INFANTIL"));
+  assert.equal(a.familia_id, "guitarras");
+  assert.equal(a.tipo_id, "infantil");
+  assert.equal(a.tipo, "Infantil");
+  assert.equal(a.marca.estado, "NO_INFORMADA");
+});
+
+for (const textoReal of ["guitarra", "GUITARRA", "guitarra economica", "GUITARRA NORMAL"]) {
+  test(`guitarra legítima sin tipo ni ruido: ${textoReal}`, () => {
+    const [a] = clasificar(registro(textoReal));
+    assert.equal(a.familia_id, "guitarras");
+    assert.equal(a.tipo_id, "no_identificado");
+    assert.equal(a.marca.estado, "NO_INFORMADA");
+    assert.deepEqual(a.diagnosticos, []);
+  });
+}
+
+test("GUITARRA Y VIOLIN conserva las dos compras reales", () => {
+  assert.deepEqual(clasificar(registro("GUITARRA Y VIOLIN")).map((a) => a.familia_id), ["guitarras", "violines"]);
+});
+
+for (const [descripcion, familia] of [
+  ["diapason para guitarra", "por_clasificar"],
+  ["accesorio desconocido para guitarra y bajo quinto", "por_clasificar"],
+  ["pastilla para guitarra", "pastillas"], ["parche 22 para bobo", "parches"],
+  ["guitarra para infantil", "guitarras"],
+]) {
+  test(`compatibilidad no es artículo principal: ${descripcion}`, () => {
+    const articulos = clasificar(registro(descripcion));
+    assert.deepEqual(articulos.map((a) => a.familia_id), [familia]);
+    if (familia === "por_clasificar") {
+      assert.ok(articulos[0].diagnosticos.some((d) => d.motivo === "FAMILIA_NO_IDENTIFICADA"));
+    }
+  });
+}
+
+test("batería sin contexto eléctrico queda ambigua; el accesorio conserva su familia", () => {
+  for (const texto of ["bateria", "baterías", "BATEREIA", "bateria para guitarra"]) {
+    const [a] = clasificar(registro(texto));
+    assert.equal(a.familia_id, "por_clasificar", texto);
+    assert.ok(a.diagnosticos.some((d) => d.motivo === "BATERIA_AMBIGUA"), texto);
+  }
+  assert.equal(clasificar(registro("BANCO PARA BATERIA"))[0].familia_id, "bancos_bateria");
+  assert.equal(clasificar(registro("Platillos para bateria"))[0].familia_id, "platillos");
+});
+
+test("vocabulario general conserva plurales, erratas y accesorios fuera del corpus", () => {
+  for (const [descripcion, familia] of [
+    ["estéreos nuevos", "estereos"], ["reguladores", "reguladores"],
+    ["inversores", "inversores"], ["no breaks", "no_break"],
+    ["pistas LED", "pistas_led"], ["protoboards", "protoboards"],
+    ["boquillas", "boquillas"], ["arneses", "arneses"],
+    ["timbales", "timbales"], ["tambores", "tambores"],
+    ["pata para bombo", "patas_bombo"], ["bancos para baterías", "bancos_bateria"],
+    ["bocinas", "bocinas"], ["bafles", "bocinas"],
+  ]) assert.equal(clasificar(registro(descripcion))[0].familia_id, familia, descripcion);
+});
+
+test("bombo y su errata real BONBO identifican el instrumento, sin absorber sus patas", () => {
+  for (const descripcion of ["bombo", "BONBO", "bombos"]) {
+    assert.equal(clasificar(registro(descripcion))[0].familia_id, "bombos");
+  }
+  assert.equal(clasificar(registro("PATA PARA BONBO"))[0].familia_id, "patas_bombo");
+  assert.equal(clasificar(registro("parche 22 para bobo"))[0].familia_id, "parches");
+});
+
+test("cobertura del bloque real de guitarras: 12 de 13 reconocidos; diapason queda pendiente", (t) => {
+  const textos = [
+    "GUITARRA AZTECA", "GUITARRA DOCEROLA", "GUITARRA 12 CUERDAS", "GUITARRA GEWA",
+    "guitarra", "GUITARRA Y VIOLIN", "guitarra economica", "guitarra fender",
+    "GUITARRA NORMAL", "GUITARRA", "diapason para guitarra", "GUITARRA INFANTIL", "GUITARRA SEVILLANA",
+  ];
+  const sinClasificar = textos.filter((s) => clasificar(registro(s)).some((a) => a.familia_id === "por_clasificar"));
+  assert.deepEqual(sinClasificar, ["diapason para guitarra"]);
+  t.diagnostic("Guitarras: 12/13 textos reconocidos, 1 sin clasificar. Ambos bloques: 64/73 textos, 69/78 registros; 9 sin clasificar.");
+});
+
+// Trabajo 4: se ejercita la API real aquí para respetar el único archivo/comando
+// de pruebas autorizado por el despacho; no se importa ninguna otra suite.
+const motivosCierreReales = [
+  "Cliente compró en otro lugar", "Precio", "Tiempo de entrega", "No respondió", "Perdió interés", "Otro",
+];
+const periodoCierre = { fecha_inicio: "2026-09-01", fecha_fin: "2026-09-30" };
+const alcanceCierre = { verTodas: true, sucursalId: null };
+const demandaCerrada = (id, extra = {}) => registro("ESTEREO", {
+  id, estado: "NO_CONVERTIDA", motivo_no_venta: "SIN_EXISTENCIA", ...extra,
+});
+const cierre = (id, demanda_id, comentario, extra = {}) => ({
+  id, demanda_id, tipo: "CAMBIO_ESTADO", estado_anterior: "REGISTRADA", estado_nuevo: "NO_CONVERTIDA",
+  fecha_hora: "2026-09-16T18:00:00.000Z", comentario, ...extra,
+});
+const baseCierres = (registros, seguimientos = []) => ({
+  radar_demanda: { registros, seguimientos }, pos: { sucursales: [], ventas: [] },
+});
+const analizarCierres = (DB, alcance = alcanceCierre, filtros = periodoCierre) =>
+  require("../radarDemanda").obtenerAnalisis(DB, alcance, filtros);
+
+test("no concretadas: seis motivos reales separados del motivo inicial y sin alterar totales", () => {
+  const demandas = motivosCierreReales.map((_, i) => demandaCerrada(i + 1));
+  demandas.push(demandaCerrada(7, { estado: "REGISTRADA" }));
+  const DB = baseCierres(demandas, motivosCierreReales.map((m, i) => cierre(i + 1, i + 1, m)));
+  const antes = structuredClone(DB);
+  const resultado = analizarCierres(DB);
+  assert.ok(Array.isArray(resultado.motivos_no_conversion), "falta el desglose del cierre");
+  for (const motivo of motivosCierreReales) {
+    assert.deepEqual(resultado.motivos_no_conversion.find((m) => m.motivo === motivo),
+      { motivo, cantidad: 1, porcentaje: 16.67 });
+  }
+  assert.equal(resultado.motivos_no_conversion.reduce((s, m) => s + m.cantidad, 0), 6);
+  assert.deepEqual(resultado.motivos, analizarCierres(baseCierres(demandas)).motivos);
+  assert.equal(resultado.motivos.find((m) => m.motivo === "SIN_EXISTENCIA").cantidad, 7);
+  assert.equal(resultado.resumen.no_convertidas, 6);
+  assert.equal(resultado.familias.solicitudes, 7);
+  assert.equal(resultado.familias_pendientes.solicitudes, 1);
+  assert.deepEqual(DB, antes);
+});
+
+test("cierre: usa la última transición real, nunca un seguimiento ni un cierre anterior", () => {
+  const DB = baseCierres([demandaCerrada(1)], [
+    cierre(6, 1, "Otro", { tipo: "SEGUIMIENTO", estado_anterior: "NO_CONVERTIDA", fecha_hora: "2026-09-19T18:00:00Z" }),
+    cierre(4, 1, "Precio", { fecha_hora: "2026-09-18T18:00:00Z" }),
+    cierre(3, 1, "No respondió", { fecha_hora: "2026-09-18T18:00:00Z" }),
+    cierre(1, 1, "Cliente compró en otro lugar"),
+    cierre(8, 1, "Otro", { estado_anterior: "NO_CONVERTIDA", fecha_hora: "2026-09-20T18:00:00Z" }),
+  ]);
+  const antes = structuredClone(DB);
+  const resultado = analizarCierres(DB);
+  assert.ok(Array.isArray(resultado.motivos_no_conversion));
+  assert.deepEqual(resultado.motivos_no_conversion.filter((m) => m.cantidad), [
+    { motivo: "Precio", cantidad: 1, porcentaje: 100 },
+  ]);
+  assert.deepEqual(DB, antes);
+});
+
+test("cierre: sin evidencia se reporta como tal, no se inventa Otro ni se lee el motivo inicial", () => {
+  const DB = baseCierres([1, 2, 3, 4].map((id) => demandaCerrada(id, { motivo_no_venta: "PRECIO" })), [
+    cierre(1, 2, ""), cierre(2, 3, "Quizá lo compre después"),
+    cierre(3, 4, "Precio"), cierre(4, 4, "", { fecha_hora: "2026-09-17T18:00:00Z" }),
+  ]);
+  const resultado = analizarCierres(DB);
+  assert.ok(Array.isArray(resultado.motivos_no_conversion));
+  assert.deepEqual(resultado.motivos_no_conversion.filter((m) => m.cantidad), [
+    { motivo: "Sin motivo registrado", cantidad: 3, porcentaje: 75 },
+    { motivo: "Motivo no identificado", cantidad: 1, porcentaje: 25 },
+  ]);
+});
+
+test("cierre: respeta sucursal, periodo de demanda y estado vigente", () => {
+  const DB = baseCierres([
+    demandaCerrada(1), demandaCerrada(2, { sucursal_id: 2 }),
+    demandaCerrada(3, { fecha_registro: "2026-08-01" }),
+    demandaCerrada(4, { estado: "CANCELADA" }), demandaCerrada(5, { estado: "CONVERTIDA" }),
+    demandaCerrada(6, { estado: "REGISTRADA" }), demandaCerrada(7, { estado: "FUTURO" }),
+  ], [1, 2, 3, 4, 5, 6, 7].map((id) => cierre(id, id, id === 1 ? "Precio" : "Otro")));
+  const resultado = analizarCierres(DB, { verTodas: false, sucursalId: 1 });
+  assert.ok(Array.isArray(resultado.motivos_no_conversion));
+  assert.deepEqual(resultado.motivos_no_conversion.filter((m) => m.cantidad), [
+    { motivo: "Precio", cantidad: 1, porcentaje: 100 },
+  ]);
+});
+
+test("cierre: base congelada, historial ausente o dañado y cero cierres no rompen la lectura", () => {
+  for (const seguimientos of [undefined, {}, [null, { tipo: "CAMBIO_ESTADO" }]]) {
+    const DB = baseCierres([demandaCerrada(1)]);
+    DB.radar_demanda.seguimientos = seguimientos;
+    const congelar = (valor) => {
+      if (valor && typeof valor === "object") { Object.values(valor).forEach(congelar); Object.freeze(valor); }
+    };
+    congelar(DB);
+    const resultado = analizarCierres(DB);
+    assert.ok(Array.isArray(resultado.motivos_no_conversion));
+    assert.deepEqual(resultado.motivos_no_conversion.filter((m) => m.cantidad), [
+      { motivo: "Sin motivo registrado", cantidad: 1, porcentaje: 100 },
+    ]);
+  }
+  const vacio = analizarCierres(baseCierres([]));
+  assert.ok(vacio.motivos_no_conversion.every((m) => m.cantidad === 0 && m.porcentaje === 0));
+});
+
 test("electroacústica de 12 cuerdas conserva un tipo y características coexistentes", () => {
   const [articulo] = clasificar(registro("Guitarra electroacústica de 12 cuerdas", {
     variante_solicitada: "negra zurda tamaño 3/4 acabado mate",

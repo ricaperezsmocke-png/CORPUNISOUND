@@ -99,6 +99,24 @@ export default function AnalisisDemanda({ permisos = [] }) {
         </div>
         <FamiliasDemanda datos={universo === "PENDIENTE" ? datos.familias_pendientes : datos.familias} periodo={datos.periodo} />
       </section>
+      {/* Por qué se perdió una venta no es lo mismo que por qué se registró la
+          demanda. "Compró en otro lugar" significa que faltó el producto y hay
+          que comprarlo; "Precio" significa que estaba y no se lo llevaron. */}
+      {datos.motivos_no_conversion?.some((m) => m.cantidad > 0) && <section className="min-w-0 rounded-2xl neu p-4">
+        <h2 className="font-bold text-slate-800">Por qué no se concretaron</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          De las demandas que se cerraron sin venta. Las de arriba son ventas que perdiste por no tener el producto.
+        </p>
+        <ul className="mt-3 divide-y divide-slate-100">
+          {datos.motivos_no_conversion.filter((m) => m.cantidad > 0).map((m) => <li key={m.motivo} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
+            <span className="text-sm text-slate-700">{m.motivo}</span>
+            <span className="whitespace-nowrap text-sm font-semibold text-slate-800">
+              {numero.format(m.cantidad)} · {numero.format(m.porcentaje)}%
+            </span>
+          </li>)}
+        </ul>
+      </section>}
+
       {/* Estas tres tablas SIEMPRE son el histórico, no cambian con el botón de
           arriba. Sin decirlo, alguien que eligió "solo lo pendiente" las lee
           como pendientes y compra de más. */}
