@@ -15,6 +15,27 @@ const codigo = transformSync(fs.readFileSync(path.join(__dirname, "../src/PuntoD
   loader: "jsx", format: "cjs", logLevel: "silent",
 }).code;
 
+// Solo estos se cargan de verdad. Son calculo puro, sin React: si alguien
+// agrega aqui un componente, la prueba truena al instante y se entiende por que.
+const MODULOS_DE_CALCULO = new Set(["./calcularTotalesVenta.js", "./calcularTotalesVenta"]);
+
+// Carga de verdad un modulo vecino de src/, compilandolo igual que la pantalla.
+// Devuelve null si no existe, para que el stub siga sustituyendo lo demas.
+const cacheModulos = new Map();
+function cargarModuloReal(nombre) {
+  if (cacheModulos.has(nombre)) return cacheModulos.get(nombre);
+  const base = path.join(__dirname, "../src", nombre.slice(2));
+  const ruta = [base, `${base}.js`, `${base}.jsx`].find((r) => fs.existsSync(r) && fs.statSync(r).isFile());
+  if (!ruta) { cacheModulos.set(nombre, null); return null; }
+  const fuente = transformSync(fs.readFileSync(ruta, "utf8"), {
+    loader: ruta.endsWith(".jsx") ? "jsx" : "js", format: "cjs", logLevel: "silent",
+  }).code;
+  const mod = { exports: {} };
+  vm.runInNewContext(fuente, { module: mod, exports: mod.exports, require: () => () => null });
+  cacheModulos.set(nombre, mod.exports);
+  return mod.exports;
+}
+
 // Ejecuta el componente y sus callbacks reales. Solo sustituye el alojamiento
 // de hooks, iconos, temporizadores y red; ventas e importes usan el backend real.
 // Complementa, no sustituye, la prueba del flujo completo en navegador.
@@ -88,6 +109,14 @@ async function prepararPantalla(saldo = 120) {
       if (nombre === "react") return react;
       if (nombre === "./api") return api;
       if (nombre === "lucide-react") return new Proxy({}, { get: () => () => null });
+      // Los modulos de CALCULO se cargan de verdad: si se sustituyeran por una
+      // funcion vacia, la prueba dejaria de ver los importes reales, que es
+      // justo lo que vino a comprobar. Los COMPONENTES siguen sustituidos: son
+      // pantallas enteras y aqui solo interesan los importes.
+      if (MODULOS_DE_CALCULO.has(nombre)) {
+        const real = cargarModuloReal(nombre);
+        if (real) return real;
+      }
       return () => null;
     },
     window: { addEventListener() {}, removeEventListener() {} },
