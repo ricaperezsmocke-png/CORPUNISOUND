@@ -9,6 +9,93 @@ const registro = (producto_buscado, extra = {}) => ({
   sucursal_id: 1, fecha_registro: "2026-09-15T01:00:00Z", ...extra,
 });
 
+// Despacho 2026-09-16: reproducciones literales y límites de seguridad.
+for (const descripcion of ["pua", "puas", "púa", "púas", "plumilla", "plumillas"]) {
+  test(`hueco 1: ${descripcion} pertenece a Púas`, () => {
+    const [articulo] = clasificar(Object.freeze(registro(descripcion)));
+    assert.equal(articulo.familia_id, "puas");
+    assert.equal(articulo.familia, "Púas");
+    assert.equal(articulo.evidencia.texto_original, descripcion);
+  });
+}
+
+test("hueco 1: púas para guitarra conserva el accesorio y sus unidades", () => {
+  const [articulo] = clasificar(registro("3 púas para guitarra"));
+  assert.equal(articulo.familia_id, "puas");
+  assert.equal(articulo.cantidad, 3);
+});
+
+test("hueco 1: la familia nueva no absorbe pilas, pastillas ni palabras cortas", () => {
+  for (const [descripcion, familia] of [
+    ["pila", "pilas"], ["pastillas", "pastillas"], ["parches", "parches"],
+    ["plumero", "por_clasificar"], ["puaX", "por_clasificar"],
+  ]) assert.equal(clasificar(registro(descripcion))[0].familia_id, familia, descripcion);
+});
+
+// Detenido: Levenshtein = 4; contando transposición adyacente = 3, frente
+// a tolerancia 2. Guitarra/guitarron ya distan 2 y se separan por coincidencia
+// exacta en familias, no por palabrasCompatibles. No ampliar el comparador
+// compartido ni agregar un alias de esta errata sin una regla general segura.
+// TODO ejecuta la reproducción roja: no se elimina ni se declara resuelta.
+test("hueco 2: MIRCOROFO STEREN INALAMBRICO reconoce familia, marca y tipo", {
+  todo: "Detenido: pendiente una regla general segura para la errata; no se amplía la tolerancia",
+}, () => {
+  const [articulo] = clasificar(registro("MIRCOROFO STEREN INALAMBRICO"));
+  assert.equal(articulo.familia_id, "microfonos");
+  assert.equal(articulo.marca.estado, "RECONOCIDA");
+  assert.equal(articulo.marca.texto, "STEREN");
+  assert.equal(articulo.tipo_id, "inalambrico");
+});
+
+test("hueco 2: guitarra y guitarron siguen siendo familias distintas", () => {
+  for (const [descripcion, familia] of [
+    ["guitarra", "guitarras"], ["guitarron", "guitarrones"],
+    ["guitarras", "guitarras"], ["guitarrones", "guitarrones"],
+  ]) assert.equal(clasificar(registro(descripcion))[0].familia_id, familia, descripcion);
+  assert.deepEqual(clasificar(registro("guitarra y guitarron")).map((a) => a.familia_id),
+    ["guitarras", "guitarrones"]);
+});
+
+test("hueco 2: sin la errata, STEREN e INALAMBRICO se reconocen solos", () => {
+  const [articulo] = clasificar(registro("MICROFONO STEREN INALAMBRICO"));
+  assert.equal(articulo.familia_id, "microfonos");
+  assert.equal(articulo.marca.estado, "RECONOCIDA");
+  assert.equal(articulo.marca.texto, "STEREN");
+  assert.equal(articulo.tipo_id, "inalambrico");
+});
+
+// Detenido: exigir otro artículo con su propio «para» recuperó Cuerdas, pero
+// también convirtió «accesorio para guitarra y bajo quinto para principiante»
+// en una compra de bajo quinto. Se retiró esa regla; la protección queda abajo.
+test("hueco 3: Caña para Clarinete y cuerdas para Viola y Viloncello recupera Cuerdas", {
+  todo: "Detenido: no se encontró una regla general que distinga compra de compatibilidad con seguridad",
+}, () => {
+  const original = "Caña para Clarinete y cuerdas para Viola y Viloncello";
+  const articulos = clasificar(Object.freeze(registro(original)));
+  assert.ok(articulos.some((a) => a.familia_id === "cuerdas"));
+  for (const articulo of articulos) {
+    assert.equal(articulo.evidencia.texto_original, original);
+    const { inicio, fin, fragmento } = articulo.evidencia;
+    assert.equal(original.slice(inicio, fin), fragmento);
+  }
+});
+
+for (const [descripcion, familia] of [
+  ["Aceite para émbolos de trompeta", "por_clasificar"],
+  ["GOMAS PARA TECLADO", "por_clasificar"],
+  ["ACCESORIO PARA PEDESTAL", "por_clasificar"],
+  ["diapason para guitarra", "por_clasificar"],
+  ["pastilla para guitarra", "pastillas"],
+  ["guitarra con pastilla", "guitarras"],
+  ["accesorio para guitarra y bajo", "por_clasificar"],
+  ["accesorio para guitarra y bajo quinto", "por_clasificar"],
+  ["accesorio para guitarra y bajo quinto para principiante", "por_clasificar"],
+]) {
+  test(`hueco 3, protección: ${descripcion}`, () => {
+    assert.deepEqual(clasificar(registro(descripcion)).map((a) => a.familia_id), [familia]);
+  });
+}
+
 // Transcripción literal del despacho: 60 textos, 65 registros (no 65/70).
 // Las familias esperadas son independientes de las reglas de producción.
 const evidenciaReal = [

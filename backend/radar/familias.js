@@ -10,6 +10,7 @@ const REGLAS = [
   ["maquinaria", "Maquinaria", ["maquinaria", "clavija"]],
   ["fundas", "Fundas", ["funda", "estuche"]],
   ["cuerdas", "Cuerdas", ["cuerda", "encordadura"]],
+  ["puas", "Púas", ["pua", "plumilla"]],
   ["capotrastes", "Capotrastes", ["capotraste", "capo traste", "capo"]],
   ["bases_atriles", "Bases y atriles", ["base", "atril", "atrile", "pedestal", "tripie"]],
   ["cables", "Cables", ["cable"]],
