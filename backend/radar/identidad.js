@@ -18,24 +18,45 @@ function textoEscrito(registro) {
   ].map(texto).filter(Boolean).join(" ");
 }
 
-function crearBolsaPalabras(registro) {
-  let valor = textoEscrito(registro)
+function normalizarGrafiaRadar(valor) {
+  return texto(valor)
     .toLocaleLowerCase("es")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
 
-  valor = valor
+function normalizarUnidadesRadar(textoOriginal) {
+  return normalizarGrafiaRadar(textoOriginal)
     .replace(/(\d+(?:[/.]\d+)?)\s*(?:''|")/g, "$1pulgadas")
     .replace(/(\d+(?:[/.]\d+)?)\s*(?:pulgadas?|pulg)\b/g, "$1pulgadas")
     .replace(/(\d+(?:[/.]\d+)?)\s*(?:metros?|mts?|m)\b/g, "$1metros")
     .replace(/(\d+(?:[/.]\d+)?)\s*(?:watts?|w)\b/g, "$1w")
     .replace(/(\d+(?:[/.]\d+)?)\s*(?:volts?|v)\b/g, "$1v")
     .replace(/[^a-z0-9/.]+/g, " ");
+}
 
-  const palabras = valor.split(/\s+/).filter(Boolean).filter((palabra) => !PALABRAS_VACIAS.has(palabra)).map((palabra) => {
-    if (!/\d/.test(palabra) && palabra.length >= 4 && palabra.endsWith("s")) return palabra.slice(0, -1);
-    return palabra;
-  });
+// Las palabras vacias se dejan tal cual: la normalizacion semantica conserva
+// "unos" para no confundir "unos cables" con "uno cable". En la bolsa da igual,
+// porque ahi ya se filtraron antes de llegar aqui.
+function simplificarPlural(palabra) {
+  if (PALABRAS_VACIAS.has(palabra)) return palabra;
+  if (!/\d/.test(palabra) && palabra.length >= 4 && palabra.endsWith("s")) return palabra.slice(0, -1);
+  return palabra;
+}
+
+function normalizarTextoRadar(textoOriginal) {
+  return normalizarUnidadesRadar(textoOriginal)
+    .split(/\s+/).filter(Boolean).map(simplificarPlural).join(" ");
+}
+
+// El filtro de palabras vacias va ANTES de simplificar plurales, como en el
+// original: si se invierte, "paras" se vuelve "para" y entonces si la descarta,
+// lo que cambia la bolsa y con ella la agrupacion difusa de agosto.
+function crearBolsaPalabras(registro) {
+  const palabras = normalizarUnidadesRadar(textoEscrito(registro))
+    .split(/\s+/).filter(Boolean)
+    .filter((palabra) => !PALABRAS_VACIAS.has(palabra))
+    .map(simplificarPlural);
   return [...new Set(palabras)].sort((a, b) => a.localeCompare(b, "es"));
 }
 
@@ -182,6 +203,9 @@ function agruparRegistrosLibres(registros, umbral = UMBRAL_PARECIDO) {
 
 module.exports = {
   UMBRAL_PARECIDO,
+  normalizarGrafiaRadar,
+  normalizarTextoRadar,
+  palabrasCompatibles,
   crearBolsaPalabras,
   calcularSimilitud,
   agruparRegistrosLibres,

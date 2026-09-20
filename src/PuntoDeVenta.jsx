@@ -14,6 +14,7 @@ import Configuracion from "./Configuracion.jsx";
 import ModalApartados from "./ModalApartados.jsx";
 import ModalConfirmar from "./ModalConfirmar";
 import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
+import { calcularTotalesVenta } from "./calcularTotalesVenta.js";
 
 /**
  * Vendedor de respaldo, SOLO para que la caja nunca se quede sin poder cobrar.
@@ -336,14 +337,11 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   useEffect(() => { setUsarMonedero(false); }, [cliente.id]);
 
   // ---------- Cálculos de totales ----------
-  const subtotal = carrito.reduce((acc, f) => acc + f.cantidad * f.precioUnitario, 0);
-  const descuentoTotal = carrito.reduce((acc, f) => acc + (f.cantidad * f.precioUnitario * f.descuentoPct) / 100, 0);
-  const total = subtotal - descuentoTotal;
   const piezas = carrito.reduce((acc, f) => acc + f.cantidad, 0);
 
   const descuentoPagoHabilitado = config ? config.descuentos_pago_habilitado !== false : true;
   const descuentoPago = descuentoPagoHabilitado && condicionSeleccionada?.activo ? (condicionSeleccionada.descuento_pct || 0) : 0;
-  const totalConCondicion = Math.round(total * (1 - descuentoPago / 100) * 100) / 100;
+  const { subtotal, descuentoTotal, total, totalConCondicion, importes } = calcularTotalesVenta(carrito, descuentoPago);
   // Usa el catálogo actualizado también al recuperar un ticket en espera.
   const saldoMonedero = Math.max(0, Number(clientes.find((c) => Number(c.id) === Number(cliente.id))?.monedero ?? cliente.monedero) || 0);
   const puedeUsarMonedero = Number(cliente.id) > 0 && saldoMonedero > 0 && !esCotizacion;
@@ -839,7 +837,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                   </tr>
                 )}
                 {carrito.map((fila, idx) => {
-                  const importe = fila.cantidad * fila.precioUnitario * (1 - fila.descuentoPct / 100);
+                  const importe = importes[idx];
                   const seleccionada = filaSeleccionada === idx;
                   return (
                     <tr
@@ -1180,7 +1178,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                   <div className="text-xs text-slate-400">{item.carrito.length} productos</div>
                 </div>
                 <span className="text-blue-700 font-semibold">
-                  ${item.carrito.reduce((a, f) => a + f.cantidad * f.precioUnitario * (1 - f.descuentoPct / 100), 0).toFixed(2)}
+                  ${calcularTotalesVenta(item.carrito).total.toFixed(2)}
                 </span>
               </button>
             ))}
@@ -1227,7 +1225,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                   <tbody>
                     {condicionesPago.filter((c) => !esCredito(c.nombre)).map((c) => {
                       const activoEfectivo = descuentoPagoHabilitado && c.activo;
-                      const nuevoTotal = Math.round(total * (1 - (activoEfectivo ? c.descuento_pct : 0) / 100) * 100) / 100;
+                      const nuevoTotal = calcularTotalesVenta(carrito, activoEfectivo ? c.descuento_pct : 0).totalConCondicion;
                       const seleccionada = condicionSeleccionada?.id === c.id;
                       return (
                         <tr

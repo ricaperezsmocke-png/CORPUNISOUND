@@ -94,15 +94,26 @@ function crearVenta(DB, datos, opciones = {}) {
     );
   }
 
+  // Se AGRUPA por producto antes de comparar, igual que `crearApartado`
+  // (apartados.js). Comprobando renglón por renglón, el mismo producto en dos
+  // renglones pasaba dos veces contra la misma existencia: con 3 piezas, una
+  // venta de 2 + 2 se aceptaba y dejaba la existencia en -1.
+  //
+  // La bandera es de todo o nada: encendida no se valida y la existencia PUEDE
+  // quedar negativa, que es justamente lo que se pide al encenderla.
   const config = obtenerConfiguracion(DB);
   if (!config.permitir_ventas_sin_existencia) {
+    const cantidadPorProducto = new Map();
     for (const l of lineasValidadas) {
       if (!l.producto_id) continue; // productos rápidos no tienen existencia que validar
-      const exist = DB.inventario.existencias.find((e) => e.producto_id === Number(l.producto_id) && e.sucursal_id === sucursalId);
+      const id = Number(l.producto_id);
+      cantidadPorProducto.set(id, (cantidadPorProducto.get(id) || 0) + l.cantidad);
+    }
+    for (const [productoId, cantidadPedida] of cantidadPorProducto) {
+      const exist = DB.inventario.existencias.find((e) => e.producto_id === productoId && e.sucursal_id === sucursalId);
       const disponible = exist ? exist.cantidad_actual : 0;
-      const cantidadPedida = l.cantidad;
       if (cantidadPedida > disponible) {
-        const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+        const producto = DB["catalogo-productos"].productos.find((p) => p.id === productoId);
         throw new Error(`No hay existencia suficiente de "${producto?.nombre || "producto"}" (disponible: ${disponible}, solicitado: ${cantidadPedida})`);
       }
     }
