@@ -816,6 +816,9 @@ function proyectarInteligenciaCompras(evidencia, puedeVerCostos) {
     resumen,
     oportunidades,
     productos_no_manejados: productosNoManejados,
+    // Demanda agrupada por familia, solo PENDIENTE: es la unica que debe
+    // orientar una compra. Se pasa tal cual, sin recalcular nada aqui.
+    familias: evidencia.familias,
     capacidades: evidencia.capacidades,
   };
 }

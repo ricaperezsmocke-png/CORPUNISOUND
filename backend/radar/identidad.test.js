@@ -162,3 +162,51 @@ test("el agrupamiento no depende del orden de entrada", () => {
 test("expone el umbral unico acordado", () => {
   assert.equal(UMBRAL_PARECIDO, 0.8);
 });
+
+const { normalizarTextoRadar, normalizarGrafiaRadar, palabrasCompatibles } = require("./identidad");
+
+test("normalización semántica conserva orden, conectores y repeticiones", () => {
+  assert.equal(normalizarTextoRadar("PASTILLAS para GUITARRAS con pastillas"), "pastilla para guitarra con pastilla");
+  assert.equal(normalizarTextoRadar("Guitarra con pastilla"), "guitarra con pastilla");
+  assert.equal(normalizarTextoRadar("Unos cables y unas bases de audio"), "unos cable y unas base de audio");
+});
+
+test("normalización compartida elimina acentos y simplifica plurales", () => {
+  assert.equal(normalizarTextoRadar("  GUITARRAS ELECTROACÚSTICAS  "), "guitarra electroacustica");
+  assert.equal(normalizarTextoRadar(null), "");
+});
+
+test("normalización semántica comparte las equivalencias de medidas", () => {
+  assert.equal(normalizarTextoRadar('Cable de 2 mts y bocinas de 12" con 20 watts a 127 volts'),
+    "cable de 2metros y bocina de 12pulgadas con 20w a 127v");
+  assert.equal(normalizarTextoRadar("Cable de 3.5 a 6.3 y guitarra de 3/4"), "cable de 3.5 a 6.3 y guitarra de 3/4");
+});
+
+test("grafía de marca o modelo no aplica plurales, medidas ni parecido", () => {
+  assert.equal(normalizarGrafiaRadar("  RÓSS  "), "ross");
+  assert.equal(normalizarGrafiaRadar("EON615S"), "eon615s");
+  assert.notEqual(normalizarGrafiaRadar("Ibanez"), normalizarGrafiaRadar("Ivanez"));
+});
+
+test("vocabulario controlado puede reutilizar tolerancia sin perder exclusiones cortas", () => {
+  assert.equal(palabrasCompatibles("amolificador", "amplificador"), true);
+  assert.equal(palabrasCompatibles("guitara", "guitarra"), true);
+  assert.equal(palabrasCompatibles("din", "dim"), false);
+});
+
+test("regresión: bolsa mantiene deduplicación y orden sin conectores", () => {
+  assert.deepEqual(crearBolsaPalabras(registro(1, "Pastillas para GUITARRAS con pastilla de 12 pulgadas")),
+    ["12pulgadas", "guitarra", "pastilla"]);
+});
+
+test("regresión: agrupación difusa tolera erratas pero separa medidas", () => {
+  const grupos = agruparRegistrosLibres([
+    registro(1, "amplificador de 20 watts"), registro(2, "amolificador 20w"),
+    registro(3, "amplificador 40w"),
+  ]);
+  assert.deepEqual(grupos.map((grupo) => grupo.registros.length).sort(), [1, 2]);
+});
+
+test("regresión: bolsa elimina conectores antes de simplificar plurales", () => {
+  assert.deepEqual(crearBolsaPalabras(registro(1, "conos paras")), ["cono", "para"]);
+});

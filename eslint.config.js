@@ -18,6 +18,16 @@ export default [
   { ignores: ["dist/**", "node_modules/**", "graphify-out/**", "graphify-out.anterior-*/**", ".claude/**", ".agents/**"] },
 
   {
+    files: ["src/**/*.{js,jsx}", "backend/**/*.js"],
+    rules: {
+      complexity: ["warn", 20],
+      "max-lines-per-function": ["warn", 150],
+      "max-depth": ["warn", 4],
+      "max-nested-callbacks": ["warn", 3],
+    },
+  },
+
+  {
     files: ["src/**/*.{js,jsx}"],
     languageOptions: {
       ecmaVersion: 2023,
