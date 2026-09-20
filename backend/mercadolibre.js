@@ -414,7 +414,11 @@ async function importarOrdenComoVenta(DB, ordenId) {
   if (!r.ok) throw new Error("Error al obtener orden de ML");
   const orden = await r.json();
 
-  // Verificar que no esté ya importada
+  // GARANTÍA DE CONCURRENCIA: desde esta comprobación hasta
+  // DB.ml.ordenes_importadas.push(ordenId) no debe haber ningún await. Eso es lo
+  // único que evita que dos solicitudes simultáneas importen dos veces la orden;
+  // mercadolibreDobleImportacion.test.js lo vigila. Si hace falta esperar algo
+  // aquí, primero hay que implementar un bloqueo real.
   if (DB.ml.ordenes_importadas.includes(ordenId)) {
     throw new Error("Esta orden ya fue importada");
   }
