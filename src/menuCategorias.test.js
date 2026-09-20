@@ -9,14 +9,15 @@ const ADMIN = {
   permisos: ["realizar_corte_caja", "ver_gastos", "ver_estado_cuenta", "realizar_traspasos",
              "gestionar_garantias", "ver_respaldos", "usar_gerente_ventas",
              "editar_objetivos_venta", "ver_radar_demanda", "registrar_demanda",
-             "ver_resumen_demanda", "ver_reportes", "editar_configuracion_pos"],
+             "ver_resumen_demanda", "ver_reportes", "editar_configuracion_pos",
+             "cerrar_mes_objetivos"],
 };
 
-test("el administrador ve las tres categorías y los 15 módulos", () => {
+test("el administrador ve las tres categorías y los 16 módulos", () => {
   const vistas = categoriasVisibles(ADMIN);
   assert.equal(vistas.length, 3);
   assert.deepEqual(vistas.map((c) => c.id), ["operacion", "comercial", "administracion"]);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 15);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 16);
 });
 
 test("una categoría sin módulos visibles no se dibuja", () => {
@@ -50,7 +51,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 15);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 16);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -114,6 +115,7 @@ const PARES_CONGELADOS = {
   roles:           { modulo: "admin",         permiso: undefined },
   respaldos:       { modulo: "respaldos",     permiso: "ver_respaldos" },
   configuracion:   { modulo: "pos",           permiso: "editar_configuracion_pos" },
+  cierre_objetivos:{ modulo: "pos",         permiso: "cerrar_mes_objetivos" },
 };
 
 test("ningún módulo cambió de módulo ni de permiso", () => {
@@ -123,4 +125,9 @@ test("ningún módulo cambió de módulo ni de permiso", () => {
   // Comparar el objeto entero y no módulo por módulo: así el fallo también
   // atrapa uno que se haya agregado o borrado, no solo uno que cambió.
   assert.deepEqual(actuales, PARES_CONGELADOS);
+});
+
+test("administradora con pos y solo cerrar_mes_objetivos ve Cierre de Objetivos", () => {
+  const vistas = categoriasVisibles({ modulos: ["pos"], permisos: ["cerrar_mes_objetivos"] });
+  assert.ok(vistas.flatMap((c) => c.modulos).some((m) => m.nombre === "Cierre de Objetivos"));
 });

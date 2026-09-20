@@ -20,6 +20,7 @@ const TITULOS = {
   reportes:   "Reportes",
   respaldos: "Respaldos",
   gerencia_ventas: "Mi Objetivo de Venta",
+  cierre_objetivos: "Cierre de Objetivos",
   radar_demanda: "Radar de Demanda",
   configuracion: "Configuración",
 };

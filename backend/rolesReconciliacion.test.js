@@ -63,3 +63,19 @@ test("si no existe un rol llamado Administrador, no truena y no toca nada", () =
   assert.doesNotThrow(() => reconciliarRoles(DB));
   assert.deepStrictEqual(DB.admin.roles, antes);
 });
+
+// Decision de Victor (2026-09-13): cerrar el mes de objetivos es un permiso
+// PROPIO, para que quien fija la meta no sea quien declara si se cumplio. El
+// Gerente de sucursal se siembra con "todos menos una lista", asi que sin
+// excluirlo expresamente recibiria tambien el cierre y la separacion no
+// existiria en ninguna instalacion nueva.
+test("en una base nueva el Gerente de sucursal fija metas pero NO cierra el mes", () => {
+  const { sembrarRolesIniciales } = require("./roles");
+  const DB = { admin: { roles: [] } };
+  sembrarRolesIniciales(DB);
+  const gerente = DB.admin.roles.find((r) => r.nombre === "Gerente de sucursal");
+  assert.ok(gerente, "el rol de gerente tiene que sembrarse");
+  assert.ok(gerente.permisos.includes("editar_objetivos_venta"), "el gerente si fija metas");
+  assert.ok(!gerente.permisos.includes("cerrar_mes_objetivos"),
+    "el gerente que pone la meta no puede ser quien sella el mes");
+});

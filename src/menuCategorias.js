@@ -58,6 +58,7 @@ export const CATEGORIAS = [
       { id: "roles", nombre: "Roles y Personal", modulo: "admin" },
       { id: "respaldos", nombre: "Respaldos", modulo: "respaldos", permiso: "ver_respaldos" },
       { id: "configuracion", nombre: "Configuración", modulo: "pos", permiso: "editar_configuracion_pos" },
+      { id: "cierre_objetivos", nombre: "Cierre de Objetivos", modulo: "pos", permiso: "cerrar_mes_objetivos" },
     ],
   },
 ];
