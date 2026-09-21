@@ -32,6 +32,7 @@ const {
   siguienteId,
 } = require("./radar/modelo");
 const {
+  esVentaCancelada,
   estaDentroDeAlcance,
   buscarRegistro,
   listarDemandas,
@@ -95,6 +96,10 @@ function validarVenta(DB, ventaId, sucursalId, opciones = {}) {
   const venta = (DB.pos?.ventas || []).find((item) => item.id === id);
   if (!venta || Number(venta.sucursal_id) !== Number(sucursalId)) {
     throw new Error("Venta recuperada no encontrada");
+  }
+  // Esconderla del selector no basta: la petición se puede mandar a mano.
+  if (esVentaCancelada(venta)) {
+    throw new Error("Esa venta está cancelada: no puede acreditar la recuperación de una demanda");
   }
   const radar = normalizarRadarDemanda(DB);
   exigirVentaNoUsada(radar.registros, id, opciones.demandaId ?? null);
@@ -607,7 +612,10 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
   for (const item of comerciales) {
     if (item.estado !== "CONVERTIDA" || item.venta_recuperada_id == null) continue;
     const venta = ventasPorId.get(Number(item.venta_recuperada_id));
-    if (venta && Number(venta.sucursal_id) === Number(item.sucursal_id) && estaDentroDeAlcance(venta, alcance)) {
+    // Una venta puede cancelarse DESPUÉS de haberse vinculado. Si se sigue
+    // sumando, el reporte acredita una recuperación que ya no existe.
+    if (venta && !esVentaCancelada(venta)
+        && Number(venta.sucursal_id) === Number(item.sucursal_id) && estaDentroDeAlcance(venta, alcance)) {
       ventasRecuperadas.set(Number(venta.id), venta);
     }
   }

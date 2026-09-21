@@ -1,5 +1,15 @@
 const { normalizarRadarDemanda, copiar, texto } = require("./modelo");
 
+/**
+ * Una venta cancelada no acredita una recuperación: se deshizo. Única
+ * definición para el Radar — la usan el selector de ventas candidatas, la
+ * validación al vincular y el conteo del reporte, para que las tres digan lo
+ * mismo. Se compara en minúsculas porque el estatus viaja como texto.
+ */
+function esVentaCancelada(venta) {
+  return texto(venta?.estatus).toLocaleLowerCase("es") === "cancelada";
+}
+
 function estaDentroDeAlcance(registro, alcance) {
   if (!alcance || alcance.verTodas === true) return true;
   return Number(registro.sucursal_id) === Number(alcance.sucursalId);
@@ -62,8 +72,14 @@ function listarVentasCandidatas(DB, demanda, filtros = {}) {
     }
   }
 
+  // Una venta CANCELADA no recupera nada: el cliente volvió, sí, pero la venta
+  // se deshizo. Ofrecerla en el selector dejaba cerrar la demanda con dinero
+  // que nadie pagó, y de paso sacaba ese producto de la lista de pendientes de
+  // Compras. Lo demás se deja como está: una venta cerrada y un apartado vivo
+  // siguen sirviendo, porque en los dos casos hubo operación de verdad.
   let ventas = (DB.pos?.ventas || []).filter(
     (venta) => Number(venta.sucursal_id) === Number(demanda.sucursal_id)
+      && !esVentaCancelada(venta)
   );
   if (filtros.fecha_inicio) ventas = ventas.filter((venta) => texto(venta.fecha) >= texto(filtros.fecha_inicio));
   if (filtros.fecha_fin) ventas = ventas.filter((venta) => texto(venta.fecha) <= texto(filtros.fecha_fin));
@@ -94,6 +110,7 @@ function listarVentasCandidatas(DB, demanda, filtros = {}) {
 }
 
 module.exports = {
+  esVentaCancelada,
   estaDentroDeAlcance,
   buscarRegistro,
   listarDemandas,
