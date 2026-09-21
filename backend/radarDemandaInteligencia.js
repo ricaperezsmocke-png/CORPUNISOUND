@@ -206,6 +206,39 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     existenciaPorClave.set(claveProductoSucursal(existencia.producto_id, existencia.sucursal_id), existencia);
   }
 
+  // LA REPOSICION NORMAL DE LA TIENDA. Hasta aqui, un expediente de Compras
+  // solo nacia de `radar_demanda.registros`: si nadie capturaba una demanda, el
+  // producto no existia para esta pantalla. Pero nadie levanta una "demanda"
+  // por las cuerdas que siempre se han tenido — se levanta cuando pasa algo
+  // raro. Resultado: la pantalla que debe decir que comprar escondia el caso
+  // mas comun del negocio y mostraba solo lo excepcional.
+  //
+  // Un par producto/sucursal entra tambien cuando el INVENTARIO ya lo esta
+  // senalando: faltante (agotado o por debajo de su minimo) con respaldo de que
+  // el producto se mueve (ventas dentro de las ventanas). Sin ventas no entra:
+  // el catalogo muerto no es una compra pendiente.
+  //
+  // Esto NO inventa demanda: el bloque `radar` del expediente queda en cero y
+  // asi se ve en pantalla. No escribe en catalogo ni en inventario, solo deja
+  // de esconder lo que el propio inventario ya dice.
+  for (const [clave, existencia] of existenciaPorClave) {
+    if (radarPorClave.has(clave)) continue;
+    const productoId = Number(existencia.producto_id);
+    const sucursalId = Number(existencia.sucursal_id);
+    if (!productoPorId.has(productoId)) continue;
+    const actual = Number(existencia.cantidad_actual) || 0;
+    const minima = Number(existencia.cantidad_minima) || 0;
+    const faltante = actual <= 0 || (minima > 0 && actual < minima);
+    if (!faltante) continue;
+    const ventanasVendidas = ventasPorClave.get(clave);
+    const seMueve = ventanasVendidas ? [...ventanasVendidas.values()].some((u) => u > 0) : false;
+    if (!seMueve) continue;
+    radarPorClave.set(clave, {
+      productoId, sucursalId,
+      ventanas: new Map(VENTANAS.map((d) => [d, nuevaMetricaRadar()])),
+    });
+  }
+
   const traspasosPorClave = new Map();
   for (const traspaso of DB.inventario?.traspasos || []) {
     if (traspaso.estatus !== "en_transito" || !autorizadas.has(Number(traspaso.sucursal_destino_id))) continue;
