@@ -194,6 +194,11 @@ function calcularReposicion(expediente) {
   if (!inventario.existencia_registrada || !Number.isFinite(actual)) {
     return { ...vacio, bloqueo: "EXISTENCIA_NO_CONFIABLE" };
   }
+  // Una existencia por debajo de cero es un inventario que no cuadra. Reponer
+  // "hasta el mínimo" sobre ese número compra de más: con existencia -5 y
+  // mínimo 10 salían 15 piezas, cinco de ellas para tapar un error de captura.
+  // Primero se cuadra el inventario; aquí se dice, no se calcula.
+  if (actual < 0) return { ...vacio, bloqueo: "EXISTENCIA_NEGATIVA" };
   const minima = Number(inventario.cantidad_minima) || 0;
   if (minima <= 0) return { ...vacio, bloqueo: "MINIMO_NO_CONFIGURADO" };
 

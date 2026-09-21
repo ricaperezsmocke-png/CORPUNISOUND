@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, BrainCircuit, HelpCircle, PackageSearch, RefreshCw, ShoppingCart, X } from "lucide-react";
+import {
+  AlertTriangle, ArrowRightLeft, BrainCircuit, HelpCircle, PackageSearch,
+  RefreshCw, ShoppingCart, Truck, X,
+} from "lucide-react";
 import { hoyLocal } from "../fechas";
 import { sucursalActiva } from "../api";
 import {
@@ -8,6 +11,7 @@ import {
 } from "./radarDemandaApi";
 import FamiliasDemanda from "./FamiliasDemanda";
 import GraficosCompras from "./GraficosCompras";
+import { repartirOportunidades } from "./seccionesCompras";
 
 const numero = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 });
 const dinero = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
@@ -52,11 +56,6 @@ const MENSAJES = {
   PEDIDOS_PROVEEDOR_NO_DISPONIBLES: "El sistema todavía no puede saber si existe un pedido abierto con proveedor.",
 };
 
-const CONTRADICCIONES = new Set([
-  "RADAR_SIN_EXISTENCIA_PERO_HAY_STOCK", "DEMANDA_CON_STOCK_PERO_SIN_VENTAS",
-  "PRODUCTO_INACTIVO_CON_DEMANDA", "DEMANDA_CONCENTRADA_UN_CONTACTO",
-  "STOCK_SOBRE_MAXIMO", "TRASPASO_ENTRANTE_CUBRE_MINIMO",
-]);
 
 function etiquetaClasificacion(clave) {
   return CLASIFICACIONES[clave]?.[0] || clave;
@@ -117,6 +116,7 @@ const MOTIVO_SIN_CANTIDAD = {
   EXISTENCIA_NO_CONFIABLE: "Existencia no confiable",
   PEDIDO_YA_MARCADO: "Ya marcado como pedido",
   SIN_FALTANTE: "Cubierto",
+  EXISTENCIA_NEGATIVA: "Existencia en negativo: cuadrar inventario",
 };
 
 const BOTON_PEDIDO = "inline-flex min-h-9 items-center gap-1 whitespace-nowrap rounded-lg border px-3 text-xs font-bold";
@@ -166,10 +166,12 @@ export default function InteligenciaCompras({ permisos = [] }) {
   }, [global]);
 
   const oportunidades = datos?.oportunidades || [];
-  const prioritarias = useMemo(() => oportunidades.filter((x) => ["REVISAR_TRASPASO", "REVISAR_COMPRA"].includes(x.clasificacion)), [oportunidades]);
-  const compras = useMemo(() => oportunidades.filter((x) => x.clasificacion === "REVISAR_COMPRA"), [oportunidades]);
-  const traspasos = useMemo(() => oportunidades.filter((x) => x.clasificacion === "REVISAR_TRASPASO"), [oportunidades]);
-  const observar = useMemo(() => oportunidades.filter((x) => x.clasificacion === "EVIDENCIA_INSUFICIENTE" || x.clasificacion === "OBSERVAR" && x.razones.some((r) => CONTRADICCIONES.has(r))), [oportunidades]);
+  // El reparto vive en su propio módulo y tiene pruebas: escrito suelto aquí,
+  // una fila marcada como pedida no caía en NINGUNA sección y desaparecía de
+  // la pantalla junto con su botón para quitar la marca.
+  const { prioritarias, compras, traspasos, observar, yaPedidas } = useMemo(
+    () => repartirOportunidades(oportunidades), [oportunidades]
+  );
   const libres = datos?.productos_no_manejados || [];
   const hayCostos = compras.some((x) => Object.hasOwn(x.compras_historicas || {}, "ultimo_costo") || Object.hasOwn(x.compras_historicas || {}, "costo_promedio_historico_ponderado"));
 
@@ -226,6 +228,18 @@ export default function InteligenciaCompras({ permisos = [] }) {
       </button>
     );
   };
+
+  // Lo que está esperando llegar. Se ve quién lo marcó, cuántos días le quedan
+  // de silencio y el botón para devolverlo a la lista si ya llegó.
+  const columnasYaPedido = [
+    { titulo: "Producto / SKU", render: (x) => <><b className="text-slate-900">{x.producto.nombre}</b><span className="block text-xs text-slate-500">{x.producto.sku || "Sin SKU"}</span></> },
+    { titulo: "Sucursal", render: (x) => x.sucursal.sucursal_nombre },
+    { titulo: "Marcado por", render: (x) => x.pedido_proveedor?.marcado_por || "—" },
+    { titulo: "Desde", render: (x) => fecha(x.pedido_proveedor?.fecha_marca) },
+    { titulo: "Vuelve a la lista", render: (x) => `${fecha(x.pedido_proveedor?.vence)} · ${valor(x.pedido_proveedor?.dias_restantes)} d` },
+    { titulo: "Stock / mínimo", render: (x) => `${valor(x.inventario.cantidad_actual)} / ${valor(x.inventario.cantidad_minima)}` },
+    { titulo: "Pedido", render: celdaPedido },
+  ];
 
   const columnasCompra = [
     { titulo: "Producto / SKU", render: (x) => <><b className="text-slate-900">{x.producto.nombre}</b><span className="block text-xs text-slate-500">{x.producto.sku || "Sin SKU"}</span></> },
@@ -292,6 +306,20 @@ export default function InteligenciaCompras({ permisos = [] }) {
           filas={compras}
           onExplicar={setExplicacion}
           minWidth={hayCostos ? "1610px" : "1360px"}
+        />
+      </Seccion>
+      <Seccion
+        titulo="Ya pedido al proveedor"
+        icono={Truck}
+        descripcion="Filas silenciadas tres semanas porque alguien marcó que la mercancía ya se pidió. Vuelven solas a la lista de compras cuando se acaba el plazo."
+        vacio="No hay productos marcados como pedidos."
+        tieneDatos={yaPedidas.length}
+      >
+        <Tabla
+          columnas={columnasYaPedido}
+          filas={yaPedidas}
+          onExplicar={setExplicacion}
+          minWidth="1000px"
         />
       </Seccion>
       <Seccion titulo="Revisar para traspaso" icono={ArrowRightLeft} descripcion={CLASIFICACIONES.REVISAR_TRASPASO[1]} vacio="No hay oportunidades de traspaso detectadas." tieneDatos={traspasos.length}><Tabla columnas={columnasTraspaso} filas={traspasos} onExplicar={setExplicacion} minWidth={global ? "1050px" : "760px"} /></Seccion>

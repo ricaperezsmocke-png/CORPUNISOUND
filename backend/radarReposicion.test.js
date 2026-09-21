@@ -149,3 +149,27 @@ test("un costo absurdo o negativo no produce un importe", () => {
     assert.equal(r.importe_estimado, null, `no debería costear con ${String(ultimo_costo)}`);
   }
 });
+
+// --- Existencia negativa ----------------------------------------------------
+// Lo encontró la revisión independiente de Codex. Reproducido ejecutando:
+// con existencia -5 y mínimo 10 el cálculo pedía 15 piezas y $750. Una
+// existencia por debajo de cero es un inventario que no cuadra, y reponer
+// "hasta el mínimo" sobre ese número compra de más basándose en un error.
+// Primero se cuadra el inventario; el sistema lo dice en vez de dar una cifra.
+
+test("una existencia NEGATIVA no produce una cantidad: primero hay que cuadrar el inventario", () => {
+  const r = calcularReposicion(expediente({
+    inventario: { existencia_registrada: true, cantidad_actual: -5, cantidad_minima: 10, cantidad_maxima: 0 },
+  }));
+  assert.equal(r.piezas, null, "pedía 15 piezas, 5 de más, por un inventario en negativo");
+  assert.equal(r.bloqueo, "EXISTENCIA_NEGATIVA");
+  assert.equal(r.importe_estimado, null);
+});
+
+test("cero sigue siendo un dato válido: agotado no es lo mismo que descuadrado", () => {
+  const r = calcularReposicion(expediente({
+    inventario: { existencia_registrada: true, cantidad_actual: 0, cantidad_minima: 10, cantidad_maxima: 0 },
+  }));
+  assert.equal(r.piezas, 10);
+  assert.equal(r.bloqueo, null);
+});
