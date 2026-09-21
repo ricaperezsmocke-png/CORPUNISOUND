@@ -128,3 +128,26 @@ export async function cargarCatalogosRadar() {
   const proveedores = proveedoresRespuesta.ok ? await proveedoresRespuesta.json() : [];
   return { productos, clientes, departamentos, categorias, proveedores };
 }
+
+/**
+ * "Ya lo pedí": silencia una fila de Compras durante tres semanas.
+ * No registra una compra ni mueve inventario; es una nota del Radar.
+ */
+export async function marcarPedidoProveedor(productoId, sucursalId) {
+  return leerRespuesta(
+    await apiFetch("/radar-demanda/pedidos-marcados", {
+      method: "POST",
+      body: JSON.stringify({ producto_id: productoId, sucursal_id: sucursalId }),
+    }),
+    "No fue posible marcar el pedido"
+  );
+}
+
+/** Quita la marca: la mercancía llegó antes o el pedido se canceló. */
+export async function quitarPedidoProveedor(productoId, sucursalId) {
+  const query = new URLSearchParams({ producto_id: productoId, sucursal_id: sucursalId });
+  return leerRespuesta(
+    await apiFetch(`/radar-demanda/pedidos-marcados?${query.toString()}`, { method: "DELETE" }),
+    "No fue posible quitar la marca del pedido"
+  );
+}
