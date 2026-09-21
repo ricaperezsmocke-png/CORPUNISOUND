@@ -133,6 +133,16 @@ function clasificarEvidenciaCompra(expediente) {
     return resultado("OBSERVAR", ["DEMANDA_CONCENTRADA_UN_CONTACTO"], advertencias, calidad);
   }
 
+  // "Ya lo pedi": si alguien marco esta fila, no se vuelve a proponer como
+  // compra durante el plazo del silencio. Va DESPUES del traspaso a proposito:
+  // aunque el pedido este en camino, mover stock de otra tienda sigue siendo
+  // util porque llega antes. Solo se calla la compra.
+  if (faltanteLocal && expediente?.pedido_proveedor?.marcado === true) {
+    return resultado("OBSERVAR", [
+      ...razonesStock, ...razonesComerciales, "PEDIDO_MARCADO_AL_PROVEEDOR",
+    ], advertencias, calidad);
+  }
+
   // Precedencia 4: faltante local con evidencia comercial suficiente.
   if (faltanteLocal && haySenalComercial) {
     return resultado("REVISAR_COMPRA", [...razonesStock, ...razonesComerciales], advertencias, calidad);

@@ -106,6 +106,7 @@ const {
 } = require("./radarDemanda");
 const { booleanoEstricto } = require("./radar/entrada");
 const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
+const { marcarPedido, quitarMarcaPedido, listarPedidosMarcados } = require("./radar/pedidosMarcados");
 const { clasificarEvidenciaCompra, clasificarProductoNoManejado } = require("./radarDemandaReglas");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
@@ -848,6 +849,53 @@ app.get("/api/radar-demanda/inteligencia", requiereLogin, requierePermiso("ver_r
   } catch (e) {
     responderErrorRadar(res, e);
   }
+});
+
+/**
+ * "Ya lo pedí": silencia una fila de Compras tres semanas. Va ANTES de las
+ * rutas `/:id` para que Express no lea "pedidos-marcados" como un id.
+ *
+ * No registra una compra ni mueve existencia: es una nota del Radar sobre sus
+ * propias filas. La sucursal se valida contra el alcance de quien marca —el de
+ * su token y su permiso, nunca el filtro del encabezado—, igual que las demás
+ * escrituras del módulo.
+ */
+app.get("/api/radar-demanda/pedidos-marcados", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcanceAutorizado(req);
+    const suyos = listarPedidosMarcados(DB).filter(
+      (marca) => alcance.verTodas || Number(marca.sucursal_id) === Number(alcance.sucursalId)
+    );
+    res.json(suyos);
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.post("/api/radar-demanda/pedidos-marcados", requiereLogin, requierePermiso("marcar_pedido_proveedor", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcanceAutorizado(req);
+    const sucursalId = Number(req.body?.sucursal_id);
+    if (!alcance.verTodas && sucursalId !== Number(alcance.sucursalId)) {
+      return res.status(404).json({ error: "Sucursal no encontrada" });
+    }
+    const usuario = DB.admin.usuarios.find((u) => u.id === Number(req.usuarioToken.id));
+    res.json(marcarPedido(DB, req.body || {}, usuario || req.usuarioToken));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.delete("/api/radar-demanda/pedidos-marcados", requiereLogin, requierePermiso("marcar_pedido_proveedor", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcanceAutorizado(req);
+    const sucursalId = Number(req.query.sucursal_id);
+    if (!alcance.verTodas && sucursalId !== Number(alcance.sucursalId)) {
+      return res.status(404).json({ error: "Sucursal no encontrada" });
+    }
+    const usuario = DB.admin.usuarios.find((u) => u.id === Number(req.usuarioToken.id));
+    const quitada = quitarMarcaPedido(DB, {
+      producto_id: req.query.producto_id, sucursal_id: req.query.sucursal_id,
+    }, usuario || req.usuarioToken);
+    if (!quitada) return res.status(404).json({ error: "Esa fila no estaba marcada" });
+    res.json(quitada);
+  } catch (e) { responderErrorRadar(res, e); }
 });
 
 app.get("/api/radar-demanda/:id/ventas-candidatas", requiereLogin, requierePermiso("cerrar_demanda", resolverPermisosDeRol), (req, res) => {

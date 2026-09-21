@@ -11,6 +11,7 @@ const { agruparRegistrosLibres } = require("./radar/identidad");
 const { agruparFamilias } = require("./radar/familias");
 const { clasificarEstadoDemanda } = require("./radar/metricas");
 const { diaDeRegistro } = require("./radar/fechaRegistro");
+const { estadoPedido } = require("./radar/pedidosMarcados");
 
 const VENTANAS = Object.freeze([7, 30, 60, 90, 180]);
 
@@ -334,6 +335,9 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
       inventario,
       otras_sucursales: otrasSucursales.sort((a, b) => a.sucursal_id - b.sucursal_id),
       traspasos: { cantidad_entrante_en_transito: traspasos.cantidad, numero_traspasos_entrantes: traspasos.numero },
+      // "Ya lo pedi": la nota que silencia esta fila tres semanas. No es una
+      // compra registrada ni mueve existencia; ver radar/pedidosMarcados.js.
+      pedido_proveedor: estadoPedido(DB, grupo.productoId, grupo.sucursalId, fechaFin),
       compras_historicas: {
         ultima_recepcion_fecha: ultima?.fecha || null,
         ultima_recepcion_sucursal_id: ultima ? Number(ultima.compra.sucursal_id) : null,
