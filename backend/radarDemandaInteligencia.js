@@ -10,6 +10,7 @@ const { fechaLocal, diaLocal } = require("./fechas");
 const { agruparRegistrosLibres } = require("./radar/identidad");
 const { agruparFamilias } = require("./radar/familias");
 const { clasificarEstadoDemanda } = require("./radar/metricas");
+const { diaDeRegistro } = require("./radar/fechaRegistro");
 
 const VENTANAS = Object.freeze([7, 30, 60, 90, 180]);
 
@@ -42,12 +43,16 @@ function inicioVentana(fechaFin, dias) {
 }
 
 function estaEnVentana(fecha, fechaFin, dias) {
+  if (fecha == null) return false;
   return fecha >= inicioVentana(fechaFin, dias) && fecha <= fechaFin;
 }
 
 function fechaDeRegistro(valor) {
   // Un dia suelto ya es el dia de la tienda; convertirlo lo correria un dia.
-  return diaLocal(valor);
+  // Y una fecha que no se entiende devuelve null en vez de hoy: `estaEnVentana`
+  // la deja fuera de todas las ventanas en lugar de contarla como demanda
+  // reciente. Ver radar/fechaRegistro.js.
+  return diaDeRegistro(valor);
 }
 
 function fechaDeVenta(venta) {

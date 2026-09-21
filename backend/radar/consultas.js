@@ -49,7 +49,10 @@ function listarDemandas(DB, alcance, filtros = {}) {
       item.variante_solicitada, item.nombre_contacto, item.telefono_contacto,
     ].some((valor) => texto(valor).toLocaleLowerCase("es").includes(buscado)));
   }
-  return copiar(lista.sort((a, b) => b.fecha_registro.localeCompare(a.fecha_registro) || b.id - a.id));
+  // `texto()` y no el campo pelado: un registro con `fecha_registro` nula
+  // reventaba aquí con TypeError y la tienda perdía la lista COMPLETA — no un
+  // renglón, toda la pantalla. Los que no tienen fecha quedan al final.
+  return copiar(lista.sort((a, b) => texto(b.fecha_registro).localeCompare(texto(a.fecha_registro)) || b.id - a.id));
 }
 
 function obtenerDemanda(DB, id, alcance) {

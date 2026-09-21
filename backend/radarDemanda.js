@@ -511,6 +511,7 @@ function desglosarMotivosNoConversion(registros, seguimientos) {
 
 function obtenerAnalisis(DB, alcance, filtros = {}) {
   const { fechaLocal, diaLocal } = require("./fechas");
+  const { dentroDelPeriodo } = require("./radar/fechaRegistro");
   const fechaInicio = validarFechaAnalisis(filtros.fecha_inicio, "fecha_inicio");
   const fechaFin = validarFechaAnalisis(filtros.fecha_fin, "fecha_fin") || fechaLocal();
   if (fechaInicio && fechaInicio > fechaFin) throw new Error("fecha_inicio debe ser anterior o igual a fecha_fin");
@@ -519,12 +520,13 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
   // estructuras antiguas in-place. El análisis jamás debe modificar DB.
   const todosAlcance = (Array.isArray(DB.radar_demanda?.registros) ? DB.radar_demanda.registros : [])
     .filter((item) => estaDentroDeAlcance(item, alcance));
-  const registros = todosAlcance.filter((item) => {
-    // fecha_registro es un instante ISO UTC; se convierte primero al día que
-    // vivió la tienda y luego se compara como YYYY-MM-DD (orden lexicográfico).
-    const fecha = diaLocal(item.fecha_registro);
-    return (!fechaInicio || fecha >= fechaInicio) && fecha <= fechaFin;
-  });
+  // fecha_registro es un instante ISO UTC; se convierte primero al día que
+  // vivió la tienda y luego se compara como YYYY-MM-DD (orden lexicográfico).
+  // Una fecha que no se entiende NO entra en el periodo: antes caía en hoy por
+  // el respaldo de `diaLocal` y se contaba como demanda reciente.
+  const registros = todosAlcance.filter(
+    (item) => dentroDelPeriodo(item.fecha_registro, fechaInicio, fechaFin)
+  );
   // `resumen` son las métricas operativas de conversión: reportan las canceladas
   // a propósito y no se tocan. Todo lo que orienta una compra —ranking, motivos,
   // sucursales, evolución y comparaciones— usa el universo HISTÓRICA, sin
