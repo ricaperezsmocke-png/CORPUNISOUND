@@ -107,7 +107,9 @@ const {
 const { booleanoEstricto } = require("./radar/entrada");
 const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
 const { marcarPedido, quitarMarcaPedido, listarPedidosMarcados } = require("./radar/pedidosMarcados");
-const { clasificarEvidenciaCompra, clasificarProductoNoManejado } = require("./radarDemandaReglas");
+const {
+  clasificarEvidenciaCompra, calcularReposicion, clasificarProductoNoManejado,
+} = require("./radarDemandaReglas");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
 // fingir que el sistema funciona. El porqué del criterio está documentado en
@@ -751,6 +753,17 @@ const ORDEN_INTELIGENCIA = Object.freeze({
   EVIDENCIA_INSUFICIENTE: 3,
 });
 
+/**
+ * Las piezas las ve cualquiera que pueda ver el resumen; el dinero, solo quien
+ * tiene `ver_reportes`. Quien no lo tiene recibe los campos en null, no
+ * ausentes: así la pantalla siempre sabe qué mostrar y no confunde "no puedo
+ * verlo" con "no hay dato".
+ */
+function reposicionSegura(reposicion, puedeVerCostos) {
+  if (puedeVerCostos) return reposicion;
+  return { ...reposicion, importe_estimado: null, costo_unitario: null, costo_fecha: null };
+}
+
 function comprasHistoricasSeguras(comprasHistoricas, puedeVerCostos) {
   if (puedeVerCostos) return { ...(comprasHistoricas || {}) };
   const {
@@ -813,6 +826,10 @@ function proyectarInteligenciaCompras(evidencia, puedeVerCostos) {
       traspasos: expediente.traspasos,
       compras_historicas: comprasHistoricasSeguras(expediente.compras_historicas, puedeVerCostos),
       proveedores: expediente.proveedores,
+      pedido_proveedor: expediente.pedido_proveedor,
+      // Cuantas piezas faltan para volver al minimo y cuanto cuesta cubrirlas.
+      // El dinero sigue la misma regla que el resto: sin `ver_reportes` no sale.
+      reposicion: reposicionSegura(calcularReposicion(expediente), puedeVerCostos),
       calidad_datos: decision.calidad_datos,
     };
   }).sort(compararOportunidadesInteligencia);

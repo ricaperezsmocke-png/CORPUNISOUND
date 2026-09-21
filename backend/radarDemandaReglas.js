@@ -158,6 +158,65 @@ function clasificarEvidenciaCompra(expediente) {
   return resultado("OBSERVAR", razones.length ? razones : ["DEMANDA_BAJA"], advertencias, calidad);
 }
 
+/**
+ * Cuántas piezas faltan para volver al mínimo, y cuánto cuesta cubrirlas.
+ *
+ *   piezas = mínimo − existencia − lo que ya viene en camino de otra tienda
+ *
+ * Es una BRECHA, no una orden de compra: dice cuánto falta para estar como se
+ * decidió estar, con los datos que el sistema sí tiene. El importe usa el
+ * último costo conocido y va siempre con su fecha, porque es lo que costó la
+ * última vez y no una cotización de hoy.
+ *
+ * Cada bloqueo existe para no inventar un número:
+ * - `MINIMO_NO_CONFIGURADO`: sin mínimo no hay objetivo, y ponerlo aquí sería
+ *   decidir el negocio desde el código.
+ * - `EXISTENCIA_NO_CONFIABLE`: con la existencia ausente o dañada, restar da
+ *   basura con aspecto de cifra.
+ * - `PEDIDO_YA_MARCADO`: alguien dijo que ya lo pidió; para eso se marcó.
+ * - `SIN_FALTANTE`: no falta nada, y eso también es una respuesta.
+ *
+ * La demanda registrada NO entra en la cuenta. Sirve para priorizar qué mirar
+ * primero, no para inflar la compra: sumar ventas, demanda y mínimo contaría la
+ * misma necesidad tres veces.
+ */
+function calcularReposicion(expediente) {
+  const inventario = expediente?.inventario || {};
+  const vacio = {
+    piezas: null, bloqueo: null, importe_estimado: null,
+    costo_unitario: null, costo_fecha: null, incluye_transito: 0,
+  };
+
+  if (expediente?.pedido_proveedor?.marcado === true) {
+    return { ...vacio, bloqueo: "PEDIDO_YA_MARCADO" };
+  }
+  const actual = Number(inventario.cantidad_actual);
+  if (!inventario.existencia_registrada || !Number.isFinite(actual)) {
+    return { ...vacio, bloqueo: "EXISTENCIA_NO_CONFIABLE" };
+  }
+  const minima = Number(inventario.cantidad_minima) || 0;
+  if (minima <= 0) return { ...vacio, bloqueo: "MINIMO_NO_CONFIGURADO" };
+
+  const entrante = Number(expediente?.traspasos?.cantidad_entrante_en_transito) || 0;
+  const piezas = Math.max(0, minima - actual - entrante);
+  if (piezas === 0) {
+    return { ...vacio, piezas: 0, bloqueo: "SIN_FALTANTE", incluye_transito: entrante };
+  }
+
+  const costo = Number(expediente?.compras_historicas?.ultimo_costo);
+  const costoUtil = Number.isFinite(costo) && costo > 0;
+  return {
+    piezas,
+    bloqueo: null,
+    // Sin costo conocido el importe queda vacío. Nunca cero: cero es un precio,
+    // y "no sé" no es un precio.
+    importe_estimado: costoUtil ? Math.round(piezas * costo * 100) / 100 : null,
+    costo_unitario: costoUtil ? costo : null,
+    costo_fecha: costoUtil ? expediente?.compras_historicas?.ultima_recepcion_fecha || null : null,
+    incluye_transito: entrante,
+  };
+}
+
 function clasificarProductoNoManejado(productoLibre) {
   const radar30 = productoLibre?.radar_30d || {};
   const solicitudes = Number(radar30.solicitudes) || 0;
@@ -180,5 +239,6 @@ function clasificarProductoNoManejado(productoLibre) {
 module.exports = {
   POLITICA_INTELIGENCIA,
   clasificarEvidenciaCompra,
+  calcularReposicion,
   clasificarProductoNoManejado,
 };

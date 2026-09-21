@@ -306,3 +306,29 @@ test("aislamiento entre cinco sucursales", async () => {
   assert.deepEqual(r.cuerpo.oportunidades.map((x) => x.sucursal.sucursal_id), [5]);
   assert.deepEqual(r.cuerpo.oportunidades[0].otras_sucursales, []);
 });
+
+// --- Reposición: cuántas piezas y cuánto dinero -----------------------------
+// Las piezas las ve quien puede ver el resumen; el dinero sigue la misma regla
+// que el resto de los costos del módulo y necesita `ver_reportes`.
+
+test("cada oportunidad trae las piezas que faltan para volver al minimo", async () => {
+  prepararCompra();
+  const oportunidad = (await pedir(tokenLimitado, "?fecha_fin=2026-08-20")).cuerpo.oportunidades[0];
+  assert.ok(oportunidad.reposicion, "la pantalla recibe la reposicion calculada");
+  assert.equal(typeof oportunidad.reposicion.piezas === "number" || oportunidad.reposicion.piezas === null, true);
+  assert.ok("bloqueo" in oportunidad.reposicion, "y el motivo cuando no se puede calcular");
+});
+
+test("sin ver_reportes el importe no viaja, aunque las piezas si", async () => {
+  prepararCompra();
+  const oportunidad = (await pedir(tokenLimitado, "?fecha_fin=2026-08-20")).cuerpo.oportunidades[0];
+  assert.equal(oportunidad.reposicion.importe_estimado, null);
+  assert.equal(oportunidad.reposicion.costo_unitario, null);
+  assert.equal(oportunidad.reposicion.costo_fecha, null);
+});
+
+test("cada oportunidad dice si la fila esta marcada como ya pedida", async () => {
+  prepararCompra();
+  const oportunidad = (await pedir(tokenLimitado, "?fecha_fin=2026-08-20")).cuerpo.oportunidades[0];
+  assert.equal(oportunidad.pedido_proveedor.marcado, false);
+});
