@@ -17,6 +17,7 @@ const { obtenerConfiguracion } = require("./configuracion");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
 const { listarCondiciones } = require("./condicionesPago");
+const { exigirCantidad, exigirImporte } = require("./importes");
 
 const DIAS_LIMITE_APARTADO = 60;
 const DIAS_AVISO_POR_VENCER = 7;
@@ -92,11 +93,8 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
   }
 
   const lineasValidadas = datos.lineas.map((l) => {
-    const cantidad = Number(l.cantidad);
-    if (!Number.isFinite(cantidad) || cantidad <= 0) {
-      const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
-      throw new Error(`La cantidad de "${l.descripcion || producto?.nombre || "el artículo"}" debe ser mayor que cero`);
-    }
+    const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+    const cantidad = exigirCantidad(l.cantidad, l.descripcion || producto?.nombre);
     return { ...l, cantidad };
   });
 
@@ -166,9 +164,12 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
       //
       // El CERO si se permite a proposito: es la cortesia o el accesorio de
       // regalo, y hoy se usa.
+      // El texto vacío se colaba como $0, igual que en ventas: `Number("")` es
+      // 0. `undefined` sigue valiendo 0; una cadena vacía es un campo sin
+      // llenar, no la decisión de regalar el artículo.
       const precioCrudo = l.precio_unitario;
       precio = precioCrudo === undefined ? 0 : Number(precioCrudo);
-      if (precioCrudo === null || !Number.isFinite(precio)) {
+      if (precioCrudo === null || precioCrudo === "" || !Number.isFinite(precio)) {
         throw new Error("El precio de un artículo rápido tiene que ser un número");
       }
       if (precio < 0) {
@@ -180,6 +181,12 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
     if (descPct < 0 || descPct > 100) {
       throw new Error("El descuento debe estar entre 0 y 100 por ciento");
     }
+    // Cantidad y precio se validaron por separado; su PRODUCTO no. Aquí el
+    // desborde era peor que en ventas: el descuento salía `Infinity * 0` = NaN,
+    // el total quedaba NaN, y la guarda del anticipo de abajo fallaba ABRIENDO
+    // (`anticipo > NaN` es false). El apartado además no aparecía en su lista.
+    const delCatalogo = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+    exigirImporte(l.cantidad * precio, l.descripcion || delCatalogo?.nombre);
     return { ...l, precio, descPct };
   });
 
@@ -187,6 +194,7 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
   const subtotal = lineasCalculadas.reduce((a, l) => a + l.cantidad * l.precio, 0);
   const descuento = lineasCalculadas.reduce((a, l) => a + (l.cantidad * l.precio * l.descPct) / 100, 0);
   const total = Math.round((subtotal - descuento) * 100) / 100;
+  exigirImporte(total, "el apartado");
   if (anticipoMonto > total) {
     throw new Error(`El anticipo no puede ser mayor al total del apartado ($${total.toFixed(2)})`);
   }

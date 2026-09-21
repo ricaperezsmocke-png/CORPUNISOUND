@@ -18,6 +18,7 @@ const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
 const { listarCondiciones } = require("./condicionesPago");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
+const { exigirCantidad, exigirImporte } = require("./importes");
 
 /** Centavos, no flotantes sueltos: sumar precios sin redondear arrastra error. */
 function redondear(n) {
@@ -35,11 +36,8 @@ function crearVenta(DB, datos, opciones = {}) {
 
 
   const lineasValidadas = datos.lineas.map((l) => {
-    const cantidad = Number(l.cantidad);
-    if (!Number.isFinite(cantidad) || cantidad <= 0) {
-      const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
-      throw new Error(`La cantidad de "${l.descripcion || producto?.nombre || "el artículo"}" debe ser mayor que cero`);
-    }
+    const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+    const cantidad = exigirCantidad(l.cantidad, l.descripcion || producto?.nombre);
     return { ...l, cantidad };
   });
 
@@ -199,9 +197,13 @@ function crearVenta(DB, datos, opciones = {}) {
       //
       // El CERO si se permite a proposito: es la cortesia o el accesorio de
       // regalo, y hoy se usa.
+      // El texto vacío es el caso que se colaba: `Number("")` es 0, así que un
+      // precio que nunca se escribió pasaba como cortesía de $0. `undefined`
+      // sigue valiendo 0 —así estaba y así se usa—, pero una cadena vacía es
+      // un campo sin llenar, no una decisión de regalar el artículo.
       const precioCrudo = l.precio_unitario;
       precio = precioCrudo === undefined ? 0 : Number(precioCrudo);
-      if (precioCrudo === null || !Number.isFinite(precio)) {
+      if (precioCrudo === null || precioCrudo === "" || !Number.isFinite(precio)) {
         throw new Error("El precio de un artículo rápido tiene que ser un número");
       }
       if (precio < 0) {
@@ -219,6 +221,10 @@ function crearVenta(DB, datos, opciones = {}) {
       }
     }
 
+    // La cantidad y el precio ya se validaron por separado, pero su PRODUCTO
+    // no: dos números finitos pueden multiplicarse hasta desbordar el importe.
+    const nombreLinea = l.descripcion || DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id))?.nombre;
+    exigirImporte(cantidad * precio, nombreLinea);
     const bruto = redondear(cantidad * precio);
     return { ...l, cantidad, precio, descPct, bruto, subtotal: redondear(bruto * (1 - descPct / 100)) };
   });
