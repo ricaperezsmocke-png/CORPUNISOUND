@@ -32,6 +32,7 @@ const {
   siguienteId,
 } = require("./radar/modelo");
 const {
+  esVentaCancelada,
   estaDentroDeAlcance,
   buscarRegistro,
   listarDemandas,
@@ -95,6 +96,10 @@ function validarVenta(DB, ventaId, sucursalId, opciones = {}) {
   const venta = (DB.pos?.ventas || []).find((item) => item.id === id);
   if (!venta || Number(venta.sucursal_id) !== Number(sucursalId)) {
     throw new Error("Venta recuperada no encontrada");
+  }
+  // Esconderla del selector no basta: la petición se puede mandar a mano.
+  if (esVentaCancelada(venta)) {
+    throw new Error("Esa venta está cancelada: no puede acreditar la recuperación de una demanda");
   }
   const radar = normalizarRadarDemanda(DB);
   exigirVentaNoUsada(radar.registros, id, opciones.demandaId ?? null);
@@ -506,6 +511,7 @@ function desglosarMotivosNoConversion(registros, seguimientos) {
 
 function obtenerAnalisis(DB, alcance, filtros = {}) {
   const { fechaLocal, diaLocal } = require("./fechas");
+  const { dentroDelPeriodo } = require("./radar/fechaRegistro");
   const fechaInicio = validarFechaAnalisis(filtros.fecha_inicio, "fecha_inicio");
   const fechaFin = validarFechaAnalisis(filtros.fecha_fin, "fecha_fin") || fechaLocal();
   if (fechaInicio && fechaInicio > fechaFin) throw new Error("fecha_inicio debe ser anterior o igual a fecha_fin");
@@ -514,12 +520,13 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
   // estructuras antiguas in-place. El análisis jamás debe modificar DB.
   const todosAlcance = (Array.isArray(DB.radar_demanda?.registros) ? DB.radar_demanda.registros : [])
     .filter((item) => estaDentroDeAlcance(item, alcance));
-  const registros = todosAlcance.filter((item) => {
-    // fecha_registro es un instante ISO UTC; se convierte primero al día que
-    // vivió la tienda y luego se compara como YYYY-MM-DD (orden lexicográfico).
-    const fecha = diaLocal(item.fecha_registro);
-    return (!fechaInicio || fecha >= fechaInicio) && fecha <= fechaFin;
-  });
+  // fecha_registro es un instante ISO UTC; se convierte primero al día que
+  // vivió la tienda y luego se compara como YYYY-MM-DD (orden lexicográfico).
+  // Una fecha que no se entiende NO entra en el periodo: antes caía en hoy por
+  // el respaldo de `diaLocal` y se contaba como demanda reciente.
+  const registros = todosAlcance.filter(
+    (item) => dentroDelPeriodo(item.fecha_registro, fechaInicio, fechaFin)
+  );
   // `resumen` son las métricas operativas de conversión: reportan las canceladas
   // a propósito y no se tocan. Todo lo que orienta una compra —ranking, motivos,
   // sucursales, evolución y comparaciones— usa el universo HISTÓRICA, sin
@@ -607,7 +614,10 @@ function obtenerAnalisis(DB, alcance, filtros = {}) {
   for (const item of comerciales) {
     if (item.estado !== "CONVERTIDA" || item.venta_recuperada_id == null) continue;
     const venta = ventasPorId.get(Number(item.venta_recuperada_id));
-    if (venta && Number(venta.sucursal_id) === Number(item.sucursal_id) && estaDentroDeAlcance(venta, alcance)) {
+    // Una venta puede cancelarse DESPUÉS de haberse vinculado. Si se sigue
+    // sumando, el reporte acredita una recuperación que ya no existe.
+    if (venta && !esVentaCancelada(venta)
+        && Number(venta.sucursal_id) === Number(item.sucursal_id) && estaDentroDeAlcance(venta, alcance)) {
       ventasRecuperadas.set(Number(venta.id), venta);
     }
   }

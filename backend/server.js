@@ -106,7 +106,10 @@ const {
 } = require("./radarDemanda");
 const { booleanoEstricto } = require("./radar/entrada");
 const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
-const { clasificarEvidenciaCompra, clasificarProductoNoManejado } = require("./radarDemandaReglas");
+const { marcarPedido, quitarMarcaPedido, listarPedidosMarcados } = require("./radar/pedidosMarcados");
+const {
+  clasificarEvidenciaCompra, calcularReposicion, clasificarProductoNoManejado,
+} = require("./radarDemandaReglas");
 
 // Si la persistencia no carga, en producción se ABORTA el arranque en vez de
 // fingir que el sistema funciona. El porqué del criterio está documentado en
@@ -621,6 +624,23 @@ avisarSiNadieUsaGerenciaDeVentas();
 // usuario puede ver TODAS las sucursales o está amarrado a la suya.
 const resolverAlcance = (req) => alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
 
+/**
+ * Alcance para una ruta de REGISTRO INDIVIDUAL (`/:id`): sale solo de quien
+ * pregunta —su permiso y la sucursal de su token—, nunca de `?sucursal_id=`.
+ *
+ * `src/api.js` inyecta el selector del encabezado en toda petición que no lo
+ * traiga. Como filtro de listas está bien; como fuente de autorización no,
+ * porque le niega a quien SÍ puede ver todas las tiendas un registro que tiene
+ * derecho a abrir: dejaba el encabezado en Palenque, abría una demanda de
+ * Ocosingo y el sistema le decía "Demanda no encontrada". Es la regla 5 de
+ * CLAUDE.md. El filtro nunca concede alcance, solo lo recorta.
+ */
+const resolverAlcanceAutorizado = (req) => {
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  if (permisos.includes("ver_todas_las_sucursales")) return { verTodas: true, sucursalId: null };
+  return { verTodas: false, sucursalId: Number(req.usuarioToken.sucursal_id) };
+};
+
 // Auto-persistencia: guarda el DB después de cada mutación exitosa
 app.use((req, res, next) => {
   if (!["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) return next();
@@ -733,6 +753,17 @@ const ORDEN_INTELIGENCIA = Object.freeze({
   EVIDENCIA_INSUFICIENTE: 3,
 });
 
+/**
+ * Las piezas las ve cualquiera que pueda ver el resumen; el dinero, solo quien
+ * tiene `ver_reportes`. Quien no lo tiene recibe los campos en null, no
+ * ausentes: así la pantalla siempre sabe qué mostrar y no confunde "no puedo
+ * verlo" con "no hay dato".
+ */
+function reposicionSegura(reposicion, puedeVerCostos) {
+  if (puedeVerCostos) return reposicion;
+  return { ...reposicion, importe_estimado: null, costo_unitario: null, costo_fecha: null };
+}
+
 function comprasHistoricasSeguras(comprasHistoricas, puedeVerCostos) {
   if (puedeVerCostos) return { ...(comprasHistoricas || {}) };
   const {
@@ -795,6 +826,10 @@ function proyectarInteligenciaCompras(evidencia, puedeVerCostos) {
       traspasos: expediente.traspasos,
       compras_historicas: comprasHistoricasSeguras(expediente.compras_historicas, puedeVerCostos),
       proveedores: expediente.proveedores,
+      pedido_proveedor: expediente.pedido_proveedor,
+      // Cuantas piezas faltan para volver al minimo y cuanto cuesta cubrirlas.
+      // El dinero sigue la misma regla que el resto: sin `ver_reportes` no sale.
+      reposicion: reposicionSegura(calcularReposicion(expediente), puedeVerCostos),
       calidad_datos: decision.calidad_datos,
     };
   }).sort(compararOportunidadesInteligencia);
@@ -833,16 +868,63 @@ app.get("/api/radar-demanda/inteligencia", requiereLogin, requierePermiso("ver_r
   }
 });
 
+/**
+ * "Ya lo pedí": silencia una fila de Compras tres semanas. Va ANTES de las
+ * rutas `/:id` para que Express no lea "pedidos-marcados" como un id.
+ *
+ * No registra una compra ni mueve existencia: es una nota del Radar sobre sus
+ * propias filas. La sucursal se valida contra el alcance de quien marca —el de
+ * su token y su permiso, nunca el filtro del encabezado—, igual que las demás
+ * escrituras del módulo.
+ */
+app.get("/api/radar-demanda/pedidos-marcados", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcanceAutorizado(req);
+    const suyos = listarPedidosMarcados(DB).filter(
+      (marca) => alcance.verTodas || Number(marca.sucursal_id) === Number(alcance.sucursalId)
+    );
+    res.json(suyos);
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.post("/api/radar-demanda/pedidos-marcados", requiereLogin, requierePermiso("marcar_pedido_proveedor", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcanceAutorizado(req);
+    const sucursalId = Number(req.body?.sucursal_id);
+    if (!alcance.verTodas && sucursalId !== Number(alcance.sucursalId)) {
+      return res.status(404).json({ error: "Sucursal no encontrada" });
+    }
+    const usuario = DB.admin.usuarios.find((u) => u.id === Number(req.usuarioToken.id));
+    res.json(marcarPedido(DB, req.body || {}, usuario || req.usuarioToken));
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
+app.delete("/api/radar-demanda/pedidos-marcados", requiereLogin, requierePermiso("marcar_pedido_proveedor", resolverPermisosDeRol), (req, res) => {
+  try {
+    const alcance = resolverAlcanceAutorizado(req);
+    const sucursalId = Number(req.query.sucursal_id);
+    if (!alcance.verTodas && sucursalId !== Number(alcance.sucursalId)) {
+      return res.status(404).json({ error: "Sucursal no encontrada" });
+    }
+    const usuario = DB.admin.usuarios.find((u) => u.id === Number(req.usuarioToken.id));
+    const quitada = quitarMarcaPedido(DB, {
+      producto_id: req.query.producto_id, sucursal_id: req.query.sucursal_id,
+    }, usuario || req.usuarioToken);
+    if (!quitada) return res.status(404).json({ error: "Esa fila no estaba marcada" });
+    res.json(quitada);
+  } catch (e) { responderErrorRadar(res, e); }
+});
+
 app.get("/api/radar-demanda/:id/ventas-candidatas", requiereLogin, requierePermiso("cerrar_demanda", resolverPermisosDeRol), (req, res) => {
   try {
-    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcance(req));
+    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcanceAutorizado(req));
     res.json(listarVentasCandidatas(DB, demanda, req.query));
   } catch (e) { responderErrorRadar(res, e); }
 });
 
 app.get("/api/radar-demanda/:id", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
   try {
-    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcance(req));
+    const demanda = obtenerDemanda(DB, req.params.id, resolverAlcanceAutorizado(req));
     res.json(enriquecerDemanda(DB, demanda));
   }
   catch (e) { responderErrorRadar(res, e); }
@@ -850,7 +932,7 @@ app.get("/api/radar-demanda/:id", requiereLogin, requierePermiso("ver_radar_dema
 
 app.patch("/api/radar-demanda/:id", requiereLogin, requierePermisoPatchRadar, (req, res) => {
   try {
-    const alcance = resolverAlcance(req);
+    const alcance = resolverAlcanceAutorizado(req);
     if (req.body && Object.prototype.hasOwnProperty.call(req.body, "estado")) {
       const permitidos = new Set(["estado", "comentario", "venta_recuperada_id"]);
       const inesperado = Object.keys(req.body).find((campo) => !permitidos.has(campo));
@@ -867,14 +949,14 @@ app.patch("/api/radar-demanda/:id", requiereLogin, requierePermisoPatchRadar, (r
 app.post("/api/radar-demanda/:id/seguimientos", requiereLogin, requierePermiso("dar_seguimiento_demanda", resolverPermisosDeRol), (req, res) => {
   try {
     res.json(agregarSeguimiento(
-      DB, req.params.id, req.body || {}, resolverAlcance(req), req.usuarioToken.id
+      DB, req.params.id, req.body || {}, resolverAlcanceAutorizado(req), req.usuarioToken.id
     ));
   } catch (e) { responderErrorRadar(res, e); }
 });
 
 app.get("/api/radar-demanda/:id/historial", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
   try {
-    const historial = obtenerHistorial(DB, req.params.id, resolverAlcance(req));
+    const historial = obtenerHistorial(DB, req.params.id, resolverAlcanceAutorizado(req));
     res.json(enriquecerHistorial(DB, historial));
   }
   catch (e) { responderErrorRadar(res, e); }

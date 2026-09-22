@@ -138,6 +138,10 @@ const PERMISOS = [
   { clave: "dar_seguimiento_demanda", etiqueta: "Dar Seguimiento a Demanda", modulo: "radar_demanda", implementado: true },
   { clave: "cerrar_demanda", etiqueta: "Cerrar Demanda", modulo: "radar_demanda", implementado: true },
   { clave: "ver_resumen_demanda", etiqueta: "Ver Resumen de Demanda", modulo: "radar_demanda", implementado: true },
+  // Marcar una fila de Compras como "ya lo pedí" la silencia tres semanas. No
+  // mueve dinero ni inventario, pero cambia lo que el sistema recomienda
+  // comprar: va con permiso propio, no prestado de ver o registrar demanda.
+  { clave: "marcar_pedido_proveedor", etiqueta: "Marcar Pedido al Proveedor", modulo: "radar_demanda", implementado: true },
 ];
 
 const MODULOS_SISTEMA = [

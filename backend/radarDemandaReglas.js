@@ -133,6 +133,16 @@ function clasificarEvidenciaCompra(expediente) {
     return resultado("OBSERVAR", ["DEMANDA_CONCENTRADA_UN_CONTACTO"], advertencias, calidad);
   }
 
+  // "Ya lo pedi": si alguien marco esta fila, no se vuelve a proponer como
+  // compra durante el plazo del silencio. Va DESPUES del traspaso a proposito:
+  // aunque el pedido este en camino, mover stock de otra tienda sigue siendo
+  // util porque llega antes. Solo se calla la compra.
+  if (faltanteLocal && expediente?.pedido_proveedor?.marcado === true) {
+    return resultado("OBSERVAR", [
+      ...razonesStock, ...razonesComerciales, "PEDIDO_MARCADO_AL_PROVEEDOR",
+    ], advertencias, calidad);
+  }
+
   // Precedencia 4: faltante local con evidencia comercial suficiente.
   if (faltanteLocal && haySenalComercial) {
     return resultado("REVISAR_COMPRA", [...razonesStock, ...razonesComerciales], advertencias, calidad);
@@ -146,6 +156,82 @@ function clasificarEvidenciaCompra(expediente) {
   if (!ventasRecientes) razones.push("SIN_VENTAS_RECIENTES");
   if (ventas90 > 0 && ventas30 === 0) razones.push("VENTAS_ANTIGUAS");
   return resultado("OBSERVAR", razones.length ? razones : ["DEMANDA_BAJA"], advertencias, calidad);
+}
+
+/**
+ * Cuántas piezas faltan para volver al mínimo, y cuánto cuesta cubrirlas.
+ *
+ *   piezas = mínimo − existencia − lo que ya viene en camino de otra tienda
+ *
+ * Es una BRECHA, no una orden de compra: dice cuánto falta para estar como se
+ * decidió estar, con los datos que el sistema sí tiene. El importe usa el
+ * último costo conocido y va siempre con su fecha, porque es lo que costó la
+ * última vez y no una cotización de hoy.
+ *
+ * Cada bloqueo existe para no inventar un número:
+ * - `MINIMO_NO_CONFIGURADO`: sin mínimo no hay objetivo, y ponerlo aquí sería
+ *   decidir el negocio desde el código.
+ * - `EXISTENCIA_NO_CONFIABLE`: con la existencia ausente o dañada, restar da
+ *   basura con aspecto de cifra.
+ * - `PEDIDO_YA_MARCADO`: alguien dijo que ya lo pidió; para eso se marcó.
+ * - `SIN_FALTANTE`: no falta nada, y eso también es una respuesta.
+ *
+ * La demanda registrada NO entra en la cuenta. Sirve para priorizar qué mirar
+ * primero, no para inflar la compra: sumar ventas, demanda y mínimo contaría la
+ * misma necesidad tres veces.
+ */
+/** Techo de cantidades manejables: más allá, la cifra no es de este negocio. */
+const TOPE_CANTIDAD = 1e9;
+
+function calcularReposicion(expediente) {
+  const inventario = expediente?.inventario || {};
+  const vacio = {
+    piezas: null, bloqueo: null, importe_estimado: null,
+    costo_unitario: null, costo_fecha: null, incluye_transito: 0,
+  };
+
+  if (expediente?.pedido_proveedor?.marcado === true) {
+    return { ...vacio, bloqueo: "PEDIDO_YA_MARCADO" };
+  }
+  const actual = Number(inventario.cantidad_actual);
+  if (!inventario.existencia_registrada || !Number.isFinite(actual)) {
+    return { ...vacio, bloqueo: "EXISTENCIA_NO_CONFIABLE" };
+  }
+  // Una existencia por debajo de cero es un inventario que no cuadra. Reponer
+  // "hasta el mínimo" sobre ese número compra de más: con existencia -5 y
+  // mínimo 10 salían 15 piezas, cinco de ellas para tapar un error de captura.
+  // Primero se cuadra el inventario; aquí se dice, no se calcula.
+  if (actual < 0) return { ...vacio, bloqueo: "EXISTENCIA_NEGATIVA" };
+  const minima = Number(inventario.cantidad_minima) || 0;
+  if (minima <= 0) return { ...vacio, bloqueo: "MINIMO_NO_CONFIGURADO" };
+  // Un mínimo que no es un número manejable daba piezas infinitas, y JSON las
+  // convierte en vacías: la pantalla decía "sin cantidad calculable" sin poder
+  // explicar por qué. Se nombra el motivo.
+  if (!Number.isFinite(minima) || minima > TOPE_CANTIDAD) {
+    return { ...vacio, bloqueo: "MINIMO_NO_CONFIABLE" };
+  }
+
+  // Un tránsito negativo o no numérico se IGNORA, no se resta: restarlo suma
+  // piezas. Reproducido: con tránsito −20 pedía 28 donde faltaban 8.
+  const entranteCrudo = Number(expediente?.traspasos?.cantidad_entrante_en_transito);
+  const entrante = Number.isFinite(entranteCrudo) && entranteCrudo > 0 ? entranteCrudo : 0;
+  const piezas = Math.max(0, minima - actual - entrante);
+  if (piezas === 0) {
+    return { ...vacio, piezas: 0, bloqueo: "SIN_FALTANTE", incluye_transito: entrante };
+  }
+
+  const costo = Number(expediente?.compras_historicas?.ultimo_costo);
+  const costoUtil = Number.isFinite(costo) && costo > 0;
+  return {
+    piezas,
+    bloqueo: null,
+    // Sin costo conocido el importe queda vacío. Nunca cero: cero es un precio,
+    // y "no sé" no es un precio.
+    importe_estimado: costoUtil ? Math.round(piezas * costo * 100) / 100 : null,
+    costo_unitario: costoUtil ? costo : null,
+    costo_fecha: costoUtil ? expediente?.compras_historicas?.ultima_recepcion_fecha || null : null,
+    incluye_transito: entrante,
+  };
 }
 
 function clasificarProductoNoManejado(productoLibre) {
@@ -170,5 +256,6 @@ function clasificarProductoNoManejado(productoLibre) {
 module.exports = {
   POLITICA_INTELIGENCIA,
   clasificarEvidenciaCompra,
+  calcularReposicion,
   clasificarProductoNoManejado,
 };
