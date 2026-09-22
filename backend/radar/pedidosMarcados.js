@@ -76,9 +76,21 @@ const mismaFila = (marca, productoId, sucursalId) => Number(marca.producto_id) =
  * Marca (o vuelve a marcar) un producto de una tienda como ya pedido. Volver a
  * marcarlo renueva el plazo desde hoy en vez de duplicar la nota.
  */
+/**
+ * Quita del arreglo las marcas ya caducadas. Se hace solo al ESCRIBIR, nunca al
+ * leer: una consulta no puede modificar la base. Sin esto el arreglo crece para
+ * siempre y arrastra la consulta de Compras.
+ */
+function limpiarVencidas(lista, hoy) {
+  for (let i = lista.length - 1; i >= 0; i -= 1) {
+    if (String(hoy) > String(lista[i]?.vence)) lista.splice(i, 1);
+  }
+  return lista;
+}
+
 function marcarPedido(DB, datos, usuario, hoy = fechaLocal()) {
   const { productoId, sucursalId } = exigirProductoYSucursal(DB, datos);
-  const lista = normalizar(DB);
+  const lista = limpiarVencidas(normalizar(DB), hoy);
   const previa = lista.find((marca) => mismaFila(marca, productoId, sucursalId));
   const marca = {
     producto_id: productoId,
@@ -116,11 +128,11 @@ function pedidoVigente(DB, productoId, sucursalId, hoy = fechaLocal()) {
  * Cómo se ve el estado en el expediente de Compras. Siempre devuelve el mismo
  * juego de campos, marcado o no, para que la pantalla no tenga que adivinar.
  */
-function estadoPedido(DB, productoId, sucursalId, hoy = fechaLocal()) {
-  const marca = pedidoVigente(DB, productoId, sucursalId, hoy);
-  if (!marca) {
-    return { marcado: false, fecha_marca: null, vence: null, dias_restantes: null, marcado_por: null };
-  }
+const SIN_MARCA = Object.freeze({
+  marcado: false, fecha_marca: null, vence: null, dias_restantes: null, marcado_por: null,
+});
+
+function detallarMarca(marca, hoy) {
   const restantes = Math.round(
     (new Date(`${marca.vence}T12:00:00Z`) - new Date(`${hoy}T12:00:00Z`)) / 86400000
   );
@@ -133,13 +145,43 @@ function estadoPedido(DB, productoId, sucursalId, hoy = fechaLocal()) {
   };
 }
 
+function estadoPedido(DB, productoId, sucursalId, hoy = fechaLocal()) {
+  const marca = pedidoVigente(DB, productoId, sucursalId, hoy);
+  return marca ? detallarMarca(marca, hoy) : SIN_MARCA;
+}
+
 function listarPedidosMarcados(DB) {
   return leer(DB).map((marca) => ({ ...marca }));
+}
+
+/**
+ * Índice por producto/sucursal para consultar muchas filas de golpe.
+ *
+ * `estadoPedido` recorre el arreglo buscando su marca. Llamarlo dentro del
+ * bucle de expedientes convierte la consulta en cuadrática: la revisión
+ * independiente midió 115 segundos con 25,000 marcas, donde sin ellas eran
+ * menos de dos. Con el índice, cada expediente cuesta una búsqueda directa.
+ */
+function indicePedidos(DB, hoy = fechaLocal()) {
+  const indice = new Map();
+  for (const marca of leer(DB)) {
+    if (String(hoy) > String(marca.vence)) continue;
+    indice.set(`${Number(marca.producto_id)}-${Number(marca.sucursal_id)}`, marca);
+  }
+  return indice;
+}
+
+/** El estado tal como lo consume el expediente, ya resuelto desde el índice. */
+function estadoDesdeIndice(indice, productoId, sucursalId, hoy = fechaLocal()) {
+  const marca = indice.get(`${Number(productoId)}-${Number(sucursalId)}`);
+  return marca ? detallarMarca(marca, hoy) : SIN_MARCA;
 }
 
 module.exports = {
   DIAS_SILENCIO,
   marcarPedido,
+  indicePedidos,
+  estadoDesdeIndice,
   quitarMarcaPedido,
   pedidoVigente,
   estadoPedido,

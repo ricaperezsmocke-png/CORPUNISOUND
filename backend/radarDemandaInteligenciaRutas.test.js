@@ -310,21 +310,50 @@ test("aislamiento entre cinco sucursales", async () => {
 // --- Reposición: cuántas piezas y cuánto dinero -----------------------------
 // Las piezas las ve quien puede ver el resumen; el dinero sigue la misma regla
 // que el resto de los costos del módulo y necesita `ver_reportes`.
+//
+// OJO CON ESTA PRUEBA: la primera versión sembraba una compra SIN costo, así
+// que los importes ya venían vacíos por falta de datos y la prueba pasaba
+// aunque se quitara la protección. Lo encontró la revisión independiente
+// desactivando la guarda en memoria: 32/32 seguían en verde. Ahora se siembra
+// un costo real, de modo que el importe solo puede ser nulo si la guarda
+// funciona.
+
+function prepararCompraConCosto(productoId = 1, sucursalId = 1) {
+  prepararCompra(productoId, sucursalId);
+  app.DB.inventario.compras.push({ id: 91, proveedor_id: 1, sucursal_id: sucursalId, fecha: "2026-08-10T12:00:00Z" });
+  app.DB.inventario.compra_detalle.push({ id: 91, compra_id: 91, producto_id: productoId, cantidad: 4, costo: 100 });
+}
 
 test("cada oportunidad trae las piezas que faltan para volver al minimo", async () => {
-  prepararCompra();
+  prepararCompraConCosto();
   const oportunidad = (await pedir(tokenLimitado, "?fecha_fin=2026-08-20")).cuerpo.oportunidades[0];
   assert.ok(oportunidad.reposicion, "la pantalla recibe la reposicion calculada");
-  assert.equal(typeof oportunidad.reposicion.piezas === "number" || oportunidad.reposicion.piezas === null, true);
-  assert.ok("bloqueo" in oportunidad.reposicion, "y el motivo cuando no se puede calcular");
+  assert.equal(oportunidad.reposicion.piezas, 5, "minimo 5 menos existencia 0");
+  assert.equal(oportunidad.reposicion.bloqueo, null);
 });
 
-test("sin ver_reportes el importe no viaja, aunque las piezas si", async () => {
-  prepararCompra();
+test("CON ver_reportes el importe viaja con su costo y su fecha", async () => {
+  prepararCompraConCosto();
+  const oportunidad = (await pedir(tokenLimitadoCostos, "?fecha_fin=2026-08-20")).cuerpo.oportunidades[0];
+  assert.equal(oportunidad.reposicion.importe_estimado, 500, "5 piezas x $100");
+  assert.equal(oportunidad.reposicion.costo_unitario, 100);
+  assert.ok(oportunidad.reposicion.costo_fecha, "y dice de cuando es ese costo");
+});
+
+test("SIN ver_reportes el importe no viaja, aunque las piezas si", async () => {
+  prepararCompraConCosto();
   const oportunidad = (await pedir(tokenLimitado, "?fecha_fin=2026-08-20")).cuerpo.oportunidades[0];
+  assert.equal(oportunidad.reposicion.piezas, 5, "las piezas si se ven");
   assert.equal(oportunidad.reposicion.importe_estimado, null);
   assert.equal(oportunidad.reposicion.costo_unitario, null);
   assert.equal(oportunidad.reposicion.costo_fecha, null);
+});
+
+test("el costo tampoco se filtra por el cuerpo completo de la respuesta", async () => {
+  prepararCompraConCosto();
+  const texto = JSON.stringify((await pedir(tokenLimitado, "?fecha_fin=2026-08-20")).cuerpo);
+  assert.doesNotMatch(texto, /100(?=[^"]*costo)/i);
+  assert.equal(texto.includes('"importe_estimado":500'), false);
 });
 
 test("cada oportunidad dice si la fila esta marcada como ya pedida", async () => {

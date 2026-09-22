@@ -180,6 +180,9 @@ function clasificarEvidenciaCompra(expediente) {
  * primero, no para inflar la compra: sumar ventas, demanda y mínimo contaría la
  * misma necesidad tres veces.
  */
+/** Techo de cantidades manejables: más allá, la cifra no es de este negocio. */
+const TOPE_CANTIDAD = 1e9;
+
 function calcularReposicion(expediente) {
   const inventario = expediente?.inventario || {};
   const vacio = {
@@ -201,8 +204,17 @@ function calcularReposicion(expediente) {
   if (actual < 0) return { ...vacio, bloqueo: "EXISTENCIA_NEGATIVA" };
   const minima = Number(inventario.cantidad_minima) || 0;
   if (minima <= 0) return { ...vacio, bloqueo: "MINIMO_NO_CONFIGURADO" };
+  // Un mínimo que no es un número manejable daba piezas infinitas, y JSON las
+  // convierte en vacías: la pantalla decía "sin cantidad calculable" sin poder
+  // explicar por qué. Se nombra el motivo.
+  if (!Number.isFinite(minima) || minima > TOPE_CANTIDAD) {
+    return { ...vacio, bloqueo: "MINIMO_NO_CONFIABLE" };
+  }
 
-  const entrante = Number(expediente?.traspasos?.cantidad_entrante_en_transito) || 0;
+  // Un tránsito negativo o no numérico se IGNORA, no se resta: restarlo suma
+  // piezas. Reproducido: con tránsito −20 pedía 28 donde faltaban 8.
+  const entranteCrudo = Number(expediente?.traspasos?.cantidad_entrante_en_transito);
+  const entrante = Number.isFinite(entranteCrudo) && entranteCrudo > 0 ? entranteCrudo : 0;
   const piezas = Math.max(0, minima - actual - entrante);
   if (piezas === 0) {
     return { ...vacio, piezas: 0, bloqueo: "SIN_FALTANTE", incluye_transito: entrante };

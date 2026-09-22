@@ -173,3 +173,34 @@ test("cero sigue siendo un dato válido: agotado no es lo mismo que descuadrado"
   assert.equal(r.piezas, 10);
   assert.equal(r.bloqueo, null);
 });
+
+// --- Bordes numéricos -------------------------------------------------------
+// También de la revisión independiente. Reproducidos ejecutando.
+
+test("un mínimo absurdo no produce piezas infinitas que lleguen como vacías", () => {
+  const r = calcularReposicion(expediente({
+    inventario: { existencia_registrada: true, cantidad_actual: 0, cantidad_minima: "1e309", cantidad_maxima: 0 },
+  }));
+  // Antes: piezas Infinity, que JSON convierte en null — la pantalla decía
+  // "sin cantidad calculable" sin poder explicar por qué.
+  assert.equal(r.piezas, null);
+  assert.equal(r.bloqueo, "MINIMO_NO_CONFIABLE");
+  assert.equal(r.importe_estimado, null);
+});
+
+test("un tránsito NEGATIVO no infla las piezas", () => {
+  const r = calcularReposicion(expediente({
+    traspasos: { cantidad_entrante_en_transito: -20, numero_traspasos_entrantes: 1 },
+  }));
+  assert.equal(r.piezas, 8, "pedía 28: restar un tránsito negativo suma");
+  assert.equal(r.incluye_transito, 0, "un tránsito imposible se ignora, no se resta");
+});
+
+test("un tránsito no numérico tampoco entra en la cuenta", () => {
+  for (const cantidad_entrante_en_transito of ["mucho", NaN, Infinity, null]) {
+    const r = calcularReposicion(expediente({
+      traspasos: { cantidad_entrante_en_transito, numero_traspasos_entrantes: 1 },
+    }));
+    assert.equal(r.piezas, 8, `falló con tránsito ${String(cantidad_entrante_en_transito)}`);
+  }
+});

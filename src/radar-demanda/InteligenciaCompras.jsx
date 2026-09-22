@@ -291,6 +291,17 @@ export default function InteligenciaCompras({ permisos = [] }) {
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertTriangle size={18} />{error}</div>}
     {cargando && !datos ? <div className="py-16 text-center text-sm text-slate-500">Cargando inteligencia...</div> : datos && <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"><Tarjeta titulo="Revisar traspaso" valor={datos.resumen.revisar_traspaso} color="border-violet-200" /><Tarjeta titulo="Revisar compra" valor={datos.resumen.revisar_compra} color="border-blue-200" /><Tarjeta titulo="Observar" valor={datos.resumen.observar} color="border-orange-200" /><Tarjeta titulo="Evidencia insuficiente" valor={datos.resumen.evidencia_insuficiente} color="border-slate-300" /><Tarjeta titulo="Evaluar incorporación" valor={datos.resumen.evaluar_incorporacion} color="border-amber-200" /></div>
+      {datos.candidatos_inventario?.omitidos > 0 && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>
+            El inventario detectó {numero.format(datos.candidatos_inventario.total_detectados)} productos
+            por debajo de su mínimo. Aquí se muestran los {numero.format(datos.candidatos_inventario.entregados)} que
+            más se venden; quedan {numero.format(datos.candidatos_inventario.omitidos)} fuera de esta vista.
+            Filtra por tienda para verlos por partes.
+          </span>
+        </div>
+      )}
       <GraficosCompras filas={compras} hayCostos={hayCostos} />
       <FamiliasDemanda datos={datos.familias} periodo={datos.periodo} />
       <Seccion titulo="Atención prioritaria" icono={BrainCircuit} descripcion="Vista combinada de oportunidades para revisar por traspaso o compra." vacio="No hay oportunidades prioritarias en este momento." tieneDatos={prioritarias.length}><Tabla columnas={columnasPrioridad} filas={prioritarias} onExplicar={setExplicacion} minWidth="1100px" /></Seccion>

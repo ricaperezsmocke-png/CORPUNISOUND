@@ -1,8 +1,37 @@
 # Despacho: revisión independiente de `feature/radar-compras`
 
-**Fecha:** 2026-09-20
+**Fecha:** 2026-09-20 · **Segunda pasada: 2026-09-22**
 **Para:** Codex
 **Tipo:** revisión, **SOLO LECTURA**. No implementas, no corriges, no commiteas.
+
+---
+
+## 0. LEE ESTO PRIMERO — segunda pasada
+
+**Tu revisión anterior se cortó.** Nombraste dos puntos que necesitaban reproducción y ahí terminó el
+informe: los otros seis del apartado 4 quedaron sin cubrir. Esta pasada es para cerrarlos.
+
+**Los dos que sí nombraste eran REALES.** Claude los reprodujo ejecutando y ya están cerrados en el
+commit `bdb2fde`, que es el octavo y último de la rama:
+
+1. Una fila marcada como pedida no caía en ninguna sección y desaparecía de la pantalla, llevándose
+   el botón para quitar la marca. El reparto de filas se extrajo a
+   `src/radar-demanda/seccionesCompras.js` con 10 pruebas, y lo ya pedido tiene sección propia.
+2. Una existencia negativa inflaba la compra (−5 con mínimo 10 pedía 15 piezas y $750). Ahora se
+   bloquea con `EXISTENCIA_NEGATIVA`.
+
+**No vuelvas sobre esos dos salvo que el arreglo te parezca mal hecho** — y si te lo parece, dilo,
+que para eso estás. Empieza por los seis que faltan y repártete el esfuerzo entre todos, no lo
+gastes entero en el primero.
+
+**Si vas a quedarte sin espacio o sin tiempo, entrega lo que lleves con el veredicto parcial y di
+expresamente qué puntos no alcanzaste a mirar.** Un informe que se corta sin avisar es peor que uno
+corto que lo confiesa: la vez pasada hubo que adivinar qué se había revisado y qué no.
+
+**Estado verificado hoy:** rama `feature/radar-compras` en `bdb2fde`, **8 commits** sobre `master` =
+`887770f`, árbol limpio, sin mutaciones vivas. Suite de backend **1730/1730**, pruebas de pantalla
+**20/20** (esas se corren aparte, no entran en la suite de `backend/`), eslint **0 errores**,
+`vite build` OK.
 
 ---
 
@@ -51,6 +80,7 @@ revisión es para comprobar si los arreglos de verdad los cierran, y si abrieron
    `piezas = mínimo − existencia − tránsito entrante`; importe = piezas × último costo conocido.
 7. `49bb1a3` — **La pantalla:** `src/radar-demanda/GraficosCompras.jsx` nuevo (dos gráficos con
    recharts, que ya estaba instalado), columnas "Faltan" y "Pedido" en `InteligenciaCompras.jsx`.
+8. `bdb2fde` — **Tus dos hallazgos de la primera pasada**, ya cerrados. Ver el apartado 0.
 
 ## 4. Lo que quiero que mires, en este orden
 
