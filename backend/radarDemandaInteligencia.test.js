@@ -37,7 +37,14 @@ function ejecutar(DB, alcance = global) {
 
 test("contrato superior no contiene clasificación, score ni recomendación", () => {
   const resultado = ejecutar(base());
-  assert.deepEqual(Object.keys(resultado), ["periodo", "productos", "productos_no_manejados", "familias", "capacidades"]);
+  // `candidatos_inventario` se agregó al acotar los faltantes que detecta el
+  // inventario: dice cuántos se encontraron, cuántos caben y cuántos quedaron
+  // fuera. Es un conteo, no una recomendación, y la prueba de abajo sigue
+  // exigiendo que aquí no viaje ninguna.
+  assert.deepEqual(Object.keys(resultado), [
+    "periodo", "productos", "productos_no_manejados", "familias",
+    "candidatos_inventario", "capacidades",
+  ]);
   assert.deepEqual(resultado.periodo.ventanas_dias, VENTANAS);
   assert.equal(resultado.capacidades.pedidos_proveedor_disponibles, false);
   const serializado = JSON.stringify(resultado);

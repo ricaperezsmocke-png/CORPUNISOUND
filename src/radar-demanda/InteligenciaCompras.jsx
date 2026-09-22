@@ -1,9 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, BrainCircuit, HelpCircle, PackageSearch, RefreshCw, ShoppingCart, X } from "lucide-react";
+import {
+  AlertTriangle, ArrowRightLeft, BrainCircuit, HelpCircle, PackageSearch,
+  RefreshCw, ShoppingCart, Truck, X,
+} from "lucide-react";
 import { hoyLocal } from "../fechas";
 import { sucursalActiva } from "../api";
-import { cargarSucursalesRadar, consultarInteligenciaCompras } from "./radarDemandaApi";
+import {
+  cargarSucursalesRadar, consultarInteligenciaCompras,
+  marcarPedidoProveedor, quitarPedidoProveedor,
+} from "./radarDemandaApi";
 import FamiliasDemanda from "./FamiliasDemanda";
+import GraficosCompras from "./GraficosCompras";
+import { repartirOportunidades } from "./seccionesCompras";
 
 const numero = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 });
 const dinero = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
@@ -18,6 +26,7 @@ const CLASIFICACIONES = {
 
 const MENSAJES = {
   STOCK_LOCAL_CERO: "La sucursal no tiene existencia registrada disponible.",
+  PEDIDO_MARCADO_AL_PROVEEDOR: "Alguien marcó que este producto ya se pidió al proveedor; no se vuelve a proponer como compra durante tres semanas.",
   STOCK_LOCAL_BAJO_MINIMO: "La existencia local está por debajo del mínimo configurado.",
   STOCK_SUFICIENTE: "La existencia local no está por debajo del mínimo configurado.",
   STOCK_SOBRE_MAXIMO: "La existencia registrada supera el máximo configurado.",
@@ -47,11 +56,6 @@ const MENSAJES = {
   PEDIDOS_PROVEEDOR_NO_DISPONIBLES: "El sistema todavía no puede saber si existe un pedido abierto con proveedor.",
 };
 
-const CONTRADICCIONES = new Set([
-  "RADAR_SIN_EXISTENCIA_PERO_HAY_STOCK", "DEMANDA_CON_STOCK_PERO_SIN_VENTAS",
-  "PRODUCTO_INACTIVO_CON_DEMANDA", "DEMANDA_CONCENTRADA_UN_CONTACTO",
-  "STOCK_SOBRE_MAXIMO", "TRASPASO_ENTRANTE_CUBRE_MINIMO",
-]);
 
 function etiquetaClasificacion(clave) {
   return CLASIFICACIONES[clave]?.[0] || clave;
@@ -105,6 +109,20 @@ function BloqueDetalle({ titulo, codigos = [], tono }) {
 const valor = (v) => v == null ? "—" : numero.format(v);
 const fecha = (v) => v || "—";
 
+// Por qué una fila no trae cantidad. Cada uno es una razón distinta y se
+// arregla distinto: no se resumen todos en un "—".
+const MOTIVO_SIN_CANTIDAD = {
+  MINIMO_NO_CONFIGURADO: "Falta configurar su mínimo",
+  EXISTENCIA_NO_CONFIABLE: "Existencia no confiable",
+  PEDIDO_YA_MARCADO: "Ya marcado como pedido",
+  SIN_FALTANTE: "Cubierto",
+  EXISTENCIA_NEGATIVA: "Existencia en negativo: cuadrar inventario",
+};
+
+const BOTON_PEDIDO = "inline-flex min-h-9 items-center gap-1 whitespace-nowrap rounded-lg border px-3 text-xs font-bold";
+const CLASE_MARCADO = "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+const CLASE_SIN_MARCAR = "border-slate-200 text-slate-600 hover:bg-slate-50";
+
 export default function InteligenciaCompras({ permisos = [] }) {
   const global = permisos.includes("ver_todas_las_sucursales");
   const [fechaFin, setFechaFin] = useState(hoyLocal());
@@ -114,6 +132,8 @@ export default function InteligenciaCompras({ permisos = [] }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [explicacion, setExplicacion] = useState(null);
+  const [marcando, setMarcando] = useState(null);
+  const puedeMarcar = permisos.includes("marcar_pedido_proveedor");
 
   const cargar = useCallback(async () => {
     setCargando(true); setError("");
@@ -122,6 +142,23 @@ export default function InteligenciaCompras({ permisos = [] }) {
     finally { setCargando(false); }
   }, [fechaFin, global, sucursal]);
 
+  // "Ya lo pedí": silencia esa fila tres semanas. No registra una compra ni
+  // mueve inventario. Se recarga para que la pantalla muestre el estado real
+  // del servidor y no una suposición del navegador.
+  const alternarPedido = useCallback(async (fila) => {
+    const clave = `${fila.producto.producto_id}-${fila.sucursal.sucursal_id}`;
+    setMarcando(clave); setError("");
+    try {
+      const accion = fila.pedido_proveedor?.marcado ? quitarPedidoProveedor : marcarPedidoProveedor;
+      await accion(fila.producto.producto_id, fila.sucursal.sucursal_id);
+      await cargar();
+    } catch {
+      setError("No fue posible cambiar la marca del pedido. Intenta nuevamente.");
+    } finally {
+      setMarcando(null);
+    }
+  }, [cargar]);
+
   useEffect(() => { cargar(); }, [cargar]);
   useEffect(() => {
     if (!global) return;
@@ -129,10 +166,12 @@ export default function InteligenciaCompras({ permisos = [] }) {
   }, [global]);
 
   const oportunidades = datos?.oportunidades || [];
-  const prioritarias = useMemo(() => oportunidades.filter((x) => ["REVISAR_TRASPASO", "REVISAR_COMPRA"].includes(x.clasificacion)), [oportunidades]);
-  const compras = useMemo(() => oportunidades.filter((x) => x.clasificacion === "REVISAR_COMPRA"), [oportunidades]);
-  const traspasos = useMemo(() => oportunidades.filter((x) => x.clasificacion === "REVISAR_TRASPASO"), [oportunidades]);
-  const observar = useMemo(() => oportunidades.filter((x) => x.clasificacion === "EVIDENCIA_INSUFICIENTE" || x.clasificacion === "OBSERVAR" && x.razones.some((r) => CONTRADICCIONES.has(r))), [oportunidades]);
+  // El reparto vive en su propio módulo y tiene pruebas: escrito suelto aquí,
+  // una fila marcada como pedida no caía en NINGUNA sección y desaparecía de
+  // la pantalla junto con su botón para quitar la marca.
+  const { prioritarias, compras, traspasos, observar, yaPedidas } = useMemo(
+    () => repartirOportunidades(oportunidades), [oportunidades]
+  );
   const libres = datos?.productos_no_manejados || [];
   const hayCostos = compras.some((x) => Object.hasOwn(x.compras_historicas || {}, "ultimo_costo") || Object.hasOwn(x.compras_historicas || {}, "costo_promedio_historico_ponderado"));
 
@@ -147,9 +186,66 @@ export default function InteligenciaCompras({ permisos = [] }) {
     { titulo: "Mínimo", render: (x) => valor(x.inventario.cantidad_minima) },
     { titulo: "En tránsito", render: (x) => valor(x.traspasos.cantidad_entrante_en_transito) },
   ];
+  // Cuántas piezas faltan para volver al mínimo, y cuánto costarían. Cuando no
+  // se puede calcular se dice POR QUÉ, en vez de mostrar un cero que parecería
+  // un dato.
+  const celdaReposicion = (x) => {
+    const r = x.reposicion || {};
+    if (r.piezas == null) {
+      return <span className="text-xs text-slate-500">{MOTIVO_SIN_CANTIDAD[r.bloqueo] || "Sin cantidad calculable"}</span>;
+    }
+    if (r.piezas === 0) return <span className="text-xs text-slate-500">Cubierto</span>;
+    return (
+      <>
+        <b className="whitespace-nowrap text-slate-900">{numero.format(r.piezas)} pz</b>
+        {r.importe_estimado != null && (
+          <span className="block whitespace-nowrap text-xs text-slate-500">
+            {dinero.format(r.importe_estimado)}
+            {r.costo_fecha ? ` · costo de ${r.costo_fecha}` : ""}
+          </span>
+        )}
+      </>
+    );
+  };
+
+  const celdaPedido = (x) => {
+    const marcado = x.pedido_proveedor?.marcado === true;
+    const clave = `${x.producto.producto_id}-${x.sucursal.sucursal_id}`;
+    const ocupado = marcando === clave;
+    if (!puedeMarcar) {
+      return marcado
+        ? <span className="text-xs text-emerald-700">Pedido · {x.pedido_proveedor.dias_restantes} d</span>
+        : <span className="text-xs text-slate-400">—</span>;
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => alternarPedido(x)}
+        disabled={ocupado}
+        className={`${BOTON_PEDIDO} ${marcado ? CLASE_MARCADO : CLASE_SIN_MARCAR}`}
+      >
+        {ocupado ? "Guardando…" : marcado ? `Ya pedido · ${x.pedido_proveedor.dias_restantes} d` : "Ya lo pedí"}
+      </button>
+    );
+  };
+
+  // Lo que está esperando llegar. Se ve quién lo marcó, cuántos días le quedan
+  // de silencio y el botón para devolverlo a la lista si ya llegó.
+  const columnasYaPedido = [
+    { titulo: "Producto / SKU", render: (x) => <><b className="text-slate-900">{x.producto.nombre}</b><span className="block text-xs text-slate-500">{x.producto.sku || "Sin SKU"}</span></> },
+    { titulo: "Sucursal", render: (x) => x.sucursal.sucursal_nombre },
+    { titulo: "Marcado por", render: (x) => x.pedido_proveedor?.marcado_por || "—" },
+    { titulo: "Desde", render: (x) => fecha(x.pedido_proveedor?.fecha_marca) },
+    { titulo: "Vuelve a la lista", render: (x) => `${fecha(x.pedido_proveedor?.vence)} · ${valor(x.pedido_proveedor?.dias_restantes)} d` },
+    { titulo: "Stock / mínimo", render: (x) => `${valor(x.inventario.cantidad_actual)} / ${valor(x.inventario.cantidad_minima)}` },
+    { titulo: "Pedido", render: celdaPedido },
+  ];
+
   const columnasCompra = [
     { titulo: "Producto / SKU", render: (x) => <><b className="text-slate-900">{x.producto.nombre}</b><span className="block text-xs text-slate-500">{x.producto.sku || "Sin SKU"}</span></> },
     { titulo: "Sucursal", render: (x) => x.sucursal.sucursal_nombre },
+    { titulo: "Faltan", render: celdaReposicion },
+    { titulo: "Pedido", render: celdaPedido },
     { titulo: "Stock / mínimo", render: (x) => `${valor(x.inventario.cantidad_actual)} / ${valor(x.inventario.cantidad_minima)}` },
     { titulo: "Radar 30d", render: (x) => `${valor(x.radar["30d"].solicitudes)} sol. · ${valor(x.radar["30d"].contactos_distintos)} contactos` },
     { titulo: "Ventas 30d / 90d", render: (x) => `${valor(x.ventas.unidades_30d)} / ${valor(x.ventas.unidades_90d)}` },
@@ -195,9 +291,48 @@ export default function InteligenciaCompras({ permisos = [] }) {
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertTriangle size={18} />{error}</div>}
     {cargando && !datos ? <div className="py-16 text-center text-sm text-slate-500">Cargando inteligencia...</div> : datos && <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"><Tarjeta titulo="Revisar traspaso" valor={datos.resumen.revisar_traspaso} color="border-violet-200" /><Tarjeta titulo="Revisar compra" valor={datos.resumen.revisar_compra} color="border-blue-200" /><Tarjeta titulo="Observar" valor={datos.resumen.observar} color="border-orange-200" /><Tarjeta titulo="Evidencia insuficiente" valor={datos.resumen.evidencia_insuficiente} color="border-slate-300" /><Tarjeta titulo="Evaluar incorporación" valor={datos.resumen.evaluar_incorporacion} color="border-amber-200" /></div>
+      {datos.candidatos_inventario?.omitidos > 0 && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>
+            El inventario detectó {numero.format(datos.candidatos_inventario.total_detectados)} productos
+            por debajo de su mínimo. Aquí se muestran los {numero.format(datos.candidatos_inventario.entregados)} que
+            más se venden; quedan {numero.format(datos.candidatos_inventario.omitidos)} fuera de esta vista.
+            Filtra por tienda para verlos por partes.
+          </span>
+        </div>
+      )}
+      <GraficosCompras filas={compras} hayCostos={hayCostos} />
       <FamiliasDemanda datos={datos.familias} periodo={datos.periodo} />
       <Seccion titulo="Atención prioritaria" icono={BrainCircuit} descripcion="Vista combinada de oportunidades para revisar por traspaso o compra." vacio="No hay oportunidades prioritarias en este momento." tieneDatos={prioritarias.length}><Tabla columnas={columnasPrioridad} filas={prioritarias} onExplicar={setExplicacion} minWidth="1100px" /></Seccion>
-      <Seccion titulo="Revisar para compra" icono={ShoppingCart} descripcion={CLASIFICACIONES.REVISAR_COMPRA[1]} vacio="No hay productos para revisar por compra." tieneDatos={compras.length}><Tabla columnas={columnasCompra} filas={compras} onExplicar={setExplicacion} minWidth={hayCostos ? "1350px" : "1100px"} /></Seccion>
+      <Seccion
+        titulo="Revisar para compra"
+        icono={ShoppingCart}
+        descripcion={CLASIFICACIONES.REVISAR_COMPRA[1]}
+        vacio="No hay productos para revisar por compra."
+        tieneDatos={compras.length}
+      >
+        <Tabla
+          columnas={columnasCompra}
+          filas={compras}
+          onExplicar={setExplicacion}
+          minWidth={hayCostos ? "1610px" : "1360px"}
+        />
+      </Seccion>
+      <Seccion
+        titulo="Ya pedido al proveedor"
+        icono={Truck}
+        descripcion="Filas silenciadas tres semanas porque alguien marcó que la mercancía ya se pidió. Vuelven solas a la lista de compras cuando se acaba el plazo."
+        vacio="No hay productos marcados como pedidos."
+        tieneDatos={yaPedidas.length}
+      >
+        <Tabla
+          columnas={columnasYaPedido}
+          filas={yaPedidas}
+          onExplicar={setExplicacion}
+          minWidth="1000px"
+        />
+      </Seccion>
       <Seccion titulo="Revisar para traspaso" icono={ArrowRightLeft} descripcion={CLASIFICACIONES.REVISAR_TRASPASO[1]} vacio="No hay oportunidades de traspaso detectadas." tieneDatos={traspasos.length}><Tabla columnas={columnasTraspaso} filas={traspasos} onExplicar={setExplicacion} minWidth={global ? "1050px" : "760px"} /></Seccion>
       <Seccion titulo="Productos no manejados" icono={PackageSearch} descripcion={CLASIFICACIONES.EVALUAR_INCORPORACION[1]} vacio="No hay productos no manejados con suficiente evidencia." tieneDatos={libres.length}><Tabla columnas={columnasLibres} filas={libres} onExplicar={setExplicacion} minWidth="1150px" /></Seccion>
       <Seccion titulo="Contradicciones / observar" icono={AlertTriangle} descripcion="Situaciones que necesitan revisión antes de tomar una decisión." vacio="No se detectaron contradicciones en este momento." tieneDatos={observar.length}><Tabla columnas={columnasObservar} filas={observar} onExplicar={setExplicacion} minWidth="850px" /></Seccion>

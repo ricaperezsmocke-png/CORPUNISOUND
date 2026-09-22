@@ -10,8 +10,20 @@ const { fechaLocal, diaLocal } = require("./fechas");
 const { agruparRegistrosLibres } = require("./radar/identidad");
 const { agruparFamilias } = require("./radar/familias");
 const { clasificarEstadoDemanda } = require("./radar/metricas");
+const { diaDeRegistro } = require("./radar/fechaRegistro");
+const { indicePedidos, estadoDesdeIndice } = require("./radar/pedidosMarcados");
 
 const VENTANAS = Object.freeze([7, 30, 60, 90, 180]);
+
+/**
+ * Cuantos pares producto/sucursal detectados SOLO por el inventario se
+ * entregan como maximo. Los que trae el Radar no cuentan contra este tope.
+ *
+ * Medido: con 3,000 productos en cinco tiendas salian 15,000 expedientes y
+ * 42 MB. Un comprador no revisa quince mil renglones, y esa pantalla no
+ * abriria. Se entregan los mas urgentes y se declara cuantos quedaron fuera.
+ */
+const TOPE_CANDIDATOS_INVENTARIO = 300;
 
 function texto(valor) {
   return valor == null ? "" : String(valor).trim();
@@ -42,12 +54,16 @@ function inicioVentana(fechaFin, dias) {
 }
 
 function estaEnVentana(fecha, fechaFin, dias) {
+  if (fecha == null) return false;
   return fecha >= inicioVentana(fechaFin, dias) && fecha <= fechaFin;
 }
 
 function fechaDeRegistro(valor) {
   // Un dia suelto ya es el dia de la tienda; convertirlo lo correria un dia.
-  return diaLocal(valor);
+  // Y una fecha que no se entiende devuelve null en vez de hoy: `estaEnVentana`
+  // la deja fuera de todas las ventanas en lugar de contarla como demanda
+  // reciente. Ver radar/fechaRegistro.js.
+  return diaDeRegistro(valor);
 }
 
 function fechaDeVenta(venta) {
@@ -206,6 +222,68 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     existenciaPorClave.set(claveProductoSucursal(existencia.producto_id, existencia.sucursal_id), existencia);
   }
 
+  // LA REPOSICION NORMAL DE LA TIENDA. Hasta aqui, un expediente de Compras
+  // solo nacia de `radar_demanda.registros`: si nadie capturaba una demanda, el
+  // producto no existia para esta pantalla. Pero nadie levanta una "demanda"
+  // por las cuerdas que siempre se han tenido — se levanta cuando pasa algo
+  // raro. Resultado: la pantalla que debe decir que comprar escondia el caso
+  // mas comun del negocio y mostraba solo lo excepcional.
+  //
+  // Un par producto/sucursal entra tambien cuando el INVENTARIO ya lo esta
+  // senalando: faltante (agotado o por debajo de su minimo) con respaldo de que
+  // el producto se mueve (ventas dentro de las ventanas). Sin ventas no entra:
+  // el catalogo muerto no es una compra pendiente.
+  //
+  // Esto NO inventa demanda: el bloque `radar` del expediente queda en cero y
+  // asi se ve en pantalla. No escribe en catalogo ni en inventario, solo deja
+  // de esconder lo que el propio inventario ya dice.
+  //
+  // SE ACOTAN, Y SE DICE. Con un catalogo real esto puede detectar miles de
+  // pares: medido, 3,000 productos en cinco tiendas daban 15,000 expedientes y
+  // 42 MB de respuesta. Nadie revisa quince mil renglones y esa pantalla no
+  // abriria nunca. Se entregan los mas urgentes —los que mas se venden— y la
+  // respuesta declara cuantos quedaron fuera: recortar en silencio seria peor,
+  // porque Victor creeria que ya lo vio todo.
+  //
+  // Lo capturado en el Radar no entra en este recorte: si alguien se tomo el
+  // trabajo de registrar una demanda, esa fila se ve siempre.
+  const candidatosInventario = [];
+  for (const [clave, existencia] of existenciaPorClave) {
+    if (radarPorClave.has(clave)) continue;
+    const productoId = Number(existencia.producto_id);
+    const sucursalId = Number(existencia.sucursal_id);
+    if (!productoPorId.has(productoId)) continue;
+    const actual = Number(existencia.cantidad_actual) || 0;
+    const minima = Number(existencia.cantidad_minima) || 0;
+    const faltante = actual <= 0 || (minima > 0 && actual < minima);
+    if (!faltante) continue;
+    const ventanasVendidas = ventasPorClave.get(clave);
+    const vendidas30 = ventanasVendidas ? ventanasVendidas.get(30) || 0 : 0;
+    const vendidas90 = ventanasVendidas ? ventanasVendidas.get(90) || 0 : 0;
+    const seMueve = ventanasVendidas ? [...ventanasVendidas.values()].some((u) => u > 0) : false;
+    if (!seMueve) continue;
+    candidatosInventario.push({
+      clave, productoId, sucursalId,
+      // Lo que mas se mueve primero; a igualdad, lo que mas lejos esta de su
+      // minimo. Es el orden en que un comprador los atenderia.
+      urgencia: [vendidas30, vendidas90, Math.max(0, minima - actual)],
+    });
+  }
+  candidatosInventario.sort((a, b) => b.urgencia[0] - a.urgencia[0]
+    || b.urgencia[1] - a.urgencia[1]
+    || b.urgencia[2] - a.urgencia[2]
+    || a.productoId - b.productoId
+    || a.sucursalId - b.sucursalId);
+
+  const admitidos = candidatosInventario.slice(0, TOPE_CANDIDATOS_INVENTARIO);
+  for (const candidato of admitidos) {
+    radarPorClave.set(candidato.clave, {
+      productoId: candidato.productoId, sucursalId: candidato.sucursalId,
+      ventanas: new Map(VENTANAS.map((d) => [d, nuevaMetricaRadar()])),
+    });
+  }
+  const candidatosOmitidos = candidatosInventario.length - admitidos.length;
+
   const traspasosPorClave = new Map();
   for (const traspaso of DB.inventario?.traspasos || []) {
     if (traspaso.estatus !== "en_transito" || !autorizadas.has(Number(traspaso.sucursal_destino_id))) continue;
@@ -229,6 +307,8 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     comprasPorProducto.get(productoId).push({ detalle, compra, fecha: fechaDeRegistro(compra.fecha) });
   }
 
+  // Una sola pasada por las marcas, fuera del bucle: dentro era cuadratico.
+  const pedidos = indicePedidos(DB, fechaFin);
   const expedientes = [];
   for (const grupo of radarPorClave.values()) {
     const producto = productoPorId.get(grupo.productoId);
@@ -296,6 +376,9 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
       inventario,
       otras_sucursales: otrasSucursales.sort((a, b) => a.sucursal_id - b.sucursal_id),
       traspasos: { cantidad_entrante_en_transito: traspasos.cantidad, numero_traspasos_entrantes: traspasos.numero },
+      // "Ya lo pedi": la nota que silencia esta fila tres semanas. No es una
+      // compra registrada ni mueve existencia; ver radar/pedidosMarcados.js.
+      pedido_proveedor: estadoDesdeIndice(pedidos, grupo.productoId, grupo.sucursalId, fechaFin),
       compras_historicas: {
         ultima_recepcion_fecha: ultima?.fecha || null,
         ultima_recepcion_sucursal_id: ultima ? Number(ultima.compra.sucursal_id) : null,
@@ -334,8 +417,16 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     productos: expedientes.sort((a, b) => a.producto.producto_id - b.producto.producto_id || a.sucursal.sucursal_id - b.sucursal.sucursal_id),
     productos_no_manejados: productosNoManejados.sort((a, b) => b.solicitudes - a.solicitudes || a.identidad_textual.localeCompare(b.identidad_textual)),
     familias: agruparFamilias(registrosVentana, { universo: "PENDIENTE" }),
+    // Cuantos faltantes detecto el inventario y cuantos no caben en esta
+    // respuesta. Va aqui para que la pantalla pueda decirlo en voz alta.
+    candidatos_inventario: {
+      total_detectados: candidatosInventario.length,
+      entregados: admitidos.length,
+      omitidos: candidatosOmitidos,
+      tope: TOPE_CANDIDATOS_INVENTARIO,
+    },
     capacidades: { pedidos_proveedor_disponibles: false },
   };
 }
 
-module.exports = { obtenerEvidenciaCompras, VENTANAS };
+module.exports = { obtenerEvidenciaCompras, VENTANAS, TOPE_CANDIDATOS_INVENTARIO };
