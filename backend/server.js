@@ -2333,6 +2333,12 @@ function actividadParaRespuesta(registro) {
   return { ...registro, evidencia };
 }
 
+// El sello conserva el id de Drive; la pantalla solo necesita el link.
+function cierreParaRespuesta(cierre) {
+  if (!cierre.foto?.actividades) return cierre;
+  return { ...cierre, foto: { ...cierre.foto, actividades: cierre.foto.actividades.map(actividadParaRespuesta) } };
+}
+
 app.get("/api/objetivos/catalogo-actividades", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
   res.json(CLASES_ACTIVIDAD);
 });
@@ -2605,7 +2611,7 @@ app.get("/api/objetivos/:mes/:sucursalId/cierre", requiereLogin, requierePermiso
     validarMesObjetivos(req.params.mes);
     const cierre = DB.pos.objetivo_cierres.find((c) => c.mes === req.params.mes && c.sucursal_id === sucursal_id);
     if (!cierre) return res.status(404).json({ error: "Cierre no encontrado: ese mes no está cerrado para esta sucursal" });
-    res.json(cierre);
+    res.json(cierreParaRespuesta(cierre));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2616,7 +2622,7 @@ app.post("/api/objetivos/cierre", requiereLogin, requierePermiso("cerrar_mes_obj
     const reales = Array.isArray(req.body?.reales)
       ? req.body.reales.map((real) => ({ ...real, vendedor_id: idDeObjetivos(real?.vendedor_id, "vendedor_id") }))
       : req.body?.reales;
-    res.json(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales }, req.usuarioToken));
+    res.json(cierreParaRespuesta(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales }, req.usuarioToken)));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

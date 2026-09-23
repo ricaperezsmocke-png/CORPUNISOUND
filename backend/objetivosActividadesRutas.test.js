@@ -394,3 +394,17 @@ test("traslado: la persona conserva su alcance histórico, la jefatura consulta 
   estado(await pedir("POST", `/api/objetivos/actividad/${r.cuerpo.id}/resultado`, trasladada, RESULTADO), 200);
   estado(await pedir("POST", `/api/objetivos/actividad/${r.cuerpo.id}/anular`, trasladada, { motivo: "Error" }), 200);
 });
+
+test("el cierre sellado y el previo no exponen el drive_file_id de las fotos", async () => {
+  await registrarActividad(app.DB, { ...DATOS, sucursal_id: 1, vendedor_id: 1, actividad: "iglesia", link: undefined, archivo: ARCHIVO },
+    { nombre: "Fixture" }, drive);
+  estado(await pedir("GET", `${RAIZ}/previo-cierre`, soloCierre), 200);
+  const cerrado = await pedir("POST", "/api/objetivos/cierre", soloCierre, {
+    mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 0 })),
+  });
+  estado(cerrado, 200);
+  assert.equal(cerrado.cuerpo.foto.actividades[0].evidencia.drive_link, "https://drive.google.com/file/d/archivo-privado/view");
+  estado(await pedir("GET", `${RAIZ}/cierre`, soloCierre), 200);
+  const sellado = app.DB.pos.objetivo_cierres[0];
+  assert.equal(sellado.foto.actividades[0].evidencia.drive_file_id, "archivo-privado", "el sello conserva el id");
+});
