@@ -1,5 +1,6 @@
 const { objetivoVigente, plantillaDelMes } = require("./objetivos");
 const { capturadoDelMes } = require("./objetivosCaptura");
+const { actividadesDelMes, resumenActividades } = require("./objetivosActividades");
 
 function validarPeriodo(mes, sucursal_id) {
   if (typeof mes !== "string" || mes.length !== 7 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
@@ -14,7 +15,7 @@ function previoCierre(DB, { mes, sucursal_id }) {
   validarPeriodo(mes, sucursal_id);
   const participantes = new Set(plantillaDelMes(DB, mes, sucursal_id).map(({ vendedor_id }) => vendedor_id));
   for (const objetivo of DB.pos.objetivos) {
-    if (objetivo.vigente && objetivo.tipo === "venta" && objetivo.mes === mes &&
+    if (objetivo.vigente && ["venta", "actividad"].includes(objetivo.tipo) && objetivo.mes === mes &&
         objetivo.sucursal_id === sucursal_id && objetivo.vendedor_id !== null) {
       participantes.add(objetivo.vendedor_id);
     }
@@ -24,15 +25,23 @@ function previoCierre(DB, { mes, sucursal_id }) {
       participantes.add(captura.vendedor_id);
     }
   }
+  for (const registro of actividadesDelMes(DB, { mes, sucursal_id })) {
+    if (registro.vigente) participantes.add(registro.vendedor_id);
+  }
 
   return [...participantes].sort((a, b) => a - b).map((vendedor_id) => {
     const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
     const objetivo = objetivoVigente(DB, { tipo: "venta", mes, sucursal_id, vendedor_id });
+    const actividades = resumenActividades(DB, { mes, sucursal_id, vendedor_id }).map(({ actividad, declaradas, conjuntas }) => {
+      const meta = objetivoVigente(DB, { tipo: "actividad", actividad, mes, sucursal_id, vendedor_id });
+      return { actividad, meta: meta ? meta.monto : 0, declaradas, conjuntas };
+    });
     return {
       vendedor_id,
       nombre: vendedor?.nombre || "desconocido",
       meta: objetivo ? objetivo.monto : 0,
       capturado: capturadoDelMes(DB, { mes, sucursal_id, vendedor_id }),
+      actividades,
     };
   });
 }
@@ -71,9 +80,9 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     throw new Error("Falta el real de SICAR de alguien de la plantilla");
   }
 
-  const lineas = previo.map(({ vendedor_id, meta, capturado }) => {
+  const lineas = previo.map(({ vendedor_id, meta, capturado, actividades }) => {
     const real_sicar = realesPorPersona.get(vendedor_id);
-    return { vendedor_id, meta, capturado, real_sicar, diferencia: capturado - real_sicar };
+    return { vendedor_id, meta, capturado, real_sicar, diferencia: capturado - real_sicar, actividades };
   });
   const delPeriodo = (registro) => registro.mes === mes && registro.sucursal_id === sucursal_id;
   // Copia profunda: versionar metas o corregir capturas cambia su vigente original,
@@ -82,6 +91,7 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     objetivos: DB.pos.objetivos.filter((objetivo) => objetivo.vigente && delPeriodo(objetivo)),
     capturas: DB.pos.objetivo_capturas.filter((captura) => captura.vigente && delPeriodo(captura)),
     plantilla: plantillaDelMes(DB, mes, sucursal_id),
+    actividades: actividadesDelMes(DB, { mes, sucursal_id }),
   });
   const cierre = {
     id: DB.pos.objetivo_cierres.reduce((maximo, item) => Math.max(maximo, item.id), 0) + 1,
@@ -91,6 +101,7 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     cerrado_en: new Date().toISOString(),
     lineas,
     foto,
+    resumen_actividades_tienda: resumenActividades(DB, { mes, sucursal_id }),
     rectificaciones: [],
   };
 

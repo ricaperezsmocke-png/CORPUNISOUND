@@ -1,6 +1,9 @@
+const { claseActividad } = require("./objetivosActividadesCatalogo");
+
 // Cada cambio conserva la versión anterior y enlaza la nueva con ella.
-function mismaCombinacion(objetivo, { tipo, mes, sucursal_id, vendedor_id }) {
+function mismaCombinacion(objetivo, { tipo, actividad, mes, sucursal_id, vendedor_id }) {
   return objetivo.tipo === tipo &&
+    (objetivo.actividad ?? null) === (actividad ?? null) &&
     objetivo.mes === mes &&
     objetivo.sucursal_id === sucursal_id &&
     objetivo.vendedor_id === vendedor_id;
@@ -16,15 +19,22 @@ function historialObjetivo(DB, datos) {
     .sort((a, b) => a.version - b.version);
 }
 
-function fijarObjetivo(DB, { tipo, mes, sucursal_id, vendedor_id, monto, motivo }, usuario) {
+function fijarObjetivo(DB, { tipo, actividad = null, mes, sucursal_id, vendedor_id, monto, motivo }, usuario) {
   if (!Number.isFinite(monto) || monto < 0) {
     throw new Error("El monto debe ser un número finito mayor o igual a cero");
   }
   if (typeof mes !== "string" || mes.length !== 7 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
     throw new Error("El mes debe tener formato AAAA-MM, con mes entre 01 y 12");
   }
-  if (tipo !== "venta") {
-    throw new Error("El tipo de objetivo debe ser venta");
+  if (tipo !== "venta" && tipo !== "actividad") {
+    throw new Error("El tipo de objetivo debe ser venta o actividad");
+  }
+  if (tipo === "venta" && actividad !== null) {
+    throw new Error("Un objetivo de venta no puede tener actividad");
+  }
+  if (tipo === "actividad") {
+    if (!claseActividad(actividad)) throw new Error("La clase de actividad no existe");
+    if (!Number.isInteger(monto)) throw new Error("El monto de actividad debe ser un entero mayor o igual a cero");
   }
   if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
     throw new Error("La sucursal debe tener un identificador válido");
@@ -40,10 +50,11 @@ function fijarObjetivo(DB, { tipo, mes, sucursal_id, vendedor_id, monto, motivo 
     }
   }
 
-  const anterior = objetivoVigente(DB, { tipo, mes, sucursal_id, vendedor_id });
+  const anterior = objetivoVigente(DB, { tipo, actividad, mes, sucursal_id, vendedor_id });
   const nuevo = {
     id: DB.pos.objetivos.reduce((maximo, o) => Math.max(maximo, o.id), 0) + 1,
     tipo,
+    actividad,
     mes,
     sucursal_id,
     vendedor_id,
@@ -170,9 +181,10 @@ function darDeBajaEnPlantilla(DB, plantillaId, { hasta, motivo }, usuario) {
   return linea;
 }
 
-function repartoSugerido(DB, { mes, sucursal_id }) {
+function repartoSugerido(DB, { mes, sucursal_id, tipo = "venta", actividad = null }) {
   const metaTienda = objetivoVigente(DB, {
-    tipo: "venta",
+    tipo,
+    actividad,
     mes,
     sucursal_id,
     vendedor_id: null,
@@ -190,16 +202,18 @@ function repartoSugerido(DB, { mes, sucursal_id }) {
   }));
 }
 
-function estadoDelReparto(DB, { mes, sucursal_id }) {
+function estadoDelReparto(DB, { mes, sucursal_id, tipo = "venta", actividad = null }) {
   const metaTienda = objetivoVigente(DB, {
-    tipo: "venta",
+    tipo,
+    actividad,
     mes,
     sucursal_id,
     vendedor_id: null,
   });
   const lineas = vendedoresUnicosDePlantilla(DB, mes, sucursal_id).map((vendedor_id) => {
     const objetivo = objetivoVigente(DB, {
-      tipo: "venta",
+      tipo,
+      actividad,
       mes,
       sucursal_id,
       vendedor_id,

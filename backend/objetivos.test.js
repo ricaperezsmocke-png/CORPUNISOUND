@@ -16,6 +16,165 @@ function prepararDB() {
 }
 const VICTOR = { id: 1, nombre: "Victor" };
 
+test("el catálogo consulta las cuatro clases de actividad y devuelve null para una desconocida", () => {
+  const { CLASES_ACTIVIDAD, claseActividad } = require("./objetivosActividadesCatalogo");
+  const esperadas = [
+    { clave: "grupos", etiqueta: "Publicación en grupos", evidencia: "link", unidad: "publicación" },
+    { clave: "marketplace", etiqueta: "Publicación en Marketplace", evidencia: "link", unidad: "publicación" },
+    { clave: "iglesia", etiqueta: "Salida a iglesia", evidencia: "foto", unidad: "salida" },
+    { clave: "volanteo", etiqueta: "Jornada de volanteo", evidencia: "foto", unidad: "jornada" },
+  ];
+  assert.deepStrictEqual(CLASES_ACTIVIDAD, esperadas);
+  for (const clase of esperadas) assert.deepStrictEqual(claseActividad(clase.clave), clase);
+  for (const clave of ["tiktok", "", null, undefined]) assert.strictEqual(claseActividad(clave), null);
+});
+
+test("la meta de iglesia de tienda guarda su clase y empieza en versión 1", () => {
+  const DB = prepararDB();
+  const datos = { tipo: "actividad", actividad: "iglesia", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 3 };
+  const meta = fijarObjetivo(DB, datos, VICTOR);
+  assert.strictEqual(meta.actividad, "iglesia");
+  assert.strictEqual(meta.monto, 3);
+  assert.strictEqual(meta.version, 1);
+  assert.strictEqual(meta.vigente, true);
+  assert.strictEqual(objetivoVigente(DB, datos), meta);
+});
+
+test("iglesia, grupos y venta conservan vigencias e historiales independientes", () => {
+  const DB = prepararDB();
+  const base = { mes: "2026-09", sucursal_id: 1, vendedor_id: 1 };
+  const venta = fijarObjetivo(DB, { ...base, tipo: "venta", monto: 80000 }, VICTOR);
+  const iglesia = { ...base, tipo: "actividad", actividad: "iglesia" };
+  const grupos = { ...base, tipo: "actividad", actividad: "grupos" };
+  const primera = fijarObjetivo(DB, { ...iglesia, monto: 3 }, VICTOR);
+  const otra = fijarObjetivo(DB, { ...grupos, monto: 20 }, VICTOR);
+  assert.strictEqual(primera.vigente, true);
+  assert.strictEqual(otra.version, 1);
+  const segunda = fijarObjetivo(DB, { ...iglesia, monto: 4, motivo: "Otra salida" }, VICTOR);
+  assert.strictEqual(primera.vigente, false);
+  assert.strictEqual(segunda.version, 2);
+  assert.strictEqual(segunda.reemplaza_a, primera.id);
+  assert.strictEqual(segunda.motivo, "Otra salida");
+  assert.strictEqual(otra.vigente, true);
+  assert.strictEqual(venta.vigente, true);
+  assert.strictEqual(objetivoVigente(DB, iglesia), segunda);
+  assert.strictEqual(objetivoVigente(DB, grupos), otra);
+  assert.strictEqual(objetivoVigente(DB, { ...base, tipo: "venta" }), venta);
+  assert.deepStrictEqual(historialObjetivo(DB, iglesia).map((o) => o.monto), [3, 4]);
+  assert.deepStrictEqual(historialObjetivo(DB, grupos).map((o) => o.monto), [20]);
+  assert.deepStrictEqual(historialObjetivo(DB, { ...base, tipo: "venta" }).map((o) => o.monto), [80000]);
+});
+
+for (const actividad of [undefined, null, "tiktok"]) {
+  test(`se rechaza la clase de actividad inválida ${actividad} sin modificar metas`, () => {
+    const DB = prepararDB();
+    const base = { mes: "2026-09", sucursal_id: 1, vendedor_id: null };
+    fijarObjetivo(DB, { ...base, tipo: "venta", monto: 100 }, VICTOR);
+    const antes = structuredClone(DB.pos);
+    assert.throws(() => fijarObjetivo(DB, { ...base, tipo: "actividad", actividad, monto: 3 }, VICTOR), /actividad/i);
+    assert.deepStrictEqual(DB.pos, antes);
+  });
+}
+
+test("las metas de actividad rechazan fracciones sin modificar la base", () => {
+  const DB = prepararDB();
+  const antes = structuredClone(DB.pos);
+  assert.throws(() => fijarObjetivo(DB, {
+    tipo: "actividad", actividad: "iglesia", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 2.5,
+  }, VICTOR), /entero/i);
+  assert.deepStrictEqual(DB.pos, antes);
+});
+
+test("las metas de actividad aceptan cero y rechazan montos negativos o no numéricos", () => {
+  const DB = prepararDB();
+  const datos = { tipo: "actividad", actividad: "marketplace", mes: "2026-09", sucursal_id: 1, vendedor_id: null };
+  const meta = fijarObjetivo(DB, { ...datos, monto: 0 }, VICTOR);
+  assert.strictEqual(meta.monto, 0);
+  const antes = structuredClone(DB.pos);
+  for (const monto of [-1, NaN, Infinity, "3", null, undefined]) {
+    assert.throws(() => fijarObjetivo(DB, { ...datos, monto }, VICTOR), /monto|número|entero/i);
+    assert.deepStrictEqual(DB.pos, antes);
+  }
+});
+
+test("venta rechaza una clase de actividad y no reemplaza la meta vigente", () => {
+  const DB = prepararDB();
+  const datos = { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 100 };
+  fijarObjetivo(DB, datos, VICTOR);
+  const antes = structuredClone(DB.pos);
+  assert.throws(() => fijarObjetivo(DB, { ...datos, actividad: "iglesia" }, VICTOR), /actividad/i);
+  assert.deepStrictEqual(DB.pos, antes);
+});
+
+test("un tipo desconocido se rechaza sin guardar nada", () => {
+  const DB = prepararDB();
+  assert.throws(() => fijarObjetivo(DB, {
+    tipo: "otro", mes: "2026-09", sucursal_id: 1, vendedor_id: null, monto: 3,
+  }, VICTOR), /tipo/i);
+  assert.deepStrictEqual(DB.pos.objetivos, []);
+});
+
+test("una venta histórica sin actividad sigue vigente y se versiona con actividad null", () => {
+  const DB = prepararDB();
+  const datos = { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: null };
+  const historica = {
+    id: 1, ...datos, monto: 100, version: 1, vigente: true, creado_por: "Victor",
+    creado_en: "2026-09-01T12:00:00.000Z", reemplaza_a: null, motivo: null,
+  };
+  DB.pos.objetivos.push(historica);
+  assert.strictEqual(objetivoVigente(DB, datos), historica);
+  assert.strictEqual(objetivoVigente(DB, { ...datos, actividad: null }), historica);
+  const nueva = fijarObjetivo(DB, { ...datos, actividad: null, monto: 100.5, motivo: "Ajuste" }, VICTOR);
+  assert.strictEqual(nueva.actividad, null);
+  assert.strictEqual(nueva.monto, 100.5);
+  assert.strictEqual(nueva.version, 2);
+  assert.strictEqual(nueva.reemplaza_a, historica.id);
+  assert.strictEqual(historica.vigente, false);
+  assert.deepStrictEqual(historialObjetivo(DB, datos).map((o) => o.monto), [100, 100.5]);
+  const sinCampo = fijarObjetivo(DB, { ...datos, monto: 200 }, VICTOR);
+  assert.strictEqual(sinCampo.actividad, null);
+  assert.strictEqual(sinCampo.version, 3);
+});
+
+test("el reparto de volanteo conserva diez jornadas entre tres personas como 3, 3 y 4", () => {
+  const DB = prepararDB();
+  const base = { mes: "2026-09", sucursal_id: 1 };
+  DB.pos.vendedores.push({ id: 3, nombre: "Ana", sucursal_id: 1, activo: true });
+  for (const vendedor_id of [1, 2, 3]) registrarEnPlantilla(DB, { ...base, vendedor_id });
+  fijarObjetivo(DB, { ...base, tipo: "venta", vendedor_id: null, monto: 300 }, VICTOR);
+  const datos = { ...base, tipo: "actividad", actividad: "volanteo" };
+  fijarObjetivo(DB, { ...datos, vendedor_id: null, monto: 10 }, VICTOR);
+  const reparto = repartoSugerido(DB, datos);
+  assert.deepStrictEqual(reparto, [
+    { vendedor_id: 1, monto: 3 }, { vendedor_id: 2, monto: 3 }, { vendedor_id: 3, monto: 4 },
+  ]);
+  assert.strictEqual(reparto.reduce((total, linea) => total + linea.monto, 0), 10);
+  assert.deepStrictEqual(repartoSugerido(DB, base).map((linea) => linea.monto), [100, 100, 100]);
+});
+
+test("el estado de grupos muestra cuatro sin asignar y sin tipo sigue consultando venta", () => {
+  const DB = prepararDB();
+  const base = { mes: "2026-09", sucursal_id: 1 };
+  for (const vendedor_id of [1, 2]) registrarEnPlantilla(DB, { ...base, vendedor_id });
+  for (const datos of [
+    { tipo: "actividad", actividad: "iglesia", montos: [3, 1, 1] },
+    { tipo: "actividad", actividad: "grupos", montos: [20, 8, 8] },
+    { tipo: "venta", montos: [300, 100, 100] },
+  ]) {
+    for (const [indice, vendedor_id] of [null, 1, 2].entries()) {
+      fijarObjetivo(DB, { ...base, tipo: datos.tipo, actividad: datos.actividad, vendedor_id, monto: datos.montos[indice] }, VICTOR);
+    }
+  }
+  assert.deepStrictEqual(estadoDelReparto(DB, { ...base, tipo: "actividad", actividad: "grupos" }), {
+    meta_tienda: 20, asignado: 16, sin_asignar: 4,
+    lineas: [{ vendedor_id: 1, monto: 8 }, { vendedor_id: 2, monto: 8 }],
+  });
+  assert.deepStrictEqual(estadoDelReparto(DB, base), {
+    meta_tienda: 300, asignado: 200, sin_asignar: 100,
+    lineas: [{ vendedor_id: 1, monto: 100 }, { vendedor_id: 2, monto: 100 }],
+  });
+});
+
 test("fijar un objetivo lo deja vigente, con quien y cuando", () => {
   const DB = prepararDB();
   const o = fijarObjetivo(DB, { tipo: "venta", mes: "2026-09", sucursal_id: 1, vendedor_id: 1, monto: 80000 }, VICTOR);

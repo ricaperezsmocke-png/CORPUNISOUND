@@ -56,6 +56,10 @@ const {
 } = require("./objetivos");
 const { capturarDia, corregirCaptura, capturadoDelMes, diasSinCapturar } = require("./objetivosCaptura");
 const { previoCierre, cerrarMes, estaCerrado, rectificarCierre } = require("./objetivosCierre");
+const { CLASES_ACTIVIDAD, claseActividad } = require("./objetivosActividadesCatalogo");
+const {
+  registrarActividad, anularActividad, agregarResultado, actividadesDelMes, resumenActividades,
+} = require("./objetivosActividades");
 const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA, configurarRevisionDeCuenta } = require("./auth");
@@ -182,6 +186,7 @@ const DB = {
     objetivo_capturas: [],
     objetivo_cierres: [],
     objetivo_plantilla: [],
+    objetivo_actividades: [],
     // Tareas sugeridas al vendedor para alcanzar su meta. Ver gerenteVentas.js.
     tareas_venta: { tareas: [], ultimo_id: 0 },
     sucursales: [
@@ -2313,6 +2318,31 @@ function validarMesObjetivosAbierto(mes, sucursalId) {
   }
 }
 
+function tipoDeObjetivosConsulta(query) {
+  const tipo = query.tipo === undefined ? "venta" : query.tipo;
+  const actividad = query.actividad === undefined ? null : query.actividad;
+  if (tipo !== "venta" && tipo !== "actividad") throw new Error("El tipo de objetivo debe ser venta o actividad");
+  if (tipo === "venta" && actividad !== null) throw new Error("Un objetivo de venta no puede tener actividad");
+  if (tipo === "actividad" && !claseActividad(actividad)) throw new Error("La clase de actividad no existe");
+  return { tipo, actividad };
+}
+
+function actividadParaRespuesta(registro) {
+  const evidencia = { ...registro.evidencia };
+  delete evidencia.drive_file_id;
+  return { ...registro, evidencia };
+}
+
+// El sello conserva el id de Drive; la pantalla solo necesita el link.
+function cierreParaRespuesta(cierre) {
+  if (!cierre.foto?.actividades) return cierre;
+  return { ...cierre, foto: { ...cierre.foto, actividades: cierre.foto.actividades.map(actividadParaRespuesta) } };
+}
+
+app.get("/api/objetivos/catalogo-actividades", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  res.json(CLASES_ACTIVIDAD);
+});
+
 app.get("/api/objetivos/mis-tiendas/:mes", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
   try {
     const mes = req.params.mes;
@@ -2342,6 +2372,10 @@ app.get("/api/objetivos/:mes/:sucursalId", requiereLogin, requierePermiso("usar_
     const esJefatura = permisos.includes("editar_objetivos_venta");
     if ((!esJefatura || !alcanceNormal) && propioLigado == null) return res.status(404).json({ error: "Objetivo no encontrado" });
     const reparto = estadoDelReparto(DB, { mes, sucursal_id });
+    const actividades = CLASES_ACTIVIDAD.map(({ clave, etiqueta }) => ({
+      actividad: clave, etiqueta,
+      ...estadoDelReparto(DB, { mes, sucursal_id, tipo: "actividad", actividad: clave }),
+    }));
     const plantilla = plantillaDelMes(DB, mes, sucursal_id);
     // Vendedor y gerente no tienen el permiso de leer el cierre, pero su pantalla
     // tiene que saber si el mes ya se selló para no ofrecer capturar ni cambiar metas.
@@ -2351,10 +2385,13 @@ app.get("/api/objetivos/:mes/:sucursalId", requiereLogin, requierePermiso("usar_
       return res.json({
         lineas: reparto.lineas.filter((linea) => linea.vendedor_id === propioLigado),
         plantilla: plantilla.filter((linea) => linea.vendedor_id === propioLigado),
+        actividades: actividades.map(({ actividad, etiqueta, lineas }) => ({
+          actividad, etiqueta, lineas: lineas.filter((linea) => linea.vendedor_id === propioLigado),
+        })),
         cerrado,
       });
     }
-    res.json({ ...reparto, plantilla, cerrado });
+    res.json({ ...reparto, plantilla, cerrado, actividades });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2377,7 +2414,7 @@ app.get("/api/objetivos/:mes/:sucursalId/historial/:vendedorId", requiereLogin, 
     if (!sucursalObjetivosPermitida(req, sucursal_id)) return res.status(404).json({ error: "Objetivo no encontrado" });
     const vendedor_id = req.params.vendedorId === "tienda" ? null : idDeObjetivos(req.params.vendedorId, "vendedor_id");
     validarMesObjetivos(req.params.mes);
-    res.json(historialObjetivo(DB, { tipo: "venta", mes: req.params.mes, sucursal_id, vendedor_id }));
+    res.json(historialObjetivo(DB, { ...tipoDeObjetivosConsulta(req.query), mes: req.params.mes, sucursal_id, vendedor_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2386,7 +2423,7 @@ app.get("/api/objetivos/:mes/:sucursalId/sugerencia", requiereLogin, requierePer
     const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
     if (!sucursalObjetivosPermitida(req, sucursal_id)) return res.status(404).json({ error: "Objetivo no encontrado" });
     validarMesObjetivos(req.params.mes);
-    res.json(repartoSugerido(DB, { mes: req.params.mes, sucursal_id }));
+    res.json(repartoSugerido(DB, { ...tipoDeObjetivosConsulta(req.query), mes: req.params.mes, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2471,6 +2508,94 @@ app.post("/api/objetivos/captura/:id/corregir", requiereLogin, requierePermiso("
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+app.get("/api/objetivos/:mes/:sucursalId/actividades/:vendedorId", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  try {
+    const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
+    const vendedor_id = idDeObjetivos(req.params.vendedorId, "vendedor_id");
+    const mes = req.params.mes;
+    validarMesObjetivos(mes);
+    const alcanceNormal = sucursalObjetivosPermitida(req, sucursal_id);
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const jefaturaHistorica = alcanceNormal && permisos.includes("editar_objetivos_venta") &&
+      estaEnPlantillaDeObjetivos(mes, sucursal_id, vendedor_id);
+    const permitidoNormal = alcanceNormal && vendedorPermitido(req, vendedor_id) != null;
+    if (!permitidoNormal && !jefaturaHistorica && !alcancePropioPorPlantilla(req, mes, sucursal_id, vendedor_id)) {
+      return res.status(404).json({ error: "Vendedor no encontrado" });
+    }
+    const datos = { mes, sucursal_id, vendedor_id };
+    res.json({
+      registros: actividadesDelMes(DB, datos).map(actividadParaRespuesta),
+      resumen: resumenActividades(DB, datos),
+    });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/objetivos/:mes/:sucursalId/actividades", requiereLogin, (req, res) => {
+  try {
+    const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const puedeLeer = permisos.includes("editar_objetivos_venta") || permisos.includes("cerrar_mes_objetivos");
+    if (!puedeLeer || !sucursalObjetivosPermitida(req, sucursal_id)) {
+      return res.status(404).json({ error: "Actividades no encontradas" });
+    }
+    const mes = req.params.mes;
+    validarMesObjetivos(mes);
+    const datos = { mes, sucursal_id };
+    const registros = actividadesDelMes(DB, datos);
+    const personas = [...new Set(registros.map((registro) => registro.vendedor_id))];
+    res.json({
+      registros: registros.map(actividadParaRespuesta),
+      resumen_tienda: resumenActividades(DB, datos),
+      resumen_por_persona: personas.map((vendedor_id) => ({
+        vendedor_id, resumen: resumenActividades(DB, { ...datos, vendedor_id }),
+      })),
+    });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/objetivos/actividad", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), async (req, res) => {
+  try {
+    const datos = { ...req.body, sucursal_id: idDeObjetivos(req.body?.sucursal_id, "sucursal_id"),
+      vendedor_id: idDeObjetivos(req.body?.vendedor_id, "vendedor_id") };
+    const esPropio = vendedorLigadoAObjetivos(req) === datos.vendedor_id;
+    const alcance = sucursalObjetivosPermitida(req, datos.sucursal_id) ||
+      alcancePropioPorPlantilla(req, datos.mes, datos.sucursal_id, datos.vendedor_id);
+    if (!esPropio || !alcance) return res.status(404).json({ error: "Vendedor no encontrado" });
+    validarMesObjetivosAbierto(datos.mes, datos.sucursal_id);
+    const registro = await registrarActividad(DB, datos, req.usuarioToken, drive, {
+      antesDeGuardar: () => validarMesObjetivosAbierto(datos.mes, datos.sucursal_id),
+    });
+    res.json(actividadParaRespuesta(registro));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/objetivos/actividad/:id/anular", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  try {
+    const id = idDeObjetivos(req.params.id, "id");
+    const registro = DB.pos.objetivo_actividades.find((item) => item.id === id);
+    // Como en corregir captura: identidad y alcance siempre desde el ORIGINAL.
+    const esPropia = registro && vendedorLigadoAObjetivos(req) === registro.vendedor_id;
+    const alcance = registro && (sucursalObjetivosPermitida(req, registro.sucursal_id) ||
+      alcancePropioPorPlantilla(req, registro.mes, registro.sucursal_id, registro.vendedor_id));
+    if (!registro || !esPropia || !alcance) return res.status(404).json({ error: "Actividad no encontrada" });
+    validarMesObjetivosAbierto(registro.mes, registro.sucursal_id);
+    res.json(actividadParaRespuesta(anularActividad(DB, id, req.body?.motivo, req.usuarioToken)));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/objetivos/actividad/:id/resultado", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  try {
+    const id = idDeObjetivos(req.params.id, "id");
+    const registro = DB.pos.objetivo_actividades.find((item) => item.id === id);
+    const esPropia = registro && vendedorLigadoAObjetivos(req) === registro.vendedor_id;
+    const alcance = registro && (sucursalObjetivosPermitida(req, registro.sucursal_id) ||
+      alcancePropioPorPlantilla(req, registro.mes, registro.sucursal_id, registro.vendedor_id));
+    if (!registro || !esPropia || !alcance) return res.status(404).json({ error: "Actividad no encontrada" });
+    validarMesObjetivosAbierto(registro.mes, registro.sucursal_id);
+    res.json(actividadParaRespuesta(agregarResultado(DB, id, req.body || {}, req.usuarioToken)));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 app.get("/api/objetivos/:mes/:sucursalId/previo-cierre", requiereLogin, requierePermiso("cerrar_mes_objetivos", resolverPermisosDeRol), (req, res) => {
   try {
     const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
@@ -2486,7 +2611,7 @@ app.get("/api/objetivos/:mes/:sucursalId/cierre", requiereLogin, requierePermiso
     validarMesObjetivos(req.params.mes);
     const cierre = DB.pos.objetivo_cierres.find((c) => c.mes === req.params.mes && c.sucursal_id === sucursal_id);
     if (!cierre) return res.status(404).json({ error: "Cierre no encontrado: ese mes no está cerrado para esta sucursal" });
-    res.json(cierre);
+    res.json(cierreParaRespuesta(cierre));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2497,7 +2622,7 @@ app.post("/api/objetivos/cierre", requiereLogin, requierePermiso("cerrar_mes_obj
     const reales = Array.isArray(req.body?.reales)
       ? req.body.reales.map((real) => ({ ...real, vendedor_id: idDeObjetivos(real?.vendedor_id, "vendedor_id") }))
       : req.body?.reales;
-    res.json(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales }, req.usuarioToken));
+    res.json(cierreParaRespuesta(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales }, req.usuarioToken)));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

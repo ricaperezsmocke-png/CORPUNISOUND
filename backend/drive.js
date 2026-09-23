@@ -222,6 +222,25 @@ async function asegurarCarpetaDepositosSucursal(DB, sucursal) {
   return id;
 }
 
+async function asegurarCarpetaActividadesRaiz(DB) {
+  if (DB.drive.carpeta_actividades_id) return DB.drive.carpeta_actividades_id;
+  const nombre = "Evidencias de Actividades";
+  let id = await buscarCarpeta(DB, nombre, null);
+  if (!id) id = await crearCarpeta(DB, nombre, null);
+  DB.drive.carpeta_actividades_id = id;
+  return id;
+}
+
+async function asegurarCarpetaActividadesSucursal(DB, sucursal) {
+  if (sucursal.drive_folder_actividades_id) return sucursal.drive_folder_actividades_id;
+  const raizId = await asegurarCarpetaActividadesRaiz(DB);
+  const nombre = sucursal.nombre || `Sucursal ${sucursal.id}`;
+  let id = await buscarCarpeta(DB, nombre, raizId);
+  if (!id) id = await crearCarpeta(DB, nombre, raizId);
+  sucursal.drive_folder_actividades_id = id;
+  return id;
+}
+
 /** Carpeta raíz de los respaldos automáticos. Aparte de los comprobantes a
  *  propósito: son cosas distintas y Victor las va a mirar por separado. */
 async function asegurarCarpetaRespaldos(DB) {
@@ -282,6 +301,7 @@ module.exports = {
   asegurarCarpetaGarantia,
   asegurarCarpetaGastosRaiz, asegurarCarpetaGastosSucursal,
   asegurarCarpetaDepositosRaiz, asegurarCarpetaDepositosSucursal,
+  asegurarCarpetaActividadesRaiz, asegurarCarpetaActividadesSucursal,
   asegurarCarpetaRespaldos, CARPETA_RESPALDOS_NOMBRE,
   subirArchivoADrive, eliminarArchivoDeDrive, descargarArchivoDeDrive,
   CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE, CARPETA_GASTOS_NOMBRE, CARPETA_DEPOSITOS_NOMBRE,
