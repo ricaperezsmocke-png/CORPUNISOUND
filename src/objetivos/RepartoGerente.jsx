@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { History, Users } from "lucide-react";
-import { finDelMes, pesos } from "./datos";
+import { finDelMes, pesos, sugerenciaGuardada } from "./datos";
 
 export default function RepartoGerente({
   mes, sucursalId, objetivos, equipo, nombre, agregar, editar, historial, sugerencia, pedirSugerencia, darBaja,
@@ -74,7 +74,7 @@ export default function RepartoGerente({
               <input type="date" value={desde} min={`${mes}-01`} max={finDelMes(mes)}
                 onChange={(e) => setDesde(e.target.value)} className="block neu-campo rounded-lg px-3 py-2 mt-1" />
             </label>
-            <button disabled={!disponibles.some((v) => Number(v.id) === Number(vendedorId))}
+            <button type="submit" disabled={!disponibles.some((v) => Number(v.id) === Number(vendedorId))}
               className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-40">
               Agregar a la plantilla
             </button>
@@ -96,7 +96,12 @@ export default function RepartoGerente({
           <strong>Reparto sugerido</strong>
           {sugerencia.length ? (
             <ul className="mt-2">
-              {sugerencia.map((s) => <li key={s.vendedor_id}>{nombre(s.vendedor_id)}: {pesos(s.monto)}</li>)}
+              {sugerencia.map((s) => (
+                <li key={s.vendedor_id}>
+                  {nombre(s.vendedor_id)}: {pesos(s.monto)}
+                  {sugerenciaGuardada(s, objetivos.lineas) && <span className="ml-2 text-emerald-700">Guardada</span>}
+                </li>
+              ))}
             </ul>
           ) : <p className="mt-1">Primero fija la meta de tienda y registra la plantilla del mes.</p>}
         </div>

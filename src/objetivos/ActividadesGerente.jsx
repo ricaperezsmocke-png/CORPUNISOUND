@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
-import { diasDeAtraso, leer } from "./datos";
+import { diasDeAtraso, leer, sugerenciaGuardada } from "./datos";
 
 const campo = "block neu-campo rounded-lg px-3 py-2 w-full min-w-0 mt-1";
 const boton = "bg-blue-600 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-40";
@@ -89,9 +89,16 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
         }),
       }).then((r) => leer(r, "No se pudo guardar la meta de actividad"));
       if (!montado.current) return;
+      if (dialogo.vendedorId == null) {
+        setSugerencias((anteriores) => {
+          const vigentes = { ...anteriores };
+          delete vigentes[dialogo.reparto.actividad];
+          return vigentes;
+        });
+      }
       // La escritura ya terminó: cerrar antes de recargar evita invitar a guardarla dos veces.
       setDialogo(null);
-      await actualizar();
+      await actualizar({ silenciosa: true });
     } finally {
       enCurso.current = false;
       if (montado.current) setOcupado(false);
@@ -196,8 +203,12 @@ function RepartoActividad({ reparto, datos, nombre, cerrado, ocupado, sugerencia
               {sugerencia.map((linea) => (
                 <li key={linea.vendedor_id} className="flex flex-wrap gap-2 justify-between">
                   <span className="break-words min-w-0">{nombre(linea.vendedor_id)}: {linea.monto}</span>
-                  <button type="button" disabled={ocupado} className={enlace}
-                    onClick={() => abrir(reparto, linea.vendedor_id, linea.monto)}>Usar sugerencia</button>
+                  {sugerenciaGuardada(linea, reparto.lineas) ? (
+                    <span className="text-emerald-700">Guardada</span>
+                  ) : (
+                    <button type="button" disabled={ocupado} className={enlace}
+                      onClick={() => abrir(reparto, linea.vendedor_id, linea.monto)}>Usar sugerencia</button>
+                  )}
                 </li>
               ))}
             </ul>

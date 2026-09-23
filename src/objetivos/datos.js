@@ -8,6 +8,11 @@ export const hoyLocal = (fecha = new Date()) => new Intl.DateTimeFormat("en-CA",
 
 export const mesActual = () => hoyLocal().slice(0, 7);
 
+export function sugerenciaGuardada(sugerencia, lineas) {
+  return lineas.some((linea) => Number(linea.vendedor_id) === Number(sugerencia.vendedor_id) &&
+    Number(linea.monto) === Number(sugerencia.monto));
+}
+
 export function finDelMes(mes) {
   const fecha = new Date(`${mes}-01T00:00:00Z`);
   fecha.setUTCMonth(fecha.getUTCMonth() + 1, 0);
