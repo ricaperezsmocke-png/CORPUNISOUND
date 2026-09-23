@@ -56,11 +56,53 @@ async function conRelojEn(instante, trabajo) {
 
 test("normaliza host, espacios, fragmento y barra final conservando la query", () => {
   assert.equal(normalizarLink("  https://Facebook.com/x/?id=2#foto  "), "https://facebook.com/x?id=2");
-  assert.equal(normalizarLink("http://Facebook.com/"), "http://facebook.com");
-  assert.equal(normalizarLink("https://example.com/a/b?x=/"), "https://example.com/a/b?x=/");
+  assert.equal(normalizarLink("http://Facebook.com/"), "https://facebook.com");
+  assert.equal(normalizarLink("https://example.com/a/b?x=/"), "https://example.com/a/b?x=%2F");
   const limite = "https://example.com/" + "x".repeat(480);
   assert.equal(normalizarLink(limite).length, 500);
   assert.throws(() => normalizarLink(limite + "x"), /500/);
+});
+
+const LINKS_EQUIVALENTES = [
+  "https://facebook.com/x", "http://facebook.com/x", "https://www.facebook.com/x",
+  "https://m.facebook.com/x", "https://facebook.com/x?", "https://facebook.com/x//",
+  "https://u@facebook.com/x", "https://u:p@facebook.com/x", "https://mobile.Facebook.com/x",
+  "http://facebook.com:80/x", "https://facebook.com:443/x", "https://facebook.com//x///#foto",
+  "https://www.m.mobile.facebook.com/x",
+];
+const QUERIES_NORMALIZADAS = [
+  ["?fbclid=A&mibextid=B&utm_source=C", ""],
+  ["?b=2&a=1", "?a=1&b=2"],
+  ["?a=1&b=2", "?a=1&b=2"],
+  ["?id=5&fbclid=Z", "?id=5"],
+  ["?a=2&a=1&b=2", "?a=1&a=2&b=2"],
+  ...["fbclid", "mibextid", "rdid", "share_url", "igsh", "igshid", "gclid", "utm_medium", "utm_otro"]
+    .map((nombre) => [`?${nombre}=Z&id=5`, "?id=5"]),
+];
+
+for (const link of LINKS_EQUIVALENTES) {
+  test(`normaliza la misma publicación: ${link}`, () => {
+    assert.equal(normalizarLink(link), "https://facebook.com/x");
+  });
+}
+
+for (const [query, esperada] of QUERIES_NORMALIZADAS) {
+  test(`quita rastreo y ordena parámetros por nombre y valor: ${query}`, () => {
+    assert.equal(normalizarLink(`https://facebook.com/x${query}`), `https://facebook.com/x${esperada}`);
+  });
+}
+
+test("normalizar links es idempotente para todas las variantes y queries", () => {
+  const links = [...LINKS_EQUIVALENTES, ...QUERIES_NORMALIZADAS.map(([query]) => `https://facebook.com/x${query}`)];
+  for (const link of links) {
+    const normalizado = normalizarLink(link);
+    assert.equal(normalizarLink(normalizado), normalizado, link);
+  }
+});
+
+test("conserva mayúsculas del path y puertos no predeterminados", () => {
+  assert.equal(normalizarLink("http://WWW.Example.com:8080/A//b/"), "https://example.com:8080/A/b");
+  assert.notEqual(normalizarLink("https://example.com/A"), normalizarLink("https://example.com/a"));
 });
 
 test("rechaza protocolos y links sin esquema", () => {
@@ -196,6 +238,73 @@ test("otra persona debe confirmar conjunta con booleano true; el aviso dice qui�
       /Esta evidencia ya la presentó Juan el 2026-09-03. Si fue una actividad conjunta, confírmalo\./);
   }
   assert.equal(DB.pos.objetivo_actividades.length, 1);
+});
+
+test("la misma persona no repite un link cambiando esquema, host y rastreo", async () => {
+  const DB = prepararDB();
+  await registrarActividad(DB, { ...DATOS, link: "https://facebook.com/x" }, USUARIO);
+  const antes = structuredClone(DB.pos.objetivo_actividades);
+  await assert.rejects(() => registrarActividad(DB, {
+    ...DATOS, link: "http://www.facebook.com/x/?fbclid=1",
+  }, USUARIO), /Ya presentaste/);
+  assert.deepEqual(DB.pos.objetivo_actividades, antes);
+});
+
+test("un link guardado en formato viejo exige confirmar conjunta sin modificar el histórico", async () => {
+  const DB = prepararDB();
+  DB.pos.objetivo_actividades.push({
+    ...DATOS, id: 1, vigente: true, conjunta_con: null,
+    evidencia: { tipo: "link", link: "http://www.facebook.com/x" },
+  });
+  const antes = structuredClone(DB.pos.objetivo_actividades);
+  await assert.rejects(() => registrarActividad(DB, {
+    ...DATOS, vendedor_id: 2, link: "https://facebook.com/x",
+  }, USUARIO), { message: "Esta evidencia ya la presentó Juan el 2026-09-03. Si fue una actividad conjunta, confírmalo." });
+  assert.deepEqual(DB.pos.objetivo_actividades, antes);
+});
+
+test("un link histórico inválido no impide registrar otro link ni altera el texto guardado", async () => {
+  const DB = prepararDB();
+  const historico = {
+    ...DATOS, id: 1, vigente: true, conjunta_con: null,
+    evidencia: { tipo: "link", link: "texto sin esquema" },
+  };
+  DB.pos.objetivo_actividades.push(historico);
+  const antes = structuredClone(historico);
+  const nuevo = await registrarActividad(DB, { ...DATOS, vendedor_id: 2 }, USUARIO);
+  assert.equal(nuevo.conjunta_con, null);
+  assert.equal(DB.pos.objetivo_actividades.length, 2);
+  assert.deepEqual(historico, antes);
+});
+
+for (const datos of [DATOS, FOTO]) {
+  for (const conjunta of [undefined, true]) {
+    test(`rechaza evidencia de otro mes sin guardar ni ofrecer conjunta: ${datos.actividad}, ${conjunta}`, async () => {
+      const DB = prepararDB();
+      const drive = driveFalso();
+      await registrarActividad(DB, { ...datos, mes: "2026-08", fecha: "2026-08-02" }, USUARIO, drive);
+      const antes = structuredClone(DB.pos.objetivo_actividades);
+      const llamadasAntes = drive.llamadas.length;
+      await assert.rejects(() => registrarActividad(DB, { ...datos, vendedor_id: 2, conjunta }, USUARIO, drive), (error) => {
+        assert.equal(error.message, "Esta evidencia ya la presentó Juan el 2026-08-02, en otro mes; no puede contar de nuevo.");
+        assert.equal(error.message.endsWith("Si fue una actividad conjunta, confírmalo."), false);
+        return true;
+      });
+      assert.deepEqual(DB.pos.objetivo_actividades, antes);
+      assert.equal(drive.llamadas.length, llamadasAntes);
+    });
+  }
+}
+
+test("acepta conjunta del mismo mes con link equivalente y conserva la referencia original", async () => {
+  const DB = prepararDB();
+  const original = await registrarActividad(DB, DATOS, USUARIO);
+  const conjunta = await registrarActividad(DB, {
+    ...DATOS, fecha: "2026-09-04", vendedor_id: 2, conjunta: true, link: "http://www.facebook.com/x/?fbclid=1",
+  }, USUARIO);
+  assert.equal(conjunta.conjunta_con, original.id);
+  assert.equal(conjunta.evidencia.link, "https://facebook.com/x");
+  assert.equal(DB.pos.objetivo_actividades.length, 2);
 });
 
 test("todas las conjuntas apuntan al original, incluso después de anularlo", async () => {
@@ -392,12 +501,17 @@ test("anular original deja contar solo a la conjunta más antigua y luego a la s
 test("conjuntas en otro mes no duplican la tienda y el relevo usa antigüedad de registro", async () => {
   const DB = prepararDB();
   const original = await registrarActividad(DB, { ...DATOS, mes: "2026-08", fecha: "2026-08-03" }, USUARIO);
-  await conRelojEn("2026-09-10T18:00:00.000Z", () => registrarActividad(DB, {
-    ...DATOS, fecha: "2026-09-09", vendedor_id: 2, conjunta: true,
-  }, USUARIO));
-  await conRelojEn("2026-09-11T18:00:00.000Z", () => registrarActividad(DB, {
-    ...DATOS, mes: "2026-08", fecha: "2026-08-01", vendedor_id: 3, conjunta: true,
-  }, USUARIO));
+  // Datos históricos: ya no se permite crear conjuntas entre meses por registrarActividad.
+  DB.pos.objetivo_actividades.push(
+    {
+      ...structuredClone(original), id: 2, mes: "2026-09", fecha: "2026-09-09", vendedor_id: 2,
+      conjunta_con: original.id, registrado_en: "2026-09-10T18:00:00.000Z",
+    },
+    {
+      ...structuredClone(original), id: 3, mes: "2026-08", fecha: "2026-08-01", vendedor_id: 3,
+      conjunta_con: original.id, registrado_en: "2026-09-11T18:00:00.000Z",
+    }
+  );
   assert.equal(resumenActividades(DB, FILTRO)[0].declaradas, 0);
   anularActividad(DB, original.id, "Error", USUARIO);
   assert.equal(resumenActividades(DB, FILTRO)[0].declaradas, 1);

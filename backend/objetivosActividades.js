@@ -14,12 +14,22 @@ function normalizarLink(link) {
   let url;
   try { url = new URL(texto); } catch { throw new Error(error); }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error(error);
+  url.protocol = "https:";
+  url.hostname = url.hostname.toLowerCase().replace(/^(?:(?:www|m|mobile)\.)+/, "");
+  url.username = "";
+  url.password = "";
   url.hash = "";
-  // URL vuelve a poner la barra del path raíz al serializar; se quita al final.
-  const inicioQuery = url.href.indexOf("?");
-  const sinQuery = inicioQuery < 0 ? url.href : url.href.slice(0, inicioQuery);
-  const query = inicioQuery < 0 ? "" : url.href.slice(inicioQuery);
-  const normalizado = sinQuery.replace(/\/$/, "") + query;
+  url.pathname = url.pathname.replace(/\/{2,}/g, "/");
+  const rastreo = new Set(["fbclid", "mibextid", "rdid", "share_url", "igsh", "igshid", "gclid"]);
+  const parametros = [...url.searchParams]
+    .filter(([nombre]) => !rastreo.has(nombre) && !nombre.startsWith("utm_"))
+    .sort(([nombreA, valorA], [nombreB, valorB]) => {
+      if (nombreA !== nombreB) return nombreA < nombreB ? -1 : 1;
+      return valorA < valorB ? -1 : valorA > valorB ? 1 : 0;
+    });
+  url.search = new URLSearchParams(parametros).toString();
+  // URL conserva la barra del path raíz; se quita al construir el resultado.
+  const normalizado = url.origin + url.pathname.replace(/\/$/, "") + url.search;
   if (normalizado.length > 500) throw new Error("El link no puede tener más de 500 caracteres");
   return normalizado;
 }
@@ -88,14 +98,21 @@ function prepararEvidencia(clase, { link, archivo }) {
 function validarRepeticion(DB, datos, evidencia) {
   const repetidas = (DB.pos.objetivo_actividades || []).filter((registro) => {
     if (!registro.vigente || registro.evidencia.tipo !== evidencia.tipo) return false;
-    return evidencia.tipo === "link"
-      ? registro.evidencia.link === evidencia.link
-      : registro.evidencia.huella === evidencia.huella;
+    if (evidencia.tipo !== "link") return registro.evidencia.huella === evidencia.huella;
+    let linkGuardado = registro.evidencia.link;
+    try { linkGuardado = normalizarLink(linkGuardado); } catch { /* Conservar el texto histórico inválido. */ }
+    return linkGuardado === evidencia.link;
   });
   const propia = repetidas.find((registro) => registro.vendedor_id === datos.vendedor_id);
   if (propia) throw new Error(`Ya presentaste esta evidencia el ${propia.fecha}`);
   if (repetidas.some((registro) => registro.sucursal_id !== datos.sucursal_id)) {
     throw new Error("Esta evidencia ya fue presentada en otra tienda");
+  }
+  const otroMes = repetidas.find((registro) => registro.mes !== datos.mes);
+  if (otroMes) {
+    const vendedor = DB.pos.vendedores.find((item) => item.id === otroMes.vendedor_id);
+    const nombre = vendedor?.nombre || "desconocido";
+    throw new Error(`Esta evidencia ya la presentó ${nombre} el ${otroMes.fecha}, en otro mes; no puede contar de nuevo.`);
   }
   const anterior = repetidas[0];
   if (!anterior) return null;
