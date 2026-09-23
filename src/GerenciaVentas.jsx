@@ -2,6 +2,7 @@
 import { RefreshCw } from "lucide-react";
 import { apiFetch } from "./api";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
+import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
 import { cuentaMalLigada, finDelMes, hoyLocal, leer, mesActual } from "./objetivos/datos";
@@ -280,6 +281,10 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
           {miVendedorId != null && objetivos && capturas && (
             <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
               fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
+          )}
+          {miVendedorId != null && objetivos && capturas && (
+            <ActividadesVendedor key={`${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
+              vendedorId={miVendedorId} objetivos={objetivos} />
           )}
           {esJefatura && objetivos && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id)) && (
             <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
