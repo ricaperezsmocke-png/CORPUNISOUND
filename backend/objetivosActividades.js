@@ -107,7 +107,9 @@ function validarRepeticion(DB, datos, evidencia) {
   return anterior.conjunta_con ?? anterior.id;
 }
 
-async function registrarActividad(DB, datos, usuario, drive) {
+// `antesDeGuardar` corre despues de Drive y justo antes de guardar: el mes pudo
+// cerrarse mientras la foto subia, y un registro no puede entrar a un mes sellado.
+async function registrarActividad(DB, datos, usuario, drive, { antesDeGuardar } = {}) {
   const vendedor = validarFechaYPlantilla(DB, datos);
   const clase = claseActividad(datos.actividad);
   if (!clase) throw new Error("La clase de actividad no es válida");
@@ -136,6 +138,7 @@ async function registrarActividad(DB, datos, usuario, drive) {
       subidasEnCurso.delete(evidencia.huella);
     }
   }
+  if (antesDeGuardar) antesDeGuardar();
   const registros = DB.pos.objetivo_actividades || [];
   const registro = {
     id: registros.reduce((maximo, item) => Math.max(maximo, item.id), 0) + 1,

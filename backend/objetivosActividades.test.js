@@ -441,3 +441,15 @@ test("Drive reutiliza carpetas existentes y usa el id de sucursal cuando no tien
   assert.match(consultas[1], /Sucursal 2/);
   assert.match(consultas[1], /existente-1.*parents/);
 });
+
+test("si el mes se cierra mientras la foto sube a Drive, no se guarda nada", async () => {
+  const DB = prepararDB();
+  const drive = driveFalso();
+  let cerrado = false;
+  const subirOriginal = drive.subirArchivoADrive;
+  // El cierre del mes llega justo durante la subida.
+  drive.subirArchivoADrive = async (...args) => { cerrado = true; return subirOriginal(...args); };
+  const antesDeGuardar = () => { if (cerrado) throw new Error("El mes ya está cerrado para esta sucursal"); };
+  await assert.rejects(registrarActividad(DB, FOTO, USUARIO, drive, { antesDeGuardar }), /cerrado/);
+  assert.deepEqual(DB.pos.objetivo_actividades, []);
+});
