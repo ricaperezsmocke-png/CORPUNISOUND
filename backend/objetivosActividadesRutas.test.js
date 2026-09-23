@@ -408,3 +408,14 @@ test("el cierre sellado y el previo no exponen el drive_file_id de las fotos", a
   const sellado = app.DB.pos.objetivo_cierres[0];
   assert.equal(sellado.foto.actividades[0].evidencia.drive_file_id, "archivo-privado", "el sello conserva el id");
 });
+
+test("HTTP: si el mes se sella mientras la foto sube a Drive, el alta responde 400 y no guarda nada", async () => {
+  drive.subirArchivoADrive = async () => {
+    sellar(); // la administradora cierra el mes justo durante la subida
+    return { id: "archivo-privado", webViewLink: "https://drive.google.com/file/d/archivo-privado/view" };
+  };
+  const r = await pedir("POST", "/api/objetivos/actividad", vendedor, { ...DATOS, actividad: "iglesia", link: undefined, archivo: ARCHIVO });
+  estado(r, 400);
+  assert.match(r.cuerpo.error, /cerrado/i);
+  assert.deepEqual(app.DB.pos.objetivo_actividades, []);
+});
