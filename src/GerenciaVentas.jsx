@@ -73,19 +73,21 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
     return () => { vigente = false; };
   }, [identificado, miVendedorId, mes, usuario?.sucursal_id]);
 
-  const cargar = useCallback(async () => {
+  const cargar = useCallback(async ({ silenciosa = false } = {}) => {
     if (!identificado || !sucursalId || !mes || (!esJefatura && miVendedorId == null)) {
       setCargando(false);
       setObjetivos(null);
       setCapturas(null);
       return;
     }
-    setCargando(true);
     setError("");
-    setHistorial(null);
-    setSugerencia(null);
-    setEditando(null);
-    setCorrigiendo(null);
+    if (!silenciosa) {
+      setCargando(true);
+      setHistorial(null);
+      setSugerencia(null);
+      setEditando(null);
+      setCorrigiendo(null);
+    }
     try {
       const estado = await apiFetch(`/objetivos/${mes}/${sucursalId}`)
         .then((r) => leer(r, "No se pudieron cargar los objetivos"));
@@ -103,21 +105,23 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
       }
     } catch (e) {
       setError(e.status === 404 && miVendedorId != null ? `${cuentaMalLigada} (${e.message})` : e.message);
-      setObjetivos(null);
-      setCapturas(null);
+      if (!silenciosa) {
+        setObjetivos(null);
+        setCapturas(null);
+      }
     } finally {
-      setCargando(false);
+      if (!silenciosa) setCargando(false);
     }
   }, [mes, sucursalId, miVendedorId, identificado, esJefatura]);
   useEffect(() => { cargar(); }, [cargar]);
 
-  const ejecutar = async (accion, mensaje) => {
+  const ejecutar = async (accion, mensaje, opcionesRecarga) => {
     setError("");
     setExito("");
     try {
       await accion();
       setExito(mensaje);
-      await cargar();
+      await cargar(opcionesRecarga);
       return true;
     } catch (e) {
       setError(e.message);
@@ -175,8 +179,9 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
         monto: Number(editando.monto), motivo: editando.existente ? editando.motivo : undefined,
       }),
     }).then((r) => leer(r, "No se pudo guardar la meta"));
+    if (editando.vendedor_id == null) setSugerencia(null);
     setEditando(null);
-  }, "Meta guardada.");
+  }, "Meta guardada.", { silenciosa: true });
 
   const leerHistorial = (id) => apiFetch(`/objetivos/${mes}/${sucursalId}/historial/${id == null ? "tienda" : id}`)
     .then((r) => leer(r, "No se pudo cargar el historial"));
@@ -256,7 +261,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             </select>
           </label>
         )}
-        <button type="button" onClick={cargar} className="px-3 py-2 text-sm text-slate-600 flex gap-2 items-center">
+        <button type="button" onClick={() => cargar()} className="px-3 py-2 text-sm text-slate-600 flex gap-2 items-center">
           <RefreshCw size={16} />
           Actualizar
         </button>
