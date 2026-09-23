@@ -4,6 +4,7 @@ import { apiFetch } from "./api";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
 import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
+import ActividadesGerente from "./objetivos/ActividadesGerente";
 import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
 import { cuentaMalLigada, finDelMes, hoyLocal, leer, mesActual } from "./objetivos/datos";
 
@@ -221,7 +222,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   }, new Map()).values()];
 
   return (
-    <div className="p-4 space-y-4 overflow-y-auto">
+    <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-sm text-slate-600">
           Mes
@@ -287,10 +288,14 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
               vendedorId={miVendedorId} objetivos={objetivos} />
           )}
           {esJefatura && objetivos && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id)) && (
-            <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
-              objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
-              historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}
-              darBaja={setBaja} />
+            <>
+              <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
+                objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
+                historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}
+                darBaja={setBaja} />
+              <ActividadesGerente key={`actividades/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
+                objetivos={objetivos} nombre={nombre} actualizar={cargar} />
+            </>
           )}
         </>
       )}

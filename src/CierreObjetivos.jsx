@@ -6,6 +6,11 @@ import { leer, mesActual, pesos } from "./objetivos/datos";
 
 const diferencia = (n) => n === 0 ? "Cuadra" : `Capturó ${pesos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
 const nombresCampos = { meta: "Meta", capturado: "Capturado", real_sicar: "Real de SICAR" };
+// Catálogo fijo: el permiso de cierre no requiere acceso a la ruta de catálogo de gerencia.
+const nombresActividades = {
+  grupos: "Publicación en grupos", marketplace: "Publicación en Marketplace",
+  iglesia: "Salida a iglesia", volanteo: "Jornada de volanteo",
+};
 
 export default function CierreObjetivos({ permisos = [], usuario }) {
   const veTodas = permisos.includes("ver_todas_las_sucursales") || usuario?.ver_todas;
@@ -107,7 +112,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const completos = previo.length > 0 && previo.every((l) => reales[l.vendedor_id] !== "" && Number(reales[l.vendedor_id]) >= 0);
 
   return (
-    <div className="p-4 space-y-4 overflow-y-auto">
+    <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-sm text-slate-600">
           Mes
@@ -136,7 +141,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       {cargando ? <p className="text-sm text-slate-500">Consultando cierre…</p> : cierre ? (
         <CierreSellado cierre={cierre} rectificar={setRectificando} nombre={nombre} />
       ) : (
-        <section className="neu rounded-xl p-4 space-y-4">
+        <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
           <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
             <LockKeyhole size={18} className="text-blue-600" />
             Cierre mensual de objetivos
@@ -179,8 +184,8 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
 
 function TablaPrevio({ lineas, reales, cambiar }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm min-w-[680px]">
+    <div className="overflow-x-auto max-w-full">
+      <table className="w-full text-sm min-w-[1000px]">
         <thead>
           <tr className="border-b text-left text-slate-500">
             <th className="py-2">Vendedor</th>
@@ -188,6 +193,7 @@ function TablaPrevio({ lineas, reales, cambiar }) {
             <th>Capturado</th>
             <th>Real de SICAR</th>
             <th>Diferencia</th>
+            <th className="px-3">Actividades (declaradas, no verificadas)</th>
           </tr>
         </thead>
         <tbody>
@@ -204,6 +210,7 @@ function TablaPrevio({ lineas, reales, cambiar }) {
                     className="neu-campo rounded-lg px-2 py-1 w-32" />
                 </td>
                 <td>{dif == null ? "Pendiente" : diferencia(dif)}</td>
+                <td className="p-3"><ActividadesCierre actividades={l.actividades} /></td>
               </tr>
             );
           })}
@@ -215,7 +222,7 @@ function TablaPrevio({ lineas, reales, cambiar }) {
 
 function CierreSellado({ cierre, rectificar, nombre }) {
   return (
-    <section className="neu rounded-xl p-4 space-y-4">
+    <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
       <div>
         <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
           <LockKeyhole size={18} className="text-emerald-600" />
@@ -225,8 +232,8 @@ function CierreSellado({ cierre, rectificar, nombre }) {
           Cerró <strong>{cierre.cerrado_por}</strong> el {new Date(cierre.cerrado_en).toLocaleString("es-MX")}
         </p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
+      <div className="overflow-x-auto max-w-full">
+        <table className="w-full text-sm min-w-[1040px]">
           <thead>
             <tr className="border-b text-left text-slate-500">
               <th className="py-2">Vendedor</th>
@@ -234,6 +241,7 @@ function CierreSellado({ cierre, rectificar, nombre }) {
               <th>Capturado</th>
               <th>Real de SICAR</th>
               <th>Diferencia</th>
+              <th className="px-3">Actividades (declaradas, no verificadas)</th>
               <th />
             </tr>
           </thead>
@@ -256,6 +264,9 @@ function CierreSellado({ cierre, rectificar, nombre }) {
                   <td>
                     {diferencia(vigente.capturado - vigente.real_sicar)}
                     {rectificaciones.length > 0 && <p className="text-violet-700">(con rectificaciones)</p>}
+                  </td>
+                  <td className="p-3">
+                    <ActividadesCierre actividades={l.actividades} />
                   </td>
                   <td>
                     <button onClick={() => rectificar({
@@ -289,5 +300,23 @@ function CierreSellado({ cierre, rectificar, nombre }) {
         ) : <p className="text-sm text-slate-500">Sin rectificaciones.</p>}
       </div>
     </section>
+  );
+}
+
+function ActividadesCierre({ actividades }) {
+  if (!actividades) return <p className="text-slate-500">Este cierre no incluye datos de actividades.</p>;
+  return (
+    <div className="space-y-1 min-w-[240px] text-sm">
+      <p className="text-amber-800">Declaradas, no verificadas</p>
+      <p className="text-slate-500">Declaradas / meta · No afectan la diferencia de SICAR</p>
+      <ul className="space-y-1">
+        {actividades.map((item) => (
+          <li key={item.actividad}>
+            {nombresActividades[item.actividad] || item.actividad}: <strong>{item.declaradas} / {item.meta}</strong>
+            {item.conjuntas > 0 && <span className="text-amber-800"> · Conjuntas: {item.conjuntas}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
