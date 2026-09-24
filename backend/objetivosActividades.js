@@ -1,6 +1,5 @@
 const crypto = require("node:crypto");
-const { fechaLocal } = require("./fechas");
-const { registroDelDia, tienePlantillaEnMes } = require("./objetivos");
+const { validarFechaYPlantilla } = require("./objetivosFechas");
 const { CLASES_ACTIVIDAD, claseActividad } = require("./objetivosActividadesCatalogo");
 
 const subidasEnCurso = new Set();
@@ -40,37 +39,6 @@ function normalizarNota(nota) {
   const texto = nota.trim();
   if (texto.length > 300) throw new Error("La nota no puede tener más de 300 caracteres");
   return texto || null;
-}
-
-// Se repite la validación de captura para mantener objetivosCaptura.js intacto.
-function validarFechaYPlantilla(DB, { mes, fecha, sucursal_id, vendedor_id }) {
-  if (typeof mes !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
-    throw new Error("El mes debe tener formato AAAA-MM, con mes entre 01 y 12");
-  }
-  if (typeof fecha !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-    throw new Error("La fecha debe tener formato AAAA-MM-DD y ser válida");
-  }
-  const [anio, numeroMes, dia] = fecha.split("-").map(Number);
-  const fechaUTC = new Date(Date.UTC(anio, numeroMes - 1, dia));
-  if (fechaUTC.getUTCFullYear() !== anio || fechaUTC.getUTCMonth() !== numeroMes - 1 || fechaUTC.getUTCDate() !== dia) {
-    throw new Error("La fecha debe tener formato AAAA-MM-DD y ser válida");
-  }
-  if (!fecha.startsWith(`${mes}-`)) throw new Error("La fecha debe caer dentro del mes indicado");
-  if (fecha > fechaLocal(new Date())) throw new Error("No se puede capturar una fecha futura o adelantada");
-  if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
-    throw new Error("La sucursal debe tener un identificador válido");
-  }
-  const vendedor = DB.pos.vendedores.find((item) => item.id === vendedor_id);
-  if (!vendedor) throw new Error("El vendedor no existe");
-  const registro = registroDelDia(DB, { mes, vendedor_id, fecha });
-  if (tienePlantillaEnMes(DB, mes, vendedor_id)) {
-    if (!registro || registro.sucursal_id !== sucursal_id) {
-      throw new Error("Ese día no estás en la plantilla de esta tienda");
-    }
-  } else if (vendedor.sucursal_id !== sucursal_id) {
-    throw new Error("El vendedor no pertenece a esta sucursal");
-  }
-  return vendedor;
 }
 
 function prepararEvidencia(clase, { link, archivo }) {

@@ -1,79 +1,101 @@
-// "Hoy" siempre en hora de Chiapas: Render corre en UTC y un hoy con la hora del
-// proceso adelanta el dia desde las 18:00, justo cuando se captura.
-const { fechaLocal } = require("./fechas");
-const { registroDelDia, tienePlantillaEnMes } = require("./objetivos");
-
-function mesValido(mes) {
-  return typeof mes === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mes);
-}
-
-function fechaValida(fecha) {
-  if (typeof fecha !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return false;
-
-  const [anio, mes, dia] = fecha.split("-").map(Number);
-  const fechaUTC = new Date(Date.UTC(anio, mes - 1, dia));
-  return fechaUTC.getUTCFullYear() === anio &&
-    fechaUTC.getUTCMonth() === mes - 1 &&
-    fechaUTC.getUTCDate() === dia;
-}
+const { mesValido, fechaValida, validarFechaYPlantilla } = require("./objetivosFechas");
+const { listarElementos } = require("./objetivosCatalogos");
 
 function siguienteId(capturas) {
   return capturas.reduce((maximo, captura) => Math.max(maximo, captura.id), 0) + 1;
 }
 
-function validarMonto(monto) {
+function validarMonto(monto, tipo) {
   if (!Number.isFinite(monto) || monto < 0) {
     throw new Error("El monto debe ser un número finito mayor o igual a cero");
   }
+  if (tipo === "producto" && !Number.isInteger(monto)) {
+    throw new Error("El monto de producto debe ser un entero mayor o igual a cero");
+  }
 }
 
-function validarDatosCaptura(DB, { mes, fecha, sucursal_id, vendedor_id, tipo, monto }) {
-  validarMonto(monto);
-  if (!mesValido(mes)) {
-    throw new Error("El mes debe tener formato AAAA-MM, con mes entre 01 y 12");
-  }
-  if (!fechaValida(fecha)) {
-    throw new Error("La fecha debe tener formato AAAA-MM-DD y ser válida");
-  }
-  if (!fecha.startsWith(`${mes}-`)) {
-    throw new Error("La fecha debe caer dentro del mes indicado");
-  }
-  if (fecha > fechaLocal(new Date())) {
-    throw new Error("No se puede capturar una fecha futura o adelantada");
-  }
-  if (tipo !== "venta") {
-    throw new Error("El tipo de captura debe ser venta");
-  }
-  if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
-    throw new Error("La sucursal debe tener un identificador válido");
-  }
+function normalizarId(valor, campo) {
+  const id = typeof valor === "string" || typeof valor === "number" ? Number(valor) : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`${campo} debe tener un identificador válido`);
+  return id;
+}
 
-  const vendedor = DB.pos.vendedores.find((item) => item.id === vendedor_id);
-  if (!vendedor) throw new Error("El vendedor no existe");
-  const registro = registroDelDia(DB, { mes, vendedor_id, fecha });
-  if (tienePlantillaEnMes(DB, mes, vendedor_id)) {
-    if (!registro || registro.sucursal_id !== sucursal_id) {
-      throw new Error("Ese día no estás en la plantilla de esta tienda");
+function referenciaDeCaptura({ tipo, marca_id = null, producto_meta_id = null, actividad = null, financiera = null }) {
+  if (!["venta", "marca", "producto"].includes(tipo)) {
+    throw new Error("El tipo de captura debe ser venta, marca o producto");
+  }
+  const campoPropio = { marca: "marca_id", producto: "producto_meta_id" }[tipo];
+  const referencias = { marca_id, producto_meta_id, actividad, financiera };
+  for (const [campo, valor] of Object.entries(referencias)) {
+    if (campo !== campoPropio && valor !== null) {
+      throw new Error(`Una captura de ${tipo} no puede tener ${campo}`);
     }
-  } else if (vendedor.sucursal_id !== sucursal_id) {
-    throw new Error("El vendedor no pertenece a esta sucursal");
+  }
+  if (tipo === "marca") return { marca_id: normalizarId(marca_id, "La marca") };
+  if (tipo === "producto") return { producto_meta_id: normalizarId(producto_meta_id, "El producto") };
+  return {};
+}
+
+function validarElemento(DB, datos, incluirInactivos = false) {
+  if (datos.tipo === "venta") return;
+  const esMarca = datos.tipo === "marca";
+  const lista = esMarca ? "marcas" : "productos";
+  const id = esMarca ? datos.marca_id : datos.producto_meta_id;
+  if (!listarElementos(DB, lista, { incluirInactivos }).some((elemento) => elemento.id === id)) {
+    const nombre = esMarca ? "La marca" : "El producto";
+    throw new Error(`${nombre} no existe${incluirInactivos ? "" : " o está desactivada"}`);
+  }
+}
+
+function mismaReferencia(captura, datos) {
+  return captura.tipo === datos.tipo &&
+    (captura.marca_id ?? null) === (datos.marca_id ?? null) &&
+    (captura.producto_meta_id ?? null) === (datos.producto_meta_id ?? null);
+}
+
+function validarCandadoMarca(DB, datos, reemplazaId = null) {
+  if (datos.tipo === "producto") return;
+  // Igual que la unicidad, el día de la persona no se duplica por un traslado.
+  const delDia = DB.pos.objetivo_capturas.filter((captura) => captura.vigente &&
+    captura.vendedor_id === datos.vendedor_id && captura.fecha === datos.fecha);
+  const marcas = delDia.filter((captura) => captura.tipo === "marca" && captura.id !== reemplazaId)
+    .reduce((total, captura) => total + captura.monto, 0);
+  if (datos.tipo === "venta") {
+    if (datos.monto < marcas) {
+      throw new Error("Tu venta quedaría por debajo de lo que ya capturaste por marca; corrige primero las marcas");
+    }
+    return;
+  }
+  const venta = delDia.find((captura) => captura.tipo === "venta");
+  if (!venta) throw new Error("Primero captura tu venta de ese día");
+  if (marcas + datos.monto > venta.monto) {
+    throw new Error("La suma de lo capturado por marca no puede superar tu venta de ese día");
   }
 }
 
 function capturarDia(DB, datos, usuario) {
-  validarDatosCaptura(DB, datos);
+  validarMonto(datos.monto, datos.tipo);
+  const referencia = referenciaDeCaptura(datos);
+  datos = {
+    ...datos, ...referencia,
+    sucursal_id: normalizarId(datos.sucursal_id, "La sucursal"),
+    vendedor_id: normalizarId(datos.vendedor_id, "El vendedor"),
+  };
+  validarFechaYPlantilla(DB, datos);
+  validarElemento(DB, datos);
 
   // Sin sucursal a proposito: si trasladan a la persona a mitad de mes, el mismo
   // dia no puede quedar capturado en dos tiendas.
   const yaCapturado = DB.pos.objetivo_capturas.some((captura) =>
     captura.vigente &&
     captura.vendedor_id === datos.vendedor_id &&
-    captura.tipo === datos.tipo &&
+    mismaReferencia(captura, datos) &&
     captura.fecha === datos.fecha
   );
   if (yaCapturado) {
     throw new Error("Ya hay una captura de ese día; si el monto está mal, usa Corregir");
   }
+  validarCandadoMarca(DB, datos);
 
   const nueva = {
     id: siguienteId(DB.pos.objetivo_capturas),
@@ -82,6 +104,7 @@ function capturarDia(DB, datos, usuario) {
     sucursal_id: datos.sucursal_id,
     vendedor_id: datos.vendedor_id,
     tipo: datos.tipo,
+    ...referencia,
     monto: datos.monto,
     capturado_por: usuario?.nombre || "desconocido",
     capturado_en: new Date().toISOString(),
@@ -99,11 +122,17 @@ function corregirCaptura(DB, capturaId, monto, motivo, usuario) {
     throw new Error("Corregir una captura requiere un motivo; no puede estar vacío");
   }
 
-  const anterior = DB.pos.objetivo_capturas.find((captura) => captura.id === capturaId);
+  const id = normalizarId(capturaId, "La captura");
+  const anterior = DB.pos.objetivo_capturas.find((captura) => captura.id === id);
   if (!anterior) throw new Error("La captura que se quiere corregir no existe");
   if (!anterior.vigente) {
     throw new Error("La captura ya fue corregida y dejó de estar vigente");
   }
+  validarMonto(monto, anterior.tipo);
+  const referencia = referenciaDeCaptura(anterior);
+  const datos = { ...anterior, ...referencia, monto };
+  validarElemento(DB, datos, true);
+  validarCandadoMarca(DB, datos, anterior.id);
 
   const nueva = {
     id: siguienteId(DB.pos.objetivo_capturas),
@@ -112,6 +141,7 @@ function corregirCaptura(DB, capturaId, monto, motivo, usuario) {
     sucursal_id: anterior.sucursal_id,
     vendedor_id: anterior.vendedor_id,
     tipo: anterior.tipo,
+    ...referencia,
     monto,
     capturado_por: usuario?.nombre || "desconocido",
     capturado_en: new Date().toISOString(),
@@ -125,9 +155,18 @@ function corregirCaptura(DB, capturaId, monto, motivo, usuario) {
   return nueva;
 }
 
-function capturadoDelMes(DB, { mes, sucursal_id, vendedor_id }) {
+function capturadoDelMes(DB, { tipo = "venta", ...datos }) {
+  return capturadoDelMesPor(DB, { ...datos, tipo });
+}
+
+function capturadoDelMesPor(DB, datos) {
+  const { mes, tipo } = datos;
+  const sucursal_id = normalizarId(datos.sucursal_id, "La sucursal");
+  const vendedor_id = normalizarId(datos.vendedor_id, "El vendedor");
+  const referencia = referenciaDeCaptura(datos);
   return DB.pos.objetivo_capturas
     .filter((captura) => captura.vigente &&
+      mismaReferencia(captura, { tipo, ...referencia }) &&
       captura.mes === mes &&
       captura.sucursal_id === sucursal_id &&
       captura.vendedor_id === vendedor_id)
@@ -144,6 +183,7 @@ function diasSinCapturar(DB, { mes, sucursal_id, vendedor_id, hasta }) {
 
   const fechasCapturadas = new Set(DB.pos.objetivo_capturas
     .filter((captura) => captura.vigente &&
+      captura.tipo === "venta" &&
       captura.mes === mes &&
       captura.sucursal_id === sucursal_id &&
       captura.vendedor_id === vendedor_id)
@@ -167,5 +207,6 @@ module.exports = {
   capturarDia,
   corregirCaptura,
   capturadoDelMes,
+  capturadoDelMesPor,
   diasSinCapturar,
 };

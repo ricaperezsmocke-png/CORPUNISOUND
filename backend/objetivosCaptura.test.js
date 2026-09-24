@@ -409,3 +409,264 @@ test("diasSinCapturar une dos periodos de la misma tienda", () => {
     "2026-09-20", "2026-09-21", "2026-09-22",
   ]);
 });
+
+const { capturadoDelMesPor } = require("./objetivosCaptura");
+const { desactivarElemento } = require("./objetivosCatalogos");
+const DIA = { mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1, vendedor_id: 1 };
+
+function prepararCatalogos() {
+  const DB = prepararDB();
+  DB.pos.objetivo_marcas = [
+    { id: 1, nombre: "Yamaha", activo: true },
+    { id: 2, nombre: "Casio", activo: true },
+  ];
+  DB.pos.objetivo_productos = [
+    { id: 1, nombre: "Teclados", activo: true },
+    { id: 2, nombre: "Guitarras eléctricas", activo: true },
+  ];
+  return DB;
+}
+
+function sembrarCaptura(DB, datos) {
+  const captura = {
+    ...DIA, id: DB.pos.objetivo_capturas.length + 1, tipo: "venta", monto: 100,
+    capturado_por: "Juan", capturado_en: "2026-09-03T18:00:00.000Z",
+    corrige_a: null, vigente: true, ...datos,
+  };
+  DB.pos.objetivo_capturas.push(captura);
+  return captura;
+}
+
+function rechazaSinCambios(DB, accion, error) {
+  const antes = structuredClone(DB);
+  assert.throws(accion, error);
+  assert.deepEqual(DB, antes);
+}
+
+test("marca acepta pesos decimales, ids de texto y dos referencias el mismo día", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, {});
+  const yamaha = capturarDia(DB, {
+    ...DIA, sucursal_id: "1", vendedor_id: "1", tipo: "marca", marca_id: "1", monto: 60.25,
+  }, VICTOR);
+  const casio = capturarDia(DB, { ...DIA, tipo: "marca", marca_id: 2, monto: 39.75 }, VICTOR);
+  assert.equal(yamaha.marca_id, 1);
+  assert.equal(yamaha.vendedor_id, 1);
+  assert.equal(yamaha.sucursal_id, 1);
+  assert.equal(yamaha.monto, 60.25);
+  assert.equal(yamaha.capturado_por, "Victor");
+  assert.equal(casio.marca_id, 2);
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, tipo: "marca", marca_id: "1", monto: 0,
+  }, VICTOR), /Ya hay una captura/);
+});
+
+test("marca exige venta vigente de esa persona y ese día, incluso para cero", () => {
+  for (const ajena of [null, { vendedor_id: 2 }, { fecha: "2026-09-02" }, { vigente: false }]) {
+    const DB = prepararCatalogos();
+    if (ajena) sembrarCaptura(DB, ajena);
+    rechazaSinCambios(DB, () => capturarDia(DB, {
+      ...DIA, tipo: "marca", marca_id: 1, monto: 0,
+    }, VICTOR), { message: "Primero captura tu venta de ese día" });
+  }
+});
+
+test("dos marcas no pueden superar juntas la venta vigente", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, { monto: 200, vigente: false });
+  sembrarCaptura(DB, { monto: 100, corrige_a: 1 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 60 });
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, tipo: "marca", marca_id: 2, monto: 40.01,
+  }, VICTOR), /marca.*venta|venta.*marca/i);
+});
+
+test("corregir marca no permite exceder la venta y no modifica el original", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, {});
+  const marca = sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 60 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 2, monto: 30 });
+  rechazaSinCambios(DB, () => corregirCaptura(DB, marca.id, 70.01, "Ajuste", VICTOR), /marca.*venta|venta.*marca/i);
+});
+
+test("corregir marca exige que siga existiendo la venta vigente del día", () => {
+  const DB = prepararCatalogos();
+  const marca = sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 0 });
+  rechazaSinCambios(DB, () => corregirCaptura(DB, marca.id, 0, "Ajuste", VICTOR), {
+    message: "Primero captura tu venta de ese día",
+  });
+});
+
+test("corregir venta debajo de marcas se rechaza sin mutar nada", () => {
+  const DB = prepararCatalogos();
+  const venta = sembrarCaptura(DB, {});
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 60 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 2, monto: 30 });
+  rechazaSinCambios(DB, () => corregirCaptura(DB, venta.id, 89.99, "Ajuste", VICTOR), {
+    message: "Tu venta quedaría por debajo de lo que ya capturaste por marca; corrige primero las marcas",
+  });
+});
+
+test("corregir marca reemplaza su valor, conserva referencia y permite bajar después la venta", () => {
+  const DB = prepararCatalogos();
+  const venta = sembrarCaptura(DB, {});
+  const marca = sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 60 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 2, monto: 30 });
+  const subida = corregirCaptura(DB, String(marca.id), 70, " Ajuste ", VICTOR);
+  assert.equal(subida.marca_id, 1);
+  assert.equal(subida.corrige_a, marca.id);
+  assert.equal(subida.motivo, "Ajuste");
+  assert.equal(marca.vigente, false);
+  const bajada = corregirCaptura(DB, subida.id, 50, "Importe correcto", VICTOR);
+  assert.equal(bajada.marca_id, 1);
+  assert.equal(corregirCaptura(DB, venta.id, 80, "Marcas corregidas", VICTOR).monto, 80);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "marca", marca_id: 1 }), 50);
+});
+
+test("productos aceptan piezas enteras y cero sin venta y son únicos por referencia", () => {
+  const DB = prepararCatalogos();
+  const teclado = capturarDia(DB, { ...DIA, tipo: "producto", producto_meta_id: "1", monto: 2 }, VICTOR);
+  const guitarra = capturarDia(DB, { ...DIA, tipo: "producto", producto_meta_id: 2, monto: 0 }, VICTOR);
+  assert.equal(teclado.producto_meta_id, 1);
+  assert.equal(guitarra.monto, 0);
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, tipo: "producto", producto_meta_id: 1, monto: 3,
+  }, VICTOR), /Ya hay una captura/);
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, fecha: "2026-09-04", tipo: "producto", producto_meta_id: 1, monto: 1.5,
+  }, VICTOR), /entero/i);
+});
+
+test("corregir producto rechaza decimales y conserva la referencia al reemplazar", () => {
+  const DB = prepararCatalogos();
+  const producto = sembrarCaptura(DB, { tipo: "producto", producto_meta_id: 1, monto: 2 });
+  rechazaSinCambios(DB, () => corregirCaptura(DB, producto.id, 1.5, "Ajuste", VICTOR), /entero/i);
+  const nuevo = corregirCaptura(DB, producto.id, 0, "No hubo piezas", VICTOR);
+  assert.equal(nuevo.producto_meta_id, 1);
+  assert.equal(nuevo.monto, 0);
+  assert.equal(nuevo.corrige_a, producto.id);
+  assert.equal(producto.vigente, false);
+});
+
+for (const [tipo, campo, lista] of [["marca", "marca_id", "marcas"], ["producto", "producto_meta_id", "productos"]]) {
+  test(`${tipo}: desactivada no se captura pero sí se corrige conservando el nombre`, () => {
+    const DB = prepararCatalogos();
+    sembrarCaptura(DB, {});
+    const original = sembrarCaptura(DB, { tipo, [campo]: 1, monto: 2 });
+    const elemento = desactivarElemento(DB, lista, 1, { motivo: "Sale de la lista" }, VICTOR);
+    rechazaSinCambios(DB, () => capturarDia(DB, {
+      ...DIA, fecha: "2026-09-04", tipo, [campo]: 1, monto: 1,
+    }, VICTOR), /desactivad/i);
+    const nueva = corregirCaptura(DB, original.id, 1, "Corrección histórica", VICTOR);
+    assert.equal(nueva[campo], 1);
+    assert.equal(elemento.nombre, tipo === "marca" ? "Yamaha" : "Teclados");
+  });
+
+  test(`${tipo}: referencia inexistente o inválida se rechaza al capturar y corregir`, () => {
+    for (const id of [999, null, undefined, 0, -1, 1.5, true, [], "abc"]) {
+      const DB = prepararCatalogos();
+      sembrarCaptura(DB, {});
+      rechazaSinCambios(DB, () => capturarDia(DB, { ...DIA, tipo, [campo]: id, monto: 1 }, VICTOR), /identificador|existe/i);
+    }
+    const DB = prepararCatalogos();
+    sembrarCaptura(DB, {});
+    const original = sembrarCaptura(DB, { tipo, [campo]: 999, monto: 1 });
+    rechazaSinCambios(DB, () => corregirCaptura(DB, original.id, 0, "Ajuste", VICTOR), /existe/i);
+  });
+
+  test(`${tipo}: montos negativos, no finitos o no numéricos se rechazan sin cambios`, () => {
+    const DB = prepararCatalogos();
+    sembrarCaptura(DB, {});
+    const original = sembrarCaptura(DB, { tipo, [campo]: 1, monto: 1 });
+    for (const monto of [-1, NaN, Infinity, null, "2", undefined]) {
+      rechazaSinCambios(DB, () => capturarDia(DB, {
+        ...DIA, fecha: "2026-09-04", tipo, [campo]: 1, monto,
+      }, VICTOR), /monto/i);
+      rechazaSinCambios(DB, () => corregirCaptura(DB, original.id, monto, "Ajuste", VICTOR), /monto/i);
+    }
+  });
+}
+
+test("capturas rechazan tipos y referencias ajenos a su tipo", () => {
+  const DB = prepararCatalogos();
+  for (const llave of [
+    { tipo: "credito", financiera: "atrato" }, { tipo: "actividad", actividad: "grupos" },
+    { tipo: "venta", marca_id: 1 }, { tipo: "marca", marca_id: 1, producto_meta_id: 1 },
+    { tipo: "producto", producto_meta_id: 1, financiera: "atrato" },
+    { tipo: "venta", actividad: "grupos" },
+  ]) {
+    rechazaSinCambios(DB, () => capturarDia(DB, { ...DIA, ...llave, monto: 0 }, VICTOR), /tipo|no puede tener/i);
+  }
+});
+
+test("ventas viejas siguen contando solas y bloquean duplicados con referencias nulas", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, {});
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 40 });
+  sembrarCaptura(DB, { tipo: "producto", producto_meta_id: 1, monto: 2 });
+  assert.equal(capturadoDelMes(DB, DIA), 100);
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, tipo: "venta", marca_id: null, producto_meta_id: null, monto: 200,
+  }, VICTOR), /Ya hay una captura/);
+});
+
+test("totales por referencia filtran mes, tienda, persona y vigencia sin mutar", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, {});
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 40 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 2, monto: 30 });
+  sembrarCaptura(DB, { tipo: "producto", producto_meta_id: 1, monto: 2 });
+  sembrarCaptura(DB, { tipo: "producto", producto_meta_id: 2, monto: 3 });
+  for (const otros of [
+    { vigente: false }, { mes: "2026-08", fecha: "2026-08-03" }, { vendedor_id: 2 }, { sucursal_id: 2 },
+  ]) sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 1000, ...otros });
+  const antes = structuredClone(DB);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "marca", marca_id: "1" }), 40);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "marca", marca_id: 2 }), 30);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "producto", producto_meta_id: "1" }), 2);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "producto", producto_meta_id: 2 }), 3);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "producto", producto_meta_id: 999 }), 0);
+  assert.equal(capturadoDelMesPor(DB, { ...DIA, tipo: "venta" }), 100);
+  assert.deepEqual(DB, antes);
+});
+
+test("días sin capturar cuenta solo venta aunque existan marcas o productos", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, { fecha: "2026-09-01", tipo: "producto", producto_meta_id: 1, monto: 2 });
+  sembrarCaptura(DB, { fecha: "2026-09-02", tipo: "marca", marca_id: 1, monto: 0 });
+  sembrarCaptura(DB, {});
+  assert.deepEqual(diasSinCapturar(DB, { ...DIA, hasta: "2026-09-03" }), ["2026-09-01", "2026-09-02"]);
+});
+
+test("traslado mantiene marcas y productos en la tienda de cada día y permite corregir lo anterior", () => {
+  const DB = prepararCatalogos();
+  DB.pos.vendedores[0].sucursal_id = 2;
+  DB.pos.objetivo_plantilla.push(
+    { ...DIA, id: 1, desde: "2026-09-01", hasta: "2026-09-15" },
+    { ...DIA, id: 2, sucursal_id: 2, desde: "2026-09-16", hasta: null }
+  );
+  conRelojEn("2026-09-20T18:30:00.000Z", () => {
+    for (const datos of [DIA, { ...DIA, fecha: "2026-09-16", sucursal_id: 2 }]) {
+      capturarDia(DB, { ...datos, tipo: "venta", monto: 100 }, VICTOR);
+      const marca = capturarDia(DB, { ...datos, tipo: "marca", marca_id: 1, monto: 40 }, VICTOR);
+      capturarDia(DB, { ...datos, tipo: "producto", producto_meta_id: 1, monto: 2 }, VICTOR);
+      assert.equal(corregirCaptura(DB, marca.id, 50, "Ajuste", VICTOR).sucursal_id, datos.sucursal_id);
+    }
+    rechazaSinCambios(DB, () => capturarDia(DB, {
+      ...DIA, sucursal_id: 2, tipo: "marca", marca_id: 2, monto: 1,
+    }, VICTOR), /Ese día no estás en la plantilla/);
+  });
+});
+
+test("traslado sin plantilla no permite duplicar una referencia ni evadir el candado de marca", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, {});
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 60 });
+  DB.pos.vendedores[0].sucursal_id = 2;
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, sucursal_id: 2, tipo: "marca", marca_id: 1, monto: 1,
+  }, VICTOR), /Ya hay una captura/);
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, sucursal_id: 2, tipo: "marca", marca_id: 2, monto: 41,
+  }, VICTOR), /marca.*venta|venta.*marca/i);
+});
