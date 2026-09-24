@@ -1,5 +1,6 @@
 import { Target } from "lucide-react";
 import { diasDeAtraso, hoyLocal, pesos } from "./datos";
+import { esCapturaDeVenta } from "./marcas";
 
 export default function CapturaVendedor({
   mes, objetivos, capturas, vendedorId, fecha, setFecha, monto, setMonto, capturar, corregir,
@@ -82,7 +83,7 @@ export default function CapturaVendedor({
             </tr>
           </thead>
           <tbody>
-            {capturas.capturas.map((c) => {
+            {capturas.capturas.filter(esCapturaDeVenta).map((c) => {
               const atraso = diasDeAtraso(c);
               return (
                 <tr key={c.id} className={`border-b border-slate-100 ${c.vigente ? "" : "text-slate-400"}`}>

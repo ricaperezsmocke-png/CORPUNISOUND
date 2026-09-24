@@ -3,6 +3,7 @@ import { LockKeyhole, RefreshCw } from "lucide-react";
 import { apiFetch } from "./api";
 import { Campo, Modal } from "./objetivos/DialogosObjetivos";
 import { leer, mesActual, pesos } from "./objetivos/datos";
+import { esRectificacionDeElemento } from "./objetivos/marcas";
 
 const diferencia = (n) => n === 0 ? "Cuadra" : `Capturó ${pesos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
 const nombresCampos = { meta: "Meta", capturado: "Capturado", real_sicar: "Real de SICAR" };
@@ -220,7 +221,7 @@ function TablaPrevio({ lineas, reales, cambiar }) {
   );
 }
 
-function CierreSellado({ cierre, rectificar, nombre }) {
+export function CierreSellado({ cierre, rectificar, nombre }) {
   return (
     <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
       <div>
@@ -247,7 +248,8 @@ function CierreSellado({ cierre, rectificar, nombre }) {
           </thead>
           <tbody>
             {cierre.lineas.map((l) => {
-              const rectificaciones = cierre.rectificaciones.filter((r) => r.vendedor_id === l.vendedor_id);
+              const rectificaciones = cierre.rectificaciones
+                .filter((r) => r.vendedor_id === l.vendedor_id && !esRectificacionDeElemento(r));
               const vigente = { meta: l.meta, capturado: l.capturado, real_sicar: l.real_sicar };
               for (const r of rectificaciones) vigente[r.campo] = r.valor_nuevo;
               return (
@@ -286,9 +288,9 @@ function CierreSellado({ cierre, rectificar, nombre }) {
       </div>
       <div>
         <h3 className="font-medium text-slate-700 mb-2">Rectificaciones</h3>
-        {cierre.rectificaciones.length ? (
+        {cierre.rectificaciones.filter((r) => !esRectificacionDeElemento(r)).length ? (
           <ul className="space-y-2 text-sm">
-            {cierre.rectificaciones.map((r) => (
+            {cierre.rectificaciones.filter((r) => !esRectificacionDeElemento(r)).map((r) => (
               <li key={r.id} className="border rounded-lg p-3">
                 <strong>{nombre(r.vendedor_id)}: {nombresCampos[r.campo] || r.campo}</strong>
                 {" "}de {pesos(r.valor_anterior)} a {pesos(r.valor_nuevo)}

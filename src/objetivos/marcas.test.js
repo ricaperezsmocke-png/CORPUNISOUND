@@ -1,0 +1,95 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
+  esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo,
+} from "./marcas.js";
+
+test("una captura sin tipo es de venta; marca y producto no", () => {
+  assert.equal(esCapturaDeVenta({ monto: 1 }), true);
+  assert.equal(esCapturaDeVenta({ tipo: "venta" }), true);
+  assert.equal(esCapturaDeVenta({ tipo: "marca", marca_id: 1 }), false);
+  assert.equal(esCapturaDeVenta({ tipo: "producto", producto_meta_id: 1 }), false);
+});
+
+test("los pesos del cierre llevan centavos", () => {
+  assert.equal(pesosConCentavos(1234.5), "$1,234.50");
+  assert.equal(pesosConCentavos(0), "$0.00");
+  assert.equal(pesosConCentavos(null), "$0.00");
+});
+
+test("el pendiente del reparto se dice con palabras, nunca negativo", () => {
+  assert.equal(textoPendiente(0, "pesos"), "Reparto completo");
+  assert.equal(textoPendiente(1500, "pesos"), "Faltan $1,500.00 por repartir");
+  assert.equal(textoPendiente(-2, "piezas"), "Asignaste 2 piezas de más");
+  assert.equal(textoPendiente(1, "creditos"), "Falta 1 crédito por repartir");
+  assert.equal(textoPendiente(3, "creditos"), "Faltan 3 créditos por repartir");
+});
+
+const capturas = [
+  { id: 1, tipo: "venta", fecha: "2026-09-10", monto: 8500, vigente: true },
+  { id: 2, tipo: "marca", marca_id: 1, fecha: "2026-09-10", monto: 4000, vigente: true },
+  { id: 3, tipo: "marca", marca_id: 2, fecha: "2026-09-10", monto: 2000, vigente: true },
+  { id: 4, tipo: "marca", marca_id: 2, fecha: "2026-09-10", monto: 9000, vigente: false },
+  { id: 5, tipo: "producto", producto_meta_id: 1, fecha: "2026-09-10", monto: 2, vigente: true },
+  { id: 6, fecha: "2026-09-11", monto: 100, vigente: true },
+];
+
+test("capturas del día filtra por fecha, tipo y vigencia", () => {
+  assert.deepEqual(capturasDelDia(capturas, "2026-09-10", "marca").map((c) => c.id), [2, 3]);
+  assert.deepEqual(capturasDelDia(capturas, "2026-09-11", "venta").map((c) => c.id), [6]);
+});
+
+test("el letrero de marcas compara lo capturado con la venta vigente del día", () => {
+  assert.deepEqual(resumenMarcasDelDia(capturas, "2026-09-10"), { venta: 8500, enMarcas: 6000 });
+  assert.deepEqual(resumenMarcasDelDia(capturas, "2026-09-12"), { venta: null, enMarcas: 0 });
+});
+
+test("una rectificación con referencia es de elemento, no de venta", () => {
+  assert.equal(esRectificacionDeElemento({ campo: "meta" }), false);
+  assert.equal(esRectificacionDeElemento({ campo: "meta", marca_id: 3 }), true);
+  assert.equal(esRectificacionDeElemento({ campo: "real", financiera: "atrato" }), true);
+  assert.equal(esRectificacionDeElemento({ campo: "real", producto_meta_id: 0 }), true);
+});
+
+test("el vigente de un elemento aplica solo sus rectificaciones, en orden", () => {
+  const marca = { marca_id: 3, meta: 100, capturado: 80, real: 70 };
+  const rect = [
+    { campo: "real", marca_id: 3, valor_nuevo: 75 },
+    { campo: "real", marca_id: 4, valor_nuevo: 1 },
+    { campo: "meta", valor_nuevo: 999 },
+    { campo: "real", marca_id: 3, valor_nuevo: 78 },
+  ];
+  assert.deepEqual(vigenteDeElemento(marca, rect, "marca_id"), { meta: 100, capturado: 80, real: 78 });
+  const credito = { financiera: "atrato", meta: 2, registrados: 1, real: 1 };
+  assert.deepEqual(vigenteDeElemento(credito, [{ campo: "capturado", financiera: "atrato", valor_nuevo: 2 }], "financiera"),
+    { meta: 2, capturado: 2, real: 1 });
+});
+
+const previo = [{
+  vendedor_id: 7, meta: 1000, capturado: 900,
+  marcas: [{ marca_id: 3, nombre: "Yamaha", meta: 500, capturado: 400 }],
+  productos: [{ producto_meta_id: 1, nombre: "Teclados", meta: 2, capturado: 1 }],
+  creditos: [{ financiera: "coppel_pay", meta: 0, registrados: 1 }],
+}];
+
+test("el cuerpo del cierre lleva SICAR y los tres grupos con números", () => {
+  const valores = {
+    [llaveCampo(7, "sicar", "")]: "950.5", [llaveCampo(7, "marcas", 3)]: "410",
+    [llaveCampo(7, "productos", 1)]: "1", [llaveCampo(7, "creditos", "coppel_pay")]: "1",
+  };
+  assert.deepEqual(armarRealesCierre(previo, valores), [{
+    vendedor_id: 7, real_sicar: 950.5,
+    marcas: [{ marca_id: 3, real: 410 }],
+    productos: [{ producto_meta_id: 1, real: 1 }],
+    creditos: [{ financiera: "coppel_pay", real: 1 }],
+  }]);
+});
+
+test("un campo vacío del cierre se reporta; cero no es vacío", () => {
+  const valores = {
+    [llaveCampo(7, "sicar", "")]: "0", [llaveCampo(7, "marcas", 3)]: "",
+    [llaveCampo(7, "productos", 1)]: "0",
+  };
+  assert.deepEqual(camposFaltantesCierre(previo, valores), [llaveCampo(7, "marcas", 3), llaveCampo(7, "creditos", "coppel_pay")]);
+});
