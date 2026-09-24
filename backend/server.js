@@ -1551,6 +1551,16 @@ app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", re
     if (existente.id !== 0 && !dentroDeAlcance(existente.sucursal_id, alcance)) {
       return res.status(404).json({ error: "Cliente no encontrado" });
     }
+    const destino = Number(req.body.sucursal_id);
+    if (Object.prototype.hasOwnProperty.call(req.body, "sucursal_id") && destino !== Number(existente.sucursal_id)) {
+      if (!Number.isInteger(destino) || destino <= 0 || !DB.pos.sucursales.some((s) => s.id === destino)) {
+        return res.status(400).json({ error: "La sucursal destino no existe." });
+      }
+      // El cliente compartido solo puede trasladarse con alcance global.
+      if (!dentroDeAlcance(destino, alcance) || (existente.id === 0 && !alcance.verTodas)) {
+        return res.status(403).json({ error: "No puedes mover el cliente a una sucursal fuera de tu alcance." });
+      }
+    }
     res.json(actualizarCliente(DB, req.params.id, req.body));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
