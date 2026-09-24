@@ -13,7 +13,8 @@ function normalizarId(valor, campo) {
 
 function normalizarFolio(folio) {
   if (typeof folio !== "string") throw new Error("El folio de la financiera es obligatorio");
-  const texto = folio.trim().replace(/\s+/g, "").toUpperCase();
+  // Solo letras y números: "CP-123" y "CP123" son el mismo crédito y no pueden contar dos veces.
+  const texto = folio.normalize("NFD").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   if (texto.length < 3 || texto.length > 40) throw new Error("El folio debe tener entre 3 y 40 caracteres");
   return texto;
 }

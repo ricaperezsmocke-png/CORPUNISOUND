@@ -241,3 +241,12 @@ test("base antigua sin créditos se consulta sin mutar y conserva registros viej
   assert.deepEqual(DB.pos.objetivo_capturas, antes.pos.objetivo_capturas);
   assert.deepEqual(DB.pos.objetivo_cierres, antes.pos.objetivo_cierres);
 });
+
+test("el mismo folio con guiones, puntos o diagonales no se puede registrar otra vez", () => {
+  const DB = prepararDB();
+  registrarCredito(DB, { ...DATOS, folio: "CP123" }, USUARIO);
+  for (const variante of ["CP-123", "cp.123", "C/P 1-2-3", "CP_123"]) {
+    rechazaSinCambios(DB, { vendedor_id: 2, folio: variante }, /ya lo registró/);
+  }
+  assert.throws(() => registrarCredito(DB, { ...DATOS, folio: "--" }, USUARIO), /entre 3 y 40/);
+});
