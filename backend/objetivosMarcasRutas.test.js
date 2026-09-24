@@ -111,7 +111,10 @@ function meta(llave, extra = {}) {
 
 function sellar() {
   return cerrarMes(app.DB, {
-    mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 100 })),
+    mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 100,
+      ...(vendedor_id === 1 ? { marcas: [{ marca_id: 1, real: 30 }],
+        productos: [{ producto_meta_id: 1, real: 2 }], creditos: [{ financiera: "coppel_pay", real: 1 }] } : {}),
+    })),
   }, { nombre: "Fixture" });
 }
 
@@ -466,4 +469,56 @@ test("traslado conserva créditos propios históricos y consulta de jefatura sin
   estado(await pedir("POST", "/api/objetivos/credito", trasladada, { ...CREDITO, fecha: `${MES}-16`, folio: "OTRO" }), 400);
   assert.deepEqual(app.DB.pos, antes);
   estado(await pedir("POST", `/api/objetivos/credito/${r.cuerpo.id}/anular`, trasladada, { motivo: "Error" }), 200);
+});
+
+test("cierre HTTP cruza las familias, normaliza IDs, conserva el sello y respeta alcance", async () => {
+  captura();
+  captura({ ...TIPOS[0], monto: 30 });
+  captura({ ...TIPOS[1], monto: 2 });
+  credito();
+  const previo = await pedir("GET", `${RAIZ}/previo-cierre?sucursal_id=2`, soloCierre);
+  estado(previo, 200);
+  assert.deepEqual(previo.cuerpo[0].marcas, [{ marca_id: 1, nombre: "Yamaha", meta: 0, capturado: 30 }]);
+  assert.deepEqual(previo.cuerpo[0].productos, [{ producto_meta_id: 1, nombre: "Teclados", meta: 0, capturado: 2 }]);
+  assert.deepEqual(previo.cuerpo[0].creditos, [{ financiera: "coppel_pay", meta: 0, registrados: 1 }]);
+  const reales = [{ vendedor_id: "1", real_sicar: 90,
+    marcas: [{ marca_id: "1", real: 20 }], productos: [{ producto_meta_id: "1", real: 3 }],
+    creditos: [{ financiera: "coppel_pay", real: 0 }] }, { vendedor_id: "2", real_sicar: 0 }];
+  const datos = { mes: MES, sucursal_id: "1", reales };
+  const antes = structuredClone(app.DB.pos);
+  for (const token of [vendedor, gerente]) estado(await pedir("POST", "/api/objetivos/cierre", token, datos), 403);
+  estado(await pedir("POST", "/api/objetivos/cierre?sucursal_id=1", soloCierre, { ...datos, sucursal_id: "2" }), 404);
+  for (const lista of ["marcas", "productos", "creditos"]) {
+    const incompletos = structuredClone(datos);
+    delete incompletos.reales[0][lista];
+    estado(await pedir("POST", "/api/objetivos/cierre", soloCierre, incompletos), 400);
+    assert.deepEqual(app.DB.pos, antes);
+  }
+  const r = await pedir("POST", "/api/objetivos/cierre?sucursal_id=2", soloCierre, datos);
+  estado(r, 200);
+  assert.equal(r.cuerpo.cerrado_por, "Administradora");
+  assert.equal(r.cuerpo.lineas[0].marcas[0].diferencia, 10);
+  assert.equal(r.cuerpo.lineas[0].productos[0].diferencia, -1);
+  assert.equal(r.cuerpo.lineas[0].creditos[0].diferencia, 1);
+  assert.equal(r.cuerpo.foto.creditos[0].folio, "CP123");
+  const foto = structuredClone(r.cuerpo.foto);
+  const lineas = structuredClone(r.cuerpo.lineas);
+  const ruta = `/api/objetivos/cierre/${r.cuerpo.id}/rectificar`;
+  const rectificacion = { vendedor_id: "1", campo: "real", marca_id: "1", valor_nuevo: 15, motivo: "Error SICAR" };
+  estado(await pedir("POST", ruta, vendedor, rectificacion), 403);
+  const ajeno = await pedir("POST", "/api/objetivos/cierre", global, { mes: MES, sucursal_id: "2",
+    reales: [{ vendedor_id: "3", real_sicar: 0 }] });
+  estado(ajeno, 200);
+  estado(await pedir("POST", `/api/objetivos/cierre/${ajeno.cuerpo.id}/rectificar?sucursal_id=1`, soloCierre, rectificacion), 404);
+  const rectificada = await pedir("POST", ruta, soloCierre, { ...rectificacion, valor_anterior: 999 });
+  estado(rectificada, 200);
+  assert.equal(rectificada.cuerpo.marca_id, 1);
+  assert.equal(rectificada.cuerpo.valor_anterior, 20);
+  assert.equal(rectificada.cuerpo.rectificado_por, "Administradora");
+  const leido = await pedir("GET", `${RAIZ}/cierre?sucursal_id=2`, soloCierre);
+  estado(leido, 200);
+  assert.deepEqual(leido.cuerpo.lineas, lineas);
+  assert.deepEqual(leido.cuerpo.foto, foto);
+  assert.deepEqual(leido.cuerpo.rectificaciones, [rectificada.cuerpo]);
+  estado(await pedir("POST", "/api/objetivos/cierre", soloCierre, datos), 400);
 });
