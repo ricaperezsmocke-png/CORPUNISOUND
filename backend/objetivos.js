@@ -1,43 +1,78 @@
 const { claseActividad } = require("./objetivosActividadesCatalogo");
+const { elementoActivo } = require("./objetivosCatalogos");
+
+function idDeMeta(valor, campo) {
+  const id = (typeof valor === "string" || typeof valor === "number") ? Number(valor) : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`${campo} debe tener un identificador válido`);
+  return id;
+}
+
+function llaveDeMeta({ tipo, actividad = null, marca_id = null, producto_meta_id = null, financiera = null, mes, sucursal_id, vendedor_id }) {
+  if (!["venta", "actividad", "marca", "producto", "credito"].includes(tipo)) {
+    throw new Error("El tipo de objetivo debe ser venta, actividad, marca, producto o credito");
+  }
+  const referencias = { actividad, marca_id, producto_meta_id, financiera };
+  const campoPropio = { actividad: "actividad", marca: "marca_id", producto: "producto_meta_id", credito: "financiera" }[tipo];
+  for (const [campo, valor] of Object.entries(referencias)) {
+    if (campo !== campoPropio && valor !== null) {
+      throw new Error(`Un objetivo de ${tipo} no puede tener ${campo}`);
+    }
+  }
+  if (tipo === "actividad" && !claseActividad(actividad)) throw new Error("La clase de actividad no existe");
+  if (tipo === "marca") referencias.marca_id = idDeMeta(marca_id, "La marca");
+  if (tipo === "producto") referencias.producto_meta_id = idDeMeta(producto_meta_id, "El producto");
+  if (tipo === "credito" && !["coppel_pay", "atrato"].includes(financiera)) {
+    throw new Error("La financiera debe ser coppel_pay o atrato");
+  }
+  return {
+    tipo, ...referencias, mes,
+    sucursal_id: idDeMeta(sucursal_id, "La sucursal"),
+    vendedor_id: vendedor_id === null ? null : idDeMeta(vendedor_id, "El vendedor"),
+  };
+}
 
 // Cada cambio conserva la versión anterior y enlaza la nueva con ella.
-function mismaCombinacion(objetivo, { tipo, actividad, mes, sucursal_id, vendedor_id }) {
+function mismaCombinacion(objetivo, { tipo, actividad, marca_id, producto_meta_id, financiera, mes, sucursal_id, vendedor_id }) {
   return objetivo.tipo === tipo &&
     (objetivo.actividad ?? null) === (actividad ?? null) &&
+    (objetivo.marca_id ?? null) === (marca_id ?? null) &&
+    (objetivo.producto_meta_id ?? null) === (producto_meta_id ?? null) &&
+    (objetivo.financiera ?? null) === (financiera ?? null) &&
     objetivo.mes === mes &&
     objetivo.sucursal_id === sucursal_id &&
     objetivo.vendedor_id === vendedor_id;
 }
 
 function objetivoVigente(DB, datos) {
-  return DB.pos.objetivos.find((o) => o.vigente && mismaCombinacion(o, datos)) || null;
+  const llave = llaveDeMeta(datos);
+  return DB.pos.objetivos.find((o) => o.vigente && mismaCombinacion(o, llave)) || null;
 }
 
 function historialObjetivo(DB, datos) {
+  const llave = llaveDeMeta(datos);
   return DB.pos.objetivos
-    .filter((o) => mismaCombinacion(o, datos))
+    .filter((o) => mismaCombinacion(o, llave))
     .sort((a, b) => a.version - b.version);
 }
 
-function fijarObjetivo(DB, { tipo, actividad = null, mes, sucursal_id, vendedor_id, monto, motivo }, usuario) {
+function fijarObjetivo(DB, datos, usuario) {
+  const { monto, motivo, mes } = datos;
   if (!Number.isFinite(monto) || monto < 0) {
     throw new Error("El monto debe ser un número finito mayor o igual a cero");
   }
   if (typeof mes !== "string" || mes.length !== 7 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
     throw new Error("El mes debe tener formato AAAA-MM, con mes entre 01 y 12");
   }
-  if (tipo !== "venta" && tipo !== "actividad") {
-    throw new Error("El tipo de objetivo debe ser venta o actividad");
+  const llave = llaveDeMeta(datos);
+  const { tipo, sucursal_id, vendedor_id } = llave;
+  if (["actividad", "producto", "credito"].includes(tipo) && !Number.isInteger(monto)) {
+    throw new Error(`El monto de ${tipo} debe ser un entero mayor o igual a cero`);
   }
-  if (tipo === "venta" && actividad !== null) {
-    throw new Error("Un objetivo de venta no puede tener actividad");
+  if (tipo === "marca" && !elementoActivo(DB, "marcas", llave.marca_id)) {
+    throw new Error("La marca no existe o está desactivada");
   }
-  if (tipo === "actividad") {
-    if (!claseActividad(actividad)) throw new Error("La clase de actividad no existe");
-    if (!Number.isInteger(monto)) throw new Error("El monto de actividad debe ser un entero mayor o igual a cero");
-  }
-  if (!Number.isInteger(sucursal_id) || sucursal_id <= 0) {
-    throw new Error("La sucursal debe tener un identificador válido");
+  if (tipo === "producto" && !elementoActivo(DB, "productos", llave.producto_meta_id)) {
+    throw new Error("El producto no existe o está desactivado");
   }
   if (vendedor_id !== null) {
     const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
@@ -50,14 +85,10 @@ function fijarObjetivo(DB, { tipo, actividad = null, mes, sucursal_id, vendedor_
     }
   }
 
-  const anterior = objetivoVigente(DB, { tipo, actividad, mes, sucursal_id, vendedor_id });
+  const anterior = objetivoVigente(DB, llave);
   const nuevo = {
     id: DB.pos.objetivos.reduce((maximo, o) => Math.max(maximo, o.id), 0) + 1,
-    tipo,
-    actividad,
-    mes,
-    sucursal_id,
-    vendedor_id,
+    ...llave,
     monto,
     version: anterior ? anterior.version + 1 : 1,
     vigente: true,
@@ -181,14 +212,10 @@ function darDeBajaEnPlantilla(DB, plantillaId, { hasta, motivo }, usuario) {
   return linea;
 }
 
-function repartoSugerido(DB, { mes, sucursal_id, tipo = "venta", actividad = null }) {
-  const metaTienda = objetivoVigente(DB, {
-    tipo,
-    actividad,
-    mes,
-    sucursal_id,
-    vendedor_id: null,
-  });
+function repartoSugerido(DB, { tipo = "venta", ...datos }) {
+  const llave = llaveDeMeta({ ...datos, tipo, vendedor_id: null });
+  const { mes, sucursal_id } = llave;
+  const metaTienda = objetivoVigente(DB, llave);
   const vendedores = vendedoresUnicosDePlantilla(DB, mes, sucursal_id);
 
   if (!metaTienda || vendedores.length === 0) return [];
@@ -202,22 +229,12 @@ function repartoSugerido(DB, { mes, sucursal_id, tipo = "venta", actividad = nul
   }));
 }
 
-function estadoDelReparto(DB, { mes, sucursal_id, tipo = "venta", actividad = null }) {
-  const metaTienda = objetivoVigente(DB, {
-    tipo,
-    actividad,
-    mes,
-    sucursal_id,
-    vendedor_id: null,
-  });
+function estadoDelReparto(DB, { tipo = "venta", ...datos }) {
+  const llave = llaveDeMeta({ ...datos, tipo, vendedor_id: null });
+  const { mes, sucursal_id } = llave;
+  const metaTienda = objetivoVigente(DB, llave);
   const lineas = vendedoresUnicosDePlantilla(DB, mes, sucursal_id).map((vendedor_id) => {
-    const objetivo = objetivoVigente(DB, {
-      tipo,
-      actividad,
-      mes,
-      sucursal_id,
-      vendedor_id,
-    });
+    const objetivo = objetivoVigente(DB, { ...llave, vendedor_id });
     return {
       vendedor_id,
       monto: objetivo ? objetivo.monto : 0,
