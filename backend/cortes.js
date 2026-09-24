@@ -16,6 +16,7 @@ const { gastosEfectivoDelTurno, gastosEfectivoDelTurnoLista } = require("./gasto
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
 const { esDeLaEraSellada } = require("./corteEpoca");
+const { exigirImporteNoNegativo } = require("./importes");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -253,8 +254,8 @@ function crearCorte(DB, { sucursal_id, caja_id, usuario_id, usuario_nombre, cont
   const retiroLimpio = {};
   const diferencia = {};
   FORMAS_CORTE.forEach((f) => {
-    contadoLimpio[f] = redondear(contado[f]);
-    retiroLimpio[f] = redondear(retiro[f]);
+    contadoLimpio[f] = redondear(exigirImporteNoNegativo(contado[f] === undefined ? 0 : contado[f], `contado de ${f}`));
+    retiroLimpio[f] = redondear(exigirImporteNoNegativo(retiro[f] === undefined ? 0 : retiro[f], `retiro de ${f}`));
     diferencia[f] = redondear(contadoLimpio[f] - enCurso.calculado[f]);
   });
 

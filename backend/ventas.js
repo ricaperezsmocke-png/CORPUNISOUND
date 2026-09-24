@@ -18,6 +18,7 @@ const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
 const { listarCondiciones } = require("./condicionesPago");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { calcularCorteEnCurso } = require("./cortes");
+const { exigirCantidad, exigirImporte } = require("./importes");
 
 /** Centavos, no flotantes sueltos: sumar precios sin redondear arrastra error. */
 function redondear(n) {
@@ -35,11 +36,8 @@ function crearVenta(DB, datos, opciones = {}) {
 
 
   const lineasValidadas = datos.lineas.map((l) => {
-    const cantidad = Number(l.cantidad);
-    if (!Number.isFinite(cantidad) || cantidad <= 0) {
-      const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
-      throw new Error(`La cantidad de "${l.descripcion || producto?.nombre || "el artículo"}" debe ser mayor que cero`);
-    }
+    const producto = DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id));
+    const cantidad = exigirCantidad(l.cantidad, l.descripcion || producto?.nombre);
     return { ...l, cantidad };
   });
 
@@ -199,9 +197,13 @@ function crearVenta(DB, datos, opciones = {}) {
       //
       // El CERO si se permite a proposito: es la cortesia o el accesorio de
       // regalo, y hoy se usa.
+      // El texto vacío es el caso que se colaba: `Number("")` es 0, así que un
+      // precio que nunca se escribió pasaba como cortesía de $0. `undefined`
+      // sigue valiendo 0 —así estaba y así se usa—, pero una cadena vacía es
+      // un campo sin llenar, no una decisión de regalar el artículo.
       const precioCrudo = l.precio_unitario;
       precio = precioCrudo === undefined ? 0 : Number(precioCrudo);
-      if (precioCrudo === null || !Number.isFinite(precio)) {
+      if (precioCrudo === null || precioCrudo === "" || !Number.isFinite(precio)) {
         throw new Error("El precio de un artículo rápido tiene que ser un número");
       }
       if (precio < 0) {
@@ -209,6 +211,7 @@ function crearVenta(DB, datos, opciones = {}) {
       }
     }
 
+    exigirImporte(precio, "el precio unitario");
     const descPct = Number(l.descuento_pct) || 0;
     if (descPct !== 0) {
       if (!puedeDescontar) {
@@ -219,12 +222,22 @@ function crearVenta(DB, datos, opciones = {}) {
       }
     }
 
+    // La cantidad y el precio ya se validaron por separado, pero su PRODUCTO
+    // no: dos números finitos pueden multiplicarse hasta desbordar el importe.
+    const nombreLinea = l.descripcion || DB["catalogo-productos"].productos.find((p) => p.id === Number(l.producto_id))?.nombre;
+    exigirImporte(cantidad * precio, nombreLinea);
     const bruto = redondear(cantidad * precio);
     return { ...l, cantidad, precio, descPct, bruto, subtotal: redondear(bruto * (1 - descPct / 100)) };
   });
 
   const subtotalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.bruto, 0));
   const trasLineas = redondear(lineasCalculadas.reduce((s, l) => s + l.subtotal, 0));
+  // Validar cada línea no basta: doscientas líneas que caben por separado
+  // pueden sumar una cifra que ya no se representa con exactitud. Medido: el
+  // total guardado perdía $100 respecto de la suma real, así que el ticket y el
+  // corte decían cosas distintas.
+  exigirImporte(subtotalCalculado, "la venta");
+  exigirImporte(trasLineas, "la venta");
 
   // EL DESCUENTO POR FORMA DE PAGO. Las condiciones de pago traen su propio
   // porcentaje —6% en EFECTIVO y TRANSFERENCIA por defecto— y la PANTALLA ya lo
@@ -244,8 +257,18 @@ function crearVenta(DB, datos, opciones = {}) {
   const condicion = condiciones.find((c) => sinAcentos(c.nombre) === formaPago);
   const pctPago = descuentosPagoHabilitados && condicion?.activo ? Number(condicion.descuento_pct) || 0 : 0;
 
+  // El porcentaje vive en la configuración y ahí nadie le puso techo: con un
+  // valor disparatado el total sale Infinity y el corte de esa caja se queda
+  // SIN cifra para esa forma de pago. Lo configura quien tiene permiso, pero lo
+  // sufre la cajera que cobra normalmente, que no puede cuadrar su turno.
+  if (!Number.isFinite(pctPago) || pctPago < 0 || pctPago > 100) {
+    throw new Error("El descuento de la forma de pago está mal configurado: debe estar entre 0 y 100 por ciento");
+  }
+
   const totalCalculado = redondear(trasLineas * (1 - pctPago / 100));
   const descuentoCalculado = redondear(subtotalCalculado - totalCalculado);
+  exigirImporte(totalCalculado, "la venta");
+  exigirImporte(descuentoCalculado, "el descuento de la venta");
 
   const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);
 
@@ -391,6 +414,11 @@ function cancelarVenta(DB, id, motivo, usuario) {
   const venta = DB.pos.ventas.find((v) => v.id === Number(id));
   if (!venta) throw new Error("Venta no encontrada");
   if (venta.estatus === "cancelada") throw new Error("Esta venta ya está cancelada");
+  const monederoAplicado = Number(venta.monedero_aplicado) || 0;
+  const cliente = DB.crm.clientes.find((c) => Number(c.id) === Number(venta.cliente_id));
+  // La devolución se valida antes de modificar la venta o su inventario.
+  const saldoMonedero = cliente && monederoAplicado > 0
+    ? exigirImporte(Number(cliente.monedero ?? 0) + monederoAplicado, "el monedero del cliente") : null;
   venta.estatus = "cancelada";
   venta.motivo_cancelacion = motivo || "";
   // Cuándo y quién, no solo por qué. Sin la hora no se puede saber a qué turno
@@ -405,10 +433,8 @@ function cancelarVenta(DB, id, motivo, usuario) {
 
   // El saldo era del cliente: cancelar se lo devuelve. La guarda de venta
   // ya cancelada, arriba, impide reintegrarlo dos veces. Se conserva el rastro.
-  const monederoAplicado = Number(venta.monedero_aplicado) || 0;
   if (monederoAplicado > 0) {
-    const cliente = DB.crm.clientes.find((c) => Number(c.id) === Number(venta.cliente_id));
-    if (cliente) cliente.monedero = redondear((Number(cliente.monedero) || 0) + monederoAplicado);
+    if (cliente) cliente.monedero = redondear(saldoMonedero);
   }
 
   // Reintegra al inventario lo que sí venía de catálogo

@@ -13,6 +13,7 @@ const { fechaLocal } = require("./fechas");
 const { cajaPredeterminadaDeSucursal } = require("./cajas");
 
 const { ajustarExistencia } = require("./productos");
+const { exigirCantidad, exigirImporte, exigirImporteNoNegativo } = require("./importes");
 
 const ML_API  = "https://api.mercadolibre.com";
 const ML_AUTH = "https://auth.mercadolibre.com.mx/authorization";
@@ -280,13 +281,25 @@ function mapearLineasDeOrden(DB, orden) {
     if (!prod) {
       sinVincular.push({ sku, ml_item_id: item.item?.id, nombre: item.item?.title, cantidad: item.quantity });
     }
+    // La orden viene de fuera: cantidad, precio y su producto se validan igual
+    // que en una venta de mostrador. Se rechaza ANTES de escribir nada y sin
+    // marcar la orden como importada, así que se puede reintentar cuando el
+    // dato venga bien. Lo que no se valida aquí llegaría al corte de la
+    // sucursal de MercadoLibre convertido en una cifra que no es un número.
+    const nombreItem = item.item?.title || sku;
+    const cantidad = exigirCantidad(item.quantity, nombreItem);
+    const precio = Number(item.unit_price);
+    if (item.unit_price === null || item.unit_price === "" || !Number.isFinite(precio) || precio < 0) {
+      throw new Error(`El precio que mandó MercadoLibre para "${nombreItem}" no es un número válido`);
+    }
+    exigirImporte(cantidad * precio, nombreItem);
     lineas.push({
       producto_id:     prod ? prod.id : null,
       ml_item_id:      item.item?.id,
       nombre:          item.item?.title,
-      cantidad:        item.quantity,
-      precio_unitario: item.unit_price,
-      subtotal:        item.quantity * item.unit_price,
+      cantidad,
+      precio_unitario: precio,
+      subtotal:        cantidad * precio,
     });
   }
   return { lineas, sinVincular };
@@ -428,6 +441,8 @@ async function importarOrdenComoVenta(DB, ordenId) {
   // Mapear ítems ML → productos locales por SKU
   const { lineas, sinVincular } = mapearLineasDeOrden(DB, orden);
   validarExistenciaDeOrden(DB, lineas);   // lanza y corta aqui: nada escrito todavia
+  // El total del canal también se valida antes de crear o actualizar el cliente.
+  const total = exigirImporteNoNegativo(orden.total_amount, `la orden de MercadoLibre ${ordenId}`);
 
   // Buscar o crear comprador en el CRM (sucursal ML = 5)
   let clienteId = 0;
@@ -491,7 +506,11 @@ async function importarOrdenComoVenta(DB, ordenId) {
     caja_id:     caja?.id ?? null,
     vendedor_id: null,
     cliente_id:  clienteId,
-    total:       orden.total_amount,
+    // El total NO sale de las líneas: lo manda MercadoLibre, y es el que entra
+    // al corte de la sucursal 5. Validar las líneas no lo cubría: con un total
+    // disparatado la venta se guardaba, la orden quedaba marcada como importada
+    // —o sea, irrecuperable— y el corte de ML se quedaba sin cifra.
+    total,
     metodo_pago: "mercadolibre",
     // "Ticket" y no un valor propio como "MercadoLibre": los tipos de documento
     // son una lista cerrada que las pantallas usan para filtrar, y un valor que
