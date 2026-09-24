@@ -211,6 +211,7 @@ function crearVenta(DB, datos, opciones = {}) {
       }
     }
 
+    exigirImporte(precio, "el precio unitario");
     const descPct = Number(l.descuento_pct) || 0;
     if (descPct !== 0) {
       if (!puedeDescontar) {
@@ -413,6 +414,11 @@ function cancelarVenta(DB, id, motivo, usuario) {
   const venta = DB.pos.ventas.find((v) => v.id === Number(id));
   if (!venta) throw new Error("Venta no encontrada");
   if (venta.estatus === "cancelada") throw new Error("Esta venta ya está cancelada");
+  const monederoAplicado = Number(venta.monedero_aplicado) || 0;
+  const cliente = DB.crm.clientes.find((c) => Number(c.id) === Number(venta.cliente_id));
+  // La devolución se valida antes de modificar la venta o su inventario.
+  const saldoMonedero = cliente && monederoAplicado > 0
+    ? exigirImporte(Number(cliente.monedero ?? 0) + monederoAplicado, "el monedero del cliente") : null;
   venta.estatus = "cancelada";
   venta.motivo_cancelacion = motivo || "";
   // Cuándo y quién, no solo por qué. Sin la hora no se puede saber a qué turno
@@ -427,10 +433,8 @@ function cancelarVenta(DB, id, motivo, usuario) {
 
   // El saldo era del cliente: cancelar se lo devuelve. La guarda de venta
   // ya cancelada, arriba, impide reintegrarlo dos veces. Se conserva el rastro.
-  const monederoAplicado = Number(venta.monedero_aplicado) || 0;
   if (monederoAplicado > 0) {
-    const cliente = DB.crm.clientes.find((c) => Number(c.id) === Number(venta.cliente_id));
-    if (cliente) cliente.monedero = redondear((Number(cliente.monedero) || 0) + monederoAplicado);
+    if (cliente) cliente.monedero = redondear(saldoMonedero);
   }
 
   // Reintegra al inventario lo que sí venía de catálogo

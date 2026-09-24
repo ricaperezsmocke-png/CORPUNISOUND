@@ -9,6 +9,7 @@
 
 const { buscarConGuardia, pushMovimiento } = require("./garantias");
 const { resolverCajaDeSucursal, esDeEstaCaja } = require("./cajas");
+const { exigirImporte } = require("./importes");
 
 const TIPOS_GASTO = ["traslado", "reparacion", "otro"];
 // Las formas con las que el dinero de una garantía entra al corte (ver
@@ -27,6 +28,7 @@ function datosDeDinero(DB, garantia, datos) {
   if (!["number", "string"].includes(typeof datos.monto) || !Number.isFinite(monto) || monto <= 0) {
     throw new Error("El monto debe ser un número mayor que cero");
   }
+  exigirImporte(monto, "el monto de la garantía");
   const forma_pago = typeof datos.forma_pago === "string" ? datos.forma_pago.toUpperCase() : "";
   if (!FORMAS_PAGO.includes(forma_pago)) throw new Error("Forma de pago inválida");
   const sucursal_id = garantia.sucursal_origen_id;

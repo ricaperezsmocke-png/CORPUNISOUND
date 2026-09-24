@@ -18,6 +18,7 @@ const { esDeEstaCaja } = require("./cajas");
 const { esDeLaEraSellada } = require("./corteEpoca");
 const { fechaLocal } = require("./fechas");
 const { resolverCajaDeSucursal } = require("./cajas");
+const { exigirImporte } = require("./importes");
 
 const FORMAS_PAGO_GASTO = ["EFECTIVO", "TRANSFERENCIA", "TARJETA"];
 const ORIGENES_GASTO = ["CAJON", "CAJA_FUERTE"];
@@ -86,6 +87,7 @@ async function crearGasto(DB, datos, sucursalId, usuario, drive, cajaId) {
 
   const monto = Number(datos.monto);
   if (!Number.isFinite(monto) || monto <= 0) throw new Error("El monto debe ser un número mayor que cero");
+  exigirImporte(monto, "el gasto");
 
   const forma_pago = (datos.forma_pago || "").toUpperCase();
   if (!FORMAS_PAGO_GASTO.includes(forma_pago)) throw new Error("Elige una forma de pago válida");

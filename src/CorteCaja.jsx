@@ -425,7 +425,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                           <td className="py-1.5 pr-2 font-medium">{ETIQUETAS[f]}</td>
                           <td className="py-1.5 px-1">
                             <input
-                              type="number" step="0.01" autoFocus={f === "EFECTIVO"}
+                              type="number" min="0" step="0.01" autoFocus={f === "EFECTIVO"}
                               value={contado[f]}
                               onChange={(e) => setContado({ ...contado, [f]: e.target.value })}
                               className="w-full neu-campo rounded-lg px-2 py-1.5 text-right"
@@ -491,7 +491,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                   <div key={f} className="mb-2.5">
                     <label className="text-xs text-slate-500 block mb-0.5">{ETIQUETAS[f].replace("* ", "")}:</label>
                     <input
-                      type="number" step="0.01"
+                      type="number" min="0" step="0.01"
                       value={retiro[f]}
                       onChange={(e) => setRetiro({ ...retiro, [f]: e.target.value })}
                       className="w-full neu-campo rounded-lg px-2 py-1.5 text-right"

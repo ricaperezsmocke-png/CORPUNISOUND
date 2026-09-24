@@ -177,6 +177,7 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
       }
     }
 
+    exigirImporte(precio, "el precio unitario");
     const descPct = puedeDescontar ? Number(l.descuento_pct) || 0 : 0;
     if (descPct < 0 || descPct > 100) {
       throw new Error("El descuento debe estar entre 0 y 100 por ciento");
@@ -283,6 +284,9 @@ function registrarAbono(DB, ventaId, datos, usuario, cajaId) {
 
   const monto = Number(datos.monto);
   if (!monto || monto <= 0) throw new Error("El monto del abono debe ser mayor a $0");
+  exigirImporte(monto, "el abono");
+  exigirImporte(venta.total, "el total del apartado");
+  const saldo = exigirImporte(saldoPendiente(DB, venta), "el saldo pendiente del apartado");
   if (!datos.forma_pago) throw new Error("Selecciona la forma de pago del abono");
   if (esCredito(datos.forma_pago)) {
     throw new Error("Un abono no puede pagarse a crédito");
@@ -296,7 +300,6 @@ function registrarAbono(DB, ventaId, datos, usuario, cajaId) {
     throw new Error(`Forma de pago no valida para un abono: elige una de ${permitidas.join(", ")}`);
   }
 
-  const saldo = saldoPendiente(DB, venta);
   if (monto > saldo) throw new Error(`El abono ($${monto.toFixed(2)}) no puede ser mayor al saldo pendiente ($${saldo.toFixed(2)})`);
   const caja = resolverCajaDeSucursal(DB, venta.sucursal_id, cajaId);
 
@@ -335,6 +338,10 @@ function cancelarApartado(DB, ventaId, motivo, usuario) {
   if (venta.estatus !== "apartado") throw new Error("Este apartado ya no está vigente");
 
   const yaAbonado = sumaAbonos(DB, venta.id);
+  const cliente = DB.crm.clientes.find((c) => c.id === venta.cliente_id);
+  // Validar antes de cancelar o reintegrar mercancía: el rechazo no deja cambios.
+  const saldoMonedero = cliente && yaAbonado > 0
+    ? exigirImporte(Number(cliente.monedero ?? 0) + yaAbonado, "el monedero del cliente") : null;
 
   venta.estatus = "cancelada";
   venta.motivo_cancelacion = motivo || "Cancelado";
@@ -364,8 +371,7 @@ function cancelarApartado(DB, ventaId, motivo, usuario) {
     });
 
   if (yaAbonado > 0) {
-    const cliente = DB.crm.clientes.find((c) => c.id === venta.cliente_id);
-    if (cliente) cliente.monedero = Math.round(((cliente.monedero || 0) + yaAbonado) * 100) / 100;
+    if (cliente) cliente.monedero = Math.round(saldoMonedero * 100) / 100;
   }
 
   return venta;

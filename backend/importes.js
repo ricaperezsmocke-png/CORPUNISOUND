@@ -58,4 +58,11 @@ function exigirCantidad(valor, descripcion) {
   return cantidad;
 }
 
-module.exports = { TOPE_IMPORTE, esImporteValido, exigirImporte, exigirCantidad };
+/** Exige un importe registrable que no represente una cantidad negativa. */
+function exigirImporteNoNegativo(n, descripcion) {
+  exigirImporte(n, descripcion);
+  if (n < 0) throw new Error(`El importe de "${descripcion || "el artículo"}" no puede ser negativo`);
+  return n;
+}
+
+module.exports = { TOPE_IMPORTE, esImporteValido, exigirImporte, exigirCantidad, exigirImporteNoNegativo };

@@ -13,7 +13,7 @@ const { fechaLocal } = require("./fechas");
 const { cajaPredeterminadaDeSucursal } = require("./cajas");
 
 const { ajustarExistencia } = require("./productos");
-const { exigirCantidad, exigirImporte } = require("./importes");
+const { exigirCantidad, exigirImporte, exigirImporteNoNegativo } = require("./importes");
 
 const ML_API  = "https://api.mercadolibre.com";
 const ML_AUTH = "https://auth.mercadolibre.com.mx/authorization";
@@ -441,6 +441,8 @@ async function importarOrdenComoVenta(DB, ordenId) {
   // Mapear ítems ML → productos locales por SKU
   const { lineas, sinVincular } = mapearLineasDeOrden(DB, orden);
   validarExistenciaDeOrden(DB, lineas);   // lanza y corta aqui: nada escrito todavia
+  // El total del canal también se valida antes de crear o actualizar el cliente.
+  const total = exigirImporteNoNegativo(orden.total_amount, `la orden de MercadoLibre ${ordenId}`);
 
   // Buscar o crear comprador en el CRM (sucursal ML = 5)
   let clienteId = 0;
@@ -508,7 +510,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
     // al corte de la sucursal 5. Validar las líneas no lo cubría: con un total
     // disparatado la venta se guardaba, la orden quedaba marcada como importada
     // —o sea, irrecuperable— y el corte de ML se quedaba sin cifra.
-    total:       exigirImporte(orden.total_amount, `la orden de MercadoLibre ${ordenId}`),
+    total,
     metodo_pago: "mercadolibre",
     // "Ticket" y no un valor propio como "MercadoLibre": los tipos de documento
     // son una lista cerrada que las pantallas usan para filtrar, y un valor que
