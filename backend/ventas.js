@@ -231,6 +231,12 @@ function crearVenta(DB, datos, opciones = {}) {
 
   const subtotalCalculado = redondear(lineasCalculadas.reduce((s, l) => s + l.bruto, 0));
   const trasLineas = redondear(lineasCalculadas.reduce((s, l) => s + l.subtotal, 0));
+  // Validar cada línea no basta: doscientas líneas que caben por separado
+  // pueden sumar una cifra que ya no se representa con exactitud. Medido: el
+  // total guardado perdía $100 respecto de la suma real, así que el ticket y el
+  // corte decían cosas distintas.
+  exigirImporte(subtotalCalculado, "la venta");
+  exigirImporte(trasLineas, "la venta");
 
   // EL DESCUENTO POR FORMA DE PAGO. Las condiciones de pago traen su propio
   // porcentaje —6% en EFECTIVO y TRANSFERENCIA por defecto— y la PANTALLA ya lo
@@ -250,8 +256,18 @@ function crearVenta(DB, datos, opciones = {}) {
   const condicion = condiciones.find((c) => sinAcentos(c.nombre) === formaPago);
   const pctPago = descuentosPagoHabilitados && condicion?.activo ? Number(condicion.descuento_pct) || 0 : 0;
 
+  // El porcentaje vive en la configuración y ahí nadie le puso techo: con un
+  // valor disparatado el total sale Infinity y el corte de esa caja se queda
+  // SIN cifra para esa forma de pago. Lo configura quien tiene permiso, pero lo
+  // sufre la cajera que cobra normalmente, que no puede cuadrar su turno.
+  if (!Number.isFinite(pctPago) || pctPago < 0 || pctPago > 100) {
+    throw new Error("El descuento de la forma de pago está mal configurado: debe estar entre 0 y 100 por ciento");
+  }
+
   const totalCalculado = redondear(trasLineas * (1 - pctPago / 100));
   const descuentoCalculado = redondear(subtotalCalculado - totalCalculado);
+  exigirImporte(totalCalculado, "la venta");
+  exigirImporte(descuentoCalculado, "el descuento de la venta");
 
   const caja = resolverCajaDeSucursal(DB, sucursalId, datos.caja_id);
 

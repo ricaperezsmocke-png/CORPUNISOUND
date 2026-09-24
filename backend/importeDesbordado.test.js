@@ -41,6 +41,8 @@ const { sembrarCajas } = require("./cajas");
 const { crearVenta } = require("./ventas");
 const { crearApartado, listarApartados } = require("./apartados");
 const { mapearLineasDeOrden } = require("./mercadolibre");
+const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
+const { TOPE_IMPORTE, exigirImporte } = require("./importes");
 
 const RAPIDO = { permisos: ["agregar_articulo_rapido"] };
 
@@ -96,7 +98,11 @@ test("VENTAS: cantidad y precio finitos cuyo PRODUCTO se desborda también se re
     () => crearVenta(DB, {
       sucursal_id: 3,
       metodo_pago: "TARJETA",
-      lineas: [{ descripcion: "Servicio", cantidad: 1e200, precio_unitario: 1e200 }],
+      // 10 millones x 10 millones = 1e14, por encima del techo, pero cada
+      // factor por separado lo pasa: esto es lo que prueba el PRODUCTO. Con
+      // 1e200 la guarda de cantidad rechazaba antes de multiplicar, y la
+      // prueba pasaba aunque se quitara la validación del importe.
+      lineas: [{ descripcion: "Servicio", cantidad: 1e7, precio_unitario: 1e7 }],
     }, RAPIDO),
     /cantidad|precio|importe/i
   );
@@ -236,4 +242,68 @@ test("APARTADOS: la cortesía de $0 se sigue aceptando", () => {
     ],
   }, 1, { nombre: "Ana" }, null, RAPIDO);
   assert.equal(a.total, 25);
+});
+
+// ---------------------------------------------------------------------------
+// LO QUE ENCONTRÓ LA REVISIÓN INDEPENDIENTE
+// ---------------------------------------------------------------------------
+// Validar cada línea no basta. El total de un documento no siempre sale de sus
+// líneas: en MercadoLibre lo manda el canal, y en una venta normal lo puede
+// mover un descuento por forma de pago. Los tres casos de abajo dejaban otra
+// vez el corte con una cifra que no es un número, y los tres se reprodujeron
+// ejecutando antes de escribir el arreglo.
+
+test("VENTAS: muchas líneas legítimas que SUMADAS se pasan del techo se rechazan", () => {
+  const DB = prepararDBVentas();
+  const lineas = Array.from({ length: 200 }, () => ({
+    descripcion: "Servicio", cantidad: 1, precio_unitario: TOPE_IMPORTE,
+  }));
+  // Cada línea cabe; la suma no. Antes se aceptaba y el total guardado perdía
+  // $100 por precisión: el ticket y el corte decían cosas distintas.
+  assert.throws(() => crearVenta(DB, { sucursal_id: 3, metodo_pago: "TARJETA", lineas }, RAPIDO), /importe/i);
+  assertNadaEscrito(DB);
+});
+
+test("VENTAS: un descuento por forma de pago disparatado no deja el total en Infinity", () => {
+  const DB = prepararDBVentas();
+  DB.pos.configuracion = { permitir_ventas_sin_existencia: true, descuentos_pago_habilitado: true };
+  const condiciones = listarCondiciones(DB, 3);
+  const condicion = condiciones.find((c) => /TARJETA/i.test(c.nombre)) || condiciones[0];
+  // Lo pone quien tiene `editar_configuracion_pos`, pero lo sufre la cajera que
+  // cobra normalmente: su corte queda sin cifra para esa forma de pago.
+  actualizarCondicion(DB, condicion.id, { descuento_pct: -1e308 }, { verTodas: true });
+  assert.throws(
+    () => crearVenta(DB, {
+      sucursal_id: 3, metodo_pago: condicion.nombre,
+      lineas: [{ producto_id: 3, cantidad: 1 }],
+    }, {}),
+    /descuento|importe/i
+  );
+  assertNadaEscrito(DB);
+});
+
+test("APARTADOS: el SUBTOTAL también tiene techo, no solo el total tras el descuento", () => {
+  const DB = prepararDBApartados();
+  const permisos = { permisos: ["agregar_articulo_rapido", "aplicar_descuentos_articulos_venta"] };
+  // Dos líneas al techo con 75% de descuento dejaban el total por debajo y el
+  // subtotal por encima: el documento guardaba una cifra que no se sostiene.
+  assert.throws(
+    () => crearApartado(DB, {
+      cliente_id: 1, anticipo_monto: 1, anticipo_forma_pago: "EFECTIVO",
+      lineas: [
+        { descripcion: "A", cantidad: 1, precio_unitario: TOPE_IMPORTE, descuento_pct: 75 },
+        { descripcion: "B", cantidad: 1, precio_unitario: TOPE_IMPORTE, descuento_pct: 75 },
+      ],
+    }, 1, { nombre: "Ana" }, null, permisos),
+    /importe/i
+  );
+  assertNadaEscrito(DB);
+});
+
+test("MERCADOLIBRE: el total que manda el canal también se valida", () => {
+  // Es el que va al corte de la sucursal 5: no sale de las líneas, lo copia la
+  // orden. Con un total disparatado, la venta se guardaba, la orden quedaba
+  // marcada como importada -irrecuperable- y el corte de ML en Infinity.
+  assert.throws(() => exigirImporte(1e308, "la orden de MercadoLibre"), /importe/i);
+  assert.equal(exigirImporte(375, "la orden de MercadoLibre"), 375, "una orden normal pasa igual");
 });

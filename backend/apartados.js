@@ -194,6 +194,11 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
   const subtotal = lineasCalculadas.reduce((a, l) => a + l.cantidad * l.precio, 0);
   const descuento = lineasCalculadas.reduce((a, l) => a + (l.cantidad * l.precio * l.descPct) / 100, 0);
   const total = Math.round((subtotal - descuento) * 100) / 100;
+  // El subtotal también, no solo el total ya descontado: dos líneas al techo
+  // con 75% de descuento dejaban el total por debajo y el subtotal por encima,
+  // y el documento se guardaba con una cifra que no se sostiene.
+  exigirImporte(subtotal, "el apartado");
+  exigirImporte(descuento, "el descuento del apartado");
   exigirImporte(total, "el apartado");
   if (anticipoMonto > total) {
     throw new Error(`El anticipo no puede ser mayor al total del apartado ($${total.toFixed(2)})`);
