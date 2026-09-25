@@ -1,7 +1,39 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as actividades from "./actividades.js";
 import { Buffer } from "node:buffer";
 import { avanceActividad, leerArchivoComoBase64 } from "./actividades.js";
+
+test("lineaAvanceActividades respeta catálogo, etiquetas por clave y metas de la vendedora", () => {
+  const catalogo = ["volanteo", "grupos", "marketplace", "iglesia"].map((clave) => ({ clave, etiqueta: "Otra etiqueta" }));
+  const metas = [
+    { actividad: "grupos", lineas: [{ vendedor_id: 9, monto: 20 }, { vendedor_id: 2, monto: 99 }] },
+    { actividad: "iglesia", lineas: [{ vendedor_id: 2, monto: 5 }] },
+    { actividad: "marketplace", lineas: [{ vendedor_id: "9", monto: 2 }] },
+  ];
+  const resumen = [{ actividad: "grupos", declaradas: 8 }, { actividad: "volanteo", declaradas: 3 }];
+  const registros = [{ actividad: "volanteo", vigente: 1 }];
+  assert.deepEqual(actividades.lineaAvanceActividades({ catalogo, metas, vendedorId: "9", resumen, registros }), [
+    { clave: "volanteo", corta: "Volanteo", declaradas: 3, meta: 0 },
+    { clave: "grupos", corta: "Grupos", declaradas: 8, meta: 20 },
+    { clave: "marketplace", corta: "Marketplace", declaradas: 0, meta: 2 },
+  ]);
+});
+
+test("lineaAvanceActividades incluye clases con anulaciones sin contarlas como declaradas", () => {
+  assert.deepEqual(actividades.lineaAvanceActividades({
+    catalogo: [{ clave: "iglesia" }, { clave: "grupos" }], metas: [], vendedorId: 9,
+    resumen: [], registros: [{ actividad: "iglesia", vigente: 0 }],
+  }), [{ clave: "iglesia", corta: "Iglesia", declaradas: 0, meta: 0 }]);
+});
+
+test("ultimoResultado devuelve la última versión sin sumar ni ordenar el historial", () => {
+  const primero = { contactos: 10, cotizaciones: 4 };
+  const ultimo = { contactos: 4, cotizaciones: 1 };
+  assert.equal(actividades.ultimoResultado({ resultados: [primero, ultimo] }), ultimo);
+  assert.equal(actividades.ultimoResultado({ resultados: [primero] }), primero);
+  assert.equal(actividades.ultimoResultado({ resultados: [] }), null);
+});
 
 for (const tipo of ["image/jpeg", "image/png"]) {
   test(`convierte ${tipo} a base64 sin prefijo y conserva nombre y tipo`, async () => {

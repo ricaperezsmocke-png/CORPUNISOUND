@@ -2,6 +2,28 @@
   style: "currency", currency: "MXN", maximumFractionDigits: 0,
 });
 
+import { esCapturaDeVenta, pesosConCentavos } from "./marcas.js";
+
+export const ventaDelDia = (capturas, fecha) =>
+  capturas.find((captura) => captura.vigente && captura.fecha === fecha && esCapturaDeVenta(captura)) || null;
+
+export function resumenVenta({ meta, total }) {
+  if (!(meta > 0)) return { texto: `Llevas ${pesosConCentavos(total)} registrados`, porcentaje: null };
+  const porcentaje = Math.round(total / meta * 100);
+  return { texto: `Llevas ${pesosConCentavos(total)} de ${pesosConCentavos(meta)} · ${porcentaje} %`, porcentaje };
+}
+
+export const fechaCorta = (fecha) => `${fecha.slice(8, 10)}/${fecha.slice(5, 7)}`;
+
+export function fechaLarga(fecha) {
+  const [anio, mes, dia] = fecha.split("-").map(Number);
+  const calendario = new Date(Date.UTC(anio, mes - 1, dia));
+  const opciones = { timeZone: "UTC" };
+  const semana = calendario.toLocaleDateString("es-MX", { ...opciones, weekday: "long" });
+  const nombreMes = calendario.toLocaleDateString("es-MX", { ...opciones, month: "long" });
+  return `${semana} ${dia} de ${nombreMes}`;
+}
+
 export const hoyLocal = (fecha = new Date()) => new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Mexico_City",
 }).format(fecha);

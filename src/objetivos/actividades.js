@@ -13,6 +13,21 @@ export async function leerArchivoComoBase64(file) {
   return { nombre_archivo: file.name, tipo_mime: file.type, contenido_base64: btoa(partes.join("")) };
 }
 
+const ETIQUETAS_CORTAS = { grupos: "Grupos", marketplace: "Marketplace", iglesia: "Iglesia", volanteo: "Volanteo" };
+
+export function lineaAvanceActividades({ catalogo, metas, vendedorId, resumen, registros }) {
+  return catalogo.flatMap(({ clave }) => {
+    const reparto = metas.find((item) => item.actividad === clave);
+    const linea = reparto?.lineas.find((item) => Number(item.vendedor_id) === Number(vendedorId));
+    const meta = linea?.monto ?? 0;
+    if (!(meta > 0) && !registros.some((item) => item.actividad === clave)) return [];
+    const declaradas = resumen.find((item) => item.actividad === clave)?.declaradas ?? 0;
+    return [{ clave, corta: ETIQUETAS_CORTAS[clave], declaradas, meta }];
+  });
+}
+
+export const ultimoResultado = (registro) => registro.resultados.at(-1) || null;
+
 export function avanceActividad({ meta, declaradas }) {
   return {
     porcentaje: meta > 0 ? Math.round(declaradas / meta * 100) : 0,
