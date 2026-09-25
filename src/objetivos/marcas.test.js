@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
   esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
+  creditoCompleto,
 } from "./marcas.js";
 
 test("una captura sin tipo es de venta; marca y producto no", () => {
@@ -122,4 +123,14 @@ test("un elemento capturado que ya no está en el catálogo conserva un nombre",
     capturas: [{ id: 1, tipo: "producto", producto_meta_id: 2, fecha: "2026-09-10", monto: 1, vigente: true }],
   });
   assert.equal(renglones[0].nombre, "Elemento #2");
+});
+
+test("el formulario de crédito exige financiera, fecha, monto mayor que cero y folio", () => {
+  const completo = { financiera: "atrato", fecha: "2026-09-10", monto: "1500", folio: "AT-9" };
+  assert.equal(creditoCompleto(completo), true);
+  assert.equal(creditoCompleto({ ...completo, folio: "   " }), false);
+  assert.equal(creditoCompleto({ ...completo, monto: "0" }), false);
+  assert.equal(creditoCompleto({ ...completo, monto: "" }), false);
+  assert.equal(creditoCompleto({ ...completo, financiera: "" }), false);
+  assert.equal(creditoCompleto({ ...completo, fecha: "" }), false);
 });

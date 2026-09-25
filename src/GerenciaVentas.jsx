@@ -4,6 +4,7 @@ import { apiFetch } from "./api";
 import Pestanas from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
 import MarcasDelDia from "./objetivos/MarcasDelDia";
+import CreditosVendedor from "./objetivos/CreditosVendedor";
 import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
@@ -317,7 +318,10 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             <ActividadesVendedor key={`${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
               vendedorId={miVendedorId} objetivos={objetivos} />
           )}
-          {activa === "mis-creditos" && objetivos && proximamente}
+          {activa === "mis-creditos" && objetivos && (
+            <CreditosVendedor key={`creditos/${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
+              vendedorId={miVendedorId} objetivos={objetivos} />
+          )}
           {activa === "tienda-venta" && objetivos && (
             <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
               objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}

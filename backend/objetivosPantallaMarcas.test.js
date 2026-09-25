@@ -118,3 +118,14 @@ test("marcas del día: mes cerrado queda en solo lectura", () => {
   }));
   assert.doesNotMatch(html, /<input|Guardar|Corregir|otra marca/);
 });
+
+test("mis créditos: formulario con folio en mes abierto y nada que escribir en mes cerrado", () => {
+  const CreditosVendedor = cargar("src/objetivos/CreditosVendedor.jsx").default;
+  const render = (cerrado) => renderToStaticMarkup(React.createElement(CreditosVendedor, {
+    mes: "2026-09", sucursalId: "1", vendedorId: 7, objetivos: { cerrado, creditos: [] },
+  }));
+  const abierto = render(false);
+  assert.match(texto(abierto), /Folio de la financiera/);
+  assert.match(abierto, /<button type="submit" disabled=""/, "sin datos el botón debe nacer deshabilitado");
+  assert.doesNotMatch(render(true), /<form|<input|Anular/);
+});

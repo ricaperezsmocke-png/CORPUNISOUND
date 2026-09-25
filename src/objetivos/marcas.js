@@ -94,3 +94,7 @@ export function renglonesDelDia({ clave, tipo, fecha, vendedorId, extras, elemen
     };
   });
 }
+
+// El servidor valida todo de nuevo; esto solo decide si el botón "Registrar crédito" se habilita.
+export const creditoCompleto = ({ financiera, fecha, monto, folio }) =>
+  Boolean(financiera) && Boolean(fecha) && String(folio || "").trim() !== "" && Number(monto) > 0;
