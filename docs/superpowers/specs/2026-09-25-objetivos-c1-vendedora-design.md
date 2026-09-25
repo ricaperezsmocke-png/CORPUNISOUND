@@ -33,7 +33,7 @@ Orden de arriba abajo:
    meta ausente de meta 0; no inventar "sin meta"). Montos con centavos: usar `pesosConCentavos` de `src/objetivos/marcas.js` (`pesos` de datos.js
    redondea a pesos enteros y NO se cambia porque lo usan otras pantallas). Aplica a toda la parte 1.
 2. **Bloque "Venta del día"** (bloque principal, cifra/campo grande). Solo si el mes NO está cerrado.
-   - Día elegido = `fecha` (estado de GerenciaVentas). Título: `Venta de hoy · jueves 25 de septiembre`
+   - Día elegido = `fecha` (estado de GerenciaVentas). Título: `Venta de hoy · viernes 25 de septiembre`
      si `fecha === hoy`; si no, `Venta del 21/09`.
    - Enlace secundario `cambiar día` que muestra un `input type=date` (min primer día del mes, max
      hoy o fin de mes). Se conserva porque MarcasDelDia (debajo, sin cambios) usa esta misma `fecha`
@@ -62,7 +62,7 @@ Funciones puras nuevas (con pruebas):
 - `ventaDelDia(capturas, fecha)` → la captura de venta VIGENTE de esa fecha o `null` (usa
   `esCapturaDeVenta`; ignora no vigentes y capturas de marca/producto).
 - `resumenVenta({ meta, total })` → `{ texto, porcentaje|null }` según la regla del punto 1.
-- `fechaCorta("2026-09-21")` → `"21/09"`; `fechaLarga("2026-09-25")` → `"jueves 25 de septiembre"`
+- `fechaCorta("2026-09-21")` → `"21/09"`; `fechaLarga("2026-09-25")` → `"viernes 25 de septiembre"`
   (sin depender de la zona horaria de la máquina: construir desde año/mes/día).
 
 ## Parte 2 — pestaña "Mis actividades" (ActividadesVendedor)
