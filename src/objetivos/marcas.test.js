@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
   esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
-  creditoCompleto, filasMetasTienda, consultaElemento, formatoUnidad,
+  creditoCompleto, filasMetasTienda, consultaElemento, formatoUnidad, resumenAntesDeSellar,
 } from "./marcas.js";
 
 test("una captura sin tipo es de venta; marca y producto no", () => {
@@ -158,4 +158,28 @@ test("cada unidad se escribe como la entiende la tienda", () => {
   assert.equal(formatoUnidad("pesos", 1500), "$1,500.00");
   assert.equal(formatoUnidad("piezas", 1), "1 pieza");
   assert.equal(formatoUnidad("creditos", 3), "3 créditos");
+});
+
+test("el resumen antes de sellar cuenta personas con diferencia por grupo", () => {
+  const previoDos = [
+    ...previo,
+    { vendedor_id: 8, meta: 0, capturado: 500, marcas: [], productos: [], creditos: [{ financiera: "atrato", meta: 1, registrados: 1 }] },
+  ];
+  const valores = {
+    [llaveCampo(7, "sicar", "")]: "900", [llaveCampo(7, "marcas", 3)]: "410",
+    [llaveCampo(7, "productos", 1)]: "1", [llaveCampo(7, "creditos", "coppel_pay")]: "1",
+    [llaveCampo(8, "sicar", "")]: "450", [llaveCampo(8, "creditos", "atrato")]: "1",
+  };
+  assert.deepEqual(resumenAntesDeSellar(previoDos, valores), {
+    personas: 2, conDiferencia: { venta: 1, marcas: 1, productos: 0, creditos: 0 },
+  });
+});
+
+test("una persona solo con créditos también envía su real de crédito", () => {
+  const soloCreditos = [{ vendedor_id: 9, meta: 0, capturado: 0, marcas: [], productos: [],
+    creditos: [{ financiera: "atrato", meta: 0, registrados: 2 }] }];
+  const valores = { [llaveCampo(9, "sicar", "")]: "0", [llaveCampo(9, "creditos", "atrato")]: "2" };
+  assert.deepEqual(armarRealesCierre(soloCreditos, valores),
+    [{ vendedor_id: 9, real_sicar: 0, marcas: [], productos: [], creditos: [{ financiera: "atrato", real: 2 }] }]);
+  assert.deepEqual(camposFaltantesCierre(soloCreditos, { [llaveCampo(9, "sicar", "")]: "0" }), [llaveCampo(9, "creditos", "atrato")]);
 });

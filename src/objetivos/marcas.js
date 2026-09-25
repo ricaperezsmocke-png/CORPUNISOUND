@@ -118,3 +118,18 @@ export function filasMetasTienda(objetivos) {
 }
 
 export const consultaElemento = ({ tipo, clave, id }) => `tipo=${tipo}&${clave}=${encodeURIComponent(id)}`;
+
+// Cuántas personas tienen alguna diferencia (capturado contra real) en cada grupo, para la
+// confirmación antes de sellar. No exige que sean cero: solo informa lo que se va a sellar.
+export function resumenAntesDeSellar(previo, valores) {
+  const conDiferencia = { venta: 0, marcas: 0, productos: 0, creditos: 0 };
+  for (const linea of previo) {
+    if (Number(linea.capturado) - Number(valores[llaveCampo(linea.vendedor_id, "sicar", "")]) !== 0) conDiferencia.venta += 1;
+    for (const { grupo, clave } of GRUPOS) {
+      const difiere = (linea[grupo] || []).some((e) =>
+        Number(e.capturado ?? e.registrados) - Number(valores[llaveCampo(linea.vendedor_id, grupo, e[clave])]) !== 0);
+      if (difiere) conDiferencia[grupo] += 1;
+    }
+  }
+  return { personas: previo.length, conDiferencia };
+}

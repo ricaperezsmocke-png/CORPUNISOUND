@@ -56,8 +56,13 @@ test("una rectificación de marca no cambia la fila de venta del cierre sellado"
     resumen_actividades_tienda: [],
   };
   const html = renderToStaticMarkup(React.createElement(CierreSellado, { cierre, rectificar() {}, nombre: () => "Ana" }));
-  assert.doesNotMatch(texto(html), /Rectificado: \$55,555/, "la rectificación de Yamaha se aplicó a la meta de venta");
+  // La primera tabla es la de venta contra SICAR: ahí la rectificación de Yamaha no debe aparecer.
+  const tablaVenta = texto(html.slice(html.indexOf("<table"), html.indexOf("</table>")));
+  assert.doesNotMatch(tablaVenta, /Rectificado/, "la rectificación de Yamaha se aplicó a la meta de venta");
   assert.doesNotMatch(texto(html), /Ana: Meta de \$5,000/, "la rectificación de marca se rotuló como meta de venta");
+  // Y sí aparece donde corresponde: en el bloque de marcas, rotulada con el elemento.
+  assert.match(texto(html), /Yamaha \$5,000\.00 Rectificado: \$55,555\.00/);
+  assert.match(texto(html), /Ana: Yamaha · Meta de \$5,000\.00 a \$55,555\.00/);
 });
 
 test("la barra de pestañas marca solo la activa y avisa al elegir otra", () => {
@@ -158,4 +163,19 @@ test("listas: el gerente de una sola tienda no ve el panel; quien ve todas las t
   const admin = render(["editar_objetivos_venta", "ver_todas_las_sucursales"]);
   assert.match(admin, /Listas de marcas y productos/);
   assert.doesNotMatch(admin, /Borrar|Eliminar|Reactivar/);
+});
+
+test("cierre en captura: un campo por elemento y los faltantes se marcan en rojo", () => {
+  const CierreElementos = cargar("src/objetivos/CierreElementos.jsx").default;
+  const lineas = [{
+    vendedor_id: 7, nombre: "Ana", meta: 0, capturado: 0,
+    marcas: [{ marca_id: 3, nombre: "Yamaha", meta: 5000, capturado: 4000 }],
+    productos: [], creditos: [{ financiera: "coppel_pay", meta: 2, registrados: 1 }],
+  }];
+  const html = renderToStaticMarkup(React.createElement(CierreElementos, {
+    lineas, nombre: () => "Ana", valores: { "7|marcas|3": "3900" }, cambiar() {}, faltantes: ["7|creditos|coppel_pay"],
+  }));
+  assert.equal((html.match(/<input/g) || []).length, 2);
+  assert.match(texto(html), /Yamaha \$5,000\.00 \$4,000\.00 .*\$100\.00 más de lo real/);
+  assert.match(html, /aria-label="Real de la financiera de Coppel Pay de Ana"[^>]*ring-red-500/);
 });

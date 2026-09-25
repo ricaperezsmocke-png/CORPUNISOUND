@@ -16,17 +16,17 @@ export function Campo({ etiqueta, tipo = "text", valor, cambiar, area, min, max 
   );
 }
 
-export function Modal({ titulo, cerrar, guardar, deshabilitado, children }) {
+export function Modal({ titulo, cerrar, guardar, deshabilitado, children, textoGuardar = "Guardar", textoCerrar = "Cancelar" }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl p-5 w-full max-w-md space-y-3">
         <h3 className="font-semibold">{titulo}</h3>
         {children}
         <div className="flex justify-end gap-2">
-          <button onClick={cerrar}>Cancelar</button>
+          <button onClick={cerrar}>{textoCerrar}</button>
           <button disabled={deshabilitado} onClick={guardar}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 disabled:opacity-40">
-            Guardar
+            {textoGuardar}
           </button>
         </div>
       </div>
