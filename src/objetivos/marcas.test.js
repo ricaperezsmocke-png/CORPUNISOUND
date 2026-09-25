@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
   esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
-  creditoCompleto, filasMetasTienda, consultaElemento, formatoUnidad, resumenAntesDeSellar,
+  creditoCompleto, filasMetasTienda, consultaElemento, formatoUnidad, resumenAntesDeSellar, restarEnCentavos,
 } from "./marcas.js";
 
 test("una captura sin tipo es de venta; marca y producto no", () => {
@@ -182,4 +182,19 @@ test("una persona solo con créditos también envía su real de crédito", () =>
   assert.deepEqual(armarRealesCierre(soloCreditos, valores),
     [{ vendedor_id: 9, real_sicar: 0, marcas: [], productos: [], creditos: [{ financiera: "atrato", real: 2 }] }]);
   assert.deepEqual(camposFaltantesCierre(soloCreditos, { [llaveCampo(9, "sicar", "")]: "0" }), [llaveCampo(9, "creditos", "atrato")]);
+});
+
+test("las sumas y restas de pesos se hacen en centavos exactos", () => {
+  const conCentavos = [
+    { id: 1, tipo: "venta", fecha: "2026-09-10", monto: 71.6, vigente: true },
+    { id: 2, tipo: "marca", marca_id: 1, fecha: "2026-09-10", monto: 1.4, vigente: true },
+    { id: 3, tipo: "marca", marca_id: 2, fecha: "2026-09-10", monto: 70.2, vigente: true },
+  ];
+  assert.deepEqual(resumenMarcasDelDia(conCentavos, "2026-09-10"), { venta: 71.6, enMarcas: 71.6 });
+  assert.equal(restarEnCentavos(80.5, 70.2), 10.3);
+  assert.equal(restarEnCentavos(71.60000000000001, 71.6), 0);
+  const previoCentavos = [{ vendedor_id: 1, capturado: 71.60000000000001, marcas: [{ marca_id: 1, capturado: 0.30000000000000004 }],
+    productos: [], creditos: [] }];
+  const valores = { [llaveCampo(1, "sicar", "")]: "71.6", [llaveCampo(1, "marcas", 1)]: "0.3" };
+  assert.deepEqual(resumenAntesDeSellar(previoCentavos, valores).conDiferencia, { venta: 0, marcas: 0, productos: 0, creditos: 0 });
 });

@@ -1,4 +1,4 @@
-import { ETIQUETAS_FINANCIERA, formatoUnidad, llaveCampo, vigenteDeElemento } from "./marcas";
+import { ETIQUETAS_FINANCIERA, formatoUnidad, llaveCampo, restarEnCentavos, vigenteDeElemento } from "./marcas";
 
 export const GRUPOS_CIERRE = [
   { grupo: "marcas", clave: "marca_id", titulo: "Marcas", unidad: "pesos", real: "Real de SICAR" },
@@ -58,7 +58,7 @@ export default function CierreElementos({ lineas, nombre, valores, cambiar, falt
                             onChange={(ev) => cambiar(llave, ev.target.value)}
                             className={faltantes.includes(llave) ? CAMPO_FALTANTE : CAMPO} />
                         </td>
-                        <td>{valor === "" ? "Pendiente" : textoDiferencia(unidad, capturado - Number(valor))}</td>
+                        <td>{valor === "" ? "Pendiente" : textoDiferencia(unidad, restarEnCentavos(capturado, valor))}</td>
                       </tr>
                     );
                   }
@@ -73,7 +73,7 @@ export default function CierreElementos({ lineas, nombre, valores, cambiar, falt
                       <td>{formatoUnidad(unidad, e.meta)}{cambio("meta", e.meta)}</td>
                       <td>{formatoUnidad(unidad, capturado)}{cambio("capturado", capturado)}</td>
                       <td>{formatoUnidad(unidad, e.real)}{cambio("real", e.real)}</td>
-                      <td>{textoDiferencia(unidad, Number(vigente.capturado) - Number(vigente.real))}</td>
+                      <td>{textoDiferencia(unidad, restarEnCentavos(vigente.capturado, vigente.real))}</td>
                       <td>
                         <button type="button" className="text-blue-600 hover:underline" onClick={() => rectificar({
                           vendedor_id: l.vendedor_id, clave, id: e[clave], unidad, campo: "real", valor_nuevo: vigente.real, motivo: "",

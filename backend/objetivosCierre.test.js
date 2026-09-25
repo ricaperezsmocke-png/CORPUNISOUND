@@ -578,6 +578,15 @@ function realesNuevos() {
   ];
 }
 
+test("la diferencia de marcas se guarda en centavos exactos, sin residuos de decimales", () => {
+  const DB = prepararNuevos();
+  const reales = realesNuevos();
+  reales[0].marcas = [{ marca_id: 1, real: 70.2 }];
+  // 80.5 - 70.2 en binario da 10.299999999999997: la pantalla diría "$0.00 más" en vez de cuadrar.
+  const cierre = cerrarMes(DB, { ...MES, reales }, ADMINISTRADORA);
+  assert.equal(cierre.lineas[0].marcas[0].diferencia, 10.3);
+});
+
 test("el previo cruza las tres familias sin mutar y el cierre guarda sus diferencias", () => {
   const DB = prepararNuevos();
   const antes = structuredClone(DB);

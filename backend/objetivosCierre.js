@@ -46,6 +46,10 @@ function elementosDelPrevio(DB, periodo) {
   return resultado;
 }
 
+// Diferencias en centavos exactos: en binario 80.5 - 70.2 da 10.299999999999997, y una
+// diferencia de cero con residuo dejaría de "cuadrar" en pantalla.
+const restarEnCentavos = (a, b) => (Math.round(a * 100) - Math.round(b * 100)) / 100;
+
 function validarValorElemento(valor, tipo) {
   if (!Number.isFinite(valor) || valor < 0 || (tipo !== "marca" && !Number.isInteger(valor))) {
     const unidad = tipo === "marca" ? "un número finito" : "un entero";
@@ -71,7 +75,7 @@ function cruzarElementos(DB, linea, real, periodo) {
     resultado[lista] = linea[lista].map((elemento) => {
       if (!porReferencia.has(elemento[referencia])) throw new Error(`Falta el real de un elemento de ${lista}`);
       const valor = porReferencia.get(elemento[referencia]);
-      return { ...elemento, real: valor, diferencia: (elemento.capturado ?? elemento.registrados) - valor };
+      return { ...elemento, real: valor, diferencia: restarEnCentavos(elemento.capturado ?? elemento.registrados, valor) };
     });
   }
   return resultado;
@@ -175,7 +179,7 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     const real = realesPorPersona.get(vendedor_id);
     const real_sicar = real.real_sicar;
     return {
-      vendedor_id, meta, capturado, real_sicar, diferencia: capturado - real_sicar, actividades,
+      vendedor_id, meta, capturado, real_sicar, diferencia: restarEnCentavos(capturado, real_sicar), actividades,
       ...cruzarElementos(DB, linea, real, { mes, sucursal_id }),
     };
   });

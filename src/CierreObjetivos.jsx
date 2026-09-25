@@ -5,7 +5,8 @@ import { Campo, Modal } from "./objetivos/DialogosObjetivos";
 import { leer, mesActual } from "./objetivos/datos";
 import CierreElementos, { GRUPOS_CIERRE, nombreElemento } from "./objetivos/CierreElementos";
 import {
-  armarRealesCierre, camposFaltantesCierre, esRectificacionDeElemento, formatoUnidad, llaveCampo, pesosConCentavos, resumenAntesDeSellar,
+  armarRealesCierre, camposFaltantesCierre, esRectificacionDeElemento, formatoUnidad, llaveCampo, pesosConCentavos, restarEnCentavos,
+  resumenAntesDeSellar,
 } from "./objetivos/marcas";
 
 const diferencia = (n) => n === 0 ? "Cuadra" : `Capturó ${pesosConCentavos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
@@ -242,7 +243,7 @@ function TablaPrevio({ lineas, valores, faltantes, cambiar }) {
           {lineas.map((l) => {
             const llave = llaveCampo(l.vendedor_id, "sicar", "");
             const real = valores[llave] ?? "";
-            const dif = real === "" ? null : l.capturado - Number(real);
+            const dif = real === "" ? null : restarEnCentavos(l.capturado, real);
             return (
               <tr key={l.vendedor_id} className="border-b border-slate-100">
                 <td className="py-2">{l.nombre}</td>
@@ -307,7 +308,7 @@ export function CierreSellado({ cierre, rectificar, nombre }) {
                     </td>
                   ))}
                   <td>
-                    {diferencia(vigente.capturado - vigente.real_sicar)}
+                    {diferencia(restarEnCentavos(vigente.capturado, vigente.real_sicar))}
                     {rectificaciones.length > 0 && <p className="text-violet-700">(con rectificaciones)</p>}
                   </td>
                   <td className="p-3">

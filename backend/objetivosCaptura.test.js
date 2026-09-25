@@ -507,6 +507,34 @@ test("corregir venta debajo de marcas se rechaza sin mutar nada", () => {
   });
 });
 
+// En binario 1.40 + 70.20 da 71.60000000000001: comparar en decimales le rechazaba a una
+// vendedora honesta la repartición exacta de su venta cuando había centavos.
+test("repartir la venta exacta en marcas con centavos se acepta", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, { monto: 71.6 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 1.4 });
+  const marca = capturarDia(DB, { ...DIA, tipo: "marca", marca_id: 2, monto: 70.2 }, VICTOR);
+  assert.equal(marca.monto, 70.2);
+});
+
+test("corregir la venta al total exacto de las marcas con centavos se acepta", () => {
+  const DB = prepararCatalogos();
+  const venta = sembrarCaptura(DB, { monto: 1 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 0.1 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 2, monto: 0.2 });
+  const corregida = corregirCaptura(DB, venta.id, 0.3, "Ajuste", VICTOR);
+  assert.equal(corregida.monto, 0.3);
+});
+
+test("con centavos, un centavo de más sobre la venta se sigue rechazando", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, { monto: 71.6 });
+  sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 1.4 });
+  rechazaSinCambios(DB, () => capturarDia(DB, {
+    ...DIA, tipo: "marca", marca_id: 2, monto: 70.21,
+  }, VICTOR), /marca.*venta|venta.*marca/i);
+});
+
 test("corregir marca reemplaza su valor, conserva referencia y permite bajar después la venta", () => {
   const DB = prepararCatalogos();
   const venta = sembrarCaptura(DB, {});

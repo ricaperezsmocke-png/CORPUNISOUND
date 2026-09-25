@@ -6,6 +6,12 @@ const GRUPOS = [
   { grupo: "creditos", clave: "financiera" },
 ];
 
+// Pesos en centavos enteros: en binario 1.40 + 70.20 da 71.60000000000001, y una diferencia
+// de cero con residuo dejaría de "cuadrar" o dispararía avisos falsos.
+const centavos = (n) => Math.round(Number(n || 0) * 100);
+export const restarEnCentavos = (a, b) => (centavos(a) - centavos(b)) / 100;
+export const sumarEnCentavos = (montos) => montos.reduce((s, n) => s + centavos(n), 0) / 100;
+
 export const esCapturaDeVenta = (captura) => captura.tipo === undefined || captura.tipo === null || captura.tipo === "venta";
 
 export const pesosConCentavos = (n) => Number(n || 0).toLocaleString("es-MX", {
@@ -32,7 +38,7 @@ export const capturasDelDia = (capturas, fecha, tipo) =>
 
 export function resumenMarcasDelDia(capturas, fecha) {
   const venta = capturasDelDia(capturas, fecha, "venta")[0];
-  const enMarcas = capturasDelDia(capturas, fecha, "marca").reduce((s, c) => s + Number(c.monto), 0);
+  const enMarcas = sumarEnCentavos(capturasDelDia(capturas, fecha, "marca").map((c) => c.monto));
   return { venta: venta ? Number(venta.monto) : null, enMarcas };
 }
 
@@ -124,10 +130,10 @@ export const consultaElemento = ({ tipo, clave, id }) => `tipo=${tipo}&${clave}=
 export function resumenAntesDeSellar(previo, valores) {
   const conDiferencia = { venta: 0, marcas: 0, productos: 0, creditos: 0 };
   for (const linea of previo) {
-    if (Number(linea.capturado) - Number(valores[llaveCampo(linea.vendedor_id, "sicar", "")]) !== 0) conDiferencia.venta += 1;
+    if (restarEnCentavos(linea.capturado, valores[llaveCampo(linea.vendedor_id, "sicar", "")]) !== 0) conDiferencia.venta += 1;
     for (const { grupo, clave } of GRUPOS) {
       const difiere = (linea[grupo] || []).some((e) =>
-        Number(e.capturado ?? e.registrados) - Number(valores[llaveCampo(linea.vendedor_id, grupo, e[clave])]) !== 0);
+        restarEnCentavos(e.capturado ?? e.registrados, valores[llaveCampo(linea.vendedor_id, grupo, e[clave])]) !== 0);
       if (difiere) conDiferencia[grupo] += 1;
     }
   }

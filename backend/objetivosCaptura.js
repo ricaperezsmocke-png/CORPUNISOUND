@@ -58,17 +58,20 @@ function validarCandadoMarca(DB, datos, reemplazaId = null) {
   // Igual que la unicidad, el día de la persona no se duplica por un traslado.
   const delDia = DB.pos.objetivo_capturas.filter((captura) => captura.vigente &&
     captura.vendedor_id === datos.vendedor_id && captura.fecha === datos.fecha);
+  // En centavos enteros: en binario 1.40 + 70.20 > 71.60, y el candado le rechazaba a una
+  // vendedora la repartición exacta de su venta.
+  const centavos = (monto) => Math.round(monto * 100);
   const marcas = delDia.filter((captura) => captura.tipo === "marca" && captura.id !== reemplazaId)
-    .reduce((total, captura) => total + captura.monto, 0);
+    .reduce((total, captura) => total + centavos(captura.monto), 0);
   if (datos.tipo === "venta") {
-    if (datos.monto < marcas) {
+    if (centavos(datos.monto) < marcas) {
       throw new Error("Tu venta quedaría por debajo de lo que ya capturaste por marca; corrige primero las marcas");
     }
     return;
   }
   const venta = delDia.find((captura) => captura.tipo === "venta");
   if (!venta) throw new Error("Primero captura tu venta de ese día");
-  if (marcas + datos.monto > venta.monto) {
+  if (marcas + centavos(datos.monto) > centavos(venta.monto)) {
     throw new Error("La suma de lo capturado por marca no puede superar tu venta de ese día");
   }
 }

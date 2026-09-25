@@ -3,7 +3,7 @@ import { Package, Tags } from "lucide-react";
 import { apiFetch } from "../api";
 import { Campo, Modal } from "./DialogosObjetivos";
 import { diasDeAtraso, leer } from "./datos";
-import { pesosConCentavos, renglonesDelDia, resumenMarcasDelDia } from "./marcas";
+import { pesosConCentavos, renglonesDelDia, resumenMarcasDelDia, sumarEnCentavos } from "./marcas";
 
 const TIPOS = [
   {
@@ -127,7 +127,7 @@ export default function MarcasDelDia({ mes, sucursalId, vendedorId, fecha, objet
                   {renglones.map((r) => {
                     const llave = `${t.tipo}|${r.id}`;
                     const valor = valores[llave] ?? "";
-                    const pasaLaVenta = t.tipo === "marca" && venta !== null && valor !== "" && enMarcas + Number(valor) > venta;
+                    const pasaLaVenta = t.tipo === "marca" && venta !== null && valor !== "" && sumarEnCentavos([enMarcas, valor]) > venta;
                     return (
                       <tr key={r.id} className="border-b border-slate-100 align-top">
                         <td className="py-2">{r.nombre}</td>
