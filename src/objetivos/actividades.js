@@ -31,6 +31,17 @@ export const ultimoResultado = (registro) => registro.resultados.at(-1) || null;
 export const declaradasEnTienda = (datos, actividad) =>
   datos?.resumen_tienda.find((item) => item.actividad === actividad)?.declaradas ?? null;
 
+export function presentacionMetaActividad(reparto, datos) {
+  const declaradas = declaradasEnTienda(datos, reparto.actividad);
+  return { declaradas, inactiva: reparto.meta_tienda === 0 && declaradas === 0 };
+}
+
+export function declaradasPorPersona(datos, vendedorId, actividad) {
+  if (!datos) return null;
+  const persona = datos.resumen_por_persona.find((item) => Number(item.vendedor_id) === Number(vendedorId));
+  return persona?.resumen.find((item) => item.actividad === actividad)?.declaradas ?? 0;
+}
+
 export function avanceActividad({ meta, declaradas }) {
   return {
     porcentaje: meta > 0 ? Math.round(declaradas / meta * 100) : 0,

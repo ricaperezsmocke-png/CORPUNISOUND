@@ -44,6 +44,12 @@ export function resumenVenta({ meta, total }) {
 
 export const fechaCorta = (fecha) => `${fecha.slice(8, 10)}/${fecha.slice(5, 7)}`;
 
+export function periodoEnTienda({ desde, hasta, motivo_baja }) {
+  if (!desde) return "";
+  if (!hasta) return `desde ${fechaCorta(desde)}`;
+  return `${fechaCorta(desde)}–${fechaCorta(hasta)}${motivo_baja ? ` · ${motivo_baja}` : ""}`;
+}
+
 export function fechaLarga(fecha) {
   const [anio, mes, dia] = fecha.split("-").map(Number);
   const calendario = new Date(Date.UTC(anio, mes - 1, dia));

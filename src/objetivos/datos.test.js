@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 import * as datos from "./datos.js";
 import { diasDeAtraso, finDelMes, hoyLocal, leer, sugerenciaGuardada } from "./datos.js";
 
+test("periodoEnTienda muestra fechas y motivo de baja sin cambiar el día por zona horaria", () => {
+  assert.equal(datos.periodoEnTienda({ desde: "2026-09-01", hasta: "2026-09-15", motivo_baja: "Traslado" }),
+    "01/09–15/09 · Traslado");
+  assert.equal(datos.periodoEnTienda({ desde: "2026-09-03", hasta: null }), "desde 03/09");
+  assert.equal(datos.periodoEnTienda({ desde: null, hasta: null }), "");
+});
+
 test("estadoReparto muestra faltante y exceso en pesos con centavos positivos", () => {
   assert.deepEqual(datos.estadoReparto({ meta: 100, sinAsignar: 12.51, unidad: "pesos" }), {
     tono: "falta", texto: "⚠ Faltan $12.51 por repartir",

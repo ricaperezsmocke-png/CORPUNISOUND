@@ -83,20 +83,20 @@ export default function RepartoGerente({
                 <tr key={fila.vendedor_id} className="border-b border-slate-100 odd:bg-white even:bg-blue-50">
                   <td className={celda}>{nombre(fila.vendedor_id)}</td>
                   <td className={celda}><Periodo persona={fila} /></td>
-                  <td className={celda}>{fila.monto == null ? "?" : pesosConCentavos(fila.monto)}</td>
+                  <td className={celda}>{fila.monto == null ? "—" : pesosConCentavos(fila.monto)}</td>
                   {sugerencia && (
                     <td className={celda}>
                       {sugerida ? (
                         <>
                           {pesosConCentavos(sugerida.monto)}
                           {sugerenciaGuardada(sugerida, objetivos.lineas) ? (
-                            <span className="ml-2 text-emerald-700">? Guardada</span>
+                            <span className="ml-2 text-emerald-700">✔ Guardada</span>
                           ) : !objetivos.cerrado && (
                             <button type="button" onClick={() => editar(fila.vendedor_id, sugerida.monto)}
                               className="ml-2 text-blue-600 hover:underline">Usar</button>
                           )}
                         </>
-                      ) : "?"}
+                      ) : "—"}
                     </td>
                   )}
                   <td className={`${celda} space-x-3`}>
@@ -136,7 +136,7 @@ export default function RepartoGerente({
                   </li>
                 ))}
               </ul>
-            ) : <p className="text-sm text-slate-500">Todav?a no hay personas en el personal del mes.</p>}
+            ) : <p className="text-sm text-slate-500">Todavía no hay personas en el personal del mes.</p>}
             {!objetivos.cerrado && (
           <form onSubmit={agregarPersona} className="border-t border-slate-100 pt-3 space-y-2">
             <h3 className="font-medium text-sm text-slate-700">Agregar a la plantilla del mes</h3>
@@ -168,10 +168,10 @@ export default function RepartoGerente({
 }
 
 function Periodo({ persona }) {
-  if (!persona.desde) return "?";
+  if (!persona.desde) return "—";
   return (
     <div>
-      {persona.hasta ? `${fechaCorta(persona.desde)}?${fechaCorta(persona.hasta)}` : `desde ${fechaCorta(persona.desde)}`}
+      {persona.hasta ? `${fechaCorta(persona.desde)}–${fechaCorta(persona.hasta)}` : `desde ${fechaCorta(persona.desde)}`}
       {persona.hasta && <p className="text-slate-500">{persona.motivo_baja}</p>}
     </div>
   );

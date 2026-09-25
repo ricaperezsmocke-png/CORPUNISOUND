@@ -4,6 +4,41 @@ import * as actividades from "./actividades.js";
 import { Buffer } from "node:buffer";
 import { avanceActividad, leerArchivoComoBase64 } from "./actividades.js";
 
+test("presentacionMetaActividad atenúa solo meta cero sin declaradas y conserva el total de tienda", () => {
+  const datos = {
+    resumen_tienda: [{ actividad: "grupos", declaradas: 1 }, { actividad: "iglesia", declaradas: 0 }],
+    resumen_por_persona: [1, 2].map((vendedor_id) => ({
+      vendedor_id, resumen: [{ actividad: "grupos", declaradas: 1 }],
+    })),
+  };
+  assert.deepEqual(actividades.presentacionMetaActividad({ actividad: "grupos", meta_tienda: 0 }, datos),
+    { declaradas: 1, inactiva: false });
+  assert.deepEqual(actividades.presentacionMetaActividad({ actividad: "iglesia", meta_tienda: 0 }, datos),
+    { declaradas: 0, inactiva: true });
+  assert.deepEqual(actividades.presentacionMetaActividad({ actividad: "iglesia", meta_tienda: 5 }, datos),
+    { declaradas: 0, inactiva: false });
+});
+
+test("presentacionMetaActividad no presenta carga pendiente como cero declarado", () => {
+  for (const datos of [null, { resumen_tienda: [] }]) {
+    assert.deepEqual(actividades.presentacionMetaActividad({ actividad: "grupos", meta_tienda: 0 }, datos),
+      { declaradas: null, inactiva: false });
+  }
+});
+
+test("declaradasPorPersona elige persona y actividad normalizando ids sin sumar conjuntas", () => {
+  const datos = { resumen_por_persona: [
+    { vendedor_id: "9", resumen: [{ actividad: "grupos", declaradas: 2 }, { actividad: "iglesia", declaradas: 7 }] },
+    { vendedor_id: 2, resumen: [{ actividad: "grupos", declaradas: 3 }] },
+  ] };
+  assert.equal(actividades.declaradasPorPersona(datos, 9, "grupos"), 2);
+  assert.equal(actividades.declaradasPorPersona(datos, "2", "grupos"), 3);
+  assert.equal(actividades.declaradasPorPersona(datos, 9, "iglesia"), 7);
+  assert.equal(actividades.declaradasPorPersona(datos, 9, "volanteo"), 0);
+  assert.equal(actividades.declaradasPorPersona(datos, 3, "grupos"), 0);
+  assert.equal(actividades.declaradasPorPersona(null, 9, "grupos"), null);
+});
+
 test("declaradasEnTienda usa resumen_tienda sin sumar participantes de una conjunta", () => {
   const datos = {
     resumen_tienda: [{ actividad: "grupos", declaradas: 1 }, { actividad: "iglesia", declaradas: 3 }],
