@@ -12,7 +12,7 @@ import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
 import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
-import { cuentaMalLigada, fechaCorta, finDelMes, hoyLocal, leer, mesActual } from "./objetivos/datos";
+import { cuentaMalLigada, fechaCorta, finDelMes, hoyLocal, leer, mesActual, mesEnPalabras } from "./objetivos/datos";
 import { pesosConCentavos } from "./objetivos/marcas";
 
 export default function GerenciaVentas({ permisos = [], usuario }) {
@@ -199,7 +199,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
     try {
       // Una meta existente puede valer cero; el monto no indica si hay una versión anterior.
       const versiones = await leerHistorial(id);
-      setEditando({ vendedor_id: id, monto: valor, motivo: "", existente: versiones.length > 0 });
+      setEditando({ vendedor_id: id, monto: valor, montoAnterior: valor, motivo: "", existente: versiones.length > 0 });
     } catch (e) {
       setError(e.message);
     }
@@ -226,6 +226,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
 
   const nombres = new Map(equipo.map((v) => [Number(v.id), v.nombre]));
   const nombre = (id) => nombres.get(Number(id)) || `Vendedor #${id}`;
+  const nombreSucursal = sucursales.find((s) => String(s.id) === String(sucursalId))?.nombre || usuario?.sucursal_nombre || `Sucursal ${sucursalId}`;
   const tiendasDisponibles = [...misTiendas.reduce((porSucursal, tienda) => {
     const id = Number(tienda.sucursal_id);
     const existente = porSucursal.get(id) || { ...tienda, periodos: [] };
@@ -362,10 +363,11 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
         </Modal>
       )}
       {editando && objetivos && !objetivos.cerrado && (
-        <Modal titulo={editando.vendedor_id == null ? "Meta de la tienda" : `Meta de ${nombre(editando.vendedor_id)}`}
-          cerrar={() => setEditando(null)} guardar={guardarMeta}
+        <Modal titulo={`Meta de ${editando.vendedor_id == null ? "la tienda" : nombre(editando.vendedor_id)} · ${mesEnPalabras(mes)} · ${nombreSucursal}`}
+          cerrar={() => setEditando(null)} guardar={guardarMeta} textoGuardar="Guardar meta" error={error}
           deshabilitado={editando.monto === "" || (editando.existente && !editando.motivo.trim())}>
-          <Campo etiqueta="Monto" tipo="number" valor={editando.monto}
+          {editando.existente && <p className="text-sm">Meta actual: {pesosConCentavos(editando.montoAnterior)}</p>}
+          <Campo etiqueta="Meta nueva" tipo="number" valor={editando.monto}
             cambiar={(valor) => setEditando({ ...editando, monto: valor })} />
           {editando.existente && (
             <Campo etiqueta="Motivo obligatorio" valor={editando.motivo}
@@ -374,8 +376,8 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
         </Modal>
       )}
       {baja && objetivos && !objetivos.cerrado && (
-        <Modal titulo={`Dar de baja a ${nombre(baja.vendedor_id)}`}
-          cerrar={() => setBaja(null)} guardar={darDeBaja}
+        <Modal titulo={`Dar de baja a ${nombre(baja.vendedor_id)} · ${nombreSucursal}`}
+          cerrar={() => setBaja(null)} guardar={darDeBaja} textoGuardar="Registrar baja" error={error}
           deshabilitado={!baja.hasta || !baja.motivo.trim()}>
           <Campo etiqueta="Último día en la plantilla" tipo="date" valor={baja.hasta}
             min={baja.desde} max={finDelMes(mes)}

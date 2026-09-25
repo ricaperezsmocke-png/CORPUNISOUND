@@ -79,6 +79,24 @@ export function camposFaltantesCierre(previo, valores) {
   return faltan;
 }
 
+export function contadorCierre(previo, valores) {
+  const total = camposFaltantesCierre(previo, {}).length;
+  const faltantes = new Set(camposFaltantesCierre(previo, valores));
+  const difiere = (llave, capturado) => !faltantes.has(llave) && restarEnCentavos(capturado, valores[llave]) !== 0;
+  const conDiferencia = previo.filter((linea) =>
+    difiere(llaveCampo(linea.vendedor_id, "sicar", ""), linea.capturado) ||
+    GRUPOS.some(({ grupo, clave }) => (linea[grupo] || []).some((e) =>
+      difiere(llaveCampo(linea.vendedor_id, grupo, e[clave]), e.capturado ?? e.registrados)))).length;
+  return { total, capturados: total - faltantes.size, conDiferencia };
+}
+
+export function rotuloCampoCierre({ campo, clave, grupo }) {
+  const financiera = clave === "financiera" || grupo === "creditos";
+  if (campo === "meta") return "meta";
+  if (campo === "capturado") return financiera ? "registrados" : "capturado";
+  return financiera ? "real de la financiera" : "real de SICAR";
+}
+
 // Renglones de "¿De qué marcas fue?" / "Piezas por producto" para un día: primero las metas
 // propias, luego lo ya capturado ese día y al final lo agregado con "+ otra", sin repetir.
 export function renglonesDelDia({ clave, tipo, fecha, vendedorId, extras, elementosMeta, catalogo, capturas, totales }) {

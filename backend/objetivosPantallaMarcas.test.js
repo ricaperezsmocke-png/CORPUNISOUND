@@ -58,11 +58,11 @@ test("una rectificación de marca no cambia la fila de venta del cierre sellado"
   const html = renderToStaticMarkup(React.createElement(CierreSellado, { cierre, rectificar() {}, nombre: () => "Ana" }));
   // La primera tabla es la de venta contra SICAR: ahí la rectificación de Yamaha no debe aparecer.
   const tablaVenta = texto(html.slice(html.indexOf("<table"), html.indexOf("</table>")));
-  assert.doesNotMatch(tablaVenta, /Rectificado/, "la rectificación de Yamaha se aplicó a la meta de venta");
-  assert.doesNotMatch(texto(html), /Ana: Meta de \$5,000/, "la rectificación de marca se rotuló como meta de venta");
-  // Y sí aparece donde corresponde: en el bloque de marcas, rotulada con el elemento.
-  assert.match(texto(html), /Yamaha \$5,000\.00 Rectificado: \$55,555\.00/);
-  assert.match(texto(html), /Ana: Yamaha · Meta de \$5,000\.00 a \$55,555\.00/);
+  assert.doesNotMatch(tablaVenta, /rectificado|55,555/i, "la rectificación de Yamaha se aplicó a la meta de venta");
+  assert.doesNotMatch(texto(html), /Ana Meta \$5,000/, "la rectificación de marca se rotuló como meta de venta");
+  // Y sí aparece donde corresponde: en el bloque de marcas (original tachado y vigente), rotulada con el elemento.
+  assert.match(texto(html), /Yamaha \$5,000\.00 \$55,555\.00 rectificado/);
+  assert.match(texto(html), /Ana Yamaha · Meta \$5,000\.00 \$55,555\.00 ajuste de marca/);
 });
 
 test("la barra de pestañas marca solo la activa y avisa al elegir otra", () => {
