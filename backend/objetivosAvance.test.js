@@ -320,3 +320,24 @@ test("la vendedora solo recibe el % de tienda de los elementos donde ella tiene 
   assert.deepEqual(pct.creditos, [], "tampoco de que alguien registró un Coppel Pay");
   assert.ok(pct.actividades.every((a) => a.porcentaje === null || a.porcentaje >= 0));
 });
+
+test("la foto de ayer usa las metas de ayer: cambiar hoy la meta de tienda no mueve el % de la vendedora", () => {
+  const DB = prepararDB();
+  meta(DB, { id: 1, vendedor_id: null, monto: 100, creado_en: "2026-09-20T10:00:00Z", vigente: false, reemplaza_a: null });
+  meta(DB, { id: 2, vendedor_id: null, monto: 200, creado_en: "2026-09-24T15:00:00Z", reemplaza_a: 1 });
+  meta(DB, { id: 3, monto: 50, creado_en: "2026-09-20T10:00:00Z", reemplaza_a: null });
+  captura(DB, { vendedor_id: 2, monto: 50, capturado_en: "2026-09-23T10:00:00Z" });
+  captura(DB, { monto: 1, capturado_en: "2026-09-23T10:00:00Z" });
+  const propio = avancePersona(DB, PERSONA);
+  assert.equal(porcentajesParaVendedora(DB, TIENDA, propio, AHORA).venta, 51, "51 de la meta de ayer (100), no de la de hoy (200)");
+});
+
+test("sin meta ni venta propia, la vendedora no recibe el % de venta de la tienda", () => {
+  const DB = prepararDB();
+  meta(DB, { vendedor_id: null, monto: 100 });
+  captura(DB, { vendedor_id: 2, monto: 47, capturado_en: "2026-09-23T10:00:00Z" });
+  assert.equal(porcentajesParaVendedora(DB, TIENDA, avancePersona(DB, PERSONA), AHORA).venta, null);
+  const vacio = porcentajesParaVendedora(DB, TIENDA, null, AHORA);
+  assert.equal(vacio.venta, null);
+  for (const grupo of ["marcas", "productos", "creditos", "actividades"]) assert.deepEqual(vacio[grupo], []);
+});

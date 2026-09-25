@@ -69,8 +69,9 @@ beforeEach(() => {
     }
   }
   // El % de tienda de la vendedora se calcula al cierre de ayer (decisión de Victor 2026-09-25):
-  // las capturas sembradas se fechan en el pasado para que cuenten.
+  // las capturas y metas sembradas se fechan en el pasado para que cuenten.
   for (const captura of app.DB.pos.objetivo_capturas) captura.capturado_en = "2026-01-01T00:00:00.000Z";
+  for (const objetivo of app.DB.pos.objetivos) objetivo.creado_en = "2026-01-01T00:00:00.000Z";
 });
 
 after(async () => {

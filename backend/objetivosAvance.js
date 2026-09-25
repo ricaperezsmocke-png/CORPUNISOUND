@@ -135,11 +135,16 @@ function fotoAl(DB, corte) {
   const capturas = DB.pos.objetivo_capturas || [];
   const corregidasAntes = new Set(capturas.filter((c) => c.corrige_a !== null && c.corrige_a !== undefined && antes(c.capturado_en))
     .map((c) => c.corrige_a));
+  // Las metas también como estaban: una versión creada hoy no cuenta y la que reemplazó sigue vigente.
+  const objetivos = DB.pos.objetivos || [];
+  const reemplazadasAntes = new Set(objetivos.filter((o) => o.reemplaza_a !== null && o.reemplaza_a !== undefined && antes(o.creado_en))
+    .map((o) => o.reemplaza_a));
   const anuladoAlCorte = (r) => ({ ...r, vigente: !(r.anulado_en && r.anulado_en < corte) && (r.vigente || Boolean(r.anulado_en)) });
   return {
     ...DB,
     pos: {
       ...DB.pos,
+      objetivos: objetivos.filter((o) => antes(o.creado_en)).map((o) => ({ ...o, vigente: !reemplazadasAntes.has(o.id) })),
       objetivo_capturas: capturas.filter((c) => antes(c.capturado_en))
         .map((c) => ({ ...c, vigente: !corregidasAntes.has(c.id) })),
       objetivo_creditos: (DB.pos.objetivo_creditos || []).filter((r) => antes(r.registrado_en)).map(anuladoAlCorte),
@@ -158,8 +163,10 @@ function porcentajesParaVendedora(DB, { mes, sucursal_id }, propio, ahora = new 
     .map((e) => (porUnidades && metaTienda(grupo, clave, e[clave]) < MINIMO_UNIDADES ? { ...e, porcentaje: null } : e));
   const actividadesSuyas = new Set((propio?.actividades || [])
     .filter((a) => Number(a.meta) > 0 || Number(a.declaradas) > 0).map((a) => String(a.actividad)));
+  // La venta de la tienda solo junto a una meta o venta propia: sin ellas, ese % sería puro avance ajeno.
+  const ventaPropia = propio && (Number(propio.venta.meta) > 0 || Number(propio.venta.capturado) > 0);
   return {
-    venta: pct.venta,
+    venta: ventaPropia ? pct.venta : null,
     marcas: recortar("marcas", "marca_id", false, suyo("marcas", "marca_id")),
     productos: recortar("productos", "producto_meta_id", true, suyo("productos", "producto_meta_id")),
     creditos: recortar("creditos", "financiera", true, suyo("creditos", "financiera")),
