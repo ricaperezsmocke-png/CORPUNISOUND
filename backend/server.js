@@ -59,6 +59,7 @@ const { previoCierre, cerrarMes, estaCerrado, rectificarCierre } = require("./ob
 const { CLASES_ACTIVIDAD } = require("./objetivosActividadesCatalogo");
 const { listarElementos, altaElemento, desactivarElemento } = require("./objetivosCatalogos");
 const { FINANCIERAS, registrarCredito, anularCredito, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
+const { avancePersona, avanceTienda, soloPorcentajes, avancePorPersona } = require("./objetivosAvance");
 const {
   registrarActividad, anularActividad, agregarResultado, actividadesDelMes, resumenActividades,
 } = require("./objetivosActividades");
@@ -2408,6 +2409,32 @@ app.get("/api/objetivos/mis-tiendas/:mes", requiereLogin, requierePermiso("usar_
         sucursal_nombre: DB.pos.sucursales.find((sucursal) => sucursal.id === linea.sucursal_id)?.nombre || `Sucursal ${linea.sucursal_id}`,
         desde: linea.desde, hasta: linea.hasta,
       })));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/objetivos/:mes/:sucursalId/avance", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
+  try {
+    const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
+    const mes = req.params.mes;
+    validarMesObjetivos(mes);
+    const alcanceNormal = sucursalObjetivosPermitida(req, sucursal_id);
+    const propioLigado = vendedorLigadoAObjetivos(req);
+    const alcancePropio = alcancePropioPorPlantilla(req, mes, sucursal_id, propioLigado);
+    if (!alcanceNormal && !alcancePropio) return res.status(404).json({ error: "Objetivo no encontrado" });
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const esJefatura = permisos.includes("editar_objetivos_venta");
+    if ((!esJefatura || !alcanceNormal) && propioLigado == null) return res.status(404).json({ error: "Objetivo no encontrado" });
+    const datos = { mes, sucursal_id };
+    const tienda = avanceTienda(DB, datos);
+    const respuesta = {
+      propio: alcancePropio ? avancePersona(DB, { ...datos, vendedor_id: propioLigado }) : null,
+      tienda_porcentajes: soloPorcentajes(tienda),
+    };
+    if (esJefatura && alcanceNormal) {
+      respuesta.tienda = tienda;
+      respuesta.por_persona = avancePorPersona(DB, datos);
+    }
+    res.json(respuesta);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
