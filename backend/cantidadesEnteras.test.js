@@ -99,3 +99,13 @@ test("el ajuste manual acepta restar piezas enteras y rechaza medias piezas", ()
   ajusteManualExistencia(DB, 1, { cantidad: -2, sucursal_id: 1, usuario: USUARIO });
   assert.strictEqual(existencia(DB, 1, 1), antes - 2);
 });
+
+test("la importación de SICAR no mete existencia fraccionaria a un producto que ya existe", () => {
+  const { aplicarImportacion } = require("./migracion");
+  const DB = construirDBPrueba();
+  const antes = existencia(DB, 1, 1);
+  const defaults = { categoria: "Abarrotes", departamento: "General", unidad: "PZA" };
+  const r = aplicarImportacion(DB, "articulos", [{ clave: "AB-001", existencia: "120.5" }], 1, defaults, "sicar.xlsx");
+  assert.strictEqual(existencia(DB, 1, 1), antes, "la existencia no debe quedar en fracción");
+  assert.match(JSON.stringify(r.errores), /piezas enteras/);
+});

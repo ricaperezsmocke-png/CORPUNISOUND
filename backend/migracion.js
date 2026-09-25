@@ -150,6 +150,12 @@ function validarFilaArticulo(fila) {
     const v = fila[campo];
     if (v !== undefined && v !== "" && !Number.isFinite(Number(v))) errores.push(`"${campo}" no es un número válido`);
   }
+  // Solo piezas enteras (decisión de Victor, 2026-09-25): un producto que ya existe se
+  // ajusta con la diferencia, y "120.5" dejaba media pieza en la existencia.
+  const existencia = fila.existencia;
+  if (existencia !== undefined && existencia !== "" && Number.isFinite(Number(existencia)) && !Number.isInteger(Number(existencia))) {
+    errores.push(`"existencia" debe ser en piezas enteras (viene ${existencia})`);
+  }
   return errores;
 }
 
