@@ -41,13 +41,17 @@ export default function AvanceVendedor({ mes, sucursalId }) {
           <Anillo titulo="Mi meta de venta" porcentaje={venta.porcentaje} estado={estado}
             detalle={estado === "sin-meta" ? "" : `${pesosConCentavos(venta.capturado)} de ${pesosConCentavos(venta.meta)}`} />
           <p className="text-center text-sm text-slate-500">
-            La tienda va al <strong>{tiendaVenta === null || tiendaVenta === undefined ? "—" : `${tiendaVenta} %`}</strong> de su meta
+            Al cierre de ayer la tienda iba al{" "}
+            <strong>{tiendaVenta === null || tiendaVenta === undefined ? "—" : `${tiendaVenta} %`}</strong> de su meta
           </p>
         </div>
         <LineaMes serie={propio.serie} meta={venta.meta} capturado={venta.capturado} mes={mes} hoy={hoyLocal()}
           porcentaje={venta.porcentaje} />
       </div>
       <BarrasMetas avance={propio} porcentajesTienda={datos.tienda_porcentajes} />
+      <p className="text-xs text-slate-500">
+        La barra gris de la tienda muestra su avance al cierre de ayer; en metas chicas de piezas, créditos o actividades no se muestra.
+      </p>
     </section>
   );
 }

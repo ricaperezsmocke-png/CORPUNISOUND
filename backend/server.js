@@ -59,7 +59,7 @@ const { previoCierre, cerrarMes, estaCerrado, rectificarCierre } = require("./ob
 const { CLASES_ACTIVIDAD } = require("./objetivosActividadesCatalogo");
 const { listarElementos, altaElemento, desactivarElemento } = require("./objetivosCatalogos");
 const { FINANCIERAS, registrarCredito, anularCredito, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
-const { avancePersona, avanceTienda, soloPorcentajes, avancePorPersona } = require("./objetivosAvance");
+const { avancePersona, avanceTienda, avancePorPersona, porcentajesParaVendedora } = require("./objetivosAvance");
 const {
   registrarActividad, anularActividad, agregarResultado, actividadesDelMes, resumenActividades,
 } = require("./objetivosActividades");
@@ -2425,13 +2425,11 @@ app.get("/api/objetivos/:mes/:sucursalId/avance", requiereLogin, requierePermiso
     const esJefatura = permisos.includes("editar_objetivos_venta");
     if ((!esJefatura || !alcanceNormal) && propioLigado == null) return res.status(404).json({ error: "Objetivo no encontrado" });
     const datos = { mes, sucursal_id };
-    const tienda = avanceTienda(DB, datos);
-    const respuesta = {
-      propio: alcancePropio ? avancePersona(DB, { ...datos, vendedor_id: propioLigado }) : null,
-      tienda_porcentajes: soloPorcentajes(tienda),
-    };
+    const propio = alcancePropio ? avancePersona(DB, { ...datos, vendedor_id: propioLigado }) : null;
+    // Porcentajes de tienda al cierre de ayer, solo de lo suyo y sin metas chicas (decisión de Victor 2026-09-25).
+    const respuesta = { propio, tienda_porcentajes: porcentajesParaVendedora(DB, datos, propio) };
     if (esJefatura && alcanceNormal) {
-      respuesta.tienda = tienda;
+      respuesta.tienda = avanceTienda(DB, datos);
       respuesta.por_persona = avancePorPersona(DB, datos);
     }
     res.json(respuesta);

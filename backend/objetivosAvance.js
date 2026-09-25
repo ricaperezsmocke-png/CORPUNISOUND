@@ -116,4 +116,55 @@ function avancePorPersona(DB, { mes, sucursal_id }) {
   });
 }
 
-module.exports = { porcentaje, avancePersona, avanceTienda, soloPorcentajes, avancePorPersona };
+// ---------------------------------------------------------------------------------------------
+// Lo que la vendedora ve de su tienda (decisión de Victor 2026-09-25, opción A).
+// Con el % entero de tienda se podía despejar lo de la compañera: en metas chicas cada unidad mueve
+// el %, y corrigiendo su propia venta una y otra vez se despejaba la cifra al centavo. Por eso:
+// 1) el % se calcula con lo que había al cierre de AYER (lo de hoy, y lo corregido o anulado hoy, no
+//    cuenta todavía), y 2) en metas de piezas, créditos o actividades de menos de 100 no se muestra.
+const MINIMO_UNIDADES = 100;
+
+function inicioDeHoy(ahora) {
+  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(ahora);
+  return new Date(`${hoy}T00:00:00-06:00`).toISOString();
+}
+
+// Copia de la base como estaba al corte: sin lo registrado después, y con la vigencia de entonces.
+function fotoAl(DB, corte) {
+  const antes = (marca) => !marca || marca < corte;
+  const capturas = DB.pos.objetivo_capturas || [];
+  const corregidasAntes = new Set(capturas.filter((c) => c.corrige_a !== null && c.corrige_a !== undefined && antes(c.capturado_en))
+    .map((c) => c.corrige_a));
+  const anuladoAlCorte = (r) => ({ ...r, vigente: !(r.anulado_en && r.anulado_en < corte) && (r.vigente || Boolean(r.anulado_en)) });
+  return {
+    ...DB,
+    pos: {
+      ...DB.pos,
+      objetivo_capturas: capturas.filter((c) => antes(c.capturado_en))
+        .map((c) => ({ ...c, vigente: !corregidasAntes.has(c.id) })),
+      objetivo_creditos: (DB.pos.objetivo_creditos || []).filter((r) => antes(r.registrado_en)).map(anuladoAlCorte),
+      objetivo_actividades: (DB.pos.objetivo_actividades || []).filter((r) => antes(r.registrado_en)).map(anuladoAlCorte),
+    },
+  };
+}
+
+function porcentajesParaVendedora(DB, { mes, sucursal_id }, propio, ahora = new Date()) {
+  const tienda = avanceTienda(fotoAl(DB, inicioDeHoy(ahora)), { mes, sucursal_id });
+  const pct = soloPorcentajes(tienda);
+  const suyo = (grupo, clave) => new Set((propio?.[grupo] || []).map((e) => String(e[clave])));
+  const metaTienda = (grupo, clave, id) => Number(tienda[grupo].find((e) => String(e[clave]) === String(id))?.meta || 0);
+  const recortar = (grupo, clave, porUnidades, visibles) => pct[grupo]
+    .filter((e) => visibles.has(String(e[clave])))
+    .map((e) => (porUnidades && metaTienda(grupo, clave, e[clave]) < MINIMO_UNIDADES ? { ...e, porcentaje: null } : e));
+  const actividadesSuyas = new Set((propio?.actividades || [])
+    .filter((a) => Number(a.meta) > 0 || Number(a.declaradas) > 0).map((a) => String(a.actividad)));
+  return {
+    venta: pct.venta,
+    marcas: recortar("marcas", "marca_id", false, suyo("marcas", "marca_id")),
+    productos: recortar("productos", "producto_meta_id", true, suyo("productos", "producto_meta_id")),
+    creditos: recortar("creditos", "financiera", true, suyo("creditos", "financiera")),
+    actividades: recortar("actividades", "actividad", true, actividadesSuyas),
+  };
+}
+
+module.exports = { porcentaje, avancePersona, avanceTienda, soloPorcentajes, avancePorPersona, porcentajesParaVendedora };

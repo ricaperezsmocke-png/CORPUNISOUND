@@ -68,6 +68,9 @@ beforeEach(() => {
       fijarObjetivo(app.DB, { mes: MES, sucursal_id: 1, vendedor_id, ...referencia, monto }, { nombre: "Fixture" });
     }
   }
+  // El % de tienda de la vendedora se calcula al cierre de ayer (decisión de Victor 2026-09-25):
+  // las capturas sembradas se fechan en el pasado para que cuenten.
+  for (const captura of app.DB.pos.objetivo_capturas) captura.capturado_en = "2026-01-01T00:00:00.000Z";
 });
 
 after(async () => {
@@ -106,8 +109,10 @@ function soloPropio(r) {
   assert.equal(r.cuerpo.tienda_porcentajes.venta, 35);
   assert.equal(r.cuerpo.tienda_porcentajes.marcas[0].nombre, "Córdoba");
   assert.equal(r.cuerpo.tienda_porcentajes.productos[0].nombre, "Guitarrón");
-  for (const grupo of ["marcas", "productos", "creditos", "actividades"]) {
-    assert.equal(r.cuerpo.tienda_porcentajes[grupo][0].porcentaje, 0);
+  assert.equal(r.cuerpo.tienda_porcentajes.marcas[0].porcentaje, 0);
+  // Metas de tienda de 20 unidades (< 100): sin porcentaje, porque cada unidad revelaría lo de la compañera.
+  for (const grupo of ["productos", "creditos", "actividades"]) {
+    assert.equal(r.cuerpo.tienda_porcentajes[grupo][0].porcentaje, null);
   }
   sinCifras(r.cuerpo.tienda_porcentajes);
   for (const monto of ["2345.67", "3545.92", "10000"]) assert.ok(!r.crudo.includes(monto), `filtración de ${monto}`);
@@ -197,4 +202,11 @@ test("mes e identificadores inválidos responden 400 JSON", async () => {
     estado(await pedir(global, `/api/objetivos/${mes}/1/avance`), 400);
   }
   for (const id of ["abc", "0", "-1", "1.5"]) estado(await pedir(global, `/api/objetivos/${MES}/${id}/avance`), 400);
+});
+
+test("una venta capturada hoy por la compañera no mueve el % de tienda que ve la vendedora", async () => {
+  capturarDia(app.DB, { mes: MES, sucursal_id: 1, vendedor_id: 2, tipo: "venta", fecha: `${MES}-02`, monto: 5000 }, { nombre: "Fixture" });
+  const r = await pedir(vendedora);
+  estado(r, 200);
+  assert.equal(r.cuerpo.tienda_porcentajes.venta, 35, "lo de hoy cuenta hasta mañana");
 });

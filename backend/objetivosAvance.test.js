@@ -258,3 +258,65 @@ test("las consultas no mutan DB y los ids de texto producen el mismo alcance", (
   soloPorcentajes(avanceTienda(DB, TIENDA));
   assert.deepEqual(DB, antes);
 });
+
+// Decisión de Victor 2026-09-25 (opción A): el % de tienda que ve la vendedora se calcula con lo
+// que había al cierre de AYER, y no se muestra en metas de piezas, créditos o actividades de menos
+// de 100 unidades (ahí cada unidad mueve el % entero y revela lo de la compañera).
+const { porcentajesParaVendedora } = require("./objetivosAvance");
+const AHORA = new Date("2026-09-24T18:00:00Z"); // mediodía del 24 en Chiapas; el corte es el 24 a las 00:00
+
+test("el % de tienda de la vendedora ignora lo capturado hoy y las correcciones de hoy", () => {
+  const DB = prepararDB();
+  meta(DB, { vendedor_id: null, monto: 100 });
+  meta(DB, { monto: 50 });
+  captura(DB, { vendedor_id: 2, monto: 20, capturado_en: "2026-09-23T20:00:00Z" });
+  captura(DB, { vendedor_id: 2, monto: 30, capturado_en: "2026-09-24T15:00:00Z", fecha: "2026-09-24" });
+  // La vendedora corrige HOY su captura de ayer: para la tienda sigue contando la versión de ayer.
+  captura(DB, { id: 10, monto: 10, capturado_en: "2026-09-23T21:00:00Z", vigente: false });
+  captura(DB, { id: 11, monto: 60, capturado_en: "2026-09-24T16:00:00Z", corrige_a: 10 });
+  const propio = avancePersona(DB, PERSONA);
+  assert.equal(avanceTienda(DB, TIENDA).venta.porcentaje, 110, "sin corte la tienda ya cuenta lo de hoy");
+  assert.equal(porcentajesParaVendedora(DB, TIENDA, propio, AHORA).venta, 30, "20 + 10 de ayer sobre 100");
+});
+
+test("créditos registrados hoy no cuentan y uno anulado hoy sigue contando para el % de ayer", () => {
+  const DB = prepararDB();
+  meta(DB, { vendedor_id: null, tipo: "credito", financiera: "atrato", monto: 200 });
+  meta(DB, { tipo: "credito", financiera: "atrato", monto: 1 });
+  for (let i = 0; i < 100; i++) credito(DB, { vendedor_id: 2, registrado_en: "2026-09-23T10:00:00Z" });
+  credito(DB, { vendedor_id: 2, registrado_en: "2026-09-24T10:00:00Z" });
+  credito(DB, { vendedor_id: 2, registrado_en: "2026-09-23T10:00:00Z", vigente: false, anulado_en: "2026-09-24T12:00:00Z" });
+  const propio = avancePersona(DB, PERSONA);
+  const atrato = porcentajesParaVendedora(DB, TIENDA, propio, AHORA).creditos.find((c) => c.financiera === "atrato");
+  assert.equal(atrato.porcentaje, 50, "101 de ayer (el anulado hoy aún contaba) sobre 200 = 50");
+});
+
+test("metas de tienda de menos de 100 piezas, créditos o actividades no muestran % a la vendedora", () => {
+  const DB = prepararDB();
+  meta(DB, { vendedor_id: null, tipo: "credito", financiera: "atrato", monto: 3 });
+  meta(DB, { tipo: "credito", financiera: "atrato", monto: 1 });
+  meta(DB, { vendedor_id: null, tipo: "producto", producto_meta_id: 2, monto: 99 });
+  meta(DB, { tipo: "producto", producto_meta_id: 2, monto: 5 });
+  meta(DB, { vendedor_id: null, tipo: "actividad", actividad: "grupos", monto: 100 });
+  meta(DB, { tipo: "actividad", actividad: "grupos", monto: 5 });
+  credito(DB, { vendedor_id: 2, registrado_en: "2026-09-20T10:00:00Z" });
+  credito(DB, { vendedor_id: 2, registrado_en: "2026-09-20T10:00:00Z" });
+  const propio = avancePersona(DB, PERSONA);
+  const pct = porcentajesParaVendedora(DB, TIENDA, propio, AHORA);
+  assert.equal(pct.creditos.find((c) => c.financiera === "atrato").porcentaje, null);
+  assert.equal(pct.productos.find((p) => p.producto_meta_id === 2).porcentaje, null);
+  assert.equal(pct.actividades.find((a) => a.actividad === "grupos").porcentaje, 0, "con 100 o más sí se muestra");
+});
+
+test("la vendedora solo recibe el % de tienda de los elementos donde ella tiene meta o captura", () => {
+  const DB = prepararDB();
+  meta(DB, { vendedor_id: null, tipo: "marca", marca_id: 2, monto: 1000 });
+  meta(DB, { tipo: "marca", marca_id: 2, monto: 500 });
+  captura(DB, { vendedor_id: 2, tipo: "marca", marca_id: 3, monto: 40, capturado_en: "2026-09-20T10:00:00Z" });
+  credito(DB, { vendedor_id: 2, financiera: "coppel_pay", registrado_en: "2026-09-20T10:00:00Z" });
+  const propio = avancePersona(DB, PERSONA);
+  const pct = porcentajesParaVendedora(DB, TIENDA, propio, AHORA);
+  assert.deepEqual(pct.marcas.map((m) => m.marca_id), [2], "Roland la vendió la compañera; la vendedora no se entera");
+  assert.deepEqual(pct.creditos, [], "tampoco de que alguien registró un Coppel Pay");
+  assert.ok(pct.actividades.every((a) => a.porcentaje === null || a.porcentaje >= 0));
+});
