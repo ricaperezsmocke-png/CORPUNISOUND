@@ -10,6 +10,7 @@ const COLUMNAS = [
   { grupo: "marcas", clave: "marca_id", unidad: "pesos", valor: "capturado" },
   { grupo: "productos", clave: "producto_meta_id", unidad: "piezas", valor: "capturado" },
   { grupo: "creditos", clave: "financiera", unidad: "creditos", valor: "registrados" },
+  { grupo: "actividades", clave: "actividad", unidad: "declaradas", valor: "declaradas" },
 ];
 
 function Celda({ porcentaje, detalle }) {
@@ -46,8 +47,6 @@ export default function AvanceTienda({ mes, sucursalId, nombre }) {
   const { tienda, por_persona: personas = [] } = datos;
   const { venta } = tienda;
   const estado = estadoMeta(venta.meta, venta.capturado);
-  // Columnas: cada elemento que existe en la tienda (meta o captura), en el orden de la tienda.
-  const columnas = COLUMNAS.flatMap((c) => (tienda[c.grupo] || []).map((e) => ({ ...c, id: e[c.clave], titulo: e.nombre || e.etiqueta })));
 
   return (
     <section className="neu rounded-xl p-4 space-y-6">
@@ -62,37 +61,53 @@ export default function AvanceTienda({ mes, sucursalId, nombre }) {
           porcentaje={venta.porcentaje} quien="A la tienda le" />
       </div>
       <BarrasMetas avance={tienda} />
-      <div className="overflow-x-auto">
-        <h3 className="font-medium text-slate-700 mb-2">Por persona</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-slate-500 text-left">
-              <th className="py-2 pr-3">Persona</th>
-              <th className="pr-3">Venta</th>
-              {columnas.map((c) => <th key={`${c.grupo}|${c.id}`} className="pr-3">{c.titulo}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {personas.length === 0 && (
-              <tr><td colSpan={2 + columnas.length} className="py-3 text-slate-500">No hay personas en la plantilla del mes.</td></tr>
-            )}
-            {personas.map((p) => (
-              <tr key={p.vendedor_id} className="border-b border-slate-100">
-                <td className="py-2 pr-3 align-top">{nombre(p.vendedor_id)}</td>
-                <Celda porcentaje={p.venta.porcentaje}
-                  detalle={`${pesosConCentavos(p.venta.capturado)} de ${pesosConCentavos(p.venta.meta)}`} />
-                {columnas.map((c) => {
-                  const e = (p[c.grupo] || []).find((x) => x[c.clave] === c.id);
-                  return e ? (
-                    <Celda key={`${c.grupo}|${c.id}`} porcentaje={e.porcentaje}
-                      detalle={`${formatoUnidad(c.unidad, e[c.valor])} de ${formatoUnidad(c.unidad, e.meta)}`} />
-                  ) : <td key={`${c.grupo}|${c.id}`} className="py-2 pr-3 text-slate-400">—</td>;
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {tablaPorPersona({ tienda, personas, nombre })}
     </section>
+  );
+}
+
+const detalleDe = (c, e) => (c.unidad === "declaradas"
+  ? `${e.declaradas} de ${e.meta} declaradas`
+  : `${formatoUnidad(c.unidad, e[c.valor])} de ${formatoUnidad(c.unidad, e.meta)}`);
+
+// Tabla por persona: venta y una columna por cada meta de la tienda. Las actividades entran si la
+// tienda o alguien tiene meta o declaradas en ellas. Los ids se cruzan como texto por seguridad.
+export function tablaPorPersona({ tienda, personas, nombre }) {
+  const conDatos = (e) => Number(e.meta) > 0 || Number(e.declaradas) > 0;
+  const columnas = COLUMNAS.flatMap((c) => (tienda[c.grupo] || [])
+    .filter((e) => c.grupo !== "actividades" || conDatos(e) ||
+      personas.some((p) => (p.actividades || []).some((x) => x.actividad === e.actividad && conDatos(x))))
+    .map((e) => ({ ...c, id: e[c.clave], titulo: e.nombre || e.etiqueta })));
+  return (
+    <div className="overflow-x-auto">
+      <h3 className="font-medium text-slate-700 mb-2">Por persona</h3>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-slate-500 text-left">
+            <th className="py-2 pr-3">Persona</th>
+            <th className="pr-3">Venta</th>
+            {columnas.map((c) => <th key={`${c.grupo}|${c.id}`} className="pr-3">{c.titulo}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {personas.length === 0 && (
+            <tr><td colSpan={2 + columnas.length} className="py-3 text-slate-500">No hay personas en la plantilla del mes.</td></tr>
+          )}
+          {personas.map((p) => (
+            <tr key={p.vendedor_id} className="border-b border-slate-100">
+              <td className="py-2 pr-3 align-top">{nombre(p.vendedor_id)}</td>
+              <Celda porcentaje={p.venta.porcentaje}
+                detalle={`${pesosConCentavos(p.venta.capturado)} de ${pesosConCentavos(p.venta.meta)}`} />
+              {columnas.map((c) => {
+                const e = (p[c.grupo] || []).find((x) => String(x[c.clave]) === String(c.id));
+                return e ? (
+                  <Celda key={`${c.grupo}|${c.id}`} porcentaje={e.porcentaje} detalle={detalleDe(c, e)} />
+                ) : <td key={`${c.grupo}|${c.id}`} className="py-2 pr-3 text-slate-400">—</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

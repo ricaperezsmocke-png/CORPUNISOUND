@@ -42,9 +42,10 @@ export function LineaMes({ serie, meta, capturado, mes, hoy, porcentaje, quien =
   const estado = estadoMeta(meta, capturado);
   const falta = faltantePorDia(meta, capturado, dias);
   let texto = "";
+  // El mes terminado va antes que "lograda": en un mes pasado importa con cuánto se cerró.
   if (estado === "sin-meta") texto = "Sin meta asignada: no hay ritmo que seguir.";
-  else if (estado === "lograda") texto = "¡Meta alcanzada!";
   else if (dias === 0) texto = `Terminó el mes con ${textoPorcentaje(porcentaje)}.`;
+  else if (estado === "lograda") texto = "¡Meta alcanzada!";
   else if (falta) {
     texto = `${quien} faltan ${pesosConCentavos(falta.faltante)}; son ${pesosConCentavos(falta.porDia)} por día ` +
       `en ${dias === 1 ? "el día que queda" : `los ${dias} días que quedan`}.`;
@@ -129,7 +130,7 @@ export function BarrasMetas({ avance, porcentajesTienda }) {
           {g.grupo === "actividades" && <p className="text-xs text-amber-800 mb-1">Declaradas, no verificadas</p>}
           {g.filas.map((e) => {
             const tienda = porcentajesTienda
-              ? ((porcentajesTienda[g.grupo] || []).find((t) => t[g.clave] === e[g.clave])?.porcentaje ?? null)
+              ? ((porcentajesTienda[g.grupo] || []).find((t) => String(t[g.clave]) === String(e[g.clave]))?.porcentaje ?? null)
               : undefined;
             return (
               <BarraMeta key={e[g.clave]} titulo={e.nombre || e.etiqueta} porcentaje={e.porcentaje}

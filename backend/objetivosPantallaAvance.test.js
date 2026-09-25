@@ -60,3 +60,36 @@ test("la línea del mes dice cuánto falta por día en un mes en curso", () => {
   })));
   assert.match(pasado, /Terminó el mes con 72 %/);
 });
+
+test("el cruce con el porcentaje de tienda tolera ids como texto", () => {
+  const { BarrasMetas } = cargar("src/objetivos/GraficasAvance.jsx");
+  const avance = { marcas: [{ marca_id: 3, nombre: "Yamaha", meta: 5000, capturado: 4000, porcentaje: 80 }], productos: [], creditos: [], actividades: [] };
+  const tienda = { marcas: [{ marca_id: "3", nombre: "Yamaha", porcentaje: 64 }], productos: [], creditos: [], actividades: [] };
+  assert.match(texto(renderToStaticMarkup(React.createElement(BarrasMetas, { avance, porcentajesTienda: tienda }))), /Tienda 64 %/);
+});
+
+test("un mes terminado con la meta lograda dice con cuánto terminó", () => {
+  const { LineaMes } = cargar("src/objetivos/GraficasAvance.jsx");
+  const pagina = texto(renderToStaticMarkup(React.createElement(LineaMes, {
+    serie: [], meta: 1000, capturado: 1100, mes: "2026-08", hoy: "2026-09-24", porcentaje: 110,
+  })));
+  assert.match(pagina, /Terminó el mes con 110 %/);
+});
+
+test("la tabla por persona incluye actividades y cruza ids como texto", () => {
+  const AvanceTienda = cargar("src/objetivos/AvanceTienda.jsx").default;
+  const { tablaPorPersona } = cargar("src/objetivos/AvanceTienda.jsx");
+  const tienda = {
+    marcas: [{ marca_id: 3, nombre: "Yamaha" }], productos: [], creditos: [],
+    actividades: [{ actividad: "grupos", etiqueta: "Publicación en grupos", meta: 5 }, { actividad: "iglesia", etiqueta: "Salida a iglesia", meta: 0 }],
+  };
+  const personas = [{ vendedor_id: 7, venta: { meta: 10, capturado: 5, porcentaje: 50 },
+    marcas: [{ marca_id: "3", meta: 5000, capturado: 4000, porcentaje: 80 }], productos: [], creditos: [],
+    actividades: [{ actividad: "grupos", meta: 5, declaradas: 3, porcentaje: 60 }, { actividad: "iglesia", meta: 0, declaradas: 0, porcentaje: null }] }];
+  assert.ok(AvanceTienda);
+  const html = texto(renderToStaticMarkup(tablaPorPersona({ tienda, personas, nombre: () => "Ana" })));
+  assert.match(html, /Publicación en grupos/);
+  assert.doesNotMatch(html, /Salida a iglesia/, "una actividad sin meta ni declaradas en la tienda no ocupa columna");
+  assert.match(html, /80 %.*\$4,000\.00 de \$5,000\.00/);
+  assert.match(html, /60 %.*3 de 5 declaradas/);
+});
