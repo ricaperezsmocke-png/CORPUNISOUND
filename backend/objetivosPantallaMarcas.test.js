@@ -59,3 +59,19 @@ test("una rectificación de marca no cambia la fila de venta del cierre sellado"
   assert.doesNotMatch(texto(html), /Rectificado: \$55,555/, "la rectificación de Yamaha se aplicó a la meta de venta");
   assert.doesNotMatch(texto(html), /Ana: Meta de \$5,000/, "la rectificación de marca se rotuló como meta de venta");
 });
+
+test("la barra de pestañas marca solo la activa y avisa al elegir otra", () => {
+  const Pestanas = cargar("src/objetivos/Pestanas.jsx").default;
+  const Icono = () => null;
+  const elegidas = [];
+  const elemento = Pestanas({
+    activa: "b", elegir: (clave) => elegidas.push(clave),
+    pestanas: [{ clave: "a", etiqueta: "Mi venta", Icono }, { clave: "b", etiqueta: "Mis créditos", Icono }],
+  });
+  const html = renderToStaticMarkup(elemento);
+  assert.match(html, /role="toolbar"/);
+  assert.equal((html.match(/aria-pressed="true"/g) || []).length, 1);
+  assert.match(html, /aria-pressed="true"[^>]*>.*Mis créditos/);
+  elemento.props.children[0].props.onClick();
+  assert.deepEqual(elegidas, ["a"]);
+});
