@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { History, Plus, Tags } from "lucide-react";
 import { apiFetch } from "../api";
 import { Campo, Modal } from "./DialogosObjetivos";
+import ListasObjetivos from "./ListasObjetivos";
 import { leer, sugerenciaGuardada } from "./datos";
 import { ETIQUETAS_FINANCIERA, consultaElemento, filasMetasTienda, formatoUnidad, pesosConCentavos, textoPendiente } from "./marcas";
 
@@ -17,7 +18,8 @@ const BOTON_SEC = "border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-s
 
 // Metas de marca, producto y crédito de la tienda. Se guarda una meta por petición, igual que la
 // de venta; motivo obligatorio al cambiar una existente (el servidor lo exige también).
-export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actualizar }) {
+export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actualizar, permisos = [] }) {
+  const administraListas = permisos.includes("editar_objetivos_venta") && permisos.includes("ver_todas_las_sucursales");
   const [catalogo, setCatalogo] = useState({ marcas: [], productos: [] });
   const [elegida, setElegida] = useState(null);
   const [sugerencia, setSugerencia] = useState(null);
@@ -39,15 +41,18 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
     }
   }, [mes, sucursalId]);
 
-  useEffect(() => { cargarCreditos(); }, [cargarCreditos]);
-  useEffect(() => {
-    let vigente = true;
-    Promise.all(["marcas", "productos"].map((l) => apiFetch(`/objetivos/catalogo/${l}`)
-      .then((r) => leer(r, "No se pudieron cargar las listas de marcas y productos"))))
-      .then(([marcas, productos]) => { if (vigente) setCatalogo({ marcas, productos }); })
-      .catch((e) => { if (vigente) setError(e.message); });
-    return () => { vigente = false; };
+  const cargarCatalogo = useCallback(async () => {
+    try {
+      const [marcas, productos] = await Promise.all(["marcas", "productos"].map((l) => apiFetch(`/objetivos/catalogo/${l}`)
+        .then((r) => leer(r, "No se pudieron cargar las listas de marcas y productos"))));
+      setCatalogo({ marcas, productos });
+    } catch (e) {
+      setError(e.message);
+    }
   }, []);
+
+  useEffect(() => { cargarCreditos(); }, [cargarCreditos]);
+  useEffect(() => { cargarCatalogo(); }, [cargarCatalogo]);
 
   const elegir = (llave) => {
     setElegida(llave);
@@ -267,7 +272,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
           </tbody>
         </table>
       </div>
-      {/* listas */}
+      {administraListas && <ListasObjetivos onCambio={cargarCatalogo} />}
       {editando && fila && !cerrado && (
         <Modal titulo={`${fila.nombre} · ${editando.vendedor_id == null ? "Meta de la tienda" : `Meta de ${nombre(editando.vendedor_id)}`}`}
           cerrar={() => setEditando(null)} guardar={guardarEdicion}

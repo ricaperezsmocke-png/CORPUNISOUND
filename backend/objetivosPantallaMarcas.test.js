@@ -146,3 +146,16 @@ test("gerente: tabla con pendiente en palabras y sin botones de escritura en mes
   assert.match(abierto, /Agregar meta/);
   assert.doesNotMatch(texto(render(true)), /Agregar meta/);
 });
+
+test("listas: el gerente de una sola tienda no ve el panel; quien ve todas las tiendas sí", () => {
+  const MarcasGerente = cargar("src/objetivos/MarcasGerente.jsx").default;
+  const render = (permisos) => texto(renderToStaticMarkup(React.createElement(MarcasGerente, {
+    mes: "2026-09", sucursalId: "1", objetivos: { cerrado: false }, nombre: () => "Ana", actualizar() {}, permisos,
+  })));
+  // Permisos vecinos del mismo módulo, no un arreglo vacío (CLAUDE.md: un rol sin permisos no prueba nada).
+  assert.doesNotMatch(render(["editar_objetivos_venta", "usar_gerente_ventas", "cerrar_mes_objetivos"]), /Listas de marcas y productos/);
+  assert.doesNotMatch(render(["ver_todas_las_sucursales", "usar_gerente_ventas"]), /Listas de marcas y productos/);
+  const admin = render(["editar_objetivos_venta", "ver_todas_las_sucursales"]);
+  assert.match(admin, /Listas de marcas y productos/);
+  assert.doesNotMatch(admin, /Borrar|Eliminar|Reactivar/);
+});
