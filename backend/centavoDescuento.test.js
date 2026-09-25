@@ -112,12 +112,14 @@ test("barrido de 43,200 carritos y cuatro descuentos de pago contra crearVenta",
   assert.equal(diferencias, 0, JSON.stringify(primerDescuadre));
 });
 
-test("varias lineas, cantidades fraccionarias y descuentos de 0 a 100%", async () => {
+// Desde 2026-09-25 solo se venden piezas enteras: las cantidades de 1.25 y 2.5 se cambiaron
+// por enteras que tambien obligan a redondear (7 x 19.95 con 10% y 3 x 7.99 con 3%).
+test("varias lineas, cantidades enteras y descuentos de 0 a 100%", async () => {
   const { calcularTotalesVenta } = await calculo;
   const DB = prepararDB();
   const carritos = [
     [{ cantidad: 3, precioUnitario: 19.95, descuentoPct: 10 }, { cantidad: 2, precioUnitario: 19.95, descuentoPct: 5 }],
-    [{ cantidad: 1.25, precioUnitario: 19.95, descuentoPct: 10 }, { cantidad: 2.5, precioUnitario: 7.99, descuentoPct: 3 }],
+    [{ cantidad: 7, precioUnitario: 19.95, descuentoPct: 10 }, { cantidad: 3, precioUnitario: 7.99, descuentoPct: 3 }],
     [{ cantidad: 3, precioUnitario: 1.005, descuentoPct: 0 }, { cantidad: 1, precioUnitario: 19.95, descuentoPct: 100 }],
     [{ cantidad: "3", precioUnitario: "19.95", descuentoPct: "10" }, { cantidad: 1, precioUnitario: 0 }],
   ];

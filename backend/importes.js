@@ -48,12 +48,26 @@ function exigirImporte(n, descripcion) {
  * cero y dentro del rango de centavos. El tope de arriba es el que faltaba.
  */
 function exigirCantidad(valor, descripcion) {
+  return exigirPiezasEnteras(valor, descripcion);
+}
+
+/**
+ * Todo se vende y se mueve en PIEZAS ENTERAS (decisión de Victor, 2026-09-25).
+ * Un 0.5 tecleado en un bafle cobraba medio bafle y dejaba 2.5 piezas en la
+ * existencia. `permitirNegativo` es solo para el ajuste manual, que resta con signo.
+ */
+function exigirPiezasEnteras(valor, descripcion, { permitirNegativo = false } = {}) {
+  const nombre = descripcion || "el artículo";
   const cantidad = Number(valor);
-  if (!Number.isFinite(cantidad) || cantidad <= 0) {
-    throw new Error(`La cantidad de "${descripcion || "el artículo"}" debe ser mayor que cero`);
+  if (!Number.isFinite(cantidad)) throw new Error(`La cantidad de "${nombre}" no es un número`);
+  if (permitirNegativo ? cantidad === 0 : cantidad <= 0) {
+    throw new Error(`La cantidad de "${nombre}" debe ser ${permitirNegativo ? "distinta de cero" : "mayor que cero"}`);
   }
-  if (cantidad > TOPE_IMPORTE) {
-    throw new Error(`La cantidad de "${descripcion || "el artículo"}" es una cifra que el sistema no puede registrar`);
+  if (Math.abs(cantidad) > TOPE_IMPORTE) {
+    throw new Error(`La cantidad de "${nombre}" es una cifra que el sistema no puede registrar`);
+  }
+  if (!Number.isInteger(cantidad)) {
+    throw new Error(`La cantidad de "${nombre}" debe ser en piezas enteras (se tecleó ${valor})`);
   }
   return cantidad;
 }
@@ -65,4 +79,4 @@ function exigirImporteNoNegativo(n, descripcion) {
   return n;
 }
 
-module.exports = { TOPE_IMPORTE, esImporteValido, exigirImporte, exigirCantidad, exigirImporteNoNegativo };
+module.exports = { TOPE_IMPORTE, esImporteValido, exigirImporte, exigirCantidad, exigirPiezasEnteras, exigirImporteNoNegativo };

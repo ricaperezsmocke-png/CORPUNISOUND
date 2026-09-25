@@ -14,6 +14,7 @@
  */
 
 const { ajustarExistencia, actualizarCostoDesdeCompra, actualizarProducto, costoConIva } = require("./productos");
+const { exigirPiezasEnteras } = require("./importes");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -55,7 +56,7 @@ function crearRecepcion(DB, datos, sucursalId, usuario) {
     const producto_id = Number(r.producto_id);
     const cantidad = Number(r.cantidad);
     if (!producto_id) throw new Error("Cada renglón necesita un producto");
-    if (!cantidad || cantidad <= 0) throw new Error("La cantidad debe ser mayor a cero");
+    exigirPiezasEnteras(r.cantidad, "el renglón de la recepción");
     const existeProducto = DB["catalogo-productos"].productos.some((p) => p.id === producto_id);
     if (!existeProducto) throw new Error("Producto no encontrado");
     const costo = Number(r.costo);

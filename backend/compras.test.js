@@ -92,7 +92,7 @@ test("crearRecepcion rechaza cantidad <= 0", () => {
   const DB = conProveedor(construirDBPrueba());
   assert.throws(
     () => crearRecepcion(DB, { proveedor_id: 1, renglones: [{ producto_id: 1, cantidad: 0, costo: 20 }] }, 6, USUARIO_CEDIS),
-    /La cantidad debe ser mayor a cero/
+    /debe ser mayor que cero/
   );
 });
 

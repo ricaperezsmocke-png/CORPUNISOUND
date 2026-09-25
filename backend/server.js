@@ -23,7 +23,7 @@ const { predecirDemanda } = require("./predicciones");
 const { parsearReporteVentasSicar, previsualizarHistorialVentas, aplicarHistorialVentas } = require("./historialVentas");
 const {
   listarProductos, crearProducto, actualizarProducto, eliminarProducto,
-  reactivarProducto, clonarProducto, ajustarExistencia, listarCategorias, crearCategoria,
+  reactivarProducto, clonarProducto, ajusteManualExistencia, listarCategorias, crearCategoria,
   listarDepartamentos, crearDepartamento, crearProveedor, generarClave
 } = require("./productos");
 const { listarClientes, obtenerCliente, crearCliente, actualizarCliente } = require("./clientes");
@@ -1130,7 +1130,7 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
     // El usuario va aparte del cuerpo a proposito: quien ajusta lo dice el
     // token, no la peticion. Si viniera del body, cualquiera podria firmar un
     // ajuste con el nombre de otro.
-    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
+    res.json(ajusteManualExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

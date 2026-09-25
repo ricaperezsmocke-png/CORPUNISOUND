@@ -19,6 +19,8 @@
  * dejaba sin nombre, para siempre, cada ticket donde se vendió.
  */
 
+const { exigirPiezasEnteras } = require("./importes");
+
 const TASA_IVA = 0.16;
 
 function costoConIva(costoNeto) {
@@ -195,6 +197,10 @@ function crearProducto(DB, datos, sucursalId, usuario) {
   const sucursalOrigen = Number(sucursalId);
   if (!Number.isInteger(sucursalOrigen) || sucursalOrigen <= 0) {
     throw new Error("Falta la sucursal donde queda la existencia inicial del producto");
+  }
+  // Se valida ANTES de crear el producto: fallar después dejaría un producto a medias.
+  if (Number(datos.existencia_inicial) > 0 || !Number.isFinite(Number(datos.existencia_inicial ?? 0))) {
+    exigirPiezasEnteras(datos.existencia_inicial, "la existencia inicial");
   }
   const nuevoId = siguienteId(DB["catalogo-productos"].productos);
   const producto = {
@@ -434,6 +440,12 @@ function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id, usuario }) {
   return exist;
 }
 
+/** Ajuste manual desde Inventario: resta o suma con signo, pero solo piezas enteras. */
+function ajusteManualExistencia(DB, id, datos) {
+  const cantidad = exigirPiezasEnteras(datos.cantidad, "el ajuste", { permitirNegativo: true });
+  return ajustarExistencia(DB, id, { ...datos, cantidad });
+}
+
 function listarCategorias(DB) {
   return DB["catalogo-productos"].categorias;
 }
@@ -487,6 +499,7 @@ function actualizarCostoDesdeCompra(DB, id, nuevoCosto) {
 module.exports = {
   listarProductos,
   crearProducto,
+  ajusteManualExistencia,
   actualizarProducto,
   eliminarProducto,
   reactivarProducto,
