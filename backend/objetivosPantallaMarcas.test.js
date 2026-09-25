@@ -129,3 +129,20 @@ test("mis créditos: formulario con folio en mes abierto y nada que escribir en 
   assert.match(abierto, /<button type="submit" disabled=""/, "sin datos el botón debe nacer deshabilitado");
   assert.doesNotMatch(render(true), /<form|<input|Anular/);
 });
+
+test("gerente: tabla con pendiente en palabras y sin botones de escritura en mes cerrado", () => {
+  const MarcasGerente = cargar("src/objetivos/MarcasGerente.jsx").default;
+  const objetivos = (cerrado) => ({
+    cerrado,
+    marcas: [{ marca_id: 3, nombre: "Yamaha", meta_tienda: 20000, asignado: 25000, sin_asignar: -5000, lineas: [] }],
+    productos: [], creditos: [{ financiera: "atrato", etiqueta: "Atrato", meta_tienda: 3, asignado: 2, sin_asignar: 1, lineas: [] }],
+  });
+  const render = (cerrado) => renderToStaticMarkup(React.createElement(MarcasGerente, {
+    mes: "2026-09", sucursalId: "1", objetivos: objetivos(cerrado), nombre: () => "Ana", actualizar() {},
+  }));
+  const abierto = texto(render(false));
+  assert.match(abierto, /Yamaha pesos \$20,000\.00 \$25,000\.00 Asignaste \$5,000\.00 de más/);
+  assert.match(abierto, /Atrato créditos 3 créditos 2 créditos Falta 1 crédito por repartir/);
+  assert.match(abierto, /Agregar meta/);
+  assert.doesNotMatch(texto(render(true)), /Agregar meta/);
+});

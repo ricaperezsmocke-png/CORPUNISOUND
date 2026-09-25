@@ -5,6 +5,7 @@ import Pestanas from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
 import MarcasDelDia from "./objetivos/MarcasDelDia";
 import CreditosVendedor from "./objetivos/CreditosVendedor";
+import MarcasGerente from "./objetivos/MarcasGerente";
 import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
@@ -245,7 +246,6 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   ];
   // La elegida se conserva al cambiar de mes o sucursal; solo cae a la primera si deja de existir.
   const activa = pestanas.some((p) => p.clave === pestana) ? pestana : pestanas[0]?.clave;
-  const proximamente = <p className="neu rounded-xl p-4 text-sm text-slate-600">Disponible en la siguiente versión.</p>;
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
@@ -332,7 +332,10 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             <ActividadesGerente key={`actividades/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
               objetivos={objetivos} nombre={nombre} actualizar={cargar} />
           )}
-          {activa === "tienda-marcas" && objetivos && proximamente}
+          {activa === "tienda-marcas" && objetivos && (
+            <MarcasGerente key={`marcas/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId} objetivos={objetivos}
+              nombre={nombre} permisos={permisos} actualizar={() => cargar({ silenciosa: true })} />
+          )}
         </>
       )}
       {corrigiendo && objetivos && !objetivos.cerrado && (

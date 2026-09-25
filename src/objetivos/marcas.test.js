@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
   esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
-  creditoCompleto,
+  creditoCompleto, filasMetasTienda, consultaElemento, formatoUnidad,
 } from "./marcas.js";
 
 test("una captura sin tipo es de venta; marca y producto no", () => {
@@ -133,4 +133,29 @@ test("el formulario de crédito exige financiera, fecha, monto mayor que cero y 
   assert.equal(creditoCompleto({ ...completo, monto: "" }), false);
   assert.equal(creditoCompleto({ ...completo, financiera: "" }), false);
   assert.equal(creditoCompleto({ ...completo, fecha: "" }), false);
+});
+
+test("la tabla del gerente junta marcas, productos y créditos con su unidad", () => {
+  const filas = filasMetasTienda({
+    marcas: [{ marca_id: 3, nombre: "Yamaha", meta_tienda: 20000, asignado: 10000, sin_asignar: 10000, lineas: [] }],
+    productos: [{ producto_meta_id: 1, nombre: "Teclados", meta_tienda: 6, asignado: 6, sin_asignar: 0, lineas: [] }],
+    creditos: [{ financiera: "atrato", etiqueta: "Atrato", meta_tienda: 2, asignado: 3, sin_asignar: -1, lineas: [] }],
+  });
+  assert.deepEqual(filas.map((f) => [f.llave, f.tipo, f.clave, f.id, f.nombre, f.unidad]), [
+    ["marca|3", "marca", "marca_id", 3, "Yamaha", "pesos"],
+    ["producto|1", "producto", "producto_meta_id", 1, "Teclados", "piezas"],
+    ["credito|atrato", "credito", "financiera", "atrato", "Atrato", "creditos"],
+  ]);
+  assert.deepEqual(filasMetasTienda({}), []);
+});
+
+test("la consulta de un elemento lleva su tipo y su referencia", () => {
+  assert.equal(consultaElemento({ tipo: "marca", clave: "marca_id", id: 3 }), "tipo=marca&marca_id=3");
+  assert.equal(consultaElemento({ tipo: "credito", clave: "financiera", id: "coppel_pay" }), "tipo=credito&financiera=coppel_pay");
+});
+
+test("cada unidad se escribe como la entiende la tienda", () => {
+  assert.equal(formatoUnidad("pesos", 1500), "$1,500.00");
+  assert.equal(formatoUnidad("piezas", 1), "1 pieza");
+  assert.equal(formatoUnidad("creditos", 3), "3 créditos");
 });

@@ -98,3 +98,23 @@ export function renglonesDelDia({ clave, tipo, fecha, vendedorId, extras, elemen
 // El servidor valida todo de nuevo; esto solo decide si el botón "Registrar crédito" se habilita.
 export const creditoCompleto = ({ financiera, fecha, monto, folio }) =>
   Boolean(financiera) && Boolean(fecha) && String(folio || "").trim() !== "" && Number(monto) > 0;
+
+export const formatoUnidad = (unidad, n) => cantidad(Number(n) || 0, unidad);
+
+const FAMILIAS_META = [
+  { lista: "marcas", tipo: "marca", clave: "marca_id", unidad: "pesos", titulo: "Marca" },
+  { lista: "productos", tipo: "producto", clave: "producto_meta_id", unidad: "piezas", titulo: "Producto" },
+  { lista: "creditos", tipo: "credito", clave: "financiera", unidad: "creditos", titulo: "Crédito" },
+];
+
+// Filas de la tabla del gerente: una por elemento con meta vigente, en el orden marcas, productos, créditos.
+export function filasMetasTienda(objetivos) {
+  return FAMILIAS_META.flatMap(({ lista, tipo, clave, unidad, titulo }) => (objetivos[lista] || []).map((e) => {
+    const id = tipo === "credito" ? e[clave] : Number(e[clave]);
+    return {
+      ...e, llave: `${tipo}|${id}`, tipo, clave, id, unidad, titulo, nombre: e.nombre || e.etiqueta || ETIQUETAS_FINANCIERA[id] || String(id),
+    };
+  }));
+}
+
+export const consultaElemento = ({ tipo, clave, id }) => `tipo=${tipo}&${clave}=${encodeURIComponent(id)}`;
