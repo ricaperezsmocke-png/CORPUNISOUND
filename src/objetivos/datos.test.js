@@ -1,6 +1,56 @@
 ﻿import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as datos from "./datos.js";
 import { diasDeAtraso, finDelMes, hoyLocal, leer, sugerenciaGuardada } from "./datos.js";
+
+test("ventaDelDia distingue ausencia de venta cero y omite otras fechas y versiones", () => {
+  const cero = { id: 3, fecha: "2026-09-25", tipo: "venta", vigente: 1, monto: 0 };
+  const capturas = [
+    { ...cero, id: 1, vigente: 0, monto: 20 },
+    { ...cero, id: 2, fecha: "2026-09-24" }, cero,
+  ];
+  assert.equal(datos.ventaDelDia(capturas, "2026-09-25"), cero);
+  assert.equal(datos.ventaDelDia(capturas, "2026-09-23"), null);
+  assert.equal(datos.ventaDelDia([], "2026-09-25"), null);
+});
+
+test("ventaDelDia ignora marcas, productos y créditos y acepta venta histórica sin tipo", () => {
+  const base = { fecha: "2026-09-25", vigente: 1, monto: 10 };
+  const otras = ["marca", "producto", "credito"].map((tipo) => ({ ...base, tipo }));
+  assert.equal(datos.ventaDelDia(otras, base.fecha), null);
+  for (const tipo of [undefined, null, "venta"]) {
+    const venta = { ...base, tipo };
+    assert.equal(datos.ventaDelDia([...otras, venta], base.fecha), venta);
+  }
+});
+
+test("resumenVenta conserva centavos y redondea el porcentaje sin limitarlo a cien", () => {
+  assert.deepEqual(datos.resumenVenta({ meta: 26000, total: 18400 }), {
+    texto: "Llevas $18,400.00 de $26,000.00 · 71 %", porcentaje: 71,
+  });
+  assert.deepEqual(datos.resumenVenta({ meta: 10, total: 12.51 }), {
+    texto: "Llevas $12.51 de $10.00 · 125 %", porcentaje: 125,
+  });
+});
+
+test("resumenVenta no inventa porcentaje ni ausencia de meta con meta cero o ausente", () => {
+  for (const meta of [0, undefined]) {
+    assert.deepEqual(datos.resumenVenta({ meta, total: 23.45 }), {
+      texto: "Llevas $23.45 registrados", porcentaje: null,
+    });
+  }
+});
+
+test("fechaCorta conserva los ceros del día y del mes", () => {
+  assert.equal(datos.fechaCorta("2026-09-21"), "21/09");
+  assert.equal(datos.fechaCorta("2026-01-02"), "02/01");
+});
+
+test("fechaLarga calcula el día real incluso en límites de año y febrero bisiesto", () => {
+  assert.equal(datos.fechaLarga("2026-09-25"), "viernes 25 de septiembre");
+  assert.equal(datos.fechaLarga("2026-01-01"), "jueves 1 de enero");
+  assert.equal(datos.fechaLarga("2024-02-29"), "jueves 29 de febrero");
+});
 
 test("hoy usa el día de Chiapas al cambiar el mes en UTC", () => {
   assert.equal(hoyLocal(new Date("2026-10-01T02:00:00Z")), "2026-09-30");

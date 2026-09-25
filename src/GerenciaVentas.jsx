@@ -12,7 +12,8 @@ import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
 import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
-import { cuentaMalLigada, finDelMes, hoyLocal, leer, mesActual } from "./objetivos/datos";
+import { cuentaMalLigada, fechaCorta, finDelMes, hoyLocal, leer, mesActual } from "./objetivos/datos";
+import { pesosConCentavos } from "./objetivos/marcas";
 
 export default function GerenciaVentas({ permisos = [], usuario }) {
   const esJefatura = permisos.includes("editar_objetivos_venta");
@@ -150,7 +151,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
     setMonto("");
     // Misma regla que al cambiar de mes: hoy solo si el mes elegido es el actual.
     setFecha(mes === mesActual() ? hoyLocal() : `${mes}-01`);
-  }, Number(valor) === 0 ? `Se registró que no vendiste nada el ${fecha}.` : `Venta del ${fecha} registrada.`);
+  }, Number(valor) === 0 ? `Se registró que no vendiste nada el ${fechaCorta(fecha)}.` : `Venta del ${fechaCorta(fecha)} registrada.`);
 
   const corregir = () => ejecutar(async () => {
     // El motivo explica el cambio y queda junto a la nueva versión de la captura.
@@ -319,14 +320,15 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
           {activa === "mi-venta" && objetivos && capturas && (
             <>
               <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
-                fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
+                fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo}
+                verAvance={() => setPestana("mi-avance")} />
               <MarcasDelDia mes={mes} sucursalId={sucursalId} vendedorId={miVendedorId} fecha={fecha}
                 objetivos={objetivos} capturas={capturas} actualizar={() => cargar({ silenciosa: true })} />
             </>
           )}
           {activa === "mis-actividades" && objetivos && capturas && (
             <ActividadesVendedor key={`${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
-              vendedorId={miVendedorId} objetivos={objetivos} />
+              vendedorId={miVendedorId} objetivos={objetivos} verAvance={() => setPestana("mi-avance")} />
           )}
           {activa === "mis-creditos" && objetivos && (
             <CreditosVendedor key={`creditos/${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
@@ -349,9 +351,11 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
         </>
       )}
       {corrigiendo && objetivos && !objetivos.cerrado && (
-        <Modal titulo="Corregir captura" cerrar={() => setCorrigiendo(null)} guardar={corregir}
+        <Modal titulo={`Corregir venta del ${fechaCorta(corrigiendo.fecha)}`} cerrar={() => setCorrigiendo(null)} guardar={corregir}
+          textoGuardar="Guardar corrección"
           deshabilitado={corrigiendo.monto === "" || !corrigiendo.motivo.trim()}>
-          <Campo etiqueta="Monto correcto" tipo="number" valor={corrigiendo.monto}
+          <p className="text-sm">Importe actual: {pesosConCentavos(corrigiendo.montoAnterior)}</p>
+          <Campo etiqueta="Importe correcto" tipo="number" valor={corrigiendo.monto}
             cambiar={(valor) => setCorrigiendo({ ...corrigiendo, monto: valor })} />
           <Campo etiqueta="Motivo obligatorio" valor={corrigiendo.motivo}
             cambiar={(motivo) => setCorrigiendo({ ...corrigiendo, motivo })} area />
