@@ -1,11 +1,13 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { CreditCard, Megaphone, RefreshCw, Store, Tags, Target, Users } from "lucide-react";
+import { BarChart3, CreditCard, Gauge, Megaphone, RefreshCw, Store, Tags, Target, Users } from "lucide-react";
 import { apiFetch } from "./api";
 import Pestanas from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
 import MarcasDelDia from "./objetivos/MarcasDelDia";
 import CreditosVendedor from "./objetivos/CreditosVendedor";
 import MarcasGerente from "./objetivos/MarcasGerente";
+import AvanceVendedor from "./objetivos/AvanceVendedor";
+import AvanceTienda from "./objetivos/AvanceTienda";
 import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
@@ -234,11 +236,13 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   const veTienda = esJefatura && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id));
   const pestanas = [
     ...(miVendedorId != null ? [
+      { clave: "mi-avance", etiqueta: "Mi avance", Icono: Gauge },
       { clave: "mi-venta", etiqueta: "Mi venta", Icono: Target },
       { clave: "mis-actividades", etiqueta: "Mis actividades", Icono: Megaphone },
       { clave: "mis-creditos", etiqueta: "Mis créditos", Icono: CreditCard },
     ] : []),
     ...(veTienda ? [
+      { clave: "tienda-avance", etiqueta: "Avance de la tienda", Icono: BarChart3 },
       { clave: "tienda-venta", etiqueta: "Venta de la tienda", Icono: Store },
       { clave: "tienda-actividades", etiqueta: "Actividades de la tienda", Icono: Users },
       { clave: "tienda-marcas", etiqueta: "Marcas, productos y créditos", Icono: Tags },
@@ -306,6 +310,12 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
       {pestanas.length > 0 && <Pestanas pestanas={pestanas} activa={activa} elegir={setPestana} />}
       {cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
         <>
+          {activa === "mi-avance" && objetivos && (
+            <AvanceVendedor key={`avance/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId} />
+          )}
+          {activa === "tienda-avance" && objetivos && (
+            <AvanceTienda key={`avance-tienda/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId} nombre={nombre} />
+          )}
           {activa === "mi-venta" && objetivos && capturas && (
             <>
               <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
