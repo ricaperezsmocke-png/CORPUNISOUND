@@ -1,6 +1,96 @@
 const { objetivoVigente, plantillaDelMes } = require("./objetivos");
-const { capturadoDelMes } = require("./objetivosCaptura");
+const { capturadoDelMes, capturadoDelMesPor } = require("./objetivosCaptura");
 const { actividadesDelMes, resumenActividades } = require("./objetivosActividades");
+const { creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
+const { listarElementos } = require("./objetivosCatalogos");
+
+const FAMILIAS = [
+  { lista: "marcas", tipo: "marca", referencia: "marca_id" },
+  { lista: "productos", tipo: "producto", referencia: "producto_meta_id" },
+  { lista: "creditos", tipo: "credito", referencia: "financiera" },
+];
+
+function elementoValidado(DB, datos, referencia) {
+  // objetivoVigente valida con llaveDeMeta, que es interna de objetivos.js.
+  // Una referencia válida puede no tener meta: basta con una captura en el previo.
+  const objetivo = objetivoVigente(DB, datos);
+  const id = referencia === "financiera" ? datos[referencia] : Number(datos[referencia]);
+  return { id, meta: objetivo?.monto ?? 0 };
+}
+
+function elementosDelPrevio(DB, periodo) {
+  const delVendedor = (r) => r.vigente && r.mes === periodo.mes &&
+    r.sucursal_id === periodo.sucursal_id && r.vendedor_id === periodo.vendedor_id;
+  const metas = DB.pos.objetivos.filter(delVendedor);
+  const capturas = DB.pos.objetivo_capturas.filter(delVendedor);
+  const resumen = resumenCreditos(DB, periodo);
+  const resultado = {};
+  for (const { lista, tipo, referencia } of FAMILIAS) {
+    const registros = tipo === "credito"
+      ? creditosDelMes(DB, periodo).filter((r) => r.vigente)
+      : capturas.filter((r) => r.tipo === tipo);
+    const referencias = new Set([...metas.filter((r) => r.tipo === tipo), ...registros].map((r) => r[referencia]));
+    const catalogo = tipo === "credito" ? [] : listarElementos(DB, lista, { incluirInactivos: true });
+    resultado[lista] = [...referencias].map((id) => {
+      const llave = { ...periodo, tipo, [referencia]: id };
+      const { id: normalizado, meta } = elementoValidado(DB, llave, referencia);
+      if (tipo === "credito") {
+        return { financiera: id, meta, registrados: resumen.find((r) => r.financiera === id).registrados };
+      }
+      return {
+        [referencia]: normalizado, nombre: catalogo.find((e) => e.id === normalizado)?.nombre || "desconocido",
+        meta, capturado: capturadoDelMesPor(DB, llave),
+      };
+    });
+  }
+  return resultado;
+}
+
+// Diferencias en centavos exactos: en binario 80.5 - 70.2 da 10.299999999999997, y una
+// diferencia de cero con residuo dejaría de "cuadrar" en pantalla.
+const restarEnCentavos = (a, b) => (Math.round(a * 100) - Math.round(b * 100)) / 100;
+
+function validarValorElemento(valor, tipo) {
+  if (!Number.isFinite(valor) || valor < 0 || (tipo !== "marca" && !Number.isInteger(valor))) {
+    const unidad = tipo === "marca" ? "un número finito" : "un entero";
+    throw new Error(`El valor del elemento debe ser ${unidad} mayor o igual a cero`);
+  }
+}
+
+function cruzarElementos(DB, linea, real, periodo) {
+  const resultado = {};
+  for (const { lista, tipo, referencia } of FAMILIAS) {
+    const recibidos = real[lista] === undefined ? [] : real[lista];
+    if (!Array.isArray(recibidos)) throw new Error(`Se requiere una lista de reales de ${lista}`);
+    const porReferencia = new Map();
+    for (const elemento of recibidos) {
+      if (!elemento || typeof elemento !== "object" || Array.isArray(elemento)) throw new Error(`Real de ${lista} inválido`);
+      const llave = { ...elemento, ...periodo, tipo, vendedor_id: linea.vendedor_id };
+      const { id } = elementoValidado(DB, llave, referencia);
+      if (!linea[lista].some((e) => e[referencia] === id)) throw new Error(`El elemento de ${lista} no aparece en el previo`);
+      if (porReferencia.has(id)) throw new Error(`El real del elemento de ${lista} está repetido`);
+      validarValorElemento(elemento.real, tipo);
+      porReferencia.set(id, elemento.real);
+    }
+    resultado[lista] = linea[lista].map((elemento) => {
+      if (!porReferencia.has(elemento[referencia])) throw new Error(`Falta el real de un elemento de ${lista}`);
+      const valor = porReferencia.get(elemento[referencia]);
+      return { ...elemento, real: valor, diferencia: restarEnCentavos(elemento.capturado ?? elemento.registrados, valor) };
+    });
+  }
+  return resultado;
+}
+
+function listasParaFoto(DB, delPeriodo) {
+  const usados = [...DB.pos.objetivos, ...DB.pos.objetivo_capturas].filter(delPeriodo);
+  const resultado = {};
+  for (const { lista, tipo, referencia } of FAMILIAS.filter((f) => f.tipo !== "credito")) {
+    const ids = new Set(usados.filter((r) => r.tipo === tipo).map((r) => r[referencia]));
+    resultado[lista] = listarElementos(DB, lista, { incluirInactivos: true })
+      .filter((e) => ids.has(e.id)).map(({ id, nombre }) => ({ id, nombre }));
+  }
+  return resultado;
+}
 
 function validarPeriodo(mes, sucursal_id) {
   if (typeof mes !== "string" || mes.length !== 7 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
@@ -15,7 +105,7 @@ function previoCierre(DB, { mes, sucursal_id }) {
   validarPeriodo(mes, sucursal_id);
   const participantes = new Set(plantillaDelMes(DB, mes, sucursal_id).map(({ vendedor_id }) => vendedor_id));
   for (const objetivo of DB.pos.objetivos) {
-    if (objetivo.vigente && ["venta", "actividad"].includes(objetivo.tipo) && objetivo.mes === mes &&
+    if (objetivo.vigente && ["venta", "actividad", "marca", "producto", "credito"].includes(objetivo.tipo) && objetivo.mes === mes &&
         objetivo.sucursal_id === sucursal_id && objetivo.vendedor_id !== null) {
       participantes.add(objetivo.vendedor_id);
     }
@@ -26,6 +116,9 @@ function previoCierre(DB, { mes, sucursal_id }) {
     }
   }
   for (const registro of actividadesDelMes(DB, { mes, sucursal_id })) {
+    if (registro.vigente) participantes.add(registro.vendedor_id);
+  }
+  for (const registro of creditosDelMes(DB, { mes, sucursal_id })) {
     if (registro.vigente) participantes.add(registro.vendedor_id);
   }
 
@@ -42,6 +135,7 @@ function previoCierre(DB, { mes, sucursal_id }) {
       meta: objetivo ? objetivo.monto : 0,
       capturado: capturadoDelMes(DB, { mes, sucursal_id, vendedor_id }),
       actividades,
+      ...elementosDelPrevio(DB, { mes, sucursal_id, vendedor_id }),
     };
   });
 }
@@ -74,15 +168,20 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     if (!Number.isFinite(real.real_sicar) || real.real_sicar < 0) {
       throw new Error("El real de SICAR debe ser un número finito mayor o igual a cero");
     }
-    realesPorPersona.set(real.vendedor_id, real.real_sicar);
+    realesPorPersona.set(real.vendedor_id, real);
   }
   if (previo.some((linea) => !realesPorPersona.has(linea.vendedor_id))) {
     throw new Error("Falta el real de SICAR de alguien de la plantilla");
   }
 
-  const lineas = previo.map(({ vendedor_id, meta, capturado, actividades }) => {
-    const real_sicar = realesPorPersona.get(vendedor_id);
-    return { vendedor_id, meta, capturado, real_sicar, diferencia: capturado - real_sicar, actividades };
+  const lineas = previo.map((linea) => {
+    const { vendedor_id, meta, capturado, actividades } = linea;
+    const real = realesPorPersona.get(vendedor_id);
+    const real_sicar = real.real_sicar;
+    return {
+      vendedor_id, meta, capturado, real_sicar, diferencia: restarEnCentavos(capturado, real_sicar), actividades,
+      ...cruzarElementos(DB, linea, real, { mes, sucursal_id }),
+    };
   });
   const delPeriodo = (registro) => registro.mes === mes && registro.sucursal_id === sucursal_id;
   // Copia profunda: versionar metas o corregir capturas cambia su vigente original,
@@ -92,6 +191,8 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     capturas: DB.pos.objetivo_capturas.filter((captura) => captura.vigente && delPeriodo(captura)),
     plantilla: plantillaDelMes(DB, mes, sucursal_id),
     actividades: actividadesDelMes(DB, { mes, sucursal_id }),
+    creditos: creditosDelMes(DB, { mes, sucursal_id }),
+    ...listasParaFoto(DB, delPeriodo),
   });
   const cierre = {
     id: DB.pos.objetivo_cierres.reduce((maximo, item) => Math.max(maximo, item.id), 0) + 1,
@@ -133,16 +234,31 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
  */
 const CAMPOS_RECTIFICABLES = ["meta", "capturado", "real_sicar"];
 
-function rectificarCierre(DB, cierreId, { vendedor_id, campo, valor_nuevo, motivo }, usuario) {
+function rectificarCierre(DB, cierreId, datos, usuario) {
+  const { vendedor_id, campo, valor_nuevo, motivo } = datos;
   const cierre = (DB.pos.objetivo_cierres || []).find((c) => c.id === Number(cierreId));
   if (!cierre) throw new Error("Ese cierre no existe");
 
-  if (!CAMPOS_RECTIFICABLES.includes(campo)) {
-    throw new Error(`Solo se puede rectificar: ${CAMPOS_RECTIFICABLES.join(", ")}`);
+  const familia = FAMILIAS.find((f) => datos[f.referencia] !== undefined && datos[f.referencia] !== null);
+  const campos = familia ? ["real", "meta", "capturado"] : CAMPOS_RECTIFICABLES;
+  if (!campos.includes(campo)) {
+    throw new Error(`Solo se puede rectificar: ${campos.join(", ")}`);
   }
 
   const linea = cierre.lineas.find((l) => l.vendedor_id === Number(vendedor_id));
   if (!linea) throw new Error("Esa persona no esta en el cierre");
+
+  let origen = linea;
+  let referencia = {};
+  if (familia) {
+    const { lista, tipo, referencia: clave } = familia;
+    const llave = { ...datos, mes: cierre.mes, sucursal_id: cierre.sucursal_id, tipo };
+    const { id } = elementoValidado(DB, llave, clave);
+    origen = (linea[lista] || []).find((e) => e[clave] === id);
+    if (!origen) throw new Error("Ese elemento no existe en la línea del cierre");
+    referencia = { [clave]: id };
+    validarValorElemento(valor_nuevo, tipo);
+  }
 
   if (typeof motivo !== "string" || motivo.trim() === "") {
     throw new Error("La rectificación necesita un motivo: sin él, es un número cambiado sin explicación");
@@ -159,7 +275,8 @@ function rectificarCierre(DB, cierreId, { vendedor_id, campo, valor_nuevo, motiv
       ? Math.max(...cierre.rectificaciones.map((r) => r.id)) : 0) + 1,
     vendedor_id: Number(vendedor_id),
     campo,
-    valor_anterior: linea[campo],
+    ...referencia,
+    valor_anterior: familia?.tipo === "credito" && campo === "capturado" ? origen.registrados : origen[campo],
     valor_nuevo,
     motivo: motivo.trim(),
     rectificado_por: (usuario && usuario.nombre) || "desconocido",

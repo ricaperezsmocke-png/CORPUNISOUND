@@ -1,7 +1,11 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { CreditCard, Megaphone, RefreshCw, Store, Tags, Target, Users } from "lucide-react";
 import { apiFetch } from "./api";
+import Pestanas from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
+import MarcasDelDia from "./objetivos/MarcasDelDia";
+import CreditosVendedor from "./objetivos/CreditosVendedor";
+import MarcasGerente from "./objetivos/MarcasGerente";
 import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
@@ -31,6 +35,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   const [historial, setHistorial] = useState(null);
   const [sugerencia, setSugerencia] = useState(null);
   const [baja, setBaja] = useState(null);
+  const [pestana, setPestana] = useState(null);
 
   useEffect(() => {
     let vigente = true;
@@ -226,6 +231,22 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
     return porSucursal;
   }, new Map()).values()];
 
+  const veTienda = esJefatura && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id));
+  const pestanas = [
+    ...(miVendedorId != null ? [
+      { clave: "mi-venta", etiqueta: "Mi venta", Icono: Target },
+      { clave: "mis-actividades", etiqueta: "Mis actividades", Icono: Megaphone },
+      { clave: "mis-creditos", etiqueta: "Mis créditos", Icono: CreditCard },
+    ] : []),
+    ...(veTienda ? [
+      { clave: "tienda-venta", etiqueta: "Venta de la tienda", Icono: Store },
+      { clave: "tienda-actividades", etiqueta: "Actividades de la tienda", Icono: Users },
+      { clave: "tienda-marcas", etiqueta: "Marcas, productos y créditos", Icono: Tags },
+    ] : []),
+  ];
+  // La elegida se conserva al cambiar de mes o sucursal; solo cae a la primera si deja de existir.
+  const activa = pestanas.some((p) => p.clave === pestana) ? pestana : pestanas[0]?.clave;
+
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
       <div className="flex flex-wrap gap-3 items-end">
@@ -282,25 +303,38 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
           Este mes está cerrado. Ya no se pueden capturar ventas ni cambiar metas.
         </div>
       )}
+      {pestanas.length > 0 && <Pestanas pestanas={pestanas} activa={activa} elegir={setPestana} />}
       {cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
         <>
-          {miVendedorId != null && objetivos && capturas && (
-            <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
-              fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
+          {activa === "mi-venta" && objetivos && capturas && (
+            <>
+              <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
+                fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
+              <MarcasDelDia mes={mes} sucursalId={sucursalId} vendedorId={miVendedorId} fecha={fecha}
+                objetivos={objetivos} capturas={capturas} actualizar={() => cargar({ silenciosa: true })} />
+            </>
           )}
-          {miVendedorId != null && objetivos && capturas && (
+          {activa === "mis-actividades" && objetivos && capturas && (
             <ActividadesVendedor key={`${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
               vendedorId={miVendedorId} objetivos={objetivos} />
           )}
-          {esJefatura && objetivos && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id)) && (
-            <>
-              <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
-                objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
-                historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}
-                darBaja={setBaja} />
-              <ActividadesGerente key={`actividades/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
-                objetivos={objetivos} nombre={nombre} actualizar={cargar} />
-            </>
+          {activa === "mis-creditos" && objetivos && (
+            <CreditosVendedor key={`creditos/${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
+              vendedorId={miVendedorId} objetivos={objetivos} />
+          )}
+          {activa === "tienda-venta" && objetivos && (
+            <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
+              objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
+              historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}
+              darBaja={setBaja} />
+          )}
+          {activa === "tienda-actividades" && objetivos && (
+            <ActividadesGerente key={`actividades/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
+              objetivos={objetivos} nombre={nombre} actualizar={cargar} />
+          )}
+          {activa === "tienda-marcas" && objetivos && (
+            <MarcasGerente key={`marcas/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId} objetivos={objetivos}
+              nombre={nombre} permisos={permisos} actualizar={() => cargar({ silenciosa: true })} />
           )}
         </>
       )}

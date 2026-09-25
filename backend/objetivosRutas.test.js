@@ -528,3 +528,25 @@ test("jefatura revisa capturas de una trasladada que estuvo en su tienda pero no
   estado(await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, gerente), 200);
   estado(await pedir("POST", "/api/objetivos/captura", gerente, { ...CAPTURA, vendedor_id: "1", fecha: `${MES}-02` }), 404);
 });
+
+test("registros viejos sin referencias nuevas conservan venta y agregan listas y totales vacíos", async () => {
+  for (const registro of [...app.DB.pos.objetivos, ...app.DB.pos.objetivo_capturas]) {
+    for (const campo of ["marca_id", "producto_meta_id", "financiera"]) delete registro[campo];
+  }
+  const antes = structuredClone(app.DB.pos);
+  const metas = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
+  estado(metas, 200);
+  assert.equal(metas.cuerpo.meta_tienda, 1000);
+  assert.equal(metas.cuerpo.asignado, 800);
+  for (const grupo of ["marcas", "productos", "creditos"]) assert.deepEqual(metas.cuerpo[grupo], []);
+  const historial = await pedir("GET", `/api/objetivos/${MES}/1/historial/tienda`, gerente);
+  estado(historial, 200);
+  assert.equal(historial.cuerpo[0].monto, 1000);
+  const capturas = await pedir("GET", `/api/objetivos/${MES}/1/capturas/1`, vendedor);
+  estado(capturas, 200);
+  assert.equal(capturas.cuerpo.total_capturado, 100);
+  assert.equal(capturas.cuerpo.dias_sin_capturar.length, 30);
+  assert.deepEqual(capturas.cuerpo.total_por_marca, []);
+  assert.deepEqual(capturas.cuerpo.total_por_producto, []);
+  assert.deepEqual(app.DB.pos, antes);
+});

@@ -490,3 +490,183 @@ test("un alta solapada en la misma tienda se rechaza sin escribir", () => {
   );
   assert.deepEqual(DB.pos.objetivo_plantilla, antes);
 });
+
+const { altaElemento, desactivarElemento } = require("./objetivosCatalogos");
+const METAS_NUEVAS = [
+  { tipo: "marca", campo: "marca_id", referencias: [1, 2], monto: 10.5 },
+  { tipo: "producto", campo: "producto_meta_id", referencias: [1, 2], monto: 10 },
+  { tipo: "credito", campo: "financiera", referencias: ["coppel_pay", "atrato"], monto: 10 },
+];
+const PERIODO_META = { mes: "2026-09", sucursal_id: 1, vendedor_id: null };
+
+function prepararDBConCatalogos() {
+  const DB = prepararDB();
+  for (const nombre of ["Yamaha", "Casio"]) altaElemento(DB, "marcas", { nombre }, VICTOR);
+  for (const nombre of ["Teclados", "Guitarras eléctricas"]) altaElemento(DB, "productos", { nombre }, VICTOR);
+  return DB;
+}
+
+for (const { tipo, campo, referencias, monto } of METAS_NUEVAS) {
+  test(`la meta de ${tipo} guarda su referencia, unidad y auditoría normalizando ids de texto`, () => {
+    const DB = prepararDBConCatalogos();
+    const datos = { ...PERIODO_META, tipo, [campo]: String(referencias[0]), sucursal_id: "1", vendedor_id: "1", monto };
+    const meta = fijarObjetivo(DB, datos, VICTOR);
+    assert.strictEqual(meta.tipo, tipo);
+    assert.strictEqual(meta[campo], referencias[0]);
+    assert.strictEqual(meta.sucursal_id, 1);
+    assert.strictEqual(meta.vendedor_id, 1);
+    assert.strictEqual(meta.monto, monto);
+    assert.strictEqual(meta.version, 1);
+    assert.strictEqual(meta.vigente, true);
+    assert.strictEqual(meta.creado_por, "Victor");
+    assert.ok(meta.creado_en);
+    assert.strictEqual(objetivoVigente(DB, datos), meta);
+    assert.deepStrictEqual(historialObjetivo(DB, datos), [meta]);
+    for (const otroCampo of ["actividad", "marca_id", "producto_meta_id", "financiera"].filter((c) => c !== campo)) {
+      assert.strictEqual(meta[otroCampo], null);
+    }
+  });
+
+  test(`el reparto de ${tipo} conserva el total y consulta solo la referencia solicitada`, () => {
+    const DB = prepararDBConCatalogos();
+    DB.pos.vendedores.push({ id: 3, nombre: "Ana", sucursal_id: 1, activo: true });
+    for (const vendedor_id of [1, 2, 3]) registrarEnPlantilla(DB, { ...PERIODO_META, vendedor_id });
+    const datos = { ...PERIODO_META, tipo, [campo]: referencias[1] };
+    fijarObjetivo(DB, { ...datos, [campo]: referencias[0], monto: 90 }, VICTOR);
+    fijarObjetivo(DB, { ...datos, monto }, VICTOR);
+    const consulta = { ...datos, [campo]: String(referencias[1]), sucursal_id: "1" };
+    const antes = structuredClone(DB);
+    const reparto = repartoSugerido(DB, consulta);
+    assert.deepStrictEqual(reparto, [
+      { vendedor_id: 1, monto: 3 }, { vendedor_id: 2, monto: 3 }, { vendedor_id: 3, monto: monto - 6 },
+    ]);
+    assert.strictEqual(reparto.reduce((total, linea) => total + linea.monto, 0), monto);
+    if (tipo !== "marca") assert.ok(reparto.every((linea) => Number.isInteger(linea.monto)));
+    assert.deepStrictEqual(DB, antes, "sugerir no modifica metas ni plantilla");
+    for (const vendedor_id of [1, 2]) {
+      fijarObjetivo(DB, { ...datos, vendedor_id, monto: 3 }, VICTOR);
+      fijarObjetivo(DB, { ...datos, [campo]: referencias[0], vendedor_id, monto: 40 }, VICTOR);
+    }
+    const antesDeLeer = structuredClone(DB);
+    assert.deepStrictEqual(estadoDelReparto(DB, consulta), {
+      meta_tienda: monto, asignado: 6, sin_asignar: monto - 6,
+      lineas: [{ vendedor_id: 1, monto: 3 }, { vendedor_id: 2, monto: 3 }, { vendedor_id: 3, monto: 0 }],
+    });
+    assert.deepStrictEqual(DB, antesDeLeer);
+  });
+
+  test(`la meta de ${tipo} acepta cero y rechaza montos inválidos sin mutar la base`, () => {
+    const DB = prepararDBConCatalogos();
+    const datos = { ...PERIODO_META, tipo, [campo]: referencias[0] };
+    assert.strictEqual(fijarObjetivo(DB, { ...datos, monto: 0 }, VICTOR).monto, 0);
+    const antes = structuredClone(DB);
+    for (const montoInvalido of [-1, NaN, Infinity, "3", null, undefined]) {
+      assert.throws(() => fijarObjetivo(DB, { ...datos, monto: montoInvalido }, VICTOR), /monto|número/i);
+      assert.deepStrictEqual(DB, antes);
+    }
+  });
+}
+
+test("cada marca, producto y financiera conserva su historial sin reemplazar otras metas ni venta o actividad", () => {
+  const DB = prepararDBConCatalogos();
+  const llaves = [
+    { tipo: "venta" }, { tipo: "actividad", actividad: "iglesia" },
+    ...METAS_NUEVAS.flatMap(({ tipo, campo, referencias }) => referencias.map((id) => ({ tipo, [campo]: id }))),
+  ].map((llave) => ({ ...PERIODO_META, ...llave }));
+  const originales = llaves.map((llave) => fijarObjetivo(DB, { ...llave, monto: 10 }, VICTOR));
+  assert.ok(originales.every((meta) => meta.vigente && meta.version === 1));
+  for (const [indice, llave] of llaves.entries()) {
+    const nueva = fijarObjetivo(DB, { ...llave, monto: 12, motivo: "Ajuste de meta" }, VICTOR);
+    assert.strictEqual(nueva.version, 2);
+    assert.strictEqual(nueva.reemplaza_a, originales[indice].id);
+    assert.strictEqual(nueva.motivo, "Ajuste de meta");
+    assert.strictEqual(originales[indice].vigente, false);
+    assert.ok(originales.slice(indice + 1).every((meta) => meta.vigente));
+    assert.strictEqual(objetivoVigente(DB, llave), nueva);
+    assert.deepStrictEqual(historialObjetivo(DB, llave), [originales[indice], nueva]);
+  }
+  assert.strictEqual(DB.pos.objetivos.filter((meta) => meta.vigente).length, llaves.length);
+});
+
+for (const tipo of ["venta", "actividad", "marca", "producto", "credito"]) {
+  test(`${tipo} rechaza referencias ajenas en escritura, consulta, historial y reparto`, () => {
+    const DB = prepararDBConCatalogos();
+    const porTipo = { venta: {}, actividad: { actividad: "iglesia" }, marca: { marca_id: 1 }, producto: { producto_meta_id: 1 } };
+    const referencia = tipo === "credito" ? { financiera: "atrato" } : porTipo[tipo];
+    const datos = { ...PERIODO_META, tipo, ...referencia, monto: 10 };
+    const antes = structuredClone(DB);
+    for (const campo of ["actividad", "marca_id", "producto_meta_id", "financiera"].filter((c) => !(c in referencia))) {
+      const incompatible = { ...datos, [campo]: campo === "actividad" ? "iglesia" : campo === "financiera" ? "atrato" : 1 };
+      for (const consultar of [objetivoVigente, historialObjetivo, repartoSugerido, estadoDelReparto]) {
+        assert.throws(() => consultar(DB, incompatible), new RegExp(campo));
+      }
+      assert.throws(() => fijarObjetivo(DB, incompatible, VICTOR), new RegExp(campo));
+      assert.deepStrictEqual(DB, antes);
+    }
+  });
+}
+
+for (const [tipo, campo, lista] of [["marca", "marca_id", "marcas"], ["producto", "producto_meta_id", "productos"]]) {
+  test(`${tipo} exige un elemento existente y activo al fijar la meta`, () => {
+    const DB = prepararDBConCatalogos();
+    desactivarElemento(DB, lista, 2, { motivo: "Fuera de la lista" }, VICTOR);
+    const antes = structuredClone(DB);
+    for (const id of [undefined, null, 0, -1, 1.5, "abc", true, [], [1], {}, 99, 2]) {
+      assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: id, monto: 10 }, VICTOR), /identificador|existe|activo|activa/i);
+      assert.deepStrictEqual(DB, antes);
+    }
+  });
+
+  test(`desactivar ${tipo} conserva la consulta y el reparto de sus metas pero impide reemplazarlas`, () => {
+    const DB = prepararDBConCatalogos();
+    const datos = { ...PERIODO_META, tipo, [campo]: 1 };
+    registrarEnPlantilla(DB, { ...PERIODO_META, vendedor_id: 1 });
+    const meta = fijarObjetivo(DB, { ...datos, monto: 10 }, VICTOR);
+    desactivarElemento(DB, lista, 1, { motivo: "Ya no se usará" }, VICTOR);
+    const antes = structuredClone(DB);
+    assert.strictEqual(objetivoVigente(DB, datos), meta);
+    assert.deepStrictEqual(historialObjetivo(DB, datos), [meta]);
+    assert.deepStrictEqual(repartoSugerido(DB, datos), [{ vendedor_id: 1, monto: 10 }]);
+    assert.strictEqual(estadoDelReparto(DB, datos).meta_tienda, 10);
+    assert.throws(() => fijarObjetivo(DB, { ...datos, monto: 20, motivo: "Cambio" }, VICTOR), /activo|activa/i);
+    assert.deepStrictEqual(DB, antes);
+  });
+}
+
+test("crédito solo acepta las claves fijas coppel_pay y atrato", () => {
+  const DB = prepararDBConCatalogos();
+  const antes = structuredClone(DB);
+  for (const financiera of [undefined, null, "", "Coppel Pay", "ATRATO", "otra", 1, {}]) {
+    assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, tipo: "credito", financiera, monto: 10 }, VICTOR), /financiera/i);
+    assert.deepStrictEqual(DB, antes);
+  }
+});
+
+for (const referencia of [{ tipo: "producto", producto_meta_id: 1 }, { tipo: "credito", financiera: "atrato" }]) {
+  test(`${referencia.tipo} rechaza montos decimales sin modificar la base`, () => {
+    const DB = prepararDBConCatalogos();
+    const antes = structuredClone(DB);
+    assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, ...referencia, monto: 2.5 }, VICTOR), /entero/i);
+    assert.deepStrictEqual(DB, antes);
+  });
+}
+
+for (const referencia of [{ tipo: "venta" }, { tipo: "actividad", actividad: "iglesia" }]) {
+  test(`la meta histórica de ${referencia.tipo} sin campos nuevos sigue vigente y conserva su versión al cambiarla`, () => {
+    const DB = prepararDB();
+    const datos = { ...PERIODO_META, ...referencia };
+    const antigua = { id: 1, ...datos, monto: 10, version: 1, vigente: true };
+    DB.pos.objetivos.push(antigua);
+    const consulta = { ...datos, marca_id: null, producto_meta_id: null, financiera: null };
+    assert.strictEqual(objetivoVigente(DB, datos), antigua);
+    assert.strictEqual(objetivoVigente(DB, consulta), antigua);
+    assert.deepStrictEqual(historialObjetivo(DB, consulta), [antigua]);
+    const nueva = fijarObjetivo(DB, { ...consulta, monto: 12, motivo: "Ajuste" }, VICTOR);
+    assert.strictEqual(nueva.version, 2);
+    assert.strictEqual(nueva.reemplaza_a, antigua.id);
+    assert.strictEqual(antigua.vigente, false);
+    assert.strictEqual(objetivoVigente(DB, datos), nueva);
+    assert.deepStrictEqual(historialObjetivo(DB, datos), [antigua, nueva]);
+    for (const campo of ["marca_id", "producto_meta_id", "financiera"]) assert.strictEqual(nueva[campo], null);
+  });
+}

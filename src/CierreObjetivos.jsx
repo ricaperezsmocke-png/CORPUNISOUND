@@ -2,9 +2,14 @@
 import { LockKeyhole, RefreshCw } from "lucide-react";
 import { apiFetch } from "./api";
 import { Campo, Modal } from "./objetivos/DialogosObjetivos";
-import { leer, mesActual, pesos } from "./objetivos/datos";
+import { leer, mesActual } from "./objetivos/datos";
+import CierreElementos, { GRUPOS_CIERRE, nombreElemento } from "./objetivos/CierreElementos";
+import {
+  armarRealesCierre, camposFaltantesCierre, esRectificacionDeElemento, formatoUnidad, llaveCampo, pesosConCentavos, restarEnCentavos,
+  resumenAntesDeSellar,
+} from "./objetivos/marcas";
 
-const diferencia = (n) => n === 0 ? "Cuadra" : `Capturó ${pesos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
+const diferencia = (n) => n === 0 ? "Cuadra" : `Capturó ${pesosConCentavos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
 const nombresCampos = { meta: "Meta", capturado: "Capturado", real_sicar: "Real de SICAR" };
 // Catálogo fijo: el permiso de cierre no requiere acceso a la ruta de catálogo de gerencia.
 const nombresActividades = {
@@ -19,7 +24,10 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const [sucursales, setSucursales] = useState([]);
   const [equipo, setEquipo] = useState([]);
   const [previo, setPrevio] = useState([]);
-  const [reales, setReales] = useState({});
+  // Un valor por campo del cierre, con llaveCampo: SICAR de cada persona y el real de cada elemento.
+  const [valores, setValores] = useState({});
+  const [faltantes, setFaltantes] = useState([]);
+  const [confirmando, setConfirmando] = useState(false);
   const [cierre, setCierre] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
@@ -48,7 +56,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       const rCierre = await apiFetch(`/objetivos/${mes}/${sucursalId}/cierre`);
       if (rCierre.ok) {
         setCierre(await rCierre.json());
-        setReales({});
+        setValores({});
         return;
       }
       // Esta ruta usa 404 para un mes todavía abierto; el previo comprueba también el alcance.
@@ -56,7 +64,8 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       const lineas = await apiFetch(`/objetivos/${mes}/${sucursalId}/previo-cierre`)
         .then((r) => leer(r, "No se pudo preparar el cierre"));
       setPrevio(lineas);
-      setReales(Object.fromEntries(lineas.map((l) => [l.vendedor_id, ""])));
+      setValores({});
+      setFaltantes([]);
     } catch (e) {
       setError(e.message);
       setCierre(null);
@@ -67,24 +76,38 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   }, [mes, sucursalId]);
   useEffect(() => { cargar(); }, [cargar]);
 
+  const revisar = () => {
+    setError("");
+    const vacios = camposFaltantesCierre(previo, valores);
+    setFaltantes(vacios);
+    if (vacios.length) {
+      setError(`Faltan ${vacios.length} ${vacios.length === 1 ? "dato" : "datos"} por capturar (marcados en rojo).`);
+      return;
+    }
+    setConfirmando(true);
+  };
+
   const cerrarMes = async () => {
     setError("");
     setExito("");
     try {
       const datos = await apiFetch("/objetivos/cierre", {
         method: "POST",
-        body: JSON.stringify({
-          mes,
-          sucursal_id: Number(sucursalId),
-          reales: previo.map((l) => ({ vendedor_id: l.vendedor_id, real_sicar: Number(reales[l.vendedor_id]) })),
-        }),
+        body: JSON.stringify({ mes, sucursal_id: Number(sucursalId), reales: armarRealesCierre(previo, valores) }),
       }).then((r) => leer(r, "No se pudo cerrar el mes"));
+      setConfirmando(false);
       setCierre(datos);
       setPrevio([]);
       setExito("El mes quedó cerrado y sellado.");
     } catch (e) {
+      setConfirmando(false);
       setError(e.message);
     }
+  };
+
+  const cambiarValor = (llave, valor) => {
+    setValores((actual) => ({ ...actual, [llave]: valor }));
+    setFaltantes((actual) => actual.filter((f) => f !== llave));
   };
 
   const rectificar = async () => {
@@ -97,6 +120,8 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
         body: JSON.stringify({
           vendedor_id: rectificando.vendedor_id, campo: rectificando.campo,
           valor_nuevo: Number(rectificando.valor_nuevo), motivo: rectificando.motivo,
+          // Rectificar un elemento (marca, producto o financiera) lleva su referencia; la venta, no.
+          ...(rectificando.clave ? { [rectificando.clave]: rectificando.id } : {}),
         }),
       }).then((r) => leer(r, "No se pudo guardar la rectificación"));
       setRectificando(null);
@@ -109,7 +134,8 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
 
   const nombres = new Map(equipo.map((v) => [Number(v.id), v.nombre]));
   const nombre = (id) => nombres.get(Number(id)) || `Vendedor #${id}`;
-  const completos = previo.length > 0 && previo.every((l) => reales[l.vendedor_id] !== "" && Number(reales[l.vendedor_id]) >= 0);
+  const nombreSucursal = sucursales.find((s) => String(s.id) === String(sucursalId))?.nombre || usuario?.sucursal_nombre || `Sucursal ${sucursalId}`;
+  const resumen = confirmando ? resumenAntesDeSellar(previo, valores) : null;
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
@@ -149,18 +175,35 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
           <p className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
             Una vez cerrado no se puede editar; solo rectificar.
           </p>
-          <TablaPrevio lineas={previo} reales={reales} cambiar={(id, valor) => setReales({ ...reales, [id]: valor })} />
-          <button disabled={!completos} onClick={cerrarMes}
+          <TablaPrevio lineas={previo} valores={valores} faltantes={faltantes} cambiar={cambiarValor} />
+          <CierreElementos lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} valores={valores}
+            faltantes={faltantes} cambiar={cambiarValor} />
+          <button type="button" disabled={previo.length === 0} onClick={revisar}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 disabled:opacity-40">
-            Cerrar mes
+            Revisar y cerrar
           </button>
           {previo.length === 0 && !error && (
             <p className="text-sm text-slate-500">No hay participantes para cerrar en este mes y sucursal.</p>
           )}
         </section>
       )}
+      {confirmando && resumen && (
+        <Modal titulo="¿Sellar el mes?" cerrar={() => setConfirmando(false)} guardar={cerrarMes}
+          textoGuardar="Sellar el mes" textoCerrar="Volver">
+          <div className="text-sm space-y-2">
+            <p><strong>{nombreSucursal}</strong> · {mes} · {resumen.personas} {resumen.personas === 1 ? "persona" : "personas"}</p>
+            <ul className="list-disc pl-5">
+              <li>Con diferencia en venta: <strong>{resumen.conDiferencia.venta}</strong></li>
+              <li>Con diferencia en marcas: <strong>{resumen.conDiferencia.marcas}</strong></li>
+              <li>Con diferencia en productos: <strong>{resumen.conDiferencia.productos}</strong></li>
+              <li>Con diferencia en créditos: <strong>{resumen.conDiferencia.creditos}</strong></li>
+            </ul>
+            <p className="text-amber-800">Al guardar se sella el mes: ya no se podrá capturar ni cambiar metas; solo rectificar.</p>
+          </div>
+        </Modal>
+      )}
       {rectificando && (
-        <Modal titulo={`Rectificar cierre sellado: ${nombre(rectificando.vendedor_id)}`}
+        <Modal titulo={`Rectificar cierre sellado: ${rectificando.titulo || nombre(rectificando.vendedor_id)}`}
           cerrar={() => setRectificando(null)} guardar={rectificar}
           deshabilitado={rectificando.valor_nuevo === "" || !rectificando.motivo.trim()}>
           <label className="text-sm block">
@@ -168,8 +211,8 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
             <select value={rectificando.campo} onChange={(e) => setRectificando({ ...rectificando, campo: e.target.value })}
               className="neu-campo rounded-lg px-3 py-2 w-full mt-1">
               <option value="meta">Meta</option>
-              <option value="capturado">Capturado</option>
-              <option value="real_sicar">Real de SICAR</option>
+              <option value="capturado">{rectificando.clave === "financiera" ? "Registrados" : "Capturado"}</option>
+              {rectificando.clave ? <option value="real">Real</option> : <option value="real_sicar">Real de SICAR</option>}
             </select>
           </label>
           <Campo etiqueta="Valor nuevo" tipo="number" valor={rectificando.valor_nuevo}
@@ -182,7 +225,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   );
 }
 
-function TablaPrevio({ lineas, reales, cambiar }) {
+function TablaPrevio({ lineas, valores, faltantes, cambiar }) {
   return (
     <div className="overflow-x-auto max-w-full">
       <table className="w-full text-sm min-w-[1000px]">
@@ -198,16 +241,18 @@ function TablaPrevio({ lineas, reales, cambiar }) {
         </thead>
         <tbody>
           {lineas.map((l) => {
-            const real = reales[l.vendedor_id];
-            const dif = real === "" ? null : l.capturado - Number(real);
+            const llave = llaveCampo(l.vendedor_id, "sicar", "");
+            const real = valores[llave] ?? "";
+            const dif = real === "" ? null : restarEnCentavos(l.capturado, real);
             return (
               <tr key={l.vendedor_id} className="border-b border-slate-100">
                 <td className="py-2">{l.nombre}</td>
-                <td>{pesos(l.meta)}</td>
-                <td>{pesos(l.capturado)}</td>
+                <td>{pesosConCentavos(l.meta)}</td>
+                <td>{pesosConCentavos(l.capturado)}</td>
                 <td>
-                  <input type="number" min="0" value={real} onChange={(e) => cambiar(l.vendedor_id, e.target.value)}
-                    className="neu-campo rounded-lg px-2 py-1 w-32" />
+                  <input type="number" min="0" step="any" value={real} onChange={(e) => cambiar(llave, e.target.value)}
+                    aria-label={`Real de SICAR de ${l.nombre}`}
+                    className={`neu-campo rounded-lg px-2 py-1 w-32 ${faltantes.includes(llave) ? "ring-2 ring-red-500" : ""}`} />
                 </td>
                 <td>{dif == null ? "Pendiente" : diferencia(dif)}</td>
                 <td className="p-3"><ActividadesCierre actividades={l.actividades} /></td>
@@ -220,7 +265,7 @@ function TablaPrevio({ lineas, reales, cambiar }) {
   );
 }
 
-function CierreSellado({ cierre, rectificar, nombre }) {
+export function CierreSellado({ cierre, rectificar, nombre }) {
   return (
     <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
       <div>
@@ -247,7 +292,8 @@ function CierreSellado({ cierre, rectificar, nombre }) {
           </thead>
           <tbody>
             {cierre.lineas.map((l) => {
-              const rectificaciones = cierre.rectificaciones.filter((r) => r.vendedor_id === l.vendedor_id);
+              const rectificaciones = cierre.rectificaciones
+                .filter((r) => r.vendedor_id === l.vendedor_id && !esRectificacionDeElemento(r));
               const vigente = { meta: l.meta, capturado: l.capturado, real_sicar: l.real_sicar };
               for (const r of rectificaciones) vigente[r.campo] = r.valor_nuevo;
               return (
@@ -255,14 +301,14 @@ function CierreSellado({ cierre, rectificar, nombre }) {
                   <td className="py-2">{nombre(l.vendedor_id)}</td>
                   {(["meta", "capturado", "real_sicar"]).map((campo) => (
                     <td key={campo}>
-                      {pesos(l[campo])}
+                      {pesosConCentavos(l[campo])}
                       {vigente[campo] !== l[campo] && (
-                        <p className="text-violet-700">Rectificado: {pesos(vigente[campo])}</p>
+                        <p className="text-violet-700">Rectificado: {pesosConCentavos(vigente[campo])}</p>
                       )}
                     </td>
                   ))}
                   <td>
-                    {diferencia(vigente.capturado - vigente.real_sicar)}
+                    {diferencia(restarEnCentavos(vigente.capturado, vigente.real_sicar))}
                     {rectificaciones.length > 0 && <p className="text-violet-700">(con rectificaciones)</p>}
                   </td>
                   <td className="p-3">
@@ -284,14 +330,16 @@ function CierreSellado({ cierre, rectificar, nombre }) {
           </tbody>
         </table>
       </div>
+      <CierreElementos lineas={cierre.lineas} nombre={(id) => nombre(id)} rectificaciones={cierre.rectificaciones}
+        rectificar={rectificar} />
       <div>
         <h3 className="font-medium text-slate-700 mb-2">Rectificaciones</h3>
         {cierre.rectificaciones.length ? (
           <ul className="space-y-2 text-sm">
             {cierre.rectificaciones.map((r) => (
               <li key={r.id} className="border rounded-lg p-3">
-                <strong>{nombre(r.vendedor_id)}: {nombresCampos[r.campo] || r.campo}</strong>
-                {" "}de {pesos(r.valor_anterior)} a {pesos(r.valor_nuevo)}
+                <strong>{nombre(r.vendedor_id)}: {rotuloRectificacion(cierre, r)}</strong>
+                {" "}de {valorRectificacion(r, r.valor_anterior)} a {valorRectificacion(r, r.valor_nuevo)}
                 <p>{r.motivo}</p>
                 <p className="text-slate-500">{r.rectificado_por} · {new Date(r.rectificado_en).toLocaleString("es-MX")}</p>
               </li>
@@ -302,6 +350,20 @@ function CierreSellado({ cierre, rectificar, nombre }) {
     </section>
   );
 }
+
+// Una rectificación de elemento se rotula "Yamaha · Real", nunca con los nombres de la venta.
+const CAMPOS_ELEMENTO = { meta: "Meta", capturado: "Capturado", real: "Real" };
+const grupoDe = (r) => GRUPOS_CIERRE.find(({ clave }) => r[clave] !== undefined && r[clave] !== null);
+
+function rotuloRectificacion(cierre, r) {
+  if (!esRectificacionDeElemento(r)) return nombresCampos[r.campo] || r.campo;
+  const { grupo, clave } = grupoDe(r);
+  const linea = cierre.lineas.find((l) => l.vendedor_id === r.vendedor_id);
+  const elemento = (linea?.[grupo] || []).find((e) => e[clave] === r[clave]) || { [clave]: r[clave], nombre: String(r[clave]) };
+  return `${nombreElemento(grupo, elemento)} · ${CAMPOS_ELEMENTO[r.campo] || r.campo}`;
+}
+
+const valorRectificacion = (r, n) => (esRectificacionDeElemento(r) ? formatoUnidad(grupoDe(r).unidad, n) : pesosConCentavos(n));
 
 function ActividadesCierre({ actividades }) {
   if (!actividades) return <p className="text-slate-500">Este cierre no incluye datos de actividades.</p>;
