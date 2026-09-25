@@ -87,7 +87,10 @@ export default function ListasObjetivos({ onCambio }) {
             </ul>
             <form className="flex gap-2 items-center" onSubmit={(ev) => { ev.preventDefault(); agregar(lista); }}>
               <input type="text" maxLength={60} value={nuevos[lista]} placeholder={`Ej. ${ejemplo}`} aria-label={`Nuevo en ${titulo}`}
-                onChange={(ev) => setNuevos((actual) => ({ ...actual, [lista]: ev.target.value }))}
+                onChange={(ev) => {
+                  setNuevos((actual) => ({ ...actual, [lista]: ev.target.value }));
+                  setErrores((actual) => ({ ...actual, [lista]: "" }));
+                }}
                 className="neu-campo rounded-lg px-3 py-1.5 flex-1" />
               <button type="submit" disabled={!nuevos[lista].trim()}
                 className="bg-blue-600 text-white rounded-lg px-3 py-1.5 disabled:opacity-40">
