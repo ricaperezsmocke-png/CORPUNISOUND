@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
-import { diasDeAtraso, leer, sugerenciaGuardada } from "./datos";
+import { diasDeAtraso, estadoReparto, fechaCorta, filasReparto, leer, periodoEnTienda, sugerenciaGuardada } from "./datos";
+import { declaradasPorPersona, presentacionMetaActividad, ultimoResultado } from "./actividades";
 
 const campo = "block neu-campo rounded-lg px-3 py-2 w-full min-w-0 mt-1";
 const boton = "bg-blue-600 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-40";
 const enlace = "text-blue-600 hover:underline disabled:opacity-40";
 const aviso = "bg-red-50 border border-red-200 text-red-900 rounded-lg p-3 text-sm break-words";
 const consultaClase = (actividad) => `?tipo=actividad&actividad=${encodeURIComponent(actividad)}`;
+const celda = "px-3 py-3 align-top";
+const fila = "border-b border-slate-100 odd:bg-white even:bg-blue-50";
+const tonos = { falta: "text-amber-800", completo: "text-emerald-700", exceso: "text-red-700", sin_meta: "text-slate-500" };
 
 export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre, actualizar }) {
   const [datos, setDatos] = useState(null);
@@ -114,20 +118,27 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
 
   return (
     <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
-      <div>
-        <h2 className="font-semibold text-slate-700">Actividades de la tienda</h2>
-        <p className="text-sm text-amber-800">Declaradas, no verificadas</p>
-      </div>
+      <h2 className="font-semibold text-slate-700">Metas de actividades · declaradas, no verificadas</h2>
       {cerrado && <p className="text-sm text-amber-800">Mes cerrado: las actividades y sus metas son de solo lectura.</p>}
       {error && <p role="alert" className={aviso}>{error}</p>}
-      {clases.map((reparto) => (
-        <RepartoActividad key={reparto.actividad} reparto={reparto} datos={datos} nombre={nombre}
-          cerrado={cerrado} ocupado={ocupado} sugerencia={sugerencias[reparto.actividad]}
-          abrir={abrirMeta} sugerir={() => sugerir(reparto.actividad)} />
-      ))}
+      <div className="overflow-x-auto max-w-full">
+        <table className="w-full min-w-[800px] text-sm text-left">
+          <thead className="bg-blue-600 text-white">
+            <tr>
+              <th className={celda}>Actividad</th><th className={celda}>Meta tienda</th><th className={celda}>Asignado</th>
+              <th className={celda}>Reparto</th><th className={celda}>Declaradas en tienda</th>
+            </tr>
+          </thead>
+          {clases.map((reparto, indice) => (
+            <RepartoActividad key={reparto.actividad} reparto={reparto} datos={datos} nombre={nombre}
+              plantilla={objetivos.plantilla} alterna={indice % 2 === 1}
+              cerrado={cerrado} ocupado={ocupado} sugerencia={sugerencias[reparto.actividad]}
+              abrir={abrirMeta} sugerir={() => sugerir(reparto.actividad)} />
+          ))}
+        </table>
+      </div>
       <div className="border-t border-slate-100 pt-4 space-y-3 min-w-0">
-        <h3 className="font-medium text-slate-700">Registros del mes</h3>
-        <p className="text-sm text-amber-800">Declaradas, no verificadas</p>
+        <h3 className="font-medium text-slate-700">Registros del mes · declaradas, no verificadas</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <label className="block min-w-0">
             Persona
@@ -137,7 +148,7 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
             </select>
           </label>
           <label className="block min-w-0">
-            Clase de actividad
+            Actividad
             <select className={campo} value={clase} onChange={(e) => setClase(e.target.value)}>
               <option value="">Todas las clases</option>
               {clases.map((item) => <option key={item.actividad} value={item.actividad}>{item.etiqueta}</option>)}
@@ -156,10 +167,22 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
             {datos.registros.length ? "No hay registros con estos filtros." : "Todavía no hay actividades registradas."}
           </p>
         )}
-        {registros.map((registro) => (
-          <RegistroTienda key={registro.id} registro={registro} nombre={nombre(registro.vendedor_id)}
-            etiqueta={clases.find((item) => item.actividad === registro.actividad)?.etiqueta || registro.actividad} />
-        ))}
+        <div className="overflow-x-auto max-w-full">
+          <table className="w-full min-w-[900px] text-sm text-left">
+            <thead className="bg-blue-600 text-white">
+              <tr>
+                <th className={celda}>Persona</th><th className={celda}>Fecha</th><th className={celda}>Actividad</th>
+                <th className={celda}>Evidencia</th><th className={celda}>Último resultado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {registros.map((registro) => (
+                <RegistroTienda key={registro.id} registro={registro} nombre={nombre(registro.vendedor_id)}
+                  etiqueta={clases.find((item) => item.actividad === registro.actividad)?.etiqueta || registro.actividad} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       {dialogo && (dialogo.historial || !cerrado) && (
         <DialogoMetaActividad dialogo={dialogo} guardar={guardar} ocupado={ocupado} cerrar={() => setDialogo(null)} />
@@ -168,119 +191,162 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
   );
 }
 
-function RepartoActividad({ reparto, datos, nombre, cerrado, ocupado, sugerencia, abrir, sugerir }) {
-  const resumen = datos?.resumen_tienda.find((item) => item.actividad === reparto.actividad);
+function RepartoActividad({ reparto, datos, plantilla, alterna, nombre, cerrado, ocupado, sugerencia, abrir, sugerir }) {
+  const [desplegada, setDesplegada] = useState(false);
+  const { declaradas, inactiva } = presentacionMetaActividad(reparto, datos);
+  const estado = estadoReparto({ meta: reparto.meta_tienda, sinAsignar: reparto.sin_asignar, unidad: "unidades" });
+  const personas = filasReparto({ plantilla, lineas: reparto.lineas });
+  const mostrarSugerencia = sugerencia !== undefined;
+  const fondo = alterna ? "bg-blue-50" : "bg-white";
+  const detalleId = `detalle-actividad-${reparto.actividad}`;
   return (
-    <article className="border border-slate-200 rounded-lg p-3 space-y-3 min-w-0 text-sm">
-      <h3 className="font-medium text-slate-700">{reparto.etiqueta}</h3>
-      <p className="text-amber-800">Declaradas, no verificadas</p>
-      <div className="flex flex-wrap gap-x-5 gap-y-2">
-        <span>Meta de tienda: <strong>{reparto.meta_tienda}</strong></span>
-        <span>Asignado: <strong>{reparto.asignado}</strong></span>
-        <span className={reparto.sin_asignar !== 0 ? "text-red-700" : "text-slate-600"}>
-          Sin asignar: <strong>{reparto.sin_asignar}</strong>
-        </span>
-        <span>Declaradas en tienda: <strong>{resumen?.declaradas ?? "—"}</strong></span>
-      </div>
-      <p className="text-slate-500">Una actividad conjunta cuenta una sola vez para la tienda.</p>
-      <div className="flex flex-wrap gap-3 items-center">
-        {!cerrado && (
-          <>
-            <button type="button" disabled={ocupado} className={boton}
-              onClick={() => abrir(reparto, null, reparto.meta_tienda)}>Fijar meta de tienda</button>
-            <button type="button" disabled={ocupado} className={enlace} onClick={sugerir}>Sugerir partes iguales</button>
-          </>
-        )}
-        <button type="button" disabled={ocupado} className={enlace}
-          onClick={() => abrir(reparto, null, reparto.meta_tienda, true)}>Historial de tienda</button>
-      </div>
-      {!cerrado && sugerencia && (
-        <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 space-y-2">
-          <h4 className="font-medium">Reparto sugerido · Declaradas, no verificadas</h4>
-          <p>La sugerencia no guarda cambios. Revisa y guarda cada parte.</p>
-          {sugerencia.length ? (
-            <ul className="space-y-2">
-              {sugerencia.map((linea) => (
-                <li key={linea.vendedor_id} className="flex flex-wrap gap-2 justify-between">
-                  <span className="break-words min-w-0">{nombre(linea.vendedor_id)}: {linea.monto}</span>
-                  {sugerenciaGuardada(linea, reparto.lineas) ? (
-                    <span className="text-emerald-700">Guardada</span>
-                  ) : (
-                    <button type="button" disabled={ocupado} className={enlace}
-                      onClick={() => abrir(reparto, linea.vendedor_id, linea.monto)}>Usar sugerencia</button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : <p>Primero fija la meta de tienda y registra la plantilla del mes.</p>}
-        </div>
+    <tbody>
+      <tr className={`border-b border-slate-100 cursor-pointer ${fondo} ${inactiva ? "text-slate-500" : ""}`}
+        onClick={() => setDesplegada(!desplegada)}>
+        <th scope="row" className={`${celda} font-medium`}>
+          <button type="button" aria-expanded={desplegada} aria-controls={detalleId} className="text-left w-full"
+            onClick={(e) => { e.stopPropagation(); setDesplegada(!desplegada); }}>
+            <span aria-hidden="true">{desplegada ? "▾" : "▸"}</span> {reparto.etiqueta}
+          </button>
+        </th>
+        <td className={celda}>{inactiva ? "—" : reparto.meta_tienda}</td>
+        <td className={celda}>{inactiva ? "—" : reparto.asignado}</td>
+        <td className={`${celda} ${inactiva ? "" : tonos[estado.tono]}`}>{inactiva ? "—" : estado.texto}</td>
+        <td className={celda}>{inactiva ? "—" : declaradas ?? "—"}</td>
+      </tr>
+      {desplegada && (
+        <tr id={detalleId}>
+          <td colSpan={5} className="p-4 bg-slate-50">
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-3 items-center">
+                {!cerrado && (
+                  <>
+                    <button type="button" disabled={ocupado} className={boton}
+                      onClick={() => abrir(reparto, null, reparto.meta_tienda)}>Fijar meta de tienda</button>
+                    <button type="button" disabled={ocupado} className={enlace} onClick={sugerir}>Sugerir partes iguales</button>
+                  </>
+                )}
+                <button type="button" disabled={ocupado} className={enlace}
+                  onClick={() => abrir(reparto, null, reparto.meta_tienda, true)}>Historial de tienda</button>
+              </div>
+              <p className="text-slate-500">Una actividad conjunta cuenta una sola vez para la tienda.</p>
+              {mostrarSugerencia && <p>La sugerencia no guarda nada: usa "Usar" en cada persona.</p>}
+              {mostrarSugerencia && !sugerencia.length && <p>Primero fija la meta de tienda y registra el personal del mes.</p>}
+              {personas.length ? (
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-blue-600 text-white">
+                    <tr>
+                      <th className={celda}>Persona</th><th className={celda}>Meta</th><th className={celda}>Declaradas</th>
+                      {mostrarSugerencia && <th className={celda}>Sugerida</th>}
+                      <th className={celda}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {personas.map((persona) => (
+                      <ParteActividad key={persona.vendedor_id} persona={persona} reparto={reparto} datos={datos} nombre={nombre}
+                        cerrado={cerrado} ocupado={ocupado} sugerencia={sugerencia} abrir={abrir} />
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p className="text-slate-500">Todavía no hay personas en el personal del mes.</p>}
+            </div>
+          </td>
+        </tr>
       )}
-      <div className="overflow-x-auto max-w-full">
-        <table className="w-full text-sm min-w-[560px]">
-          <caption className="text-left text-amber-800 pb-2">Reparto por persona · Declaradas, no verificadas</caption>
-          <thead>
-            <tr className="border-b text-left text-slate-500">
-              <th className="py-2">Persona</th><th>Meta</th><th>Declaradas</th><th className="text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reparto.lineas.map((linea) => {
-              const persona = datos?.resumen_por_persona.find((item) => Number(item.vendedor_id) === Number(linea.vendedor_id));
-              const declaradas = persona?.resumen.find((item) => item.actividad === reparto.actividad)?.declaradas ?? 0;
-              return (
-                <tr key={linea.vendedor_id} className="border-b border-slate-100">
-                  <td className="py-2">{nombre(linea.vendedor_id)}</td><td>{linea.monto}</td><td>{datos ? declaradas : "—"}</td>
-                  <td className="text-right space-x-3">
-                    {!cerrado && (
-                      <button type="button" disabled={ocupado} className={enlace}
-                        onClick={() => abrir(reparto, linea.vendedor_id, linea.monto)}>Editar parte</button>
-                    )}
-                    <button type="button" disabled={ocupado} className={enlace}
-                      onClick={() => abrir(reparto, linea.vendedor_id, linea.monto, true)}>Historial</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {!reparto.lineas.length && <p className="text-slate-500">Todavía no hay personas en la plantilla del mes.</p>}
-    </article>
+    </tbody>
+  );
+}
+
+function ParteActividad({ persona, reparto, datos, nombre, cerrado, ocupado, sugerencia, abrir }) {
+  const sugerida = sugerencia?.find((item) => Number(item.vendedor_id) === persona.vendedor_id);
+  const periodo = periodoEnTienda(persona);
+  return (
+    <tr className={fila}>
+      <td className={`${celda} max-w-xs break-words`}>
+        <p>{nombre(persona.vendedor_id)}</p>
+        {periodo && <p className="text-slate-500">{periodo}</p>}
+      </td>
+      <td className={celda}>{persona.monto ?? "—"}</td>
+      <td className={celda}>{declaradasPorPersona(datos, persona.vendedor_id, reparto.actividad) ?? "—"}</td>
+      {sugerencia !== undefined && (
+        <td className={celda}>
+          {sugerida ? (
+            <div className="flex flex-wrap gap-2">
+              <span>{sugerida.monto}</span>
+              {sugerenciaGuardada(sugerida, reparto.lineas) ? <span className="text-emerald-700">✔ Guardada</span> : !cerrado && (
+                <button type="button" disabled={ocupado} className={enlace}
+                  onClick={() => abrir(reparto, persona.vendedor_id, sugerida.monto)}>Usar</button>
+              )}
+            </div>
+          ) : "—"}
+        </td>
+      )}
+      <td className={celda}>
+        <div className="flex flex-wrap gap-3">
+          {!cerrado && (
+            <button type="button" disabled={ocupado} className={enlace}
+              onClick={() => abrir(reparto, persona.vendedor_id, persona.monto ?? 0)}>Editar parte</button>
+          )}
+          <button type="button" disabled={ocupado} className={enlace}
+            onClick={() => abrir(reparto, persona.vendedor_id, persona.monto ?? 0, true)}>Historial</button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
 function RegistroTienda({ registro, nombre, etiqueta }) {
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
   const evidencia = registro.evidencia;
   const atraso = diasDeAtraso({ fecha: registro.fecha, capturado_en: registro.registrado_en });
+  const ultimo = ultimoResultado(registro);
   return (
-    <article className="border border-slate-200 rounded-lg p-3 text-sm space-y-2 min-w-0 break-words">
-      <div className={registro.vigente ? "space-y-2" : "space-y-2 line-through text-slate-500"}>
-        <h4 className="font-medium">{nombre} · {registro.fecha} · {etiqueta}</h4>
-        <p className="text-amber-800">Declaradas, no verificadas</p>
+    <tr className={`${fila} ${registro.vigente ? "" : "line-through text-slate-500"}`}>
+      <td className={`${celda} max-w-xs break-words`}>{nombre}</td>
+      <td className={celda}>{fechaCorta(registro.fecha)}</td>
+      <td className={`${celda} max-w-xs break-words`}>
+        <p className="font-medium">{etiqueta}</p>
         {registro.conjunta_con != null && <p className="font-medium text-amber-800">Conjunta</p>}
         {atraso > 0 && <p className="text-amber-800">registrado {atraso} {atraso === 1 ? "día" : "días"} después</p>}
-        <a href={evidencia.tipo === "foto" ? evidencia.drive_link : evidencia.link}
-          target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all">
-          {evidencia.tipo === "foto" ? "Ver foto" : evidencia.link}
-        </a>
         {registro.nota && <p>{registro.nota}</p>}
-        <div className="space-y-2">
-          <h5 className="font-medium">Resultados · Declaradas, no verificadas</h5>
-          {!registro.resultados.length && <p className="text-slate-500">Sin resultados registrados.</p>}
-          {registro.resultados.map((resultado, indice) => (
-            <div key={indice}>
-              <p>{indice === registro.resultados.length - 1 ? "Último resultado" : "Resultado anterior"}</p>
-              <p>Contactos: {resultado.contactos} · Cotizaciones: {resultado.cotizaciones}</p>
-              {resultado.nota && <p>{resultado.nota}</p>}
-              <p className="text-slate-500">
-                {resultado.registrado_por} · {new Date(resultado.registrado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-      {!registro.vigente && <p className="text-red-800">Anulada: {registro.motivo_anulacion}</p>}
-    </article>
+        {!registro.vigente && <p>Anulada: {registro.motivo_anulacion}</p>}
+      </td>
+      <td className={celda}>
+        <a href={evidencia.tipo === "foto" ? evidencia.drive_link : evidencia.link}
+          target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+          {evidencia.tipo === "foto" ? "Ver foto" : "Ver publicación"}
+        </a>
+      </td>
+      <td className={`${celda} max-w-sm break-words`}>
+        {ultimo ? <Resultado resultado={ultimo} /> : "—"}
+        {registro.resultados.length > 1 && (
+          <>
+            <button type="button" onClick={() => setMostrarHistorial(!mostrarHistorial)} aria-expanded={mostrarHistorial}
+              className="text-blue-600 hover:underline mt-2">Ver historial ({registro.resultados.length})</button>
+            {mostrarHistorial && (
+              <div className="mt-2 space-y-3 border-t border-slate-200 pt-2">
+                {registro.resultados.slice(0, -1).map((resultado, indice) => <Resultado key={indice} resultado={resultado} />)}
+              </div>
+            )}
+          </>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function Resultado({ resultado }) {
+  return (
+    <div>
+      <p>
+        {resultado.contactos} {Number(resultado.contactos) === 1 ? "contacto" : "contactos"}, {resultado.cotizaciones}{" "}
+        {Number(resultado.cotizaciones) === 1 ? "cotización" : "cotizaciones"}
+      </p>
+      {resultado.nota && <p>{resultado.nota}</p>}
+      <p className="text-slate-500">
+        {resultado.registrado_por} · {new Date(resultado.registrado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}
+      </p>
+    </div>
   );
 }
 

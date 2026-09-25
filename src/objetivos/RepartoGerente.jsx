@@ -1,11 +1,18 @@
 import { useState } from "react";
-import { History, Users } from "lucide-react";
-import { finDelMes, pesos, sugerenciaGuardada } from "./datos";
+import { History, Users, Target, WandSparkles } from "lucide-react";
+import { estadoReparto, fechaCorta, filasReparto, finDelMes, sugerenciaGuardada } from "./datos";
+
+import { pesosConCentavos } from "./marcas";
+
+const celda = "px-3 py-3 align-top";
+const boton = "flex items-center gap-2 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm";
+const tonos = { falta: "text-amber-700", completo: "text-emerald-700", exceso: "text-red-700", sin_meta: "text-slate-500" };
 
 export default function RepartoGerente({
   mes, sucursalId, objetivos, equipo, nombre, agregar, editar, historial, sugerencia, pedirSugerencia, darBaja,
 }) {
   const [vendedorId, setVendedorId] = useState("");
+  const [personalAbierto, setPersonalAbierto] = useState(false);
   const [desde, setDesde] = useState("");
   const disponibles = equipo.filter((v) => v.activo !== false && Number(v.sucursal_id) === Number(sucursalId) &&
     !objetivos.plantilla.some((p) => Number(p.vendedor_id) === Number(v.id)));
@@ -18,47 +25,119 @@ export default function RepartoGerente({
     }
   };
 
+  const estado = estadoReparto({ meta: objetivos.meta_tienda, sinAsignar: objetivos.sin_asignar, unidad: "pesos" });
+  const filas = filasReparto(objetivos);
+
   return (
     <section className="neu rounded-xl p-4 space-y-4">
-      <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
-        <Users size={18} className="text-blue-600" />
-        Meta de la tienda y reparto
-      </h2>
-      <div className="flex flex-wrap gap-5 text-sm">
-        <span>
-          Meta de tienda: <strong>{pesos(objetivos.meta_tienda)}</strong>
-        </span>
-        <span>
-          Asignado: <strong>{pesos(objetivos.asignado)}</strong>
-        </span>
-        <span className={objetivos.sin_asignar !== 0 ? "text-red-700" : "text-slate-600"}>
-          Sin asignar: <strong>{pesos(objetivos.sin_asignar)}</strong>
-        </span>
+      <div className="grid grid-cols-3 gap-5">
+        <div>
+          <h2 className="text-sm text-slate-500">META DE TIENDA</h2>
+          <p className="text-2xl font-semibold">{pesosConCentavos(objetivos.meta_tienda)}</p>
+        </div>
+        <div>
+          <h2 className="text-sm text-slate-500">ASIGNADO</h2>
+          <p className="text-2xl font-semibold">{pesosConCentavos(objetivos.asignado)}</p>
+        </div>
+        <p role="status" className={`text-2xl font-semibold ${tonos[estado.tono]}`}>{estado.texto}</p>
       </div>
-      <div>
-        <h3 className="font-medium text-sm text-slate-700">Plantilla del mes</h3>
-        {objetivos.plantilla.length ? (
-          <ul className="text-sm mt-2 space-y-1">
-            {objetivos.plantilla.map((p) => (
-              <li key={p.vendedor_id}>
-                {nombre(p.vendedor_id)} · Desde {p.desde}
-                {p.hasta ? ` · hasta ${p.hasta} · ${p.motivo_baja}` : (
-                  !objetivos.cerrado && (
-                    <button type="button" onClick={() => darBaja({
-                      ...p, hasta: "", motivo: "",
-                    })} className="text-red-700 hover:underline ml-3">
-                      Dar de baja
+      <div className="flex flex-wrap gap-2">
+        {!objetivos.cerrado && (
+          <>
+            <button type="button" onClick={() => editar(null, objetivos.meta_tienda)} className={boton}>
+              <Target size={18} aria-hidden="true" />Fijar meta de tienda
+            </button>
+            <button type="button" onClick={pedirSugerencia} className={boton}>
+              <WandSparkles size={18} aria-hidden="true" />Sugerir reparto
+            </button>
+          </>
+        )}
+        <button type="button" onClick={() => setPersonalAbierto(true)} className={boton}>
+          <Users size={18} aria-hidden="true" />Personal del mes
+        </button>
+        <button type="button" onClick={() => historial(null)} className={boton}>
+          <History size={18} aria-hidden="true" />Historial de tienda
+        </button>
+      </div>
+      {sugerencia?.length === 0 && (
+        <p className="text-sm text-violet-700">Primero fija la meta de tienda y registra el personal del mes.</p>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[800px] text-sm text-left">
+          <thead className="bg-blue-600 text-white">
+            <tr>
+              <th className={celda}>Persona</th><th className={celda}>En tienda</th><th className={celda}>Meta</th>
+              {sugerencia && (
+                <th className={celda}>
+                  <p className="font-normal text-xs mb-2">La sugerencia no guarda nada: usa "Usar" en cada persona.</p>
+                  Sugerida
+                </th>
+              )}
+              <th className={celda}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((fila) => {
+              const sugerida = sugerencia?.find((item) => Number(item.vendedor_id) === fila.vendedor_id);
+              return (
+                <tr key={fila.vendedor_id} className="border-b border-slate-100 odd:bg-white even:bg-blue-50">
+                  <td className={celda}>{nombre(fila.vendedor_id)}</td>
+                  <td className={celda}><Periodo persona={fila} /></td>
+                  <td className={celda}>{fila.monto == null ? "—" : pesosConCentavos(fila.monto)}</td>
+                  {sugerencia && (
+                    <td className={celda}>
+                      {sugerida ? (
+                        <>
+                          {pesosConCentavos(sugerida.monto)}
+                          {sugerenciaGuardada(sugerida, objetivos.lineas) ? (
+                            <span className="ml-2 text-emerald-700">✔ Guardada</span>
+                          ) : !objetivos.cerrado && (
+                            <button type="button" onClick={() => editar(fila.vendedor_id, sugerida.monto)}
+                              className="ml-2 text-blue-600 hover:underline">Usar</button>
+                          )}
+                        </>
+                      ) : "—"}
+                    </td>
+                  )}
+                  <td className={`${celda} space-x-3`}>
+                    {!objetivos.cerrado && (
+                      <button type="button" onClick={() => editar(fila.vendedor_id, fila.monto ?? "")}
+                        className="text-blue-600 hover:underline">Fijar meta</button>
+                    )}
+                    <button type="button" onClick={() => historial(fila.vendedor_id)} className="text-blue-600 hover:underline">
+                      Historial
                     </button>
-                  )
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-sm text-slate-500">Todavía no hay personas en la plantilla.</p>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-      {/* La plantilla forma parte del sello y no se cambia después del cierre. */}
-      {!objetivos.cerrado && (
-        <>
+      {personalAbierto && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div role="dialog" aria-modal="true" aria-label="Personal del mes"
+            className="bg-white rounded-xl p-5 w-full max-w-2xl max-h-[85dvh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold">Personal del mes</h3>
+              <button type="button" onClick={() => setPersonalAbierto(false)} className={boton}>Cerrar</button>
+            </div>
+            {objetivos.plantilla.length ? (
+              <ul className="text-sm divide-y divide-slate-100">
+                {objetivos.plantilla.map((p) => (
+                  <li key={p.vendedor_id} className="py-3 flex items-start justify-between gap-3">
+                    <div><p className="font-medium">{nombre(p.vendedor_id)}</p><Periodo persona={p} /></div>
+                    {!objetivos.cerrado && !p.hasta && (
+                      <button type="button" className="text-red-700 hover:underline" onClick={() => {
+                        setPersonalAbierto(false);
+                        darBaja({ ...p, hasta: "", motivo: "" });
+                      }}>Dar de baja</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-sm text-slate-500">Todavía no hay personas en el personal del mes.</p>}
+            {!objetivos.cerrado && (
           <form onSubmit={agregarPersona} className="border-t border-slate-100 pt-3 space-y-2">
             <h3 className="font-medium text-sm text-slate-700">Agregar a la plantilla del mes</h3>
             <label className="block text-sm">
@@ -80,67 +159,20 @@ export default function RepartoGerente({
             </button>
             {!disponibles.length && <p className="text-sm text-slate-500">No hay vendedores activos pendientes de agregar.</p>}
           </form>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => editar(null, objetivos.meta_tienda)}
-              className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm">
-              Fijar meta de tienda
-            </button>
-            <button onClick={pedirSugerencia} className="border border-violet-300 text-violet-700 rounded-lg px-3 py-2 text-sm">
-              Ver reparto sugerido
-            </button>
+            )}
           </div>
-        </>
-      )}
-      {sugerencia && (
-        <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 text-sm">
-          <strong>Reparto sugerido</strong>
-          {sugerencia.length ? (
-            <ul className="mt-2">
-              {sugerencia.map((s) => (
-                <li key={s.vendedor_id}>
-                  {nombre(s.vendedor_id)}: {pesos(s.monto)}
-                  {sugerenciaGuardada(s, objetivos.lineas) && <span className="ml-2 text-emerald-700">Guardada</span>}
-                </li>
-              ))}
-            </ul>
-          ) : <p className="mt-1">Primero fija la meta de tienda y registra la plantilla del mes.</p>}
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[560px]">
-          <thead>
-            <tr className="border-b text-left text-slate-500">
-              <th className="py-2">Vendedor</th>
-              <th>Meta</th>
-              <th className="text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <FilaMeta titulo="Tienda" monto={objetivos.meta_tienda} historial={() => historial(null)} />
-            {objetivos.lineas.map((l) => (
-              <FilaMeta key={l.vendedor_id} titulo={nombre(l.vendedor_id)} monto={l.monto}
-                historial={() => historial(l.vendedor_id)}
-                editar={!objetivos.cerrado ? () => editar(l.vendedor_id, l.monto) : null} />
-            ))}
-          </tbody>
-        </table>
-      </div>
     </section>
   );
 }
 
-function FilaMeta({ titulo, monto, historial, editar }) {
+function Periodo({ persona }) {
+  if (!persona.desde) return "—";
   return (
-    <tr className="border-b border-slate-100">
-      <td className="py-2">{titulo}</td>
-      <td>{pesos(monto)}</td>
-      <td className="text-right space-x-3">
-        {editar && <button onClick={editar} className="text-blue-600 hover:underline">Fijar meta</button>}
-        <button onClick={historial} className="text-slate-600 hover:underline">
-          <History size={15} className="inline mr-1" />
-          Historial
-        </button>
-      </td>
-    </tr>
+    <div>
+      {persona.hasta ? `${fechaCorta(persona.desde)}–${fechaCorta(persona.hasta)}` : `desde ${fechaCorta(persona.desde)}`}
+      {persona.hasta && <p className="text-slate-500">{persona.motivo_baja}</p>}
+    </div>
   );
 }
