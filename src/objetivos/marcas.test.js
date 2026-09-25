@@ -4,6 +4,7 @@ import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
   esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
   creditoCompleto, filasMetasTienda, consultaElemento, formatoUnidad, resumenAntesDeSellar, restarEnCentavos,
+  sugerenciaDeFila,
 } from "./marcas.js";
 
 test("una captura sin tipo es de venta; marca y producto no", () => {
@@ -197,4 +198,11 @@ test("las sumas y restas de pesos se hacen en centavos exactos", () => {
     productos: [], creditos: [] }];
   const valores = { [llaveCampo(1, "sicar", "")]: "71.6", [llaveCampo(1, "marcas", 1)]: "0.3" };
   assert.deepEqual(resumenAntesDeSellar(previoCentavos, valores).conDiferencia, { venta: 0, marcas: 0, productos: 0, creditos: 0 });
+});
+
+test("una sugerencia solo se muestra en la fila que la pidió", () => {
+  const deYamaha = { llave: "marca|3", datos: [{ vendedor_id: 1, monto: 10000 }] };
+  assert.deepEqual(sugerenciaDeFila(deYamaha, "marca|3"), [{ vendedor_id: 1, monto: 10000 }]);
+  assert.equal(sugerenciaDeFila(deYamaha, "marca|9"), null, "la respuesta tardía de Yamaha no puede pintarse en Casio");
+  assert.equal(sugerenciaDeFila(null, "marca|3"), null);
 });

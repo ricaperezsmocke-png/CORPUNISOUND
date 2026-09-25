@@ -13,10 +13,20 @@ function normalizarId(valor, campo) {
 
 function normalizarFolio(folio) {
   if (typeof folio !== "string") throw new Error("El folio de la financiera es obligatorio");
-  // Solo letras y números: "CP-123" y "CP123" son el mismo crédito y no pueden contar dos veces.
-  const texto = folio.normalize("NFD").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  // "CP-123", "CP 123" y "CP123" son el mismo crédito (decisión de Victor 2026-09-24). NFKC convierte
+  // letras de ancho completo en las normales en vez de borrarlas; los acentos se quitan. Cualquier
+  // otro símbolo se rechaza: borrarlo en silencio juntaba folios distintos.
+  const texto = folio.normalize("NFKC").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\s\-._/]/g, "").toUpperCase();
+  if (/[^A-Z0-9]/.test(texto)) {
+    throw new Error("El folio solo puede llevar letras y números (se ignoran espacios, guiones, puntos y diagonales)");
+  }
   if (texto.length < 3 || texto.length > 40) throw new Error("El folio debe tener entre 3 y 40 caracteres");
   return texto;
+}
+
+function folioComparable(folio) {
+  try { return normalizarFolio(folio); } catch { return folio; }
 }
 
 function normalizarNota(nota) {
@@ -37,7 +47,8 @@ function registrarCredito(DB, { mes, fecha, sucursal_id, vendedor_id, financiera
   if (!Number.isFinite(monto) || monto <= 0) throw new Error("El monto debe ser un número finito mayor que cero");
   nota = normalizarNota(nota);
   const registros = DB.pos.objetivo_creditos || [];
-  const anterior = registros.find((item) => item.vigente && item.financiera === financiera && item.folio === folio);
+  // El guardado también se normaliza: registros de versiones anteriores pueden traer separadores.
+  const anterior = registros.find((item) => item.vigente && item.financiera === financiera && folioComparable(item.folio) === folio);
   if (anterior) {
     if (anterior.sucursal_id !== sucursal_id) throw new Error("ya registrado en otra tienda");
     throw new Error(`Este folio ya lo registró ${anterior.registrado_por} el ${anterior.fecha}`);

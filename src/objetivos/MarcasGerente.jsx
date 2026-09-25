@@ -4,7 +4,9 @@ import { apiFetch } from "../api";
 import { Campo, Modal } from "./DialogosObjetivos";
 import ListasObjetivos from "./ListasObjetivos";
 import { leer, sugerenciaGuardada } from "./datos";
-import { ETIQUETAS_FINANCIERA, consultaElemento, filasMetasTienda, formatoUnidad, pesosConCentavos, textoPendiente } from "./marcas";
+import {
+  ETIQUETAS_FINANCIERA, consultaElemento, filasMetasTienda, formatoUnidad, pesosConCentavos, sugerenciaDeFila, textoPendiente,
+} from "./marcas";
 
 const TIPOS_ALTA = [
   { tipo: "marca", clave: "marca_id", lista: "marcas", etiqueta: "Marca (pesos)" },
@@ -31,6 +33,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
   const cerrado = objetivos.cerrado;
   const filas = filasMetasTienda(objetivos);
   const fila = filas.find((f) => f.llave === elegida) || null;
+  const sugeridos = sugerenciaDeFila(sugerencia, elegida);
 
   const cargarCreditos = useCallback(async () => {
     try {
@@ -73,7 +76,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
     try {
       const versiones = await apiFetch(`/objetivos/${mes}/${sucursalId}/historial/${vendedorId ?? "tienda"}?${consultaElemento(fila)}`)
         .then((r) => leer(r, "No se pudo consultar el historial"));
-      setEditando({ vendedor_id: vendedorId, monto, motivo: "", existente: versiones.length > 0, error: "" });
+      setEditando({ llave: fila.llave, vendedor_id: vendedorId, monto, motivo: "", existente: versiones.length > 0, error: "" });
     } catch (e) {
       setError(e.message);
     }
@@ -110,8 +113,11 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
   const pedirSugerencia = async () => {
     setError("");
     try {
-      setSugerencia(await apiFetch(`/objetivos/${mes}/${sucursalId}/sugerencia?${consultaElemento(fila)}`)
-        .then((r) => leer(r, "No se pudo calcular el reparto sugerido")));
+      // Se guarda con su fila: si la respuesta llega después de cambiar de marca, no se pinta en la otra.
+      const llave = fila.llave;
+      const datos = await apiFetch(`/objetivos/${mes}/${sucursalId}/sugerencia?${consultaElemento(fila)}`)
+        .then((r) => leer(r, "No se pudo calcular el reparto sugerido"));
+      setSugerencia({ llave, datos });
     } catch (e) {
       setError(e.message);
     }
@@ -200,7 +206,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
             </thead>
             <tbody>
               {(fila.lineas || []).map((l) => {
-                const sug = sugerencia?.find((s) => Number(s.vendedor_id) === Number(l.vendedor_id));
+                const sug = sugeridos?.find((s) => Number(s.vendedor_id) === Number(l.vendedor_id));
                 const guardada = sug && sugerenciaGuardada(sug, fila.lineas);
                 return (
                   <tr key={l.vendedor_id} className="border-b border-slate-100">
@@ -273,7 +279,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
         </table>
       </div>
       {administraListas && <ListasObjetivos onCambio={cargarCatalogo} />}
-      {editando && fila && !cerrado && (
+      {editando && fila && editando.llave === fila.llave && !cerrado && (
         <Modal titulo={`${fila.nombre} · ${editando.vendedor_id == null ? "Meta de la tienda" : `Meta de ${nombre(editando.vendedor_id)}`}`}
           cerrar={() => setEditando(null)} guardar={guardarEdicion}
           deshabilitado={editando.monto === "" || (editando.existente && !editando.motivo.trim())}>

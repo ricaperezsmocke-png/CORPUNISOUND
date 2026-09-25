@@ -9,6 +9,11 @@ function validarMonto(monto, tipo) {
   if (!Number.isFinite(monto) || monto < 0) {
     throw new Error("El monto debe ser un número finito mayor o igual a cero");
   }
+  // Pesos con a lo más dos decimales: con más, cada importe se redondeaba por separado en el
+  // candado y tres marcas de $1.004 cabían en una venta de $3.00.
+  if (tipo !== "producto" && Math.abs(monto * 100 - Math.round(monto * 100)) > 1e-6) {
+    throw new Error("El monto en pesos acepta a lo más dos decimales");
+  }
   if (tipo === "producto" && !Number.isInteger(monto)) {
     throw new Error("El monto de producto debe ser un entero mayor o igual a cero");
   }

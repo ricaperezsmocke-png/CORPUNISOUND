@@ -139,3 +139,6 @@ export function resumenAntesDeSellar(previo, valores) {
   }
   return { personas: previo.length, conDiferencia };
 }
+
+// La sugerencia recuerda de qué fila es: una respuesta lenta de Yamaha no puede pintarse en Casio.
+export const sugerenciaDeFila = (sugerencia, llave) => (sugerencia && sugerencia.llave === llave ? sugerencia.datos : null);

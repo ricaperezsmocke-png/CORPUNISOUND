@@ -7,7 +7,7 @@ import { pesosConCentavos, renglonesDelDia, resumenMarcasDelDia, sumarEnCentavos
 
 const TIPOS = [
   {
-    tipo: "marca", clave: "marca_id", lista: "marcas", totales: "total_por_marca", step: "any",
+    tipo: "marca", clave: "marca_id", lista: "marcas", totales: "total_por_marca", step: "0.01",
     titulo: "¿De qué marcas fue?", unidad: "Pesos", Icono: Tags, otra: "+ otra marca",
   },
   {

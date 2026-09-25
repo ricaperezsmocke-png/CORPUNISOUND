@@ -250,3 +250,23 @@ test("el mismo folio con guiones, puntos o diagonales no se puede registrar otra
   }
   assert.throws(() => registrarCredito(DB, { ...DATOS, folio: "--" }, USUARIO), /entre 3 y 40/);
 });
+
+test("un folio guardado con separadores (versión anterior) choca con el mismo folio sin ellos", () => {
+  const DB = prepararDB();
+  DB.pos.objetivo_creditos.push({ ...DATOS, id: 1, folio: "CP-123", vigente: true, registrado_por: "Juan", fecha: "2026-09-02" });
+  rechazaSinCambios(DB, { folio: "CP123" }, /ya lo registró Juan/);
+});
+
+test("una letra de ancho completo cuenta como la letra normal y no se borra", () => {
+  const DB = prepararDB();
+  registrarCredito(DB, { ...DATOS, folio: "CP123" }, USUARIO);
+  rechazaSinCambios(DB, { folio: "CＰ123" }, /ya lo registró/);
+  const otro = registrarCredito(DB, { ...DATOS, folio: "C123" }, USUARIO);
+  assert.equal(otro.folio, "C123");
+});
+
+test("un folio con símbolos que no son letras, números ni separadores se rechaza", () => {
+  const DB = prepararDB();
+  rechazaSinCambios(DB, { folio: "CP✓123" }, /letras y números/);
+  rechazaSinCambios(DB, { folio: "CP#123" }, /letras y números/);
+});

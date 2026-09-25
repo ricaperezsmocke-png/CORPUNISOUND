@@ -698,3 +698,20 @@ test("traslado sin plantilla no permite duplicar una referencia ni evadir el can
     ...DIA, sucursal_id: 2, tipo: "marca", marca_id: 2, monto: 41,
   }, VICTOR), /marca.*venta|venta.*marca/i);
 });
+
+// Con tres decimales, cada importe se redondeaba por separado y se colaba más de un centavo:
+// tres marcas de $1.004 sobre una venta de $3.00 sumaban $3.012.
+test("venta y marca en pesos aceptan a lo más dos decimales", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, { monto: 3 });
+  rechazaSinCambios(DB, () => capturarDia(DB, { ...DIA, tipo: "marca", marca_id: 1, monto: 1.004 }, VICTOR), /dos decimales/);
+  const otro = prepararCatalogos();
+  rechazaSinCambios(otro, () => capturarDia(otro, { ...DIA, monto: 71.605 }, VICTOR), /dos decimales/);
+});
+
+test("corregir una marca con más de dos decimales se rechaza", () => {
+  const DB = prepararCatalogos();
+  sembrarCaptura(DB, { monto: 3 });
+  const marca = sembrarCaptura(DB, { tipo: "marca", marca_id: 1, monto: 1 });
+  rechazaSinCambios(DB, () => corregirCaptura(DB, marca.id, 1.004, "Ajuste", VICTOR), /dos decimales/);
+});
