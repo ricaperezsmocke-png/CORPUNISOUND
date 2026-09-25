@@ -617,7 +617,9 @@ for (const [tipo, campo, lista] of [["marca", "marca_id", "marcas"], ["producto"
     }
   });
 
-  test(`desactivar ${tipo} conserva la consulta y el reparto de sus metas pero impide reemplazarlas`, () => {
+  // Antes decía "impide reemplazarlas". Victor decidió el 2026-09-24 (opción A) que las metas ya
+  // vigentes de un elemento desactivado sí se pueden cambiar; solo las nuevas se rechazan.
+  test(`desactivar ${tipo} conserva la consulta y el reparto; impide metas nuevas pero deja cambiar las vigentes`, () => {
     const DB = prepararDBConCatalogos();
     const datos = { ...PERIODO_META, tipo, [campo]: 1 };
     registrarEnPlantilla(DB, { ...PERIODO_META, vendedor_id: 1 });
@@ -628,8 +630,11 @@ for (const [tipo, campo, lista] of [["marca", "marca_id", "marcas"], ["producto"
     assert.deepStrictEqual(historialObjetivo(DB, datos), [meta]);
     assert.deepStrictEqual(repartoSugerido(DB, datos), [{ vendedor_id: 1, monto: 10 }]);
     assert.strictEqual(estadoDelReparto(DB, datos).meta_tienda, 10);
-    assert.throws(() => fijarObjetivo(DB, { ...datos, monto: 20, motivo: "Cambio" }, VICTOR), /activo|activa/i);
+    assert.throws(() => fijarObjetivo(DB, { ...datos, vendedor_id: 1, monto: 5 }, VICTOR), /activo|activa/i);
     assert.deepStrictEqual(DB, antes);
+    const cambiada = fijarObjetivo(DB, { ...datos, monto: 20, motivo: "Cambio" }, VICTOR);
+    assert.strictEqual(cambiada.version, 2);
+    assert.strictEqual(objetivoVigente(DB, datos).monto, 20);
   });
 }
 
@@ -668,5 +673,37 @@ for (const referencia of [{ tipo: "venta" }, { tipo: "actividad", actividad: "ig
     assert.strictEqual(objetivoVigente(DB, datos), nueva);
     assert.deepStrictEqual(historialObjetivo(DB, datos), [antigua, nueva]);
     for (const campo of ["marca_id", "producto_meta_id", "financiera"]) assert.strictEqual(nueva[campo], null);
+  });
+}
+
+// Decisión de Victor 2026-09-24 (opción A): si una marca o producto se desactiva a mitad de mes,
+// sus metas YA EXISTENTES se pueden cambiar o poner en 0 (con motivo); las metas nuevas no.
+for (const { tipo, campo, lista } of [
+  { tipo: "marca", campo: "marca_id", lista: "marcas" },
+  { tipo: "producto", campo: "producto_meta_id", lista: "productos" },
+]) {
+  test(`la meta existente de ${tipo} desactivado se puede bajar a 0 con motivo`, () => {
+    const DB = prepararDBConCatalogos();
+    fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: 1, vendedor_id: 1, monto: 5 }, VICTOR);
+    desactivarElemento(DB, lista, 1, { motivo: "Ya no se maneja" }, VICTOR);
+    const nueva = fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: "1", vendedor_id: 1, monto: 0, motivo: "Se dejó de manejar" }, VICTOR);
+    assert.strictEqual(nueva.monto, 0);
+    assert.strictEqual(nueva.version, 2);
+  });
+
+  test(`una meta nueva de ${tipo} desactivado se sigue rechazando sin escribir`, () => {
+    const DB = prepararDBConCatalogos();
+    fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: 1, vendedor_id: 1, monto: 5 }, VICTOR);
+    desactivarElemento(DB, lista, 1, { motivo: "Ya no se maneja" }, VICTOR);
+    const antes = structuredClone(DB.pos.objetivos);
+    // La de tienda nunca existió: es meta nueva aunque la de la persona sí exista.
+    assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: 1, monto: 5 }, VICTOR), /desactivad/);
+    assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: 1, vendedor_id: 2, monto: 5 }, VICTOR), /desactivad/);
+    assert.deepStrictEqual(DB.pos.objetivos, antes);
+  });
+
+  test(`${tipo} que no existe se sigue rechazando aunque se mande como cambio`, () => {
+    const DB = prepararDBConCatalogos();
+    assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: 99, vendedor_id: 1, monto: 0, motivo: "x" }, VICTOR), /no existe/);
   });
 }

@@ -1,5 +1,5 @@
 const { claseActividad } = require("./objetivosActividadesCatalogo");
-const { elementoActivo } = require("./objetivosCatalogos");
+const { elementoActivo, listarElementos } = require("./objetivosCatalogos");
 
 function idDeMeta(valor, campo) {
   const id = (typeof valor === "string" || typeof valor === "number") ? Number(valor) : NaN;
@@ -68,10 +68,17 @@ function fijarObjetivo(DB, datos, usuario) {
   if (["actividad", "producto", "credito"].includes(tipo) && !Number.isInteger(monto)) {
     throw new Error(`El monto de ${tipo} debe ser un entero mayor o igual a cero`);
   }
-  if (tipo === "marca" && !elementoActivo(DB, "marcas", llave.marca_id)) {
+  // Una marca o producto desactivado no admite metas NUEVAS, pero sus metas ya vigentes se pueden
+  // cambiar o poner en 0 (decisión de Victor 2026-09-24): si no, la vendedora arrastraría una meta
+  // que nadie puede quitarle y el cierre seguiría pidiendo su real.
+  const yaTieneMeta = Boolean(objetivoVigente(DB, llave));
+  const admiteElemento = (lista, id) => (yaTieneMeta
+    ? listarElementos(DB, lista, { incluirInactivos: true }).some((e) => e.id === Number(id))
+    : Boolean(elementoActivo(DB, lista, id)));
+  if (tipo === "marca" && !admiteElemento("marcas", llave.marca_id)) {
     throw new Error("La marca no existe o está desactivada");
   }
-  if (tipo === "producto" && !elementoActivo(DB, "productos", llave.producto_meta_id)) {
+  if (tipo === "producto" && !admiteElemento("productos", llave.producto_meta_id)) {
     throw new Error("El producto no existe o está desactivado");
   }
   if (vendedor_id !== null) {
