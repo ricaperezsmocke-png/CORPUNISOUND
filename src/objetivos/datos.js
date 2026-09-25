@@ -65,6 +65,13 @@ export const hoyLocal = (fecha = new Date()) => new Intl.DateTimeFormat("en-CA",
 
 export const mesActual = () => hoyLocal().slice(0, 7);
 
+export function mesEnPalabras(mes) {
+  if (!mes) return "";
+  const [anio, numero] = mes.split("-");
+  const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  return `${meses[Number(numero) - 1]} ${anio}`;
+}
+
 export function sugerenciaGuardada(sugerencia, lineas) {
   return lineas.some((linea) => Number(linea.vendedor_id) === Number(sugerencia.vendedor_id) &&
     Number(linea.monto) === Number(sugerencia.monto));

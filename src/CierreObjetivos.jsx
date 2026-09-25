@@ -1,15 +1,21 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { LockKeyhole, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { apiFetch } from "./api";
 import { Campo, Modal } from "./objetivos/DialogosObjetivos";
-import { leer, mesActual } from "./objetivos/datos";
+import { leer, mesActual, mesEnPalabras } from "./objetivos/datos";
 import CierreElementos, { GRUPOS_CIERRE, nombreElemento } from "./objetivos/CierreElementos";
 import {
   armarRealesCierre, camposFaltantesCierre, esRectificacionDeElemento, formatoUnidad, llaveCampo, pesosConCentavos, restarEnCentavos,
-  resumenAntesDeSellar,
+  resumenAntesDeSellar, contadorCierre, rotuloCampoCierre,
 } from "./objetivos/marcas";
 
-const diferencia = (n) => n === 0 ? "Cuadra" : `Capturó ${pesosConCentavos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
+const diferencia = (n) => n === 0 ? "✔ Cuadra" : `Capturó ${pesosConCentavos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
+const TABLA = "w-full text-sm min-w-[800px] [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2";
+const FILA = "odd:bg-white even:bg-blue-50 border-b border-blue-100";
+const tonoDiferencia = (n) => n == null ? "text-slate-500" : n === 0 ? "text-emerald-700" : "text-amber-800";
+const fechaCierre = (fecha) => new Intl.DateTimeFormat("es-MX", {
+  timeZone: "America/Mexico_City", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+}).format(new Date(fecha));
 const nombresCampos = { meta: "Meta", capturado: "Capturado", real_sicar: "Real de SICAR" };
 // Catálogo fijo: el permiso de cierre no requiere acceso a la ruta de catálogo de gerencia.
 const nombresActividades = {
@@ -136,6 +142,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const nombre = (id) => nombres.get(Number(id)) || `Vendedor #${id}`;
   const nombreSucursal = sucursales.find((s) => String(s.id) === String(sucursalId))?.nombre || usuario?.sucursal_nombre || `Sucursal ${sucursalId}`;
   const resumen = confirmando ? resumenAntesDeSellar(previo, valores) : null;
+  const contador = contadorCierre(previo, valores);
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
@@ -155,7 +162,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
             </select>
           </label>
         )}
-        <button onClick={cargar} className="px-3 py-2 text-sm text-slate-600 flex gap-2 items-center">
+        <button type="button" onClick={cargar} className="px-3 py-2 text-sm text-slate-600 flex gap-2 items-center">
           <RefreshCw size={16} />
           Actualizar
         </button>
@@ -165,19 +172,22 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       )}
       {exito && <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg p-3 text-sm">{exito}</div>}
       {cargando ? <p className="text-sm text-slate-500">Consultando cierre…</p> : cierre ? (
-        <CierreSellado cierre={cierre} rectificar={setRectificando} nombre={nombre} />
+        <CierreSellado cierre={cierre} rectificar={setRectificando} nombre={nombre} mes={mes} nombreSucursal={nombreSucursal} />
       ) : (
         <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
           <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
-            <LockKeyhole size={18} className="text-blue-600" />
-            Cierre mensual de objetivos
+            {nombreSucursal.toUpperCase()} · {mesEnPalabras(mes).toUpperCase()} · 🔓 ABIERTO
           </h2>
+          <p className="text-sm text-slate-700" aria-live="polite">
+            Importes por capturar: {contador.capturados} de {contador.total} capturados · Personas con diferencia: {contador.conDiferencia}
+          </p>
           <p className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
             Una vez cerrado no se puede editar; solo rectificar.
           </p>
           <TablaPrevio lineas={previo} valores={valores} faltantes={faltantes} cambiar={cambiarValor} />
           <CierreElementos lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} valores={valores}
             faltantes={faltantes} cambiar={cambiarValor} />
+          <ActividadesCierre key={`${mes}/${sucursalId}`} lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} />
           <button type="button" disabled={previo.length === 0} onClick={revisar}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 disabled:opacity-40">
             Revisar y cerrar
@@ -189,9 +199,9 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       )}
       {confirmando && resumen && (
         <Modal titulo="¿Sellar el mes?" cerrar={() => setConfirmando(false)} guardar={cerrarMes}
-          textoGuardar="Sellar el mes" textoCerrar="Volver">
+          textoGuardar="Sellar el mes" textoCerrar="Volver" error={error} focoEnCerrar>
           <div className="text-sm space-y-2">
-            <p><strong>{nombreSucursal}</strong> · {mes} · {resumen.personas} {resumen.personas === 1 ? "persona" : "personas"}</p>
+            <p><strong>{nombreSucursal}</strong> · {mesEnPalabras(mes)} · {resumen.personas} {resumen.personas === 1 ? "persona" : "personas"}</p>
             <ul className="list-disc pl-5">
               <li>Con diferencia en venta: <strong>{resumen.conDiferencia.venta}</strong></li>
               <li>Con diferencia en marcas: <strong>{resumen.conDiferencia.marcas}</strong></li>
@@ -203,18 +213,10 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
         </Modal>
       )}
       {rectificando && (
-        <Modal titulo={`Rectificar cierre sellado: ${rectificando.titulo || nombre(rectificando.vendedor_id)}`}
-          cerrar={() => setRectificando(null)} guardar={rectificar}
+        <Modal titulo={`Rectificar ${rectificando.rotulo || rotuloCampoCierre(rectificando)} de ${nombre(rectificando.vendedor_id)} · ${mesEnPalabras(mes)}`}
+          cerrar={() => setRectificando(null)} guardar={rectificar} textoGuardar="Guardar rectificación" error={error}
           deshabilitado={rectificando.valor_nuevo === "" || !rectificando.motivo.trim()}>
-          <label className="text-sm block">
-            Campo
-            <select value={rectificando.campo} onChange={(e) => setRectificando({ ...rectificando, campo: e.target.value })}
-              className="neu-campo rounded-lg px-3 py-2 w-full mt-1">
-              <option value="meta">Meta</option>
-              <option value="capturado">{rectificando.clave === "financiera" ? "Registrados" : "Capturado"}</option>
-              {rectificando.clave ? <option value="real">Real</option> : <option value="real_sicar">Real de SICAR</option>}
-            </select>
-          </label>
+          <p className="text-sm">Valor actual: {formatoUnidad(rectificando.unidad || "pesos", rectificando.valor_actual)}</p>
           <Campo etiqueta="Valor nuevo" tipo="number" valor={rectificando.valor_nuevo}
             cambiar={(valor_nuevo) => setRectificando({ ...rectificando, valor_nuevo })} />
           <Campo etiqueta="Motivo obligatorio" valor={rectificando.motivo}
@@ -228,15 +230,14 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
 function TablaPrevio({ lineas, valores, faltantes, cambiar }) {
   return (
     <div className="overflow-x-auto max-w-full">
-      <table className="w-full text-sm min-w-[1000px]">
+      <table className={TABLA}>
         <thead>
-          <tr className="border-b text-left text-slate-500">
-            <th className="py-2">Vendedor</th>
+          <tr className="bg-blue-600 text-white text-left">
+            <th>Persona</th>
             <th>Meta</th>
-            <th>Capturado</th>
-            <th>Real de SICAR</th>
+            <th>Capturó</th>
+            <th>Real SICAR</th>
             <th>Diferencia</th>
-            <th className="px-3">Actividades (declaradas, no verificadas)</th>
           </tr>
         </thead>
         <tbody>
@@ -245,7 +246,7 @@ function TablaPrevio({ lineas, valores, faltantes, cambiar }) {
             const real = valores[llave] ?? "";
             const dif = real === "" ? null : restarEnCentavos(l.capturado, real);
             return (
-              <tr key={l.vendedor_id} className="border-b border-slate-100">
+              <tr key={l.vendedor_id} className={FILA}>
                 <td className="py-2">{l.nombre}</td>
                 <td>{pesosConCentavos(l.meta)}</td>
                 <td>{pesosConCentavos(l.capturado)}</td>
@@ -254,8 +255,7 @@ function TablaPrevio({ lineas, valores, faltantes, cambiar }) {
                     aria-label={`Real de SICAR de ${l.nombre}`}
                     className={`neu-campo rounded-lg px-2 py-1 w-32 ${faltantes.includes(llave) ? "ring-2 ring-red-500" : ""}`} />
                 </td>
-                <td>{dif == null ? "Pendiente" : diferencia(dif)}</td>
-                <td className="p-3"><ActividadesCierre actividades={l.actividades} /></td>
+                <td className={tonoDiferencia(dif)}>{dif == null ? "falta el real" : diferencia(dif)}</td>
               </tr>
             );
           })}
@@ -265,29 +265,22 @@ function TablaPrevio({ lineas, valores, faltantes, cambiar }) {
   );
 }
 
-export function CierreSellado({ cierre, rectificar, nombre }) {
+export function CierreSellado({ cierre, rectificar, nombre, mes, nombreSucursal = "" }) {
   return (
     <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
-      <div>
-        <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
-          <LockKeyhole size={18} className="text-emerald-600" />
-          Cierre sellado
-        </h2>
-        <p className="text-sm text-slate-600 mt-2">
-          Cerró <strong>{cierre.cerrado_por}</strong> el {new Date(cierre.cerrado_en).toLocaleString("es-MX")}
-        </p>
-      </div>
+      <h2 className="font-semibold text-slate-700">
+        {nombreSucursal.toUpperCase()} · {mesEnPalabras(mes || cierre.mes).toUpperCase()} · 🔒 SELLADO
+        {" "}por {cierre.cerrado_por} el {fechaCierre(cierre.cerrado_en)}
+      </h2>
       <div className="overflow-x-auto max-w-full">
-        <table className="w-full text-sm min-w-[1040px]">
+        <table className={TABLA}>
           <thead>
-            <tr className="border-b text-left text-slate-500">
-              <th className="py-2">Vendedor</th>
+            <tr className="bg-blue-600 text-white text-left">
+              <th>Persona</th>
               <th>Meta</th>
-              <th>Capturado</th>
-              <th>Real de SICAR</th>
+              <th>Capturó</th>
+              <th>Real SICAR</th>
               <th>Diferencia</th>
-              <th className="px-3">Actividades (declaradas, no verificadas)</th>
-              <th />
             </tr>
           </thead>
           <tbody>
@@ -297,32 +290,29 @@ export function CierreSellado({ cierre, rectificar, nombre }) {
               const vigente = { meta: l.meta, capturado: l.capturado, real_sicar: l.real_sicar };
               for (const r of rectificaciones) vigente[r.campo] = r.valor_nuevo;
               return (
-                <tr key={l.vendedor_id} className="border-b border-slate-100">
+                <tr key={l.vendedor_id} className={FILA}>
                   <td className="py-2">{nombre(l.vendedor_id)}</td>
                   {(["meta", "capturado", "real_sicar"]).map((campo) => (
                     <td key={campo}>
-                      {pesosConCentavos(l[campo])}
-                      {vigente[campo] !== l[campo] && (
-                        <p className="text-violet-700">Rectificado: {pesosConCentavos(vigente[campo])}</p>
-                      )}
+                      {rectificaciones.some((r) => r.campo === campo) ? (
+                        <>
+                          <del className="block text-slate-500">{pesosConCentavos(l[campo])}</del>
+                          <p>{pesosConCentavos(vigente[campo])}</p>
+                          <span className="block text-violet-700 text-xs">rectificado</span>
+                        </>
+                      ) : pesosConCentavos(vigente[campo])}
+                      <button type="button" onClick={() => rectificar({
+                        vendedor_id: l.vendedor_id, campo, unidad: "pesos",
+                        valor_actual: vigente[campo], valor_nuevo: vigente[campo], motivo: "",
+                      })} aria-label={`Rectificar ${rotuloCampoCierre({ campo })} de ${nombre(l.vendedor_id)}`}
+                        className="block text-blue-600 hover:underline">
+                        Rectificar
+                      </button>
                     </td>
                   ))}
-                  <td>
+                  <td className={tonoDiferencia(restarEnCentavos(vigente.capturado, vigente.real_sicar))}>
                     {diferencia(restarEnCentavos(vigente.capturado, vigente.real_sicar))}
                     {rectificaciones.length > 0 && <p className="text-violet-700">(con rectificaciones)</p>}
-                  </td>
-                  <td className="p-3">
-                    <ActividadesCierre actividades={l.actividades} />
-                  </td>
-                  <td>
-                    <button onClick={() => rectificar({
-                      vendedor_id: l.vendedor_id,
-                      campo: "real_sicar",
-                      valor_nuevo: vigente.real_sicar,
-                      motivo: "",
-                    })} className="text-blue-600 hover:underline">
-                      Rectificar
-                    </button>
                   </td>
                 </tr>
               );
@@ -332,19 +322,27 @@ export function CierreSellado({ cierre, rectificar, nombre }) {
       </div>
       <CierreElementos lineas={cierre.lineas} nombre={(id) => nombre(id)} rectificaciones={cierre.rectificaciones}
         rectificar={rectificar} />
+      <ActividadesCierre key={cierre.id} lineas={cierre.lineas} nombre={nombre} />
       <div>
         <h3 className="font-medium text-slate-700 mb-2">Rectificaciones</h3>
         {cierre.rectificaciones.length ? (
-          <ul className="space-y-2 text-sm">
-            {cierre.rectificaciones.map((r) => (
-              <li key={r.id} className="border rounded-lg p-3">
-                <strong>{nombre(r.vendedor_id)}: {rotuloRectificacion(cierre, r)}</strong>
-                {" "}de {valorRectificacion(r, r.valor_anterior)} a {valorRectificacion(r, r.valor_nuevo)}
-                <p>{r.motivo}</p>
-                <p className="text-slate-500">{r.rectificado_por} · {new Date(r.rectificado_en).toLocaleString("es-MX")}</p>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto max-w-full">
+            <table className={TABLA}>
+              <thead><tr className="bg-blue-600 text-white text-left">
+                <th>Persona</th><th>Qué</th><th>Antes</th><th>Después</th><th>Motivo</th><th>Quién/cuándo</th>
+              </tr></thead>
+              <tbody>
+                {cierre.rectificaciones.map((r) => (
+                  <tr key={r.id} className={FILA}>
+                    <td>{nombre(r.vendedor_id)}</td><td>{rotuloRectificacion(cierre, r)}</td>
+                    <td>{valorRectificacion(r, r.valor_anterior)}</td><td>{valorRectificacion(r, r.valor_nuevo)}</td>
+                    <td className="break-words">{r.motivo}</td>
+                    <td>{r.rectificado_por} · {new Date(r.rectificado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : <p className="text-sm text-slate-500">Sin rectificaciones.</p>}
       </div>
     </section>
@@ -365,20 +363,44 @@ function rotuloRectificacion(cierre, r) {
 
 const valorRectificacion = (r, n) => (esRectificacionDeElemento(r) ? formatoUnidad(grupoDe(r).unidad, n) : pesosConCentavos(n));
 
-function ActividadesCierre({ actividades }) {
-  if (!actividades) return <p className="text-slate-500">Este cierre no incluye datos de actividades.</p>;
+function ActividadesCierre({ lineas, nombre }) {
+  const [abierto, setAbierto] = useState(false);
+  const actividades = [...new Set(lineas.flatMap((l) => (l.actividades || []).map((a) => a.actividad)))];
   return (
-    <div className="space-y-1 min-w-[240px] text-sm">
-      <p className="text-amber-800">Declaradas, no verificadas</p>
-      <p className="text-slate-500">Declaradas / meta · No afectan la diferencia de SICAR</p>
-      <ul className="space-y-1">
-        {actividades.map((item) => (
-          <li key={item.actividad}>
-            {nombresActividades[item.actividad] || item.actividad}: <strong>{item.declaradas} / {item.meta}</strong>
-            {item.conjuntas > 0 && <span className="text-amber-800"> · Conjuntas: {item.conjuntas}</span>}
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-2 text-sm">
+      <button type="button" aria-expanded={abierto} onClick={() => setAbierto(!abierto)} className="font-medium text-blue-700 py-2">
+        {abierto ? "▾" : "▸"} Actividades del mes · declaradas, no verificadas
+      </button>
+      {abierto && (
+        <>
+          <p className="text-slate-600">No cuentan para la diferencia de SICAR.</p>
+          {lineas.some((l) => !l.actividades) && <p className="text-slate-500">Este cierre no incluye datos de actividades.</p>}
+          <div className="overflow-x-auto max-w-full">
+            <table className={TABLA}>
+              <thead><tr className="bg-blue-600 text-white text-left">
+                <th>Persona</th>
+                {actividades.map((actividad) => <th key={actividad}>{nombresActividades[actividad] || actividad} · declaradas / meta</th>)}
+              </tr></thead>
+              <tbody>
+                {lineas.map((l) => (
+                  <tr key={l.vendedor_id} className={FILA}>
+                    <td>{nombre(l.vendedor_id, l)}</td>
+                    {actividades.map((actividad) => {
+                      const item = l.actividades?.find((a) => a.actividad === actividad);
+                      return <td key={actividad}>
+                        {item ? <>
+                          {item.declaradas} / {item.meta}
+                          {item.conjuntas > 0 && <p className="text-amber-800">Conjuntas: {item.conjuntas}</p>}
+                        </> : "—"}
+                      </td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

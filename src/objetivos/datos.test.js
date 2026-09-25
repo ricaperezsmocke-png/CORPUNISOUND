@@ -1,6 +1,12 @@
 ﻿import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as datos from "./datos.js";
+
+test("mesEnPalabras muestra septiembre y los límites de año sin depender de zona horaria", () => {
+  assert.equal(datos.mesEnPalabras("2026-09"), "septiembre 2026");
+  assert.equal(datos.mesEnPalabras("2026-01"), "enero 2026");
+  assert.equal(datos.mesEnPalabras("2025-12"), "diciembre 2025");
+});
 import { diasDeAtraso, finDelMes, hoyLocal, leer, sugerenciaGuardada } from "./datos.js";
 
 test("periodoEnTienda muestra fechas y motivo de baja sin cambiar el día por zona horaria", () => {

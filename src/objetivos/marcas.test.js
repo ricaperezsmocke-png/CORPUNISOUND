@@ -1,5 +1,53 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as marcas from "./marcas.js";
+
+test("contadorCierre cuenta personas sin elementos y conserva bajas y traslados", () => {
+  const lineas = [{ vendedor_id: 1, capturado: 10, activo: false }, { vendedor_id: 2, capturado: 20, motivo_baja: "Traslado" }];
+  assert.deepEqual(marcas.contadorCierre(lineas, { "1|sicar|": "10", "2|sicar|": "19" }),
+    { total: 2, capturados: 2, conDiferencia: 1 });
+  assert.deepEqual(marcas.contadorCierre([], {}), { total: 0, capturados: 0, conDiferencia: 0 });
+});
+
+test("contadorCierre incluye todos los elementos y cuenta una sola vez cada persona con diferencia", () => {
+  const lineas = [{ vendedor_id: 7, capturado: 100,
+    marcas: [{ marca_id: 3, capturado: 50 }], productos: [{ producto_meta_id: 4, capturado: 2 }],
+    creditos: [{ financiera: "atrato", registrados: 1 }] }];
+  const valores = { "7|sicar|": "99", "7|marcas|3": "49", "7|productos|4": "2", "7|creditos|atrato": "0" };
+  const copia = structuredClone({ lineas, valores });
+  assert.deepEqual(marcas.contadorCierre(lineas, valores), { total: 4, capturados: 4, conDiferencia: 1 });
+  for (const llave of ["7|marcas|3", "7|productos|4", "7|creditos|atrato"]) {
+    assert.deepEqual(marcas.contadorCierre(lineas, { [llave]: "0" }), { total: 4, capturados: 1, conDiferencia: 1 });
+  }
+  assert.deepEqual({ lineas, valores }, copia);
+});
+
+test("contadorCierre compara en centavos 0.1 + 0.2 frente a 0.3", () => {
+  const lineas = [{ vendedor_id: 1, capturado: 0.1 + 0.2, marcas: [{ marca_id: 2, capturado: 0.1 + 0.2 }] }];
+  assert.deepEqual(marcas.contadorCierre(lineas, { "1|sicar|": "0.3", "1|marcas|2": "0.3" }),
+    { total: 2, capturados: 2, conDiferencia: 0 });
+  assert.equal(marcas.contadorCierre(lineas, { "1|sicar|": "0.29" }).conDiferencia, 1);
+});
+
+test("contadorCierre no cuenta vacíos como diferencias y sí cuenta cero capturado", () => {
+  const lineas = [{ vendedor_id: 1, capturado: 10, marcas: [{ marca_id: 2, capturado: 20 }] }];
+  for (const vacio of [undefined, "", "   "]) {
+    assert.deepEqual(marcas.contadorCierre(lineas, { "1|sicar|": vacio, "1|marcas|2": vacio }),
+      { total: 2, capturados: 0, conDiferencia: 0 });
+  }
+  assert.deepEqual(marcas.contadorCierre(lineas, { "1|sicar|": 0 }), { total: 2, capturados: 1, conDiferencia: 1 });
+});
+
+test("rotuloCampoCierre distingue venta, elementos y registrados de financiera", () => {
+  assert.equal(marcas.rotuloCampoCierre({ campo: "meta" }), "meta");
+  assert.equal(marcas.rotuloCampoCierre({ campo: "capturado" }), "capturado");
+  assert.equal(marcas.rotuloCampoCierre({ campo: "real_sicar" }), "real de SICAR");
+  for (const [clave, grupo] of [["marca_id", "marcas"], ["producto_meta_id", "productos"], ["financiera", "creditos"]]) {
+    assert.equal(marcas.rotuloCampoCierre({ campo: "meta", clave, grupo }), "meta");
+    assert.equal(marcas.rotuloCampoCierre({ campo: "capturado", clave, grupo }), clave === "financiera" ? "registrados" : "capturado");
+    assert.equal(marcas.rotuloCampoCierre({ campo: "real", clave, grupo }), clave === "financiera" ? "real de la financiera" : "real de SICAR");
+  }
+});
 import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
   esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
