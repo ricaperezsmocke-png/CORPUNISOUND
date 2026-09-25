@@ -72,3 +72,25 @@ export function camposFaltantesCierre(previo, valores) {
   }
   return faltan;
 }
+
+// Renglones de "¿De qué marcas fue?" / "Piezas por producto" para un día: primero las metas
+// propias, luego lo ya capturado ese día y al final lo agregado con "+ otra", sin repetir.
+export function renglonesDelDia({ clave, tipo, fecha, vendedorId, extras, elementosMeta, catalogo, capturas, totales }) {
+  const delDia = capturasDelDia(capturas, fecha, tipo);
+  const metaPropia = (e) => (e.lineas || []).find((l) => Number(l.vendedor_id) === Number(vendedorId));
+  const ids = [
+    ...elementosMeta.filter(metaPropia).map((e) => e[clave]),
+    ...delDia.map((c) => c[clave]),
+    ...extras,
+  ].map(Number);
+  return [...new Set(ids)].map((id) => {
+    const conMeta = elementosMeta.find((e) => Number(e[clave]) === id);
+    const linea = conMeta && metaPropia(conMeta);
+    const nombre = catalogo.find((e) => Number(e.id) === id)?.nombre || conMeta?.nombre || `Elemento #${id}`;
+    const total = totales.find((t) => Number(t[clave]) === id);
+    return {
+      id, nombre, meta: linea ? Number(linea.monto) : null, totalMes: total ? Number(total.total_capturado) : 0,
+      captura: delDia.find((c) => Number(c[clave]) === id) || null,
+    };
+  });
+}

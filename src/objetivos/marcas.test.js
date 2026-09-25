@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   esCapturaDeVenta, pesosConCentavos, textoPendiente, capturasDelDia, resumenMarcasDelDia,
-  esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo,
+  esRectificacionDeElemento, vigenteDeElemento, armarRealesCierre, camposFaltantesCierre, llaveCampo, renglonesDelDia,
 } from "./marcas.js";
 
 test("una captura sin tipo es de venta; marca y producto no", () => {
@@ -92,4 +92,34 @@ test("un campo vacío del cierre se reporta; cero no es vacío", () => {
     [llaveCampo(7, "productos", 1)]: "0",
   };
   assert.deepEqual(camposFaltantesCierre(previo, valores), [llaveCampo(7, "marcas", 3), llaveCampo(7, "creditos", "coppel_pay")]);
+});
+
+test("los renglones del día juntan metas propias, capturas del día y agregados, sin repetir", () => {
+  const capturasMes = [
+    { id: 10, tipo: "marca", marca_id: 5, fecha: "2026-09-10", monto: 300, vigente: true },
+    { id: 11, tipo: "marca", marca_id: 3, fecha: "2026-09-09", monto: 900, vigente: true },
+  ];
+  const renglones = renglonesDelDia({
+    clave: "marca_id", tipo: "marca", fecha: "2026-09-10", vendedorId: "7", extras: [8, 3],
+    elementosMeta: [
+      { marca_id: 3, nombre: "Yamaha", lineas: [{ vendedor_id: 7, monto: 5000 }, { vendedor_id: 9, monto: 1 }] },
+      { marca_id: 4, nombre: "Casio", lineas: [{ vendedor_id: 9, monto: 2000 }] },
+    ],
+    catalogo: [{ id: 3, nombre: "Yamaha" }, { id: 5, nombre: "Fender" }, { id: 8, nombre: "Roland" }],
+    capturas: capturasMes, totales: [{ marca_id: 3, total_capturado: 900 }],
+  });
+  assert.deepEqual(renglones.map((r) => [r.id, r.nombre, r.meta, r.totalMes, r.captura?.id ?? null]), [
+    [3, "Yamaha", 5000, 900, null],
+    [5, "Fender", null, 0, 10],
+    [8, "Roland", null, 0, null],
+  ]);
+});
+
+test("un elemento capturado que ya no está en el catálogo conserva un nombre", () => {
+  const renglones = renglonesDelDia({
+    clave: "producto_meta_id", tipo: "producto", fecha: "2026-09-10", vendedorId: 7, extras: [],
+    elementosMeta: [], catalogo: [], totales: [],
+    capturas: [{ id: 1, tipo: "producto", producto_meta_id: 2, fecha: "2026-09-10", monto: 1, vigente: true }],
+  });
+  assert.equal(renglones[0].nombre, "Elemento #2");
 });

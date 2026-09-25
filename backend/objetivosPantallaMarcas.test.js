@@ -75,3 +75,46 @@ test("la barra de pestañas marca solo la activa y avisa al elegir otra", () => 
   elemento.props.children[0].props.onClick();
   assert.deepEqual(elegidas, ["a"]);
 });
+
+function marcasDelDia(extra) {
+  const MarcasDelDia = cargar("src/objetivos/MarcasDelDia.jsx").default;
+  const capturas = {
+    total_por_marca: [{ marca_id: 3, total_capturado: 4000 }], total_por_producto: [],
+    capturas: [
+      { id: 1, tipo: "venta", fecha: "2026-09-10", monto: 8500, vigente: true, capturado_por: "Ana" },
+      { id: 2, tipo: "marca", marca_id: 3, fecha: "2026-09-10", monto: 4000, vigente: true, capturado_por: "Ana" },
+    ],
+  };
+  const objetivos = {
+    cerrado: false, lineas: [],
+    marcas: [{ marca_id: 3, nombre: "Yamaha", lineas: [{ vendedor_id: 7, monto: 5000 }] },
+      { marca_id: 4, nombre: "Casio", lineas: [{ vendedor_id: 7, monto: 2000 }] }],
+    productos: [{ producto_meta_id: 1, nombre: "Teclados", lineas: [{ vendedor_id: 7, monto: 3 }] }],
+  };
+  const props = { mes: "2026-09", sucursalId: "1", vendedorId: 7, fecha: "2026-09-10", objetivos, capturas, actualizar() {}, ...extra };
+  return texto(renderToStaticMarkup(React.createElement(MarcasDelDia, props)));
+}
+
+test("marcas del día: letrero contra la venta, captura hecha con Corregir y marca pendiente con Guardar", () => {
+  const pagina = marcasDelDia({});
+  assert.match(pagina, /De tu venta de \$8,500\.00 llevas \$4,000\.00 en marcas/);
+  assert.match(pagina, /Yamaha .*\$5,000\.00 .*\$4,000\.00 .*Corregir/);
+  assert.match(pagina, /Casio .*\$2,000\.00 .*Guardar/);
+  assert.match(pagina, /Teclados 3 piezas 0 piezas/);
+});
+
+test("marcas del día: sin venta capturada pide capturarla primero", () => {
+  const pagina = marcasDelDia({ fecha: "2026-09-11" });
+  assert.match(pagina, /Primero captura tu venta de ese día/);
+  assert.doesNotMatch(pagina, /llevas/);
+});
+
+test("marcas del día: mes cerrado queda en solo lectura", () => {
+  const MarcasDelDia = cargar("src/objetivos/MarcasDelDia.jsx").default;
+  const objetivos = { cerrado: true, lineas: [], marcas: [{ marca_id: 3, nombre: "Yamaha", lineas: [{ vendedor_id: 7, monto: 1 }] }], productos: [] };
+  const capturas = { capturas: [{ id: 1, tipo: "venta", fecha: "2026-09-10", monto: 10, vigente: true }] };
+  const html = renderToStaticMarkup(React.createElement(MarcasDelDia, {
+    mes: "2026-09", sucursalId: "1", vendedorId: 7, fecha: "2026-09-10", objetivos, capturas, actualizar() {},
+  }));
+  assert.doesNotMatch(html, /<input|Guardar|Corregir|otra marca/);
+});

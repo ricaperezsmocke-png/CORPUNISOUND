@@ -3,6 +3,7 @@ import { CreditCard, Megaphone, RefreshCw, Store, Tags, Target, Users } from "lu
 import { apiFetch } from "./api";
 import Pestanas from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
+import MarcasDelDia from "./objetivos/MarcasDelDia";
 import ActividadesVendedor from "./objetivos/ActividadesVendedor";
 import RepartoGerente from "./objetivos/RepartoGerente";
 import ActividadesGerente from "./objetivos/ActividadesGerente";
@@ -305,8 +306,12 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
       {cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
         <>
           {activa === "mi-venta" && objetivos && capturas && (
-            <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
-              fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
+            <>
+              <CapturaVendedor mes={mes} objetivos={objetivos} capturas={capturas} vendedorId={miVendedorId}
+                fecha={fecha} setFecha={setFecha} monto={monto} setMonto={setMonto} capturar={capturar} corregir={setCorrigiendo} />
+              <MarcasDelDia mes={mes} sucursalId={sucursalId} vendedorId={miVendedorId} fecha={fecha}
+                objetivos={objetivos} capturas={capturas} actualizar={() => cargar({ silenciosa: true })} />
+            </>
           )}
           {activa === "mis-actividades" && objetivos && capturas && (
             <ActividadesVendedor key={`${mes}/${sucursalId}/${miVendedorId}`} mes={mes} sucursalId={sucursalId}
