@@ -28,6 +28,9 @@ export function lineaAvanceActividades({ catalogo, metas, vendedorId, resumen, r
 
 export const ultimoResultado = (registro) => registro.resultados.at(-1) || null;
 
+export const declaradasEnTienda = (datos, actividad) =>
+  datos?.resumen_tienda.find((item) => item.actividad === actividad)?.declaradas ?? null;
+
 export function avanceActividad({ meta, declaradas }) {
   return {
     porcentaje: meta > 0 ? Math.round(declaradas / meta * 100) : 0,

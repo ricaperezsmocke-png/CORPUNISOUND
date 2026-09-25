@@ -3,6 +3,63 @@ import assert from "node:assert/strict";
 import * as datos from "./datos.js";
 import { diasDeAtraso, finDelMes, hoyLocal, leer, sugerenciaGuardada } from "./datos.js";
 
+test("estadoReparto muestra faltante y exceso en pesos con centavos positivos", () => {
+  assert.deepEqual(datos.estadoReparto({ meta: 100, sinAsignar: 12.51, unidad: "pesos" }), {
+    tono: "falta", texto: "⚠ Faltan $12.51 por repartir",
+  });
+  assert.deepEqual(datos.estadoReparto({ meta: 100, sinAsignar: -0.01, unidad: "pesos" }), {
+    tono: "exceso", texto: "✖ Asignaste $0.01 de más",
+  });
+});
+
+test("estadoReparto compara pesos en centavos incluso con 0.1 + 0.2 frente a 0.3", () => {
+  for (const sinAsignar of [0, 0.1 + 0.2 - 0.3, 0.3 - (0.1 + 0.2)]) {
+    assert.deepEqual(datos.estadoReparto({ meta: 0.3, sinAsignar, unidad: "pesos" }), {
+      tono: "completo", texto: "✔ Reparto completo",
+    });
+  }
+});
+
+test("estadoReparto da prioridad a meta cero en ambas unidades", () => {
+  for (const unidad of ["pesos", "unidades"]) {
+    for (const sinAsignar of [-10, 0, 10]) {
+      assert.deepEqual(datos.estadoReparto({ meta: 0, sinAsignar, unidad }), {
+        tono: "sin_meta", texto: "Sin meta de tienda",
+      });
+    }
+  }
+});
+
+test("estadoReparto expresa unidades enteras sin formato de dinero", () => {
+  for (const [sinAsignar, tono, texto] of [
+    [10, "falta", "⚠ Faltan 10 por repartir"],
+    [-3, "exceso", "✖ Asignaste 3 de más"],
+    [0, "completo", "✔ Reparto completo"],
+  ]) {
+    assert.deepEqual(datos.estadoReparto({ meta: 20, sinAsignar, unidad: "unidades" }), { tono, texto });
+  }
+});
+
+test("filasReparto conserva orden, baja y monto cero y une ids texto y número sin duplicados", () => {
+  const baja = { vendedor_id: "9", desde: "2026-09-01", hasta: "2026-09-15", motivo_baja: "Traslado" };
+  const plantilla = [baja, { vendedor_id: 2, desde: "2026-09-03", hasta: null, motivo_baja: null }];
+  const lineas = [{ vendedor_id: 2, monto: 0 }, { vendedor_id: 9, monto: 12.51 }, { vendedor_id: "3", monto: 5 }];
+  const copia = structuredClone({ plantilla, lineas });
+  assert.deepEqual(datos.filasReparto({ plantilla, lineas }), [
+    { ...baja, vendedor_id: 9, monto: 12.51 },
+    { vendedor_id: 2, desde: "2026-09-03", hasta: null, motivo_baja: null, monto: 0 },
+    { vendedor_id: 3, desde: null, hasta: null, motivo_baja: null, monto: 5 },
+  ]);
+  assert.deepEqual({ plantilla, lineas }, copia);
+});
+
+test("filasReparto distingue ausencia de línea y admite listas vacías", () => {
+  assert.deepEqual(datos.filasReparto({ plantilla: [], lineas: [] }), []);
+  assert.deepEqual(datos.filasReparto({ plantilla: [{ vendedor_id: "2", desde: "2026-09-01" }], lineas: [] }), [
+    { vendedor_id: 2, desde: "2026-09-01", hasta: null, motivo_baja: null, monto: null },
+  ]);
+});
+
 test("ventaDelDia distingue ausencia de venta cero y omite otras fechas y versiones", () => {
   const cero = { id: 3, fecha: "2026-09-25", tipo: "venta", vigente: 1, monto: 0 };
   const capturas = [

@@ -4,6 +4,35 @@
 
 import { esCapturaDeVenta, pesosConCentavos } from "./marcas.js";
 
+export function estadoReparto({ meta, sinAsignar, unidad }) {
+  const factor = unidad === "pesos" ? 100 : 1;
+  if (Math.round(meta * factor) === 0) return { tono: "sin_meta", texto: "Sin meta de tienda" };
+  const pendiente = Math.round(sinAsignar * factor);
+  if (pendiente === 0) return { tono: "completo", texto: "✔ Reparto completo" };
+  const cantidad = Math.abs(pendiente) / factor;
+  const texto = unidad === "pesos" ? pesosConCentavos(cantidad) : String(cantidad);
+  return pendiente > 0
+    ? { tono: "falta", texto: `⚠ Faltan ${texto} por repartir` }
+    : { tono: "exceso", texto: `✖ Asignaste ${texto} de más` };
+}
+
+export function filasReparto({ plantilla, lineas }) {
+  const filas = new Map();
+  for (const persona of plantilla) {
+    const vendedor_id = Number(persona.vendedor_id);
+    filas.set(vendedor_id, {
+      vendedor_id, desde: persona.desde ?? null, hasta: persona.hasta ?? null,
+      motivo_baja: persona.motivo_baja ?? null, monto: null,
+    });
+  }
+  for (const linea of lineas) {
+    const vendedor_id = Number(linea.vendedor_id);
+    const fila = filas.get(vendedor_id) || { vendedor_id, desde: null, hasta: null, motivo_baja: null };
+    filas.set(vendedor_id, { ...fila, monto: linea.monto });
+  }
+  return [...filas.values()];
+}
+
 export const ventaDelDia = (capturas, fecha) =>
   capturas.find((captura) => captura.vigente && captura.fecha === fecha && esCapturaDeVenta(captura)) || null;
 

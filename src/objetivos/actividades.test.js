@@ -4,6 +4,23 @@ import * as actividades from "./actividades.js";
 import { Buffer } from "node:buffer";
 import { avanceActividad, leerArchivoComoBase64 } from "./actividades.js";
 
+test("declaradasEnTienda usa resumen_tienda sin sumar participantes de una conjunta", () => {
+  const datos = {
+    resumen_tienda: [{ actividad: "grupos", declaradas: 1 }, { actividad: "iglesia", declaradas: 3 }],
+    resumen_por_persona: [1, 2].map((vendedor_id) => ({
+      vendedor_id, resumen: [{ actividad: "grupos", declaradas: 1 }],
+    })),
+  };
+  assert.equal(actividades.declaradasEnTienda(datos, "grupos"), 1);
+  assert.equal(actividades.declaradasEnTienda(datos, "iglesia"), 3);
+});
+
+test("declaradasEnTienda distingue cero declarado de resumen ausente o pendiente", () => {
+  assert.equal(actividades.declaradasEnTienda({ resumen_tienda: [{ actividad: "grupos", declaradas: 0 }] }, "grupos"), 0);
+  assert.equal(actividades.declaradasEnTienda({ resumen_tienda: [] }, "grupos"), null);
+  assert.equal(actividades.declaradasEnTienda(null, "grupos"), null);
+});
+
 test("lineaAvanceActividades respeta catálogo, etiquetas por clave y metas de la vendedora", () => {
   const catalogo = ["volanteo", "grupos", "marketplace", "iglesia"].map((clave) => ({ clave, etiqueta: "Otra etiqueta" }));
   const metas = [
