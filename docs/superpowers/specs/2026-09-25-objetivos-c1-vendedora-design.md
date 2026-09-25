@@ -30,8 +30,8 @@ Orden de arriba abajo:
 1. **Línea de resumen** (una sola línea, texto normal, no tarjetas):
    `Llevas $18,400.00 de $26,000.00 · 71 %` + enlace `Ver Mi avance →` (llama `verAvance`).
    Si la meta es 0 o no hay línea: `Llevas $X registrados` sin porcentaje (la respuesta no distingue
-   meta ausente de meta 0; no inventar "sin meta"). Montos con centavos (`pesos` ya da 2 decimales:
-   verificar; si no, usar el formateador con centavos que ya exista en `datos.js`).
+   meta ausente de meta 0; no inventar "sin meta"). Montos con centavos: usar `pesosConCentavos` de `src/objetivos/marcas.js` (`pesos` de datos.js
+   redondea a pesos enteros y NO se cambia porque lo usan otras pantallas). Aplica a toda la parte 1.
 2. **Bloque "Venta del día"** (bloque principal, cifra/campo grande). Solo si el mes NO está cerrado.
    - Día elegido = `fecha` (estado de GerenciaVentas). Título: `Venta de hoy · jueves 25 de septiembre`
      si `fecha === hoy`; si no, `Venta del 21/09`.
