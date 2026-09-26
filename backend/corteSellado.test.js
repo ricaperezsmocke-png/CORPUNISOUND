@@ -160,7 +160,7 @@ test("cancelar una venta despues de contarla no cambia el corte cerrado", () => 
   const { administrativa: A } = cajasDe(DB);
   agregarVenta(DB, { id: 1, caja_id: A.id, total: 300, fecha_hora: "2026-09-01T10:00:00.000Z" });
   const corte = cortar(DB, A);
-  cancelarVenta(DB, 1, "Devolucion");
+  cancelarVenta(DB, 1, "Devolucion", undefined, { id: 999, nombre: "Supervisora" });
   assert.strictEqual(corte.total_calculado, 300);
   assert.strictEqual(corte.ventas_incluidas, 1);
   assert.strictEqual(DB.pos.ventas[0].corte_id, corte.id);

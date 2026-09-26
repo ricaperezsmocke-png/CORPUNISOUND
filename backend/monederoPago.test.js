@@ -89,7 +89,7 @@ test("cancelar devuelve exactamente el monedero aplicado al cliente", () => {
   const DB = prepararDB();
   const venta = crearVenta(DB, datosVenta({ monedero_aplicado: 120 }));
   assert.equal(saldoDe(DB), 380);
-  cancelarVenta(DB, venta.id, "Cambio de opinión", { nombre: "Ana" });
+  cancelarVenta(DB, venta.id, "Cambio de opinión", { nombre: "Ana" }, { id: 999, nombre: "Supervisora" });
   assert.equal(saldoDe(DB), 500);
   assert.equal(venta.monedero_aplicado, 120, "conserva el rastro del saldo reintegrado");
   assert.equal(venta.estatus, "cancelada");
@@ -98,8 +98,8 @@ test("cancelar devuelve exactamente el monedero aplicado al cliente", () => {
 test("cancelar dos veces no devuelve dos veces el monedero", () => {
   const DB = prepararDB();
   const venta = crearVenta(DB, datosVenta({ monedero_aplicado: 120 }));
-  cancelarVenta(DB, venta.id, "Cancelación");
-  assert.throws(() => cancelarVenta(DB, venta.id, "Otra vez"), /cancelada/i);
+  cancelarVenta(DB, venta.id, "Cancelación", undefined, { id: 999, nombre: "Supervisora" });
+  assert.throws(() => cancelarVenta(DB, venta.id, "Otra vez", undefined, { id: 999, nombre: "Supervisora" }), /cancelada/i);
   assert.equal(saldoDe(DB), 500);
 });
 
@@ -107,7 +107,7 @@ test("cancelar reintegra solo lo aplicado aunque se haya pedido más", () => {
   const DB = prepararDB(120);
   const venta = crearVenta(DB, datosVenta({ monedero_aplicado: 9999 }));
   venta.cliente_id = "1";
-  cancelarVenta(DB, venta.id, "Cancelación");
+  cancelarVenta(DB, venta.id, "Cancelación", undefined, { id: 999, nombre: "Supervisora" });
   assert.equal(saldoDe(DB), 120);
 });
 
@@ -115,6 +115,6 @@ test("cancelar venta histórica sin monedero no crea saldo", () => {
   const DB = prepararDB();
   const venta = crearVenta(DB, datosVenta());
   delete venta.monedero_aplicado;
-  cancelarVenta(DB, venta.id, "Cancelación");
+  cancelarVenta(DB, venta.id, "Cancelación", undefined, { id: 999, nombre: "Supervisora" });
   assert.equal(saldoDe(DB), 500);
 });

@@ -78,7 +78,7 @@ test("cancelar una venta hecha sin fila devuelve las piezas al mismo lugar", () 
   const venta = crearVenta(DB, { sucursal_id: 4, lineas: [{ producto_id: 1, cantidad: 2 }] });
   assert.strictEqual(existenciaDe(DB, 1, 4).cantidad_actual, -2);
 
-  cancelarVenta(DB, venta.id, "prueba", { nombre: "Ana" });
+  cancelarVenta(DB, venta.id, "prueba", { nombre: "Ana" }, { id: 999, nombre: "Supervisora" });
 
   assert.strictEqual(existenciaDe(DB, 1, 4).cantidad_actual, 0);
 });

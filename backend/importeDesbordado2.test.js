@@ -132,7 +132,8 @@ for (const [nombre, crear, cancelar] of [["VENTA", venta, cancelarVenta], ["APAR
       const documento = crear(DB);
       if (nombre === "VENTA") documento.monedero_aplicado = 1;
       DB.crm.clientes.find((c) => c.id === 1).monedero = saldo;
-      rechazaSinCambios(DB, () => cancelar(DB, documento.id, "Prueba", USUARIO), /importe|monedero/i);
+      // Desde H4 cancelar una venta exige autorizador; se da uno valido para llegar a la guarda del monedero.
+      rechazaSinCambios(DB, () => cancelar(DB, documento.id, "Prueba", USUARIO, { id: 99, nombre: "Autoriza" }), /importe|monedero/i);
     });
   }
 }

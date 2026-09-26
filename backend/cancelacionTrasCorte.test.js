@@ -55,7 +55,7 @@ test("cancelar una venta ya cortada no altera el corte cerrado", () => {
   venderYCortar(DB, 500);
   const corteAntes = JSON.parse(JSON.stringify(DB.pos.cortes_caja[0]));
 
-  cancelarVenta(DB, 1, "El cliente se arrepintio", usuario);
+  cancelarVenta(DB, 1, "El cliente se arrepintio", usuario, { id: 999, nombre: "Supervisora" });
 
   assert.deepStrictEqual(
     DB.pos.cortes_caja[0], corteAntes,
@@ -68,7 +68,7 @@ test("cancelar deja constancia de cuando y de quien, no solo del motivo", () => 
   venderYCortar(DB, 500);
 
   const antes = new Date().toISOString();
-  cancelarVenta(DB, 1, "Error de captura", usuario);
+  cancelarVenta(DB, 1, "Error de captura", usuario, { id: 999, nombre: "Supervisora" });
   const venta = DB.pos.ventas[0];
 
   assert.ok(venta.fecha_hora_cancelacion >= antes, "sin la hora no se sabe a que turno afecto");
@@ -79,7 +79,7 @@ test("el corte en curso avisa del dinero cancelado que ya habia sido contado", (
   const DB = prepararDB();
   const A = venderYCortar(DB, 500);
 
-  cancelarVenta(DB, 1, "El cliente se arrepintio", usuario);
+  cancelarVenta(DB, 1, "El cliente se arrepintio", usuario, { id: 999, nombre: "Supervisora" });
   const enCurso = calcularCorteEnCurso(DB, 4, A.id);
 
   assert.strictEqual(
@@ -97,7 +97,7 @@ test("una cancelacion de una venta NO cortada no aparece en el aviso", () => {
     metodo_pago: "EFECTIVO", total: 300, estatus: "cerrada", corte_id: null,
   });
 
-  cancelarVenta(DB, 2, "Error de captura", usuario);
+  cancelarVenta(DB, 2, "Error de captura", usuario, { id: 999, nombre: "Supervisora" });
   const enCurso = calcularCorteEnCurso(DB, 4, A.id);
 
   assert.strictEqual(

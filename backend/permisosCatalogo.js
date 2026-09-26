@@ -13,6 +13,7 @@
  */
 
 const PERMISOS = [
+  { clave: "autorizar_cancelaciones", etiqueta: "Autorizar cancelaciones de venta", modulo: "pos", implementado: true },
   // ---- Punto de Venta ----
   { clave: "abrir_cajon_dinero", etiqueta: "Abrir Cajón de Dinero", modulo: "pos", implementado: true },
   { clave: "agregar_articulo_rapido", etiqueta: "Agregar Artículo Rápido", modulo: "pos", implementado: true },

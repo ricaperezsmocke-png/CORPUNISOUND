@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   LayoutGrid, Search, Settings, FileBarChart, PieChart, Wrench,
-  Tag, Edit3, Hash, Ban, Percent, Lock, Gauge, DollarSign, CheckSquare,
+  Edit3, Hash, Ban, Percent, Lock, Gauge, DollarSign, CheckSquare,
   FileText, User, Users, Zap, ClipboardList, FileMinus,
   Clock, RotateCcw, Layers, Cloud, Info, UserCircle2, ShoppingCart,
   Printer, Mail, X, Plus, Minus, Package, UserPlus, MapPin,
@@ -171,7 +171,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [enEspera, setEnEspera] = useState([]);
   const [aviso, setAviso] = useState(null);
 
-  // "buscar" | "precio" | "cantidad" | "descuento" | "cliente" | "clienteForm" | "vendedor" | "cobro" | "espera" | "rapido"
+  // "buscar" | "cantidad" | "descuento" | "cliente" | "clienteForm" | "vendedor" | "cobro" | "espera" | "rapido"
   const [modal, setModal] = useState(null);
   const [busquedaTexto, setBusquedaTexto] = useState("");
   const [filtroDepartamento, setFiltroDepartamento] = useState("");
@@ -473,10 +473,6 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     });
   };
 
-  const actualizarPrecio = (idx, nuevoPrecio) => {
-    setCarrito((prev) => prev.map((f, i) => (i === idx ? { ...f, precioUnitario: nuevoPrecio } : f)));
-  };
-
   const actualizarDescuento = (idx, pct) => {
     setCarrito((prev) => prev.map((f, i) => (i === idx ? { ...f, descuentoPct: Math.min(100, Math.max(0, pct)) } : f)));
   };
@@ -614,7 +610,6 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       const dentroDeModal = modal !== null;
 
       if (e.key === "F2" && puede("buscar_articulos")) { e.preventDefault(); setModal("buscar"); }
-      else if (e.key === "F3" && filaSeleccionada !== null && puede("cambiar_numero_precio")) { e.preventDefault(); setValorTemporal(String(carrito[filaSeleccionada]?.precioUnitario ?? "")); setModal("precio"); }
       else if (e.key === "F4" && filaSeleccionada !== null) { e.preventDefault(); setValorTemporal(String(carrito[filaSeleccionada]?.cantidad ?? "")); setModal("cantidad"); }
       else if (e.key === "F5" && filaSeleccionada !== null) { e.preventDefault(); setValorTemporal(String(carrito[filaSeleccionada]?.cantidad ?? "")); setModal("cantidad"); }
       else if (e.key === "F6" && filaSeleccionada !== null) { e.preventDefault(); removerFila(filaSeleccionada); setFilaSeleccionada(null); }
@@ -725,10 +720,6 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       {/* ===== BARRA DE HERRAMIENTAS F2-F12 ===== */}
       <div className="neu rounded-none flex overflow-x-auto shrink-0">
         {puede("buscar_articulos") && <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => setModal("buscar")} />}
-        {puede("cambiar_numero_precio") && <BotonBarra icono={Tag} etiqueta="Precio" atajo="F3" onClick={() => {
-          if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila del ticket primero");
-          setValorTemporal(String(carrito[filaSeleccionada].precioUnitario)); setModal("precio");
-        }} />}
         <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={() => {
           if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila del ticket primero");
           setValorTemporal(String(carrito[filaSeleccionada].cantidad)); setModal("cantidad");
@@ -1047,21 +1038,6 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             <input className={inputCls} value={rapidoMotivo} onChange={(e) => setRapidoMotivo(e.target.value)} placeholder="ej: Rezagado de fábrica, lote 4" />
           </Campo>
           <button onClick={agregarProductoRapido} className="w-full bg-amber-500 hover:bg-amber-600 text-white py-2 rounded font-semibold">Agregar al ticket</button>
-        </Modal>
-      )}
-
-      {modal === "precio" && filaSeleccionada !== null && (
-        <Modal titulo="Cambiar precio (F3)" onCerrar={() => setModal(null)}>
-          <p className="text-sm text-slate-500 mb-2">{carrito[filaSeleccionada].descripcion}</p>
-          <input
-            autoFocus type="number" value={valorTemporal}
-            onChange={(e) => setValorTemporal(e.target.value)}
-            className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
-          />
-          <button
-            onClick={() => { actualizarPrecio(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
-            className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium transition-colors"
-          >Aplicar</button>
         </Modal>
       )}
 

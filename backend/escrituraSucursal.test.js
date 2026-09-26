@@ -228,7 +228,7 @@ test("PUT /api/ventas/:id/cancelar: un amarrado sí puede cancelar la venta de s
   const venta = DB.pos.ventas.find((v) => v.id === 2); // venta 2 es de sucursal 2
   assert.strictEqual(dentroDeAlcance(venta.sucursal_id, alcance), true);
 
-  const resultado = cancelarVenta(DB, 2, "prueba de cancelación propia");
+  const resultado = cancelarVenta(DB, 2, "prueba de cancelación propia", undefined, { id: 999, nombre: "Supervisora" });
   assert.strictEqual(resultado.estatus, "cancelada");
 });
 
