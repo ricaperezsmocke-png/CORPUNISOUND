@@ -17,7 +17,7 @@ const codigo = transformSync(fs.readFileSync(path.join(__dirname, "../src/PuntoD
 
 // Solo estos se cargan de verdad. Son calculo puro, sin React: si alguien
 // agrega aqui un componente, la prueba truena al instante y se entiende por que.
-const MODULOS_DE_CALCULO = new Set(["./calcularTotalesVenta.js", "./calcularTotalesVenta"]);
+const MODULOS_DE_CALCULO = new Set(["./calcularTotalesVenta.js", "./calcularTotalesVenta", "./cajaPantalla.js"]);
 
 // Carga de verdad un modulo vecino de src/, compilandolo igual que la pantalla.
 // Devuelve null si no existe, para que el stub siga sustituyendo lo demas.
@@ -108,6 +108,8 @@ async function prepararPantalla(saldo = 120) {
     require: (nombre) => {
       if (nombre === "react") return react;
       if (nombre === "./api") return api;
+      // La lista de cajas solo pinta el nombre de la caja activa; aqui no importa.
+      if (nombre === "./cargaSegura") return { pedirLista: async () => ({ datos: [], error: null }) };
       if (nombre === "lucide-react") return new Proxy({}, { get: () => () => null });
       // Los modulos de CALCULO se cargan de verdad: si se sustituyeran por una
       // funcion vacia, la prueba dejaria de ver los importes reales, que es
@@ -120,6 +122,8 @@ async function prepararPantalla(saldo = 120) {
       return () => null;
     },
     window: { addEventListener() {}, removeEventListener() {} },
+    // El POS marca aqui "hay ticket en curso" para que no se cambie de caja a medio ticket.
+    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     setTimeout() {},
   });
   function expandir(nodo) {

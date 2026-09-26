@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, cajaActiva, sinSucursalElegida } from "./api";
 import { pedirLista } from "./cargaSegura";
+import { puedeCambiarCaja } from "./cajaPantalla.js";
 
 /** Caja fija de la sesión. La lista siempre se valida antes de llegar al estado. */
 export default function SelectorCaja() {
@@ -8,6 +9,7 @@ export default function SelectorCaja() {
   const [cajas, setCajas] = useState([]);
   const [valor, setValor] = useState(sinSucursal ? "" : (cajaActiva() || ""));
   const [error, setError] = useState(null);
+  const [avisoCambio, setAvisoCambio] = useState("");
 
   useEffect(() => {
     if (sinSucursal) {
@@ -29,11 +31,17 @@ export default function SelectorCaja() {
       setValor(nuevoValor);
       if (nuevoValor) localStorage.setItem("caja_activa", nuevoValor);
       else localStorage.removeItem("caja_activa");
+      window.dispatchEvent(new Event("caja-activa-cargada"));
     });
     return () => { vigente = false; };
   }, [sinSucursal]);
 
   function cambiar(e) {
+    if (!puedeCambiarCaja(sessionStorage.getItem("ticket_en_curso"))) {
+      e.target.value = valor;
+      setAvisoCambio("Termina o cancela el ticket antes de cambiar de caja.");
+      return;
+    }
     const nueva = e.target.value;
     setValor(nueva);
     localStorage.setItem("caja_activa", nueva);
@@ -54,6 +62,7 @@ export default function SelectorCaja() {
           <option key={caja.id} value={caja.id}>{caja.nombre}</option>
         ))}
       </select>
+      {avisoCambio && <span role="status" className="text-xs text-amber-800">{avisoCambio}</span>}
       {error && (
         <span
           title={error}

@@ -359,6 +359,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <th className="py-2 px-3 text-left font-medium">Fecha</th>
                 <th className="py-2 px-3 text-left font-medium">Folio</th>
                 <th className="py-2 px-3 text-left font-medium">Documento</th>
+                <th className="py-2 px-3 text-left font-medium">Caja</th>
                 <th className="py-2 px-3 text-left font-medium">Cliente</th>
                 <th className="py-2 px-3 text-left font-medium">Vendedor</th>
                 <th className="py-2 px-3 text-center font-medium">Estado</th>
@@ -367,7 +368,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
             </thead>
             <tbody>
               {ventas.length === 0 && (
-                <tr><td colSpan={7} className="text-center text-slate-400 py-16">Sin resultados para estos filtros</td></tr>
+                <tr><td colSpan={8} className="text-center text-slate-400 py-16">Sin resultados para estos filtros</td></tr>
               )}
               {ventas.map((v) => (
                 <tr key={v.id} onClick={() => setSeleccionadaId(v.id)} onDoubleClick={verDetalle}
@@ -375,6 +376,7 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                   <td className="py-2 px-3">{v.fecha}</td>
                   <td className="py-2 px-3 font-medium">{v.id}</td>
                   <td className="py-2 px-3">{v.tipo_documento || "Ticket"}</td>
+                  <td className="py-2 px-3">{v.caja_nombre || "Sin caja"}</td>
                   <td className="py-2 px-3">{v.cliente_nombre}</td>
                   <td className="py-2 px-3">{v.vendedor_nombre}</td>
                   <td className="py-2 px-3 text-center">

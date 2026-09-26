@@ -5,13 +5,14 @@ import {
   ShoppingCart, History
 } from "lucide-react";
 import { apiFetch, cajaActiva, sinSucursalElegida } from "./api";
+import { formatoImporteCaja } from "./cajaPantalla.js";
 import { pedirLista, pedirDato } from "./cargaSegura";
 import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 
 const FORMAS = ["EFECTIVO", "CHEQUE", "VALES", "TARJETA"];
 const ETIQUETAS = { EFECTIVO: "Efectivo", CHEQUE: "* Cheque", VALES: "Vales", TARJETA: "* Tarjeta" };
 
-const $fmt = (n) => `$ ${Number(n || 0).toFixed(2)}`;
+const $fmt = formatoImporteCaja;
 
 /** Ticket de resultado de un corte ya guardado: cuánto marcó el POS por forma de
  * pago, cuánto contó el cajero, y la diferencia — para que el cajero se dé
@@ -437,7 +438,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                           </td>
                           <td className="py-1.5 px-1">
                             <div className={`px-2 py-1.5 text-right font-semibold ${d < 0 ? "text-red-600" : d > 0 ? "text-blue-700" : "text-slate-600"}`}>
-                              {d < 0 ? `-$ ${Math.abs(d).toFixed(2)}` : $fmt(d)}
+                              {$fmt(d)}
                             </div>
                           </td>
                         </tr>
@@ -449,7 +450,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                       <td className="py-2 px-1"><div className="px-2 py-1.5 text-right font-bold text-slate-700">{$fmt(totalCalculado)}</div></td>
                       <td className="py-2 px-1">
                         <div className={`px-2 py-1.5 text-right font-bold ${totalDif < 0 ? "text-red-600" : totalDif > 0 ? "text-blue-700" : "text-slate-600"}`}>
-                          {totalDif < 0 ? `-$ ${Math.abs(totalDif).toFixed(2)}` : $fmt(totalDif)}
+                          {$fmt(totalDif)}
                         </div>
                       </td>
                     </tr>
@@ -560,7 +561,7 @@ export default function CorteCaja({ onVolverAVenta, onVolverInicio, permisos }) 
                         <td className="py-2 text-right">{$fmt(c.total_calculado)}</td>
                         <td className="py-2 text-right">{$fmt(c.total_contado)}</td>
                         <td className={`py-2 text-right font-semibold ${c.total_diferencia < 0 ? "text-red-600" : "text-blue-700"}`}>
-                          {c.total_diferencia < 0 ? `-$ ${Math.abs(c.total_diferencia).toFixed(2)}` : $fmt(c.total_diferencia)}
+                          {$fmt(c.total_diferencia)}
                           {/* Solo aparece si el corte tiene gastos — los cortes
                               viejos sin este campo se ven exactamente igual que siempre. */}
                           {c.gastos_efectivo > 0 && (
