@@ -440,6 +440,32 @@ function ajustarExistencia(DB, id, { cantidad, motivo, sucursal_id, usuario }) {
   return exist;
 }
 
+/**
+ * Limpieza de una sola vez (decisión de Victor, 2026-09-25, opción b): toda existencia con
+ * decimales baja al entero de abajo, para nunca inventar mercancía; si en bodega sobra una
+ * pieza, el siguiente conteo la ajusta. Cada corrección deja su movimiento. El ruido de
+ * flotante (3.0000000000000004) se corrige al entero cercano, sin perder una pieza.
+ * Correrla otra vez no hace nada. Devuelve cuántas existencias corrigió.
+ */
+function limpiarExistenciasFraccionarias(DB) {
+  let corregidas = 0;
+  for (const exist of DB.inventario.existencias) {
+    const actual = Number(exist.cantidad_actual);
+    if (!Number.isFinite(actual) || Number.isInteger(actual)) continue;
+    const cercano = Math.round(actual);
+    const destino = Math.abs(actual - cercano) < 1e-9 ? cercano : Math.floor(actual);
+    ajustarExistencia(DB, exist.producto_id, {
+      cantidad: destino - actual,
+      motivo: `Limpieza de decimales (piezas enteras): de ${actual} a ${destino}`,
+      sucursal_id: exist.sucursal_id,
+      usuario: { nombre: "Sistema" },
+    });
+    exist.cantidad_actual = destino;
+    corregidas++;
+  }
+  return corregidas;
+}
+
 /** Ajuste manual desde Inventario: resta o suma con signo, pero solo piezas enteras. */
 function ajusteManualExistencia(DB, id, datos) {
   const cantidad = exigirPiezasEnteras(datos.cantidad, "el ajuste", { permitirNegativo: true });
@@ -500,6 +526,7 @@ module.exports = {
   listarProductos,
   crearProducto,
   ajusteManualExistencia,
+  limpiarExistenciasFraccionarias,
   actualizarProducto,
   eliminarProducto,
   reactivarProducto,

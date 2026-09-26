@@ -109,3 +109,24 @@ test("la importación de SICAR no mete existencia fraccionaria a un producto que
   assert.strictEqual(existencia(DB, 1, 1), antes, "la existencia no debe quedar en fracción");
   assert.match(JSON.stringify(r.errores), /piezas enteras/);
 });
+
+test("la limpieza única redondea hacia abajo las existencias con decimales y deja rastro", () => {
+  const { limpiarExistenciasFraccionarias } = require("./productos");
+  const DB = construirDBPrueba();
+  const [a, b, c] = DB.inventario.existencias;
+  a.cantidad_actual = 119.5;
+  b.cantidad_actual = -2.5;
+  c.cantidad_actual = 3 + 4e-16; // 3.0000000000000004: ruido de flotante, no media pieza
+  const movimientos = DB.inventario.movimientos_inventario.length;
+
+  assert.strictEqual(limpiarExistenciasFraccionarias(DB), 3);
+  assert.strictEqual(a.cantidad_actual, 119, "nunca se inventa mercancía: 119.5 baja a 119");
+  assert.strictEqual(b.cantidad_actual, -3);
+  assert.strictEqual(c.cantidad_actual, 3, "el ruido de flotante se corrige al entero, no se pierde una pieza");
+  const nuevos = DB.inventario.movimientos_inventario.slice(movimientos);
+  assert.strictEqual(nuevos.length, 3, "cada corrección deja su movimiento");
+  assert.ok(nuevos.every((m) => /Limpieza de decimales/.test(m.referencia_documento) && m.usuario === "Sistema"));
+
+  assert.strictEqual(limpiarExistenciasFraccionarias(DB), 0, "correrla otra vez no hace nada");
+  assert.strictEqual(DB.inventario.movimientos_inventario.length, movimientos + 3);
+});
