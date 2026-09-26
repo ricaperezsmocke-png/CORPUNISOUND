@@ -380,8 +380,12 @@ function listarVentas(DB, filtros = {}) {
     .map((v) => {
       const cliente = DB.crm.clientes.find((c) => c.id === v.cliente_id);
       const vendedor = DB.pos.vendedores.find((x) => x.id === v.vendedor_id);
+      const caja = (DB.pos.cajas || []).find(
+        (c) => Number(c.sucursal_id) === Number(v.sucursal_id) && esDeEstaCaja(v, c)
+      );
       return {
         ...v,
+        caja_nombre: caja?.nombre || null,
         cliente_nombre: cliente ? cliente.nombre : "Público en General",
         vendedor_nombre: vendedor ? vendedor.nombre : "—",
       };

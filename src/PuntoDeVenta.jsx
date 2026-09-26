@@ -15,6 +15,8 @@ import ModalApartados from "./ModalApartados.jsx";
 import ModalConfirmar from "./ModalConfirmar";
 import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 import { calcularTotalesVenta } from "./calcularTotalesVenta.js";
+import { pedirLista } from "./cargaSegura";
+import { nombreCajaActiva } from "./cajaPantalla.js";
 
 /**
  * Vendedor de respaldo, SOLO para que la caja nunca se quede sin poder cobrar.
@@ -134,6 +136,30 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [proveedores, setProveedores] = useState([]);
 
   const [carrito, setCarrito] = useState([]);
+  const [cajas, setCajas] = useState([]);
+  const [cajaId, setCajaId] = useState(cajaActiva);
+
+  useEffect(() => {
+    if (carrito.length) sessionStorage.setItem("ticket_en_curso", "1");
+    else sessionStorage.removeItem("ticket_en_curso");
+    return () => sessionStorage.removeItem("ticket_en_curso");
+  }, [carrito.length]);
+
+  useEffect(() => {
+    if (sinSucursal) return;
+    let vigente = true;
+    const actualizarCaja = () => setCajaId(cajaActiva());
+    window.addEventListener("caja-activa-cargada", actualizarCaja);
+    pedirLista(() => apiFetch("/cajas"), "las cajas").then(({ datos }) => {
+      if (!vigente) return;
+      setCajas(datos);
+      actualizarCaja();
+    });
+    return () => {
+      vigente = false;
+      window.removeEventListener("caja-activa-cargada", actualizarCaja);
+    };
+  }, [sinSucursal]);
   const [codigoInput, setCodigoInput] = useState("");
   const [filaSeleccionada, setFilaSeleccionada] = useState(null);
   const [tipoDoc, setTipoDoc] = useState("Ticket");
@@ -675,7 +701,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           ))}
         </div>
         <div className="flex items-center gap-3 pr-2 text-[11px] text-slate-400">
-          <span className="flex items-center gap-1"><Package size={12} /> Caja 1</span>
+          <span className="flex items-center gap-1">
+            <Package size={12} /> {sinSucursal ? "Sin caja" : nombreCajaActiva(cajas, cajaId)}
+          </span>
           <button onClick={() => mostrarAviso("Sincronizado con la nube")} className="hover:text-[#1a7fe8] flex items-center gap-1"><Cloud size={13} /> Nube</button>
         </div>
       </div>
