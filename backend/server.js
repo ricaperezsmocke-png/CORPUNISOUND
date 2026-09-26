@@ -65,6 +65,7 @@ const {
 } = require("./objetivosActividades");
 const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
+const { verificarPassword } = require("./auth");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA, configurarRevisionDeCuenta } = require("./auth");
 const { consultarModulo, tablasConsultables } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
@@ -1779,10 +1780,10 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
     res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), (req, res) => {
+app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {
   try {
     const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
-    const alcance = resolverAlcance(req);
+    const alcance = venta?.tipo_documento === "Apartado" ? resolverAlcance(req) : resolverAlcanceAutorizado(req);
     // Sin esto, un Gerente de sucursal podía cancelar la venta de OTRA
     // sucursal por folio y el reintegro de inventario acreditaba stock
     // a la sucursal real de esa venta — un efecto cruzado real.
@@ -1792,7 +1793,28 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
     if (venta && venta.tipo_documento === "Apartado") {
       return res.json(cancelarApartado(DB, req.params.id, req.body.motivo, req.usuarioToken));
     }
-    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken));
+    if (typeof req.body.motivo !== "string" || !req.body.motivo.trim()) {
+      return res.status(400).json({ error: "Escribe el motivo de la cancelación" });
+    }
+    const denegar = () => res.status(403).json({ error: "La autorización no es válida" });
+    const credenciales = req.body.autorizador;
+    if (typeof credenciales?.usuario !== "string" || !credenciales.usuario.trim()
+      || typeof credenciales?.password !== "string" || !credenciales.password) return denegar();
+    const clave = credenciales.usuario.trim().toLowerCase();
+    const autorizador = DB.admin.usuarios.find((u) => String(u.usuario).trim().toLowerCase() === clave);
+    if (!autorizador?.activo) return denegar();
+    let coincide = false;
+    try { coincide = await verificarPassword(credenciales.password, autorizador.password_hash); }
+    catch { return denegar(); }
+    if (!coincide || Number(autorizador.id) === Number(req.usuarioToken.id)) return denegar();
+    const permisos = resolverPermisosDeRol(autorizador.rol_id);
+    if (!permisos.includes("autorizar_cancelaciones")) return denegar();
+    const sucursalId = Number(autorizador.sucursal_id);
+    if (!permisos.includes("ver_todas_las_sucursales")
+      && (!Number.isInteger(sucursalId) || sucursalId <= 0 || sucursalId !== Number(venta?.sucursal_id))) return denegar();
+    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken, {
+      id: autorizador.id, nombre: autorizador.nombre,
+    }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/caja", requiereLogin, requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {

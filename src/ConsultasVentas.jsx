@@ -60,12 +60,19 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
   const [detalle, setDetalle] = useState(null);
   const [modal, setModal] = useState(null); // "detalle" | "cancelar" | "cambiarCaja"
   const [motivoCancelacion, setMotivoCancelacion] = useState("");
+  const [usuarioAutorizador, setUsuarioAutorizador] = useState("");
+  const [passwordAutorizador, setPasswordAutorizador] = useState("");
+  const [errorCancelacion, setErrorCancelacion] = useState("");
   const [cajasVenta, setCajasVenta] = useState([]);
   const [cajaDestinoId, setCajaDestinoId] = useState("");
   const [cancelando, setCancelando] = useState(false);
   const [cambiandoCaja, setCambiandoCaja] = useState(false);
   const cancelacionEnCurso = useRef(false);
   const cambioCajaEnCurso = useRef(false);
+
+  useEffect(() => {
+    if (modal !== "cancelar") setPasswordAutorizador("");
+  }, [modal]);
 
   const mostrarAviso = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2500); };
 
@@ -155,26 +162,44 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
     if (!seleccionada) return mostrarAviso("Selecciona una venta primero");
     if (seleccionada.estatus === "cancelada") return mostrarAviso("Esta venta ya está cancelada");
     setMotivoCancelacion("");
+    setUsuarioAutorizador("");
+    setPasswordAutorizador("");
+    setErrorCancelacion("");
     setModal("cancelar");
   };
 
   const confirmarCancelacion = async () => {
+    if (seleccionada.tipo_documento !== "Apartado" && !motivoCancelacion.trim()) {
+      setErrorCancelacion("Escribe el motivo de la cancelación");
+      return;
+    }
     // Una solicitud duplicada intenta reintegrar dos veces el inventario de la venta.
     if (cancelacionEnCurso.current) return;
     cancelacionEnCurso.current = true;
     setCancelando(true);
+    setErrorCancelacion("");
     try {
       // sucursal_id explícito (el de la propia venta), mismo motivo que en
       // verDetalle(): sin él, el guard de esta ruta responde "Venta no
       // encontrada" para un folio que la tabla sí está mostrando.
-      const r = await apiFetch(`/ventas/${seleccionada.id}/cancelar${qSucursal(seleccionada)}`, { method: "PUT", body: JSON.stringify({ motivo: motivoCancelacion }) });
+      const datos = { motivo: motivoCancelacion };
+      if (seleccionada.tipo_documento !== "Apartado") {
+        datos.autorizador = { usuario: usuarioAutorizador, password: passwordAutorizador };
+      }
+      const r = await apiFetch(`/ventas/${seleccionada.id}/cancelar${qSucursal(seleccionada)}`, {
+        method: "PUT", body: JSON.stringify(datos),
+      });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       mostrarAviso(`Venta folio ${seleccionada.id} cancelada — inventario reintegrado`);
       setModal(null);
       consultar();
-    } catch (e) { mostrarAviso("❌ " + e.message); }
-    finally { cancelacionEnCurso.current = false; setCancelando(false); }
+    } catch (e) { setErrorCancelacion(e.message); }
+    finally {
+      setPasswordAutorizador("");
+      cancelacionEnCurso.current = false;
+      setCancelando(false);
+    }
   };
 
   const abrirCambiarCaja = async () => {
@@ -441,6 +466,9 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                       dos campos desde hace tiempo y no se mostraban en ninguna
                       parte, así que una cancelación no tenía dueño visible. */}
                   <div>Cancelada — motivo: {detalle.motivo_cancelacion || "sin especificar"}</div>
+                  {detalle.cancelacion_autorizada_por && (
+                    <div>Autorizó: <strong>{detalle.cancelacion_autorizada_por.nombre}</strong></div>
+                  )}
                   <div className="mt-1 text-red-900/80">
                     Canceló: <strong>{detalle.cancelada_por || "—"}</strong>
                     {detalle.fecha_hora_cancelacion && <> · {new Date(detalle.fecha_hora_cancelacion).toLocaleString("es-MX")}</>}
@@ -457,15 +485,37 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
           <div className="neu-panel rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-panel-in">
             <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
               <h3 className="font-semibold text-sm">Cancelar venta — Folio {seleccionada.id}</h3>
-              <button type="button" onClick={() => setModal(null)} className="hover:bg-red-700 rounded p-1"><X size={18} /></button>
+              <button type="button" onClick={() => { setPasswordAutorizador(""); setModal(null); }}
+                className="hover:bg-red-700 rounded p-1"><X size={18} /></button>
             </div>
             <div className="p-4 flex flex-col gap-3">
               <p className="text-xs text-slate-600">Esto reintegra al inventario los productos de esta venta. Esta acción no se puede deshacer.</p>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Motivo de la cancelación</label>
-                <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)} placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
+                <input autoFocus value={motivoCancelacion} onChange={(e) => setMotivoCancelacion(e.target.value)}
+                  placeholder="ej: Error de captura, cliente se arrepintió..." className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
               </div>
-              <button type="button" onClick={confirmarCancelacion} disabled={cancelando} className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{cancelando ? "Cancelando..." : "Confirmar cancelación"}</button>
+              {seleccionada.tipo_documento !== "Apartado" && (
+                <>
+                  <p className="text-xs text-slate-600">Otra persona con permiso debe autorizar la cancelación.</p>
+                  <label className="text-xs text-slate-500">
+                    Usuario que autoriza
+                    <input value={usuarioAutorizador} onChange={(e) => setUsuarioAutorizador(e.target.value)} autoComplete="off"
+                      className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
+                  </label>
+                  <label className="text-xs text-slate-500">
+                    Contraseña
+                    <input type="password" value={passwordAutorizador} onChange={(e) => setPasswordAutorizador(e.target.value)}
+                      autoComplete="new-password" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" />
+                  </label>
+                </>
+              )}
+              {errorCancelacion && <p role="alert" className="text-sm text-red-600">{errorCancelacion}</p>}
+              <button type="button" onClick={confirmarCancelacion}
+                disabled={cancelando || (seleccionada.tipo_documento !== "Apartado" && !motivoCancelacion.trim())}
+                className="bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                {cancelando ? "Cancelando..." : "Confirmar cancelación"}
+              </button>
             </div>
           </div>
         </div>

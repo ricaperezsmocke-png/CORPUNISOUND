@@ -49,7 +49,7 @@ test("cancelar una venta deja el reintegro a nombre de quien cancelo", () => {
   const DB = prepararDB();
   const venta = crearVenta(DB, { sucursal_id: 1, metodo_pago: "TARJETA", lineas: [{ producto_id: 1, cantidad: 2 }] }, { usuario: ANA });
 
-  cancelarVenta(DB, venta.id, "prueba", BETO);
+  cancelarVenta(DB, venta.id, "prueba", BETO, { id: 999, nombre: "Supervisora" });
 
   assert.strictEqual(ultimo(DB).usuario, "Beto", "el reintegro es de quien cancela, no de quien vendio");
 });

@@ -135,6 +135,11 @@ function crearApartado(DB, datos, sucursalId, usuario, cajaId, opciones = {}) {
       if (precio <= 0) {
         throw new Error(`"${producto.nombre}" no tiene precio de venta configurado — ponle precio en Inventario y Productos antes de apartarlo`);
       }
+      if (l.precio_unitario !== undefined && Math.round(Number(l.precio_unitario) * 100) !== Math.round(precio * 100)) {
+        throw new Error(
+          `El precio de "${producto.nombre}" cambió o no coincide con el catálogo ($${precio.toFixed(2)}). Recarga la pantalla antes de cobrar.`
+        );
+      }
     } else {
       // ARTICULO RAPIDO: sin producto no hay catalogo contra el cual recalcular,
       // asi que conserva el precio que le pongan — a proposito, para servicios y

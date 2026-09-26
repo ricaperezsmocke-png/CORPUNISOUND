@@ -33,7 +33,8 @@ test("editar un cliente no puede tocar los campos de dinero", () => {
   assert.strictEqual(guardado.telefono, "9611234567", "los campos normales SI se editan");
   assert.strictEqual(guardado.saldo, 0);
   assert.strictEqual(guardado.monedero, 0);
-  assert.strictEqual(guardado.limite_credito, 1000);
+  // Desde H1 (2026-09-25) el alta tampoco acepta limite de credito: nace en 0 y la edicion no lo sube.
+  assert.strictEqual(guardado.limite_credito, 0);
   assert.strictEqual(guardado.sujeto_credito, false);
 });
 

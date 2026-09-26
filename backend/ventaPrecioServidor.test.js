@@ -26,25 +26,27 @@ function prepararDB() {
 const CON_DESCUENTO = { permisos: ["aplicar_descuentos_articulos_venta"] };
 
 /**
- * EL SERVIDOR RECALCULA. Lo que manda el navegador es una propuesta, no un
- * hecho: quien manda la peticion a mano se salta cualquier limite de la
- * pantalla. Un articulo de $25 se registraba en $1 y en los reportes se veia
- * como una venta barata legitima, sin ninguna senal de fraude.
+ * EL SERVIDOR RECHAZA un precio distinto del catálogo (H3). No debe aceptar
+ * el $1 enviado ni sustituirlo en silencio por $25: la pantalla y la caja
+ * deben coincidir antes de cobrar.
  */
-test("el precio de un producto del catalogo no lo decide el navegador", () => {
+test("rechaza que el navegador baje el precio de catálogo sin registrar venta ni mover inventario", () => {
   const DB = prepararDB();
   const producto = DB["catalogo-productos"].productos[0]; // precio_venta 25
+  const inventarioAntes = structuredClone(DB.inventario);
+  const clientesAntes = structuredClone(DB.crm.clientes);
 
-  const venta = crearVenta(DB, {
+  assert.throws(() => crearVenta(DB, {
     sucursal_id: 4,
     metodo_pago: "TARJETA",
     lineas: [{ producto_id: producto.id, cantidad: 1, precio_unitario: 1 }],
     subtotal: 1, descuento: 0, total: 1,
-  });
+  }), /precio.*no coincide con el catálogo.*Recarga/i);
 
-  assert.strictEqual(venta.total, producto.precio_venta);
-  const [detalle] = DB.pos.venta_detalle;
-  assert.strictEqual(detalle.precio_unitario, producto.precio_venta);
+  assert.deepStrictEqual(DB.pos.ventas, []);
+  assert.deepStrictEqual(DB.pos.venta_detalle, []);
+  assert.deepStrictEqual(DB.inventario, inventarioAntes);
+  assert.deepStrictEqual(DB.crm.clientes, clientesAntes);
 });
 
 test("el total de la venta se calcula, no se copia", () => {
