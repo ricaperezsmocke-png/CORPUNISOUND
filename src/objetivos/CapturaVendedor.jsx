@@ -1,4 +1,5 @@
 ﻿import { useState } from "react";
+import { FranjaAyuda, AyudaBoton } from "./Ayuda";
 import { diasDeAtraso, fechaCorta, fechaLarga, finDelMes, hoyLocal, resumenVenta, ventaDelDia } from "./datos";
 import { esCapturaDeVenta, pesosConCentavos } from "./marcas";
 
@@ -19,6 +20,14 @@ export default function CapturaVendedor({
 
   return (
     <section className="neu rounded-xl p-4 space-y-5">
+      <FranjaAyuda clave="mi-venta">
+        <ol className="list-decimal pl-5 space-y-1">
+          <li>Al final del día escribe cuánto vendiste y presiona <strong>Guardar</strong>.</li>
+          <li>Si no vendiste nada, presiona <strong>No vendí nada ese día</strong>. No lo dejes en blanco: un día sin capturar cuenta como pendiente.</li>
+          <li>¿Te faltó un día? Tócalo en la lista de días sin capturar.</li>
+          <li>¿Te equivocaste? Usa <strong>Corregir</strong>: pide motivo y la versión anterior queda guardada.</li>
+        </ol>
+      </FranjaAyuda>
       <div className="flex items-center gap-4 text-sm">
         <p>{resumen.texto}</p>
         <button type="button" onClick={verAvance} className="text-blue-600 hover:underline">Ver Mi avance →</button>
@@ -45,6 +54,7 @@ export default function CapturaVendedor({
                 {Number(venta.monto) === 0 ? "✔ Registraste que no vendiste nada" : `✔ Registraste ${pesosConCentavos(venta.monto)}`}
               </p>
               <button type="button" onClick={() => abrirCorreccion(venta)} className={boton}>Corregir</button>
+              <AyudaBoton texto="Cambia el importe. Tu jefa ve el motivo y el importe anterior." />
             </div>
           ) : (
             <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); capturar(monto); }}>
@@ -56,6 +66,7 @@ export default function CapturaVendedor({
               </label>
               <div className="flex items-center gap-4">
                 <button disabled={!fechaValida || monto === ""} className={boton}>Guardar</button>
+                <AyudaBoton texto="Registra tu venta del día. Solo se captura una vez por día; para cambiarla usa Corregir." />
                 <button type="button" disabled={!fechaValida} onClick={() => capturar(0)}
                   className="text-slate-700 underline disabled:opacity-40">No vendí nada ese día</button>
               </div>

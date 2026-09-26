@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { FranjaAyuda } from "./Ayuda";
 import { History, Plus, Tags } from "lucide-react";
 import { apiFetch } from "../api";
 import { Campo, Modal } from "./DialogosObjetivos";
@@ -140,6 +141,9 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
 
   return (
     <section className="neu rounded-xl p-4 space-y-4">
+      <FranjaAyuda clave="tienda-marcas">
+        <p>Fija metas por marca (en pesos), por producto (en piezas) y por financiera. Las listas de marcas y productos se dan de alta aquí.</p>
+      </FranjaAyuda>
       <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
         <Tags size={18} className="text-blue-600" aria-hidden="true" />
         Metas de marca, producto y crédito

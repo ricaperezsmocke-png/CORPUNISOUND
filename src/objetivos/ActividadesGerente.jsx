@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FranjaAyuda } from "./Ayuda";
 import { apiFetch } from "../api";
 import { diasDeAtraso, estadoReparto, fechaCorta, filasReparto, leer, periodoEnTienda, sugerenciaGuardada } from "./datos";
 import { declaradasPorPersona, presentacionMetaActividad, ultimoResultado } from "./actividades";
@@ -118,6 +119,9 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
 
   return (
     <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
+      <FranjaAyuda clave="tienda-actividades">
+        <p>Toca una actividad para repartir su meta entre el personal. Abajo ves las actividades que declaró cada persona, con su evidencia.</p>
+      </FranjaAyuda>
       <h2 className="font-semibold text-slate-700">Metas de actividades · declaradas, no verificadas</h2>
       {cerrado && <p className="text-sm text-amber-800">Mes cerrado: las actividades y sus metas son de solo lectura.</p>}
       {error && <p role="alert" className={aviso}>{error}</p>}

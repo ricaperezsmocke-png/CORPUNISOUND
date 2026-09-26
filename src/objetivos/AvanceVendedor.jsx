@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FranjaAyuda } from "./Ayuda";
 import { Gauge } from "lucide-react";
 import { apiFetch } from "../api";
 import { hoyLocal, leer } from "./datos";
@@ -32,6 +33,9 @@ export default function AvanceVendedor({ mes, sucursalId }) {
 
   return (
     <section className="neu rounded-xl p-4 space-y-6">
+      <FranjaAyuda clave="mi-avance">
+        <p>Aquí ves cómo vas en el mes. El anillo es tu porcentaje de la meta; la línea compara lo que llevas contra el ritmo que necesitas. El % de tu tienda es al cierre de ayer.</p>
+      </FranjaAyuda>
       <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
         <Gauge size={18} className="text-blue-600" aria-hidden="true" />
         Mi avance del mes

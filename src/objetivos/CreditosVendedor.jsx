@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { FranjaAyuda } from "./Ayuda";
 import { CreditCard } from "lucide-react";
 import { apiFetch } from "../api";
 import { Campo, Modal } from "./DialogosObjetivos";
@@ -86,6 +87,9 @@ export default function CreditosVendedor({ mes, sucursalId, vendedorId, objetivo
 
   return (
     <section className="neu rounded-xl p-4 space-y-4">
+      <FranjaAyuda clave="mis-creditos">
+        <p>Registra cada venta financiada con Coppel Pay o Atrato con su folio. El mismo folio no se puede registrar dos veces.</p>
+      </FranjaAyuda>
       <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
         <CreditCard size={18} className="text-blue-600" aria-hidden="true" />
         Mis créditos

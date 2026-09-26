@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Package, Tags } from "lucide-react";
+import { AyudaBoton } from "./Ayuda";
 import { apiFetch } from "../api";
 import { Campo, Modal } from "./DialogosObjetivos";
 import { diasDeAtraso, leer } from "./datos";
@@ -104,6 +105,9 @@ export default function MarcasDelDia({ mes, sucursalId, vendedorId, fecha, objet
             <h3 className="font-medium text-slate-700 flex gap-2 items-center">
               <t.Icono size={18} className="text-blue-600" aria-hidden="true" />
               {t.titulo}
+              {t.tipo === "marca" && (
+                <AyudaBoton texto="Reparte tu venta del día entre las marcas que vendiste. La suma no puede pasar de tu venta." />
+              )}
             </h3>
             {t.tipo === "marca" && (sinVenta ? (
               <p className="text-sm text-amber-800">Primero captura tu venta de ese día.</p>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FranjaAyuda, AyudaBoton } from "./Ayuda";
 import { apiFetch } from "../api";
 import { Megaphone, ShoppingBag, Church, FileText } from "lucide-react";
 import { lineaAvanceActividades, ultimoResultado, leerArchivoComoBase64 } from "./actividades";
@@ -65,6 +66,14 @@ export default function ActividadesVendedor({ mes, sucursalId, vendedorId, objet
   const bloqueado = cargando || guardando;
   return (
     <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
+      <FranjaAyuda clave="mis-actividades">
+        <ol className="list-decimal pl-5 space-y-1">
+          <li>Elige qué hiciste: publicación en grupos, Marketplace, salida a iglesia o volanteo.</li>
+          <li>Pega el link de la publicación o sube la foto.</li>
+          <li>Presiona <strong>Guardar actividad</strong>. Después puedes agregar cuántos contactos y cotizaciones salieron.</li>
+        </ol>
+        <p>Las actividades son declaradas: tu gerente puede revisar la evidencia.</p>
+      </FranjaAyuda>
       {error && <p role="alert" className={aviso}>{error}</p>}
       {exito && <p role="status" className="text-sm text-emerald-800 break-words">{exito}</p>}
       {cargando && <p role="status" className="text-sm text-slate-500">Cargando actividades…</p>}
@@ -86,7 +95,10 @@ export default function ActividadesVendedor({ mes, sucursalId, vendedorId, objet
                 <thead className="bg-blue-600 text-white">
                   <tr>
                     <th className={celda}>Fecha</th><th className={celda}>Actividad</th><th className={celda}>Evidencia</th>
-                    <th className={celda}>Último resultado</th><th className={celda}>Acciones</th>
+                    <th className={celda}>Último resultado</th><th className={celda}>
+                      Acciones
+                      <AyudaBoton texto="Quita la actividad de tu cuenta. Pide motivo y queda registrada como anulada." />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
