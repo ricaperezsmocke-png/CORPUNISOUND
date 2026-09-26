@@ -103,13 +103,14 @@ for (const tipo of ["gasto", "gasto garantía", "cobro garantía"]) {
 
 for (const [nombre, crear] of [["VENTA", venta], ["APARTADO", apartado]]) {
   for (const catalogo of [false, true]) {
-    test(`${nombre}: precio unitario fuera del techo con cantidad fraccionaria (${catalogo ? "catálogo" : "rápido"})`, () => {
+    // Antes usaba 0.5 piezas; desde 2026-09-25 solo hay piezas enteras y el precio se prueba con 1.
+    test(`${nombre}: precio unitario fuera del techo con una sola pieza (${catalogo ? "catálogo" : "rápido"})`, () => {
       const DB = prepararDB();
       const precio = TOPE_IMPORTE + 1;
       DB["catalogo-productos"].productos.find((p) => p.id === 1).precio_venta = precio;
       const linea = catalogo
-        ? { producto_id: 1, cantidad: 0.5 }
-        : { descripcion: "Servicio", precio_unitario: precio, cantidad: 0.5 };
+        ? { producto_id: 1, cantidad: 1 }
+        : { descripcion: "Servicio", precio_unitario: precio, cantidad: 1 };
       rechazaSinCambios(DB, () => crear(DB, [linea]), /precio|importe/i);
     });
   }

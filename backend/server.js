@@ -23,7 +23,7 @@ const { predecirDemanda } = require("./predicciones");
 const { parsearReporteVentasSicar, previsualizarHistorialVentas, aplicarHistorialVentas } = require("./historialVentas");
 const {
   listarProductos, crearProducto, actualizarProducto, eliminarProducto,
-  reactivarProducto, clonarProducto, ajustarExistencia, listarCategorias, crearCategoria,
+  reactivarProducto, clonarProducto, ajusteManualExistencia, limpiarExistenciasFraccionarias, listarCategorias, crearCategoria,
   listarDepartamentos, crearDepartamento, crearProveedor, generarClave
 } = require("./productos");
 const { listarClientes, obtenerCliente, crearCliente, actualizarCliente } = require("./clientes");
@@ -379,6 +379,15 @@ try {
 // o permisos nuevos (ml, traspasos, compras...). Los demás roles no se tocan.
 // Ver backend/roles.js -> reconciliarRoles.
 reconciliarRoles(DB);
+
+// Solo piezas enteras (decisión de Victor, 2026-09-25): si quedó alguna existencia con
+// decimales de antes de la regla, baja al entero de abajo con su movimiento. Después de la
+// primera vez ya no encuentra nada que corregir. Ver productos.js -> limpiarExistenciasFraccionarias.
+const existenciasCorregidas = limpiarExistenciasFraccionarias(DB);
+if (existenciasCorregidas > 0) {
+  console.warn(`⚠️  Se corrigieron ${existenciasCorregidas} existencias con decimales (ver movimientos "Limpieza de decimales").`);
+  guardar(DB);
+}
 
 // Enciende "solicitar vendedor al cerrar venta" en las bases que ya existen: el
 // default nuevo no las alcanza porque la configuración se guarda entera.
@@ -1130,7 +1139,7 @@ app.post("/api/productos/:id/ajustar", requiereLogin, requierePermiso("ajustar_e
     // El usuario va aparte del cuerpo a proposito: quien ajusta lo dice el
     // token, no la peticion. Si viniera del body, cualquiera podria firmar un
     // ajuste con el nombre de otro.
-    res.json(ajustarExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
+    res.json(ajusteManualExistencia(DB, req.params.id, { ...req.body, sucursal_id, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

@@ -393,6 +393,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     if (!rapidoDescripcion.trim()) return mostrarAviso("Escribe una descripción");
     const precio = Number(rapidoPrecio);
     if (!precio || precio <= 0) return mostrarAviso("Escribe un precio válido");
+    if (rapidoCantidad !== "" && !Number.isInteger(Number(rapidoCantidad))) {
+      return mostrarAviso("La cantidad debe ser en piezas enteras.");
+    }
     setCarrito((prev) => [
       ...prev,
       {
@@ -1006,7 +1009,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
           </Campo>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <Campo label="Cantidad">
-              <input type="number" className={inputCls} value={rapidoCantidad} onChange={(e) => setRapidoCantidad(e.target.value)} min="1" />
+              <input type="number" className={inputCls} value={rapidoCantidad} onChange={(e) => setRapidoCantidad(e.target.value)} min="1" step="1" />
             </Campo>
             <Campo label="Precio">
               <input type="number" className={inputCls} value={rapidoPrecio} onChange={(e) => setRapidoPrecio(e.target.value)} placeholder="0.00" />
@@ -1038,12 +1041,17 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
         <Modal titulo="Cambiar cantidad (F4 / F5)" onCerrar={() => setModal(null)}>
           <p className="text-sm text-slate-500 mb-2">{carrito[filaSeleccionada].descripcion}</p>
           <input
-            autoFocus type="number" value={valorTemporal}
+            autoFocus type="number" min="1" step="1" value={valorTemporal}
             onChange={(e) => setValorTemporal(e.target.value)}
             className="w-full neu-campo rounded-lg px-3 py-2 text-lg text-right mb-4 focus:outline-none focus:border-blue-500"
           />
           <button
-            onClick={() => { actualizarCantidad(filaSeleccionada, Number(valorTemporal) || 0); setModal(null); }}
+            onClick={() => {
+              // Solo piezas enteras: el servidor también lo exige, esto solo avisa antes de cobrar.
+              if (!Number.isInteger(Number(valorTemporal))) return mostrarAviso("La cantidad debe ser en piezas enteras.");
+              actualizarCantidad(filaSeleccionada, Number(valorTemporal) || 0);
+              setModal(null);
+            }}
             className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium transition-colors"
           >Aplicar</button>
         </Modal>

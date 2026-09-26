@@ -9,6 +9,7 @@
  */
 
 const { ajustarExistencia } = require("./productos");
+const { exigirPiezasEnteras } = require("./importes");
 
 function siguienteId(lista) {
   return lista.length ? Math.max(...lista.map((x) => x.id)) + 1 : 1;
@@ -21,7 +22,7 @@ function crearTraspaso(DB, datos, sucursalOrigenId, usuario) {
   const sucursal_origen_id = Number(sucursalOrigenId);
 
   if (!producto_id) throw new Error("Selecciona un producto");
-  if (!cantidad || cantidad <= 0) throw new Error("La cantidad debe ser mayor a cero");
+  exigirPiezasEnteras(datos.cantidad, "el traspaso");
   // Sin origen no se adivina: es la tienda a la que se le descuenta la pieza.
   if (!sucursal_origen_id) throw new Error("Selecciona la sucursal de origen");
   if (!sucursal_destino_id) throw new Error("Selecciona la sucursal destino");
