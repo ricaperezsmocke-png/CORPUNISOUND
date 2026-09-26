@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FranjaAyuda, AyudaBoton } from "./Ayuda";
 import { History, Users, Target, WandSparkles } from "lucide-react";
 import { estadoReparto, fechaCorta, filasReparto, finDelMes, sugerenciaGuardada } from "./datos";
 
@@ -30,6 +31,14 @@ export default function RepartoGerente({
 
   return (
     <section className="neu rounded-xl p-4 space-y-4">
+      <FranjaAyuda clave="tienda-venta">
+        <ol className="list-decimal pl-5 space-y-1">
+          <li><strong>Fijar meta de tienda</strong>: cuánto debe vender la tienda en el mes.</li>
+          <li><strong>Personal del mes</strong>: quiénes trabajan este mes y desde qué día.</li>
+          <li><strong>Sugerir reparto</strong> y presiona <strong>Usar</strong> en cada persona, o fija cada meta a mano.</li>
+          <li>Revisa arriba que diga <strong>✔ Reparto completo</strong>.</li>
+        </ol>
+      </FranjaAyuda>
       <div className="grid grid-cols-3 gap-5">
         <div>
           <h2 className="text-sm text-slate-500">META DE TIENDA</h2>
@@ -50,6 +59,7 @@ export default function RepartoGerente({
             <button type="button" onClick={pedirSugerencia} className={boton}>
               <WandSparkles size={18} aria-hidden="true" />Sugerir reparto
             </button>
+            <AyudaBoton texto="Propone partes iguales. No guarda nada hasta que presiones Usar." />
           </>
         )}
         <button type="button" onClick={() => setPersonalAbierto(true)} className={boton}>
@@ -119,7 +129,10 @@ export default function RepartoGerente({
           <div role="dialog" aria-modal="true" aria-label="Personal del mes"
             className="bg-white rounded-xl p-5 w-full max-w-2xl max-h-[85dvh] overflow-y-auto space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-semibold">Personal del mes</h3>
+              <h3 className="font-semibold">
+                Personal del mes
+                <AyudaBoton texto="La persona deja de contar desde ese día; su historia se conserva." />
+              </h3>
               <button type="button" onClick={() => setPersonalAbierto(false)} className={boton}>Cerrar</button>
             </div>
             {objetivos.plantilla.length ? (

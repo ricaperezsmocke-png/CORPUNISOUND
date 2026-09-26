@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FranjaAyuda } from "./Ayuda";
 import { BarChart3 } from "lucide-react";
 import { apiFetch } from "../api";
 import { hoyLocal, leer } from "./datos";
@@ -50,6 +51,9 @@ export default function AvanceTienda({ mes, sucursalId, nombre }) {
 
   return (
     <section className="neu rounded-xl p-4 space-y-6">
+      <FranjaAyuda clave="tienda-avance">
+        <p>Cómo va la tienda y cada persona contra su meta. Úsalo para ver quién necesita apoyo.</p>
+      </FranjaAyuda>
       <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
         <BarChart3 size={18} className="text-blue-600" aria-hidden="true" />
         Avance de la tienda

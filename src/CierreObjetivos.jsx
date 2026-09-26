@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from "react";
+import { FranjaAyuda, AyudaBoton } from "./objetivos/Ayuda";
 import { RefreshCw } from "lucide-react";
 import { apiFetch } from "./api";
 import { Campo, Modal } from "./objetivos/DialogosObjetivos";
@@ -175,6 +176,13 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
         <CierreSellado cierre={cierre} rectificar={setRectificando} nombre={nombre} mes={mes} nombreSucursal={nombreSucursal} />
       ) : (
         <section className="neu rounded-xl p-4 space-y-4 min-w-0 max-w-full">
+          <FranjaAyuda clave="cierre">
+            <ol className="list-decimal pl-5 space-y-1">
+              <li>Escribe el <strong>real de SICAR</strong> de cada persona, y el real de cada marca, producto y financiera.</li>
+              <li>Revisa las diferencias en ámbar.</li>
+              <li>Presiona <strong>Revisar y cerrar</strong> y confirma. <strong>Sellar no se puede deshacer</strong>: después solo se puede rectificar, con motivo.</li>
+            </ol>
+          </FranjaAyuda>
           <h2 className="font-semibold text-slate-700 flex gap-2 items-center">
             {nombreSucursal.toUpperCase()} · {mesEnPalabras(mes).toUpperCase()} · 🔓 ABIERTO
           </h2>
@@ -271,6 +279,7 @@ export function CierreSellado({ cierre, rectificar, nombre, mes, nombreSucursal 
       <h2 className="font-semibold text-slate-700">
         {nombreSucursal.toUpperCase()} · {mesEnPalabras(mes || cierre.mes).toUpperCase()} · 🔒 SELLADO
         {" "}por {cierre.cerrado_por} el {fechaCierre(cierre.cerrado_en)}
+        <AyudaBoton texto="Corrige una cifra del cierre sellado. El valor original queda visible, tachado." />
       </h2>
       <div className="overflow-x-auto max-w-full">
         <table className={TABLA}>
