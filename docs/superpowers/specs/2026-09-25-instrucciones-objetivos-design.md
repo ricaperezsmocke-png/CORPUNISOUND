@@ -80,7 +80,7 @@ y al final de la franja, sin número: "Las actividades son declaradas: tu gerent
 2. Revisa las diferencias en ámbar.
 3. Presiona **Revisar y cerrar** y confirma. **Sellar no se puede deshacer**: después solo se puede rectificar, con motivo.
 
-Con el mes SELLADO no se muestra esa franja; en su lugar un "?" junto al título de la tabla de venta:
+Con el mes SELLADO no se muestra esa franja; en su lugar un "?" junto al encabezado general "… · 🔒 SELLADO por …" (la tabla de venta no tiene título propio):
 "Corrige una cifra del cierre sellado. El valor original queda visible, tachado." (texto de **Rectificar**).
 
 ## Reglas
@@ -98,3 +98,14 @@ Con el mes SELLADO no se muestra esa franja; en su lugar un "?" junto al título
 - `node --test src/` en verde; eslint sin errores; `npx vite build` OK.
 - Navegador (Claude): cada pestaña muestra su franja; cerrar ✕ y recargar la deja cerrada; "¿Qué hago aquí?"
   la reabre; el "?" muestra su burbuja con mouse y con Tab; cierre abierto vs sellado.
+
+## Alcance (archivos)
+
+Autorizados: `src/objetivos/Ayuda.jsx` (nuevo), `src/objetivos/ayuda.test.js` (nuevo), y SOLO para colocar la
+franja y los "?": `src/objetivos/AvanceVendedor.jsx`, `CapturaVendedor.jsx`, `MarcasDelDia.jsx`,
+`ActividadesVendedor.jsx`, `CreditosVendedor.jsx`, `AvanceTienda.jsx`, `RepartoGerente.jsx`, `ActividadesGerente.jsx`,
+`MarcasGerente.jsx`, `src/CierreObjetivos.jsx`. Si una franja encaja mejor puesta desde `src/GerenciaVentas.jsx`
+(por pestaña) en vez de dentro del componente, se permite tocar GerenciaVentas solo para eso.
+Prohibido: todo `backend/`, cualquier otro archivo, dependencias nuevas, CSS global. Si una prueba existente del
+backend dibuja alguna de estas pantallas (p. ej. `backend/objetivosPantalla*.test.js`) y se rompe por el texto
+nuevo, NO la edites: repórtalo (Claude la ajusta).
