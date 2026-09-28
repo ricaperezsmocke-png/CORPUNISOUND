@@ -17,6 +17,7 @@ import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
 import { calcularTotalesVenta } from "./calcularTotalesVenta.js";
 import { pedirLista } from "./cargaSegura";
 import { nombreCajaActiva } from "./cajaPantalla.js";
+import { digitosTelefono } from "./telefono";
 
 /**
  * Vendedor de respaldo, SOLO para que la caja nunca se quede sin poder cobrar.
@@ -588,6 +589,11 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
     // quién puede verlo después), y este formulario no pregunta cuál.
     if (sinSucursal) return mostrarAviso("Elige una sucursal en el encabezado para dar de alta un cliente");
     if (!formCliente.nombre.trim()) return mostrarAviso("El nombre del cliente es obligatorio");
+    // Mismas reglas que el servidor: al menos un número de 10 dígitos, y
+    // ninguno escrito a medias. El servidor además busca duplicados.
+    const numeros = [formCliente.telefono, formCliente.celular].filter((n) => String(n || "").trim());
+    if (numeros.some((n) => digitosTelefono(n).length !== 10)) return mostrarAviso("El teléfono debe tener 10 dígitos");
+    if (!numeros.length) return mostrarAviso("El teléfono del cliente es obligatorio (10 dígitos)");
     try {
       const r = await apiFetch(`/clientes`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formCliente)
@@ -1132,9 +1138,16 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
             <input className={inputCls} value={formCliente.representante} onChange={(e) => setFormCliente({ ...formCliente, representante: e.target.value })} />
           </Campo>
           <div className="grid grid-cols-2 gap-3 mb-3">
-            <Campo label="Teléfono"><input className={inputCls} value={formCliente.telefono} onChange={(e) => setFormCliente({ ...formCliente, telefono: e.target.value })} /></Campo>
-            <Campo label="Celular"><input className={inputCls} value={formCliente.celular} onChange={(e) => setFormCliente({ ...formCliente, celular: e.target.value })} /></Campo>
+            <Campo label="Teléfono *">
+              <input className={inputCls} value={formCliente.telefono}
+                onChange={(e) => setFormCliente({ ...formCliente, telefono: e.target.value })} />
+            </Campo>
+            <Campo label="Celular *">
+              <input className={inputCls} value={formCliente.celular}
+                onChange={(e) => setFormCliente({ ...formCliente, celular: e.target.value })} />
+            </Campo>
           </div>
+          <p className="text-xs text-gray-500 -mt-2 mb-3">* Teléfono o celular, al menos uno (10 dígitos).</p>
           <Campo label="eMail" className="mb-3">
             <input className={inputCls} value={formCliente.email} onChange={(e) => setFormCliente({ ...formCliente, email: e.target.value })} />
           </Campo>

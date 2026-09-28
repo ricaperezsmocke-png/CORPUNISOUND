@@ -133,4 +133,106 @@ function actualizarCliente(DB, id, datos) {
   return DB.crm.clientes[idx];
 }
 
-module.exports = { listarClientes, obtenerCliente, crearCliente, actualizarCliente };
+/**
+ * Teléfono para COMPARAR (lo guardado queda como lo escribió la persona):
+ * solo dígitos y, si sobran, los últimos 10 — así "+52 961 123 4567",
+ * "961-123-4567" y "9611234567" son el mismo número. Misma regla que
+ * `telefonoNormalizado` del Radar de Demanda.
+ */
+function normalizarTelefono(valor) {
+  const digitos = String(valor ?? "").replace(/\D/g, "");
+  return digitos.length > 10 ? digitos.slice(-10) : digitos;
+}
+
+function normalizarCorreo(valor) {
+  return String(valor ?? "").trim().toLowerCase();
+}
+
+function errorConStatus(mensaje, status, extra = {}) {
+  const error = new Error(mensaje);
+  error.status = status;
+  Object.assign(error, extra);
+  return error;
+}
+
+const MENSAJE_TELEFONO_OBLIGATORIO = "El teléfono del cliente es obligatorio (10 dígitos)";
+
+/**
+ * Reglas de contacto de las pantallas de clientes (CRM y Punto de Venta):
+ * teléfono obligatorio y nada de dar de alta dos veces a la misma persona.
+ *
+ * Un cliente duplicado no es inocente: dos vendedoras con la misma persona
+ * en fichas distintas se pisan el seguimiento, parten el historial de compras
+ * y, el día que haya comisión por cliente, se pelean el crédito. Por eso el
+ * teléfono y el correo se buscan en TODAS las tiendas, no solo en la propia.
+ *
+ * Vive fuera de crearCliente/actualizarCliente a propósito: la importación de
+ * SICAR (migracion.js) trae clientes sin teléfono y tiene su propio
+ * emparejamiento, y el Radar busca por teléfono en su tienda antes de crear.
+ * Esos dos caminos no cambian.
+ *
+ * - `modo: "alta"`: exige teléfono o celular de 10 dígitos.
+ * - `modo: "edicion"`: solo mira los campos que la petición trae; no exige
+ *   formato (hay clientes viejos con teléfonos cortos) pero no deja vaciar
+ *   ambos números ni ponerle a uno el número o correo de otro.
+ *
+ * `fueraDeAlcance(clienteExistente)` dice si quien captura no puede ver a ese
+ * cliente; entonces se le indica que pida el cambio a su gerente.
+ */
+function validarContactoCliente(DB, datos, { modo, clienteId = null, fueraDeAlcance = () => false }) {
+  const trae = (campo) => Object.prototype.hasOwnProperty.call(datos, campo);
+  const actual = clienteId === null ? {} : (DB.crm.clientes.find((c) => c.id === Number(clienteId)) || {});
+  const tocaTelefonos = modo === "alta" || trae("telefono") || trae("celular");
+  const tocaCorreo = modo === "alta" || trae("email");
+  if (!tocaTelefonos && !tocaCorreo) return;
+
+  const numeros = ["telefono", "celular"].map((campo) => (trae(campo) ? datos[campo] : actual[campo]));
+
+  if (tocaTelefonos) {
+    if (modo === "alta") {
+      for (const valor of numeros) {
+        const normal = normalizarTelefono(valor);
+        if (String(valor ?? "").trim() && normal.length !== 10) {
+          throw errorConStatus("El teléfono debe tener 10 dígitos", 400);
+        }
+      }
+      if (!numeros.some((valor) => normalizarTelefono(valor).length === 10)) {
+        throw errorConStatus(MENSAJE_TELEFONO_OBLIGATORIO, 400);
+      }
+    } else if (!numeros.some((valor) => String(valor ?? "").trim())) {
+      throw errorConStatus(MENSAJE_TELEFONO_OBLIGATORIO, 400);
+    }
+  }
+
+  const otros = DB.crm.clientes.filter((c) => c.id !== 0 && (clienteId === null || c.id !== Number(clienteId)));
+  const rechazar = (existente, queCoincide) => {
+    const sucursal = DB.pos.sucursales.find((s) => Number(s.id) === Number(existente.sucursal_id));
+    const nombreSucursal = sucursal ? sucursal.nombre : `sucursal ${existente.sucursal_id}`;
+    let mensaje = `Este cliente ya está registrado: ${queCoincide} es de ${existente.nombre} (${nombreSucursal}).`;
+    if (fueraDeAlcance(existente)) mensaje += " Pídele a tu gerente que lo cambie a tu tienda.";
+    throw errorConStatus(mensaje, 409, {
+      cliente_existente: { id: existente.id, nombre: existente.nombre, sucursal: nombreSucursal },
+    });
+  };
+
+  if (tocaTelefonos) {
+    const propios = numeros.map(normalizarTelefono).filter((n) => n.length === 10);
+    for (const numero of propios) {
+      const existente = otros.find((c) => [c.telefono, c.celular].some((v) => normalizarTelefono(v) === numero));
+      if (existente) rechazar(existente, `el teléfono ${numero}`);
+    }
+  }
+
+  if (tocaCorreo) {
+    const correo = normalizarCorreo(trae("email") ? datos.email : actual.email);
+    if (correo) {
+      const existente = otros.find((c) => normalizarCorreo(c.email) === correo);
+      if (existente) rechazar(existente, `el correo ${correo}`);
+    }
+  }
+}
+
+module.exports = {
+  listarClientes, obtenerCliente, crearCliente, actualizarCliente,
+  validarContactoCliente, normalizarTelefono,
+};

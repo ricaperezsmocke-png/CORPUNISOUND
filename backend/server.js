@@ -26,7 +26,9 @@ const {
   reactivarProducto, clonarProducto, ajusteManualExistencia, limpiarExistenciasFraccionarias, listarCategorias, crearCategoria,
   listarDepartamentos, crearDepartamento, crearProveedor, generarClave
 } = require("./productos");
-const { listarClientes, obtenerCliente, crearCliente, actualizarCliente } = require("./clientes");
+const {
+  listarClientes, obtenerCliente, crearCliente, actualizarCliente, validarContactoCliente,
+} = require("./clientes");
 const {
   listarClientesCRM, obtenerClienteCRM, cambiarEstadoCliente,
   registrarContacto, listarContactos, resumenPorSucursal, rankingVendedores,
@@ -1541,6 +1543,22 @@ app.get("/api/clientes/:id", requiereLogin, (req, res) => {
     res.json(cliente);
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
+/**
+ * ¿Quien captura NO puede ver al cliente que ya tiene ese teléfono o correo?
+ * Se resuelve con su permiso y la sucursal de su token, nunca con el
+ * ?sucursal_id= del encabezado (es un filtro de listas, no el alcance).
+ */
+function clienteFueraDeAlcance(req) {
+  const verTodas = resolverPermisosDeRol(req.usuarioToken.rol_id).includes("ver_todas_las_sucursales");
+  const propia = Number(req.usuarioToken.sucursal_id);
+  return (cliente) => !verTodas && Number(cliente.sucursal_id) !== propia;
+}
+
+/** Errores de clientes: 409 para "ya está registrado" (con quién), 400 para lo demás. */
+function responderErrorCliente(res, e) {
+  if (e.status === 409) return res.status(409).json({ error: e.message, cliente_existente: e.cliente_existente });
+  return res.status(400).json({ error: e.message });
+}
 app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -1555,8 +1573,9 @@ app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolv
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige la sucursal del cliente (en el formulario) o una sucursal en el encabezado antes de darlo de alta." });
     }
+    validarContactoCliente(DB, req.body, { modo: "alta", fueraDeAlcance: clienteFueraDeAlcance(req) });
     res.json(crearCliente(DB, { ...req.body, sucursal_id }));
-  } catch (e) { res.status(400).json({ error: e.message }); }
+  } catch (e) { responderErrorCliente(res, e); }
 });
 app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", resolverPermisosDeRol), (req, res) => {
   try {
@@ -1577,8 +1596,11 @@ app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", re
         return res.status(403).json({ error: "No puedes mover el cliente a una sucursal fuera de tu alcance." });
       }
     }
+    validarContactoCliente(DB, req.body, {
+      modo: "edicion", clienteId: existente.id, fueraDeAlcance: clienteFueraDeAlcance(req),
+    });
     res.json(actualizarCliente(DB, req.params.id, req.body));
-  } catch (e) { res.status(400).json({ error: e.message }); }
+  } catch (e) { responderErrorCliente(res, e); }
 });
 
 // ---------- Vendedores y Sucursales (catálogo compartido) ----------
