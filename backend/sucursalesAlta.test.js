@@ -1,4 +1,4 @@
-﻿const { test } = require("node:test");
+const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { crearSucursal } = require("./sucursales");
 const { fechaLocal } = require("./fechas");
@@ -70,5 +70,56 @@ test("id usa máximo existente y admite coordenadas cero", () => {
   const DB = prepararDB();
   DB.pos.sucursales.unshift({ id: 15, nombre: "Otra" });
   assert.equal(crearSucursal(DB, { ...datos, lat: 0, lng: 0 }, { id: 9 }).id, 16);
+});
+
+for (const nombre of ["SanCristobal", "san  cristóbal", "Palenque\u200B", "Mercado Libre", "ＭｅｒｃａｄｏLibre"]) {
+  test(`rechaza otra escritura de tienda existente: ${nombre}`, () => {
+    const DB = prepararDB();
+    const antes = structuredClone(DB);
+    assert.throws(() => crearSucursal(DB, { ...datos, nombre }, { id: 9 }), /Ya existe una tienda/);
+    assert.deepEqual(DB, antes);
+  });
+}
+for (const campo of ["nombre", "ciudad"]) {
+  for (const valor of ["\u200B", "---", "\u200C\u200D\u2060\uFEFF", "\uFEFF", "\u0085"]) {
+    test(`${campo} requiere letras o números`, () => {
+      const DB = prepararDB();
+      const antes = structuredClone(DB);
+      assert.throws(() => crearSucursal(DB, { ...datos, [campo]: valor }, { id: 9 }), /debe tener letras o números/);
+      assert.deepEqual(DB, antes);
+    });
+  }
+}
+test("guarda textos limpios y mide el máximo después de limpiar", () => {
+  const nueva = crearSucursal(prepararDB(), {
+    ...datos, nombre: `\u200B${"x".repeat(60)}\u200D`, ciudad: "  San\u00A0 \u3000Cristóbal\u2060 ",
+  }, { id: 9 });
+  assert.equal(nueva.nombre, "x".repeat(60));
+  assert.equal(nueva.ciudad, "San Cristóbal");
+});
+test("normaliza también el espacio Unicode NEXT LINE", () => {
+  const DB = prepararDB();
+  assert.throws(() => crearSucursal(DB, { ...datos, nombre: "Mercado\u0085Libre" }, { id: 9 }), /Ya existe/);
+  const nueva = crearSucursal(DB, { ...datos, ciudad: "San\u0085 Cristóbal" }, { id: 9 });
+  assert.equal(nueva.ciudad, "San Cristóbal");
+});
+for (const [grupo, coleccion] of [["pos", "cajas"], ["admin", "usuarios"], ["pos", "vendedores"]]) {
+  test(`huérfanos en ${coleccion} impiden alta sin mutar`, () => {
+    const DB = prepararDB();
+    (DB[grupo][coleccion] ||= []).push({ id: 50, sucursal_id: "7" });
+    const antes = structuredClone(DB);
+    assert.throws(() => crearSucursal(DB, datos, { id: 9 }), {
+      message: "Hay registros huérfanos con la sucursal 7; revisa antes de crear la tienda",
+    });
+    assert.deepEqual(DB, antes);
+  });
+}
+test("cajas con id ausente o no numérico no contaminan nuevos ids", () => {
+  const DB = prepararDB();
+  DB.pos.cajas.push({ sucursal_id: 2 }, { id: "abc", sucursal_id: 3 });
+  const anteriores = structuredClone(DB.pos.cajas);
+  crearSucursal(DB, datos, { id: 9 });
+  assert.deepEqual(DB.pos.cajas.slice(0, 3), anteriores);
+  assert.deepEqual(DB.pos.cajas.slice(3).map((c) => c.id), [21, 22]);
 });
 

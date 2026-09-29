@@ -134,6 +134,10 @@ async function crearUsuario(DB, datos) {
    */
   const hash = await hashearPassword(datos.password);
 
+  if (!(DB.pos?.sucursales || []).some((s) => Number(s.id) === (Number(datos.sucursal_id) || 1))) {
+    throw new Error("La sucursal asignada no existe");
+  }
+
   // ---- Sección crítica: síncrona de aquí hasta el push ----
   // Se compara normalizado: dos cuentas que solo difieren en mayúsculas o
   // espacios serían indistinguibles al entrar.
@@ -169,6 +173,10 @@ async function actualizarUsuario(DB, id, datos) {
   const sucursalFinal = datos.sucursal_id !== undefined
     ? Number(datos.sucursal_id)
     : DB.admin.usuarios[idx].sucursal_id;
+
+  if (!(DB.pos?.sucursales || []).some((s) => Number(s.id) === Number(sucursalFinal))) {
+    throw new Error("La sucursal asignada no existe");
+  }
 
   DB.admin.usuarios[idx] = {
     ...DB.admin.usuarios[idx],

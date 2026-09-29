@@ -1639,15 +1639,22 @@ app.get("/api/sucursales", (req, res) => {
     } catch { /* token inválido o ausente: se trata como no autenticado */ }
   }
   if (puedeVerUbicacion) return res.json(DB.pos.sucursales);
-  res.json(DB.pos.sucursales.map(({ lat, lng, fecha_alta, creada_por, ...resto }) => resto));
+  res.json(DB.pos.sucursales.map(({ lat, lng, fecha_alta, creada_por, ubicacion_historial, ...resto }) => resto));
 });
 
-app.post("/api/sucursales", requiereLogin,
-  requierePermiso("administrar_sucursales", resolverPermisosDeRol),
-  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+app.post("/api/sucursales", requiereLogin, requiereAlcanceGlobal(resolverPermisosDeRol),
+  requierePermiso("administrar_sucursales", resolverPermisosDeRol), (req, res) => {
     try {
       const { crearSucursal } = require("./sucursales");
-      res.json(crearSucursal(DB, req.body, req.usuarioToken));
+      const temporal = {
+        ...DB, pos: { ...DB.pos, sucursales: [...DB.pos.sucursales], cajas: [...(DB.pos.cajas || [])] },
+      };
+      const nueva = crearSucursal(temporal, req.body, req.usuarioToken);
+      guardar(temporal);
+      DB.pos.sucursales = temporal.pos.sucursales;
+      DB.pos.cajas = temporal.pos.cajas;
+      // El middleware res.json guarda DESPUÉS de responder. Aquí ya guardamos antes de confirmar.
+      res.type("json").send(JSON.stringify(nueva));
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
 
@@ -1676,15 +1683,32 @@ app.get("/api/cajas", requiereLogin, (req, res) => {
 // las cambia puede abrirle el acceso a cualquiera desde cualquier lado, o
 // dejar fuera a una tienda entera — y siempre sobre una sucursal que puede no
 // ser la suya. Alcance global, no solo el permiso.
-app.put("/api/sucursales/:id/ubicacion", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+app.put("/api/sucursales/:id/ubicacion", requiereLogin, requiereAlcanceGlobal(resolverPermisosDeRol),
+  requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
   try {
     const sucursal = DB.pos.sucursales.find((s) => s.id === Number(req.params.id));
     if (!sucursal) throw new Error("Sucursal no encontrada");
     if (sucursal.sin_ubicacion) throw new Error("Esta sucursal no usa ubicación GPS");
-    const { lat, lng } = req.body;
-    sucursal.lat = lat !== undefined && lat !== null && lat !== "" ? Number(lat) : null;
-    sucursal.lng = lng !== undefined && lng !== null && lng !== "" ? Number(lng) : null;
-    res.json(sucursal);
+    const { validarCoordenadas } = require("./sucursales");
+    const coordenadas = validarCoordenadas(req.body?.lat, req.body?.lng, {
+      permitirVacias: true, tieneUbicacion: sucursal.lat != null || sucursal.lng != null,
+    });
+    if (sucursal.lat === coordenadas.lat && sucursal.lng === coordenadas.lng) {
+      return res.type("json").send(JSON.stringify(sucursal));
+    }
+    const cuenta = DB.admin.usuarios.find((u) => Number(u.id) === Number(req.usuarioToken.id));
+    const nueva = {
+      ...sucursal, ...coordenadas,
+      ubicacion_historial: [...(sucursal.ubicacion_historial || []), {
+        fecha_hora: new Date().toISOString(), usuario_id: req.usuarioToken.id, usuario_nombre: cuenta?.nombre ?? null,
+        lat_anterior: sucursal.lat ?? null, lng_anterior: sucursal.lng ?? null, ...coordenadas,
+      }],
+    };
+    const sucursales = DB.pos.sucursales.map((s) => s === sucursal ? nueva : s);
+    guardar({ ...DB, pos: { ...DB.pos, sucursales } });
+    DB.pos.sucursales = sucursales;
+    // Evitar la auto-persistencia posterior a la respuesta: el cambio ya se guardó completo.
+    res.type("json").send(JSON.stringify(nueva));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

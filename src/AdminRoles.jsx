@@ -8,7 +8,7 @@ import { apiFetch } from "./api";
 import CatalogoVendedores from "./CatalogoVendedores.jsx";
 import ModalConfirmar from "./ModalConfirmar";
 import ModalPedirTexto from "./ModalPedirTexto";
-import { validarTienda } from "./tiendasAlta.js";
+import { validarTienda, leerRespuestaAlta } from "./tiendasAlta.js";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
@@ -123,8 +123,7 @@ function UbicacionesTiendas({ mostrarAviso, puede, alCrear }) {
     setConfirmarAlta(null);
     try {
       const r = await apiFetch("/sucursales", { method: "POST", body: JSON.stringify(confirmarAlta) });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "No se pudo crear la tienda");
+      const data = await leerRespuestaAlta(r);
       setNuevaTienda(null);
       mostrarAviso("Tienda creada");
       alCrear(data);

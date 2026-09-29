@@ -324,7 +324,7 @@ test("mandar vendedor_id null DESLIGA la cuenta de su vendedor", async () => {
   // actualizarUsuario distingue con cuidado `undefined` (no tocar) de `null`
   // (desligar), y nada lo ejercitaba.
   const DB = construirDBPrueba();
-  DB.pos = { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }] };
+  DB.pos.vendedores = [{ id: 1, nombre: "Ana", sucursal_id: 1 }];
   DB.admin.usuarios.push({
     id: 70, nombre: "Ana", usuario: "ana", password_hash: "x",
     rol_id: 3, sucursal_id: 1, vendedor_id: 1, activo: true,
@@ -336,7 +336,7 @@ test("mandar vendedor_id null DESLIGA la cuenta de su vendedor", async () => {
 
 test("omitir vendedor_id CONSERVA la liga anterior", async () => {
   const DB = construirDBPrueba();
-  DB.pos = { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }] };
+  DB.pos.vendedores = [{ id: 1, nombre: "Ana", sucursal_id: 1 }];
   DB.admin.usuarios.push({
     id: 71, nombre: "Ana", usuario: "ana2", password_hash: "x",
     rol_id: 3, sucursal_id: 1, vendedor_id: 1, activo: true,
@@ -348,7 +348,7 @@ test("omitir vendedor_id CONSERVA la liga anterior", async () => {
 
 test("no se puede ligar a un vendedor de otra sucursal al EDITAR", async () => {
   const DB = construirDBPrueba();
-  DB.pos = { vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }] };
+  DB.pos.vendedores = [{ id: 1, nombre: "Ana", sucursal_id: 1 }];
   DB.admin.usuarios.push({
     id: 72, nombre: "Pedro", usuario: "pedro", password_hash: "x",
     rol_id: 3, sucursal_id: 4, vendedor_id: null, activo: true,
@@ -363,7 +363,7 @@ test("no se puede ligar a un vendedor de otra sucursal al EDITAR", async () => {
 test("mover la cuenta de sucursal y de vendedor a la vez valida el resultado FINAL", async () => {
   // Si se valida contra la sucursal vieja, este cambio legítimo se rechazaría.
   const DB = construirDBPrueba();
-  DB.pos = { vendedores: [{ id: 9, nombre: "María", sucursal_id: 2 }] };
+  DB.pos.vendedores = [{ id: 9, nombre: "María", sucursal_id: 2 }];
   DB.admin.usuarios.push({
     id: 73, nombre: "María", usuario: "maria2", password_hash: "x",
     rol_id: 3, sucursal_id: 1, vendedor_id: null, activo: true,

@@ -309,6 +309,8 @@ function distanciaMetros(lat1, lng1, lat2, lng2) {
  * todavía (para no bloquear una tienda antes de que Victor la configure).
  */
 function validarUbicacionLogin(usuario, sucursalSeleccionadaId, lat, lng, DB) {
+  // Alcance global primero, como siempre: una cuenta de administración no
+  // depende de una tienda, y exigirle una podría dejar fuera al dueño.
   const permisos = permisosDeRol(DB, usuario.rol_id);
   if (permisos.includes("ver_todas_las_sucursales")) return { ok: true };
 
@@ -317,8 +319,13 @@ function validarUbicacionLogin(usuario, sucursalSeleccionadaId, lat, lng, DB) {
     return { ok: false, motivo: "sucursal_no_coincide" };
   }
 
-  const sucursal = DB.pos.sucursales.find((s) => s.id === sucursalReal);
-  if (!sucursal || sucursal.lat == null || sucursal.lng == null) {
+  // Amarrada a una tienda que no existe: antes entraba sin GPS (`!sucursal`).
+  const sucursal = DB.pos.sucursales.find((s) => Number(s.id) === sucursalReal);
+  if (!sucursal) return { ok: false, motivo: "sucursal_no_coincide" };
+
+  if (!Number.isFinite(sucursal.lat) || !Number.isFinite(sucursal.lng)) {
+    // Datos viejos no finitos se tratan como pendientes de configurar por decisión de Victor.
+    // Se permite entrar sin GPS aquí, explícitamente; nunca calcular una distancia con NaN.
     return { ok: true };
   }
 
