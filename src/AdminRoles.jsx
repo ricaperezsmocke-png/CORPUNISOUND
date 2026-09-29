@@ -8,6 +8,7 @@ import { apiFetch } from "./api";
 import CatalogoVendedores from "./CatalogoVendedores.jsx";
 import ModalConfirmar from "./ModalConfirmar";
 import ModalPedirTexto from "./ModalPedirTexto";
+import { validarTienda } from "./tiendasAlta.js";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
@@ -36,6 +37,8 @@ const CATEGORIAS_DOCUMENTO = [
   { id: "contrato", etiqueta: "Contrato" },
 ];
 const TIPOS_ARCHIVO_PERMITIDOS = ["application/pdf", "image/jpeg", "image/png"];
+const CLASE_BOTON_PERSONAL =
+  "bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors";
 const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
 
 function leerArchivoComoBase64(archivo) {
@@ -47,16 +50,24 @@ function leerArchivoComoBase64(archivo) {
   });
 }
 
-function UbicacionesTiendas({ mostrarAviso }) {
+function UbicacionesTiendas({ mostrarAviso, puede, alCrear }) {
   const [sucursales, setSucursales] = useState([]);
+  const [todasLasTiendas, setTodasLasTiendas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [editando, setEditando] = useState({}); // { [id]: { lat, lng } }
+  const [nuevaTienda, setNuevaTienda] = useState(null);
+  const [errorAlta, setErrorAlta] = useState("");
+  const [confirmarAlta, setConfirmarAlta] = useState(null);
+  const [guardandoAlta, setGuardandoAlta] = useState(false);
+  const [buscandoUbicacion, setBuscandoUbicacion] = useState(false);
+  const altaEnCurso = useRef(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
       const r = await apiFetch("/sucursales");
       const data = await r.json();
+      setTodasLasTiendas(data);
       setSucursales(data.filter((s) => !s.sin_ubicacion));
     } catch { /* silencioso */ }
     finally { setCargando(false); }
@@ -70,13 +81,60 @@ function UbicacionesTiendas({ mostrarAviso }) {
     setEditando((prev) => ({ ...prev, [id]: { ...valoresActuales, [campo]: valor } }));
   };
 
-  const usarMiUbicacion = (id) => {
-    if (!navigator.geolocation) return mostrarAviso("❌ Tu navegador no soporta geolocalización");
+  const obtenerUbicacion = (alObtener, alError) => {
+    if (!navigator.geolocation) return alError("Tu navegador no soporta geolocalización");
     navigator.geolocation.getCurrentPosition(
-      (pos) => setEditando((prev) => ({ ...prev, [id]: { lat: pos.coords.latitude, lng: pos.coords.longitude } })),
-      () => mostrarAviso("❌ No se pudo obtener tu ubicación"),
+      (pos) => alObtener({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => alError("No se pudo obtener tu ubicación"),
       { enableHighAccuracy: true, timeout: 10000 }
     );
+  };
+
+  const usarMiUbicacion = (id) => obtenerUbicacion(
+    (coordenadas) => setEditando((prev) => ({ ...prev, [id]: coordenadas })),
+    (mensaje) => mostrarAviso("❌ " + mensaje)
+  );
+
+  const ubicarNuevaTienda = () => {
+    setErrorAlta("");
+    setBuscandoUbicacion(true);
+    obtenerUbicacion(
+      (coordenadas) => {
+        setNuevaTienda((prev) => prev && { ...prev, ...coordenadas });
+        setBuscandoUbicacion(false);
+      },
+      (mensaje) => { setErrorAlta(mensaje); setBuscandoUbicacion(false); }
+    );
+  };
+
+  const prepararAlta = (e) => {
+    e.preventDefault();
+    if (!puede("administrar_sucursales") || altaEnCurso.current || buscandoUbicacion || confirmarAlta) return;
+    setErrorAlta("");
+    try {
+      setConfirmarAlta(validarTienda(nuevaTienda, todasLasTiendas));
+    } catch (error) { setErrorAlta(error.message); }
+  };
+
+  const crearTienda = async () => {
+    if (!puede("administrar_sucursales") || !confirmarAlta || altaEnCurso.current) return;
+    altaEnCurso.current = true;
+    setGuardandoAlta(true);
+    setConfirmarAlta(null);
+    try {
+      const r = await apiFetch("/sucursales", { method: "POST", body: JSON.stringify(confirmarAlta) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "No se pudo crear la tienda");
+      setNuevaTienda(null);
+      mostrarAviso("Tienda creada");
+      alCrear(data);
+      await cargar();
+    } catch (error) {
+      setErrorAlta(error.message || "No se pudo crear la tienda");
+    } finally {
+      altaEnCurso.current = false;
+      setGuardandoAlta(false);
+    }
   };
 
   const guardar = async (id) => {
@@ -96,6 +154,65 @@ function UbicacionesTiendas({ mostrarAviso }) {
 
   return (
     <div className="flex-1 overflow-y-auto p-5">
+      {puede("administrar_sucursales") && (
+        <div className="max-w-xl mb-4">
+          {!nuevaTienda ? (
+            <button
+              className="bg-blue-700 hover:bg-blue-800 text-white rounded px-3 py-2 text-sm font-semibold"
+              onClick={() => { setErrorAlta(""); setNuevaTienda({ nombre: "", ciudad: "", lat: "", lng: "" }); }}
+            >
+              + Nueva tienda
+            </button>
+          ) : (
+            <form onSubmit={prepararAlta} noValidate className="neu rounded-xl p-4">
+              <h3 className="font-semibold mb-3">Nueva tienda</h3>
+              <fieldset disabled={guardandoAlta || buscandoUbicacion || !!confirmarAlta}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  {[["nombre", "Nombre"], ["ciudad", "Ciudad"], ["lat", "Latitud"], ["lng", "Longitud"]].map(([campo, etiqueta]) => (
+                    <label key={campo} className="text-xs text-slate-500">
+                      {etiqueta}
+                      <input
+                        type={campo === "lat" || campo === "lng" ? "number" : "text"}
+                        step={campo === "lat" || campo === "lng" ? "any" : undefined}
+                        required
+                        value={nuevaTienda[campo]}
+                        onChange={(e) => setNuevaTienda((prev) => ({ ...prev, [campo]: e.target.value }))}
+                        className="block w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm mt-1"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={ubicarNuevaTienda} className="text-xs neu-boton rounded-lg px-3 py-1.5">
+                    {buscandoUbicacion ? "Obteniendo ubicación…" : "Usar mi ubicación"}
+                  </button>
+                  <button type="submit" className="text-xs bg-blue-700 text-white rounded px-3 py-1.5 font-semibold">
+                    {guardandoAlta ? "Creando…" : "Guardar"}
+                  </button>
+                  <button type="button" onClick={() => setNuevaTienda(null)} className="text-xs neu-boton rounded-lg px-3 py-1.5">
+                    Cancelar
+                  </button>
+                </div>
+              </fieldset>
+              {errorAlta && <p role="alert" className="text-sm text-red-600 mt-3">{errorAlta}</p>}
+              <p className="text-xs text-slate-500 mt-3">
+                Después de crearla: asigna su personal en Personal y mándale mercancía por Traspasos.
+              </p>
+            </form>
+          )}
+        </div>
+      )}
+      {confirmarAlta && puede("administrar_sucursales") && (
+        <ModalConfirmar
+          titulo="Nueva tienda"
+          mensaje={`Se va a crear la tienda ${confirmarAlta.nombre}. Las tiendas no se pueden borrar.`}
+          textoConfirmar="Crear tienda"
+          textoCancelar="Volver"
+          peligro
+          onConfirmar={crearTienda}
+          onCancelar={() => setConfirmarAlta(null)}
+        />
+      )}
       <p className="text-xs text-slate-500 mb-4 max-w-xl">
         Captura la ubicación de cada tienda para activar la validación por GPS en el login.
         Mientras una tienda no tenga ubicación configurada, el login de su personal no valida GPS.
@@ -566,7 +683,7 @@ Esta acción no se puede deshacer.`,
             onClick={() => setVistaAdmin("ubicaciones")}
             className={`px-4 py-3 text-sm font-medium border-b-2 ${vistaAdmin === "ubicaciones" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500"}`}
           >
-            <MapPin size={14} className="inline mr-1.5 -mt-0.5" /> Ubicaciones de Tiendas
+            <MapPin size={14} className="inline mr-1.5 -mt-0.5" /> Tiendas
           </button>
         )}
         {puede("administrar_roles") && (
@@ -775,7 +892,9 @@ Esta acción no se puede deshacer.`,
         </>
       )}
 
-      {vistaAdmin === "ubicaciones" && puede("administrar_roles") && <UbicacionesTiendas mostrarAviso={mostrarAviso} />}
+      {vistaAdmin === "ubicaciones" && puede("administrar_roles") && (
+        <UbicacionesTiendas mostrarAviso={mostrarAviso} puede={puede} alCrear={(tienda) => setSucursales((prev) => [...prev, tienda])} />
+      )}
       {vistaAdmin === "bloqueados" && puede("administrar_roles") && <IntentosBloqueados />}
 
       {aviso && (
@@ -804,7 +923,10 @@ Esta acción no se puede deshacer.`,
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Contraseña (mínimo 6 caracteres)</label>
-                <input type="password" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.password} onChange={(e) => setFormPersonal({ ...formPersonal, password: e.target.value })} />
+                <input type="password"
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                  value={formPersonal.password}
+                  onChange={(e) => setFormPersonal({ ...formPersonal, password: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Rol</label>
@@ -815,7 +937,10 @@ Esta acción no se puede deshacer.`,
               </div>
               <div>
                 <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
-                <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.sucursal_id} onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
+                <select
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                  value={formPersonal.sucursal_id}
+                  onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
                   <option value="">Selecciona una sucursal</option>
                   {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
@@ -824,7 +949,10 @@ Esta acción no se puede deshacer.`,
                 <label className="text-xs text-slate-500 block mb-1">
                   Vendedor <span className="text-slate-400">(opcional)</span>
                 </label>
-                <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.vendedor_id} onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
+                <select
+                  className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                  value={formPersonal.vendedor_id}
+                  onChange={(e) => setFormPersonal({ ...formPersonal, vendedor_id: e.target.value })}>
                   <option value="">No participa en objetivos de venta</option>
                   {vendedores
                     // Sin `activo` esto era error-al-guardar: el backend ya lo
@@ -840,7 +968,7 @@ Esta acción no se puede deshacer.`,
                     : "Elige primero la sucursal para ver sus vendedores."}
                 </p>
               </div>
-              <button onClick={guardarPersonal} disabled={guardandoPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+              <button onClick={guardarPersonal} disabled={guardandoPersonal} className={`${CLASE_BOTON_PERSONAL} disabled:opacity-60 disabled:cursor-not-allowed`}>
                 <Check size={15} /> {guardandoPersonal ? "Guardando…" : "Guardar"}
               </button>
             </div>
@@ -878,17 +1006,26 @@ Esta acción no se puede deshacer.`,
                 <div className="flex flex-col gap-3">
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Nombre completo</label>
-                    <input className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.nombre} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
+                    <input
+                      className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                      value={formEditarPersonal.nombre}
+                      onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, nombre: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Rol</label>
-                    <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.rol_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
+                    <select
+                      className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                      value={formEditarPersonal.rol_id}
+                      onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, rol_id: e.target.value })}>
                       {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
-                    <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.sucursal_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
+                    <select
+                      className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                      value={formEditarPersonal.sucursal_id}
+                      onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, sucursal_id: e.target.value })}>
                       {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                     </select>
                   </div>
@@ -896,7 +1033,10 @@ Esta acción no se puede deshacer.`,
                     <label className="text-xs text-slate-500 block mb-1">
                       Vendedor <span className="text-slate-400">(opcional)</span>
                     </label>
-                    <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.vendedor_id} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
+                    <select
+                      className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                      value={formEditarPersonal.vendedor_id}
+                      onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, vendedor_id: e.target.value })}>
                       <option value="">No participa en objetivos de venta</option>
                       {vendedores
                         // Igual que el de alta: no se ofrece a quien ya no
@@ -911,9 +1051,13 @@ Esta acción no se puede deshacer.`,
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Nueva contraseña (opcional — déjalo en blanco para no cambiarla)</label>
-                    <input type="password" className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formEditarPersonal.password} onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
+                    <input type="password"
+                      className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm"
+                      value={formEditarPersonal.password}
+                      onChange={(e) => setFormEditarPersonal({ ...formEditarPersonal, password: e.target.value })}
+                      placeholder="Mínimo 6 caracteres" />
                   </div>
-                  <button onClick={guardarEdicionPersonal} className="bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-colors">
+                  <button onClick={guardarEdicionPersonal} className={CLASE_BOTON_PERSONAL}>
                     <Check size={15} /> Guardar cambios
                   </button>
                   {usuario?.id !== personaEditando.id && (
