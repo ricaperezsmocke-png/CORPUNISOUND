@@ -186,6 +186,14 @@ function validarContactoCliente(DB, datos, { modo, clienteId = null, fueraDeAlca
   const tocaCorreo = modo === "alta" || trae("email");
   if (!tocaTelefonos && !tocaCorreo) return;
 
+  // Solo texto (o vacío). Un arreglo u objeto pasaba la validación convertido
+  // a texto pero se guardaba tal cual, y la ficha del CRM truena al leerlo.
+  for (const campo of ["telefono", "celular", "email"]) {
+    if (trae(campo) && datos[campo] !== null && datos[campo] !== undefined && typeof datos[campo] !== "string") {
+      throw errorConStatus("El teléfono, el celular y el correo deben escribirse como texto", 400);
+    }
+  }
+
   const numeros = ["telefono", "celular"].map((campo) => (trae(campo) ? datos[campo] : actual[campo]));
 
   if (tocaTelefonos) {
@@ -216,7 +224,14 @@ function validarContactoCliente(DB, datos, { modo, clienteId = null, fueraDeAlca
   };
 
   if (tocaTelefonos) {
-    const propios = numeros.map(normalizarTelefono).filter((n) => n.length === 10);
+    // Alta: los dos números. Edición: solo los que trae la petición (un
+    // duplicado viejo en el campo que no se tocó no debe trabar el cambio), y
+    // de cualquier largo: en edición se aceptan números cortos históricos,
+    // así que también hay que evitar que se repitan.
+    const aRevisar = modo === "alta"
+      ? numeros
+      : ["telefono", "celular"].filter(trae).map((campo) => datos[campo]);
+    const propios = aRevisar.map(normalizarTelefono).filter((n) => (modo === "alta" ? n.length === 10 : n.length > 0));
     for (const numero of propios) {
       const existente = otros.find((c) => [c.telefono, c.celular].some((v) => normalizarTelefono(v) === numero));
       if (existente) rechazar(existente, `el teléfono ${numero}`);

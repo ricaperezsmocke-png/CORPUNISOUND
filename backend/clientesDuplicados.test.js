@@ -143,3 +143,31 @@ test("importación de SICAR y Radar (crearCliente directo) siguen aceptando clie
   const c = crearCliente(DB, { nombre: "Migrado", sucursal_id: 1 });
   assert.equal(c.telefono, "");
 });
+
+test("editar: un número corto histórico tampoco se puede repetir", async () => {
+  app.DB.crm.clientes[3].telefono = "222";
+  const r = await editar(10, { telefono: "222" });
+  assert.equal(r.status, 409);
+  assert.equal(app.DB.crm.clientes[1].telefono, "9611234567");
+});
+
+test("editar: un duplicado viejo en el campo que no se toca no traba el cambio", async () => {
+  app.DB.crm.clientes[3].telefono = "9611234567"; // importado repetido antes de esta regla
+  const r = await editar(10, { celular: "9617778899" });
+  assert.equal(r.status, 200);
+  assert.equal(r.datos.celular, "9617778899");
+});
+
+test("teléfono, celular o correo que no son texto se rechazan (no se guardan arreglos ni números)", async () => {
+  for (const datos of [
+    { nombre: "Ana", telefono: [], celular: "9617778899" },
+    { nombre: "Ana", telefono: 9617778899 },
+    { nombre: "Ana", telefono: "9617778899", email: { a: 1 } },
+  ]) {
+    const r = await alta(datos);
+    assert.equal(r.status, 400, JSON.stringify(datos));
+  }
+  const r = await editar(10, { celular: ["9617778899"] });
+  assert.equal(r.status, 400);
+  assert.equal(app.DB.crm.clientes.length, 4);
+});
