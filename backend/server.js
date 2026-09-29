@@ -1639,8 +1639,17 @@ app.get("/api/sucursales", (req, res) => {
     } catch { /* token inválido o ausente: se trata como no autenticado */ }
   }
   if (puedeVerUbicacion) return res.json(DB.pos.sucursales);
-  res.json(DB.pos.sucursales.map(({ lat, lng, ...resto }) => resto));
+  res.json(DB.pos.sucursales.map(({ lat, lng, fecha_alta, creada_por, ...resto }) => resto));
 });
+
+app.post("/api/sucursales", requiereLogin,
+  requierePermiso("administrar_sucursales", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try {
+      const { crearSucursal } = require("./sucursales");
+      res.json(crearSucursal(DB, req.body, req.usuarioToken));
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
 // Las cajas de la sucursal en la que está parada la sesión, para el selector de
 // la barra superior.

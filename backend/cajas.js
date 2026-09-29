@@ -172,6 +172,8 @@ function esDeEstaCaja(registro, caja) {
 }
 
 module.exports = {
+  sembrarCajasSinValidar,
+  validarPredeterminadaDeSucursal,
   esDeEstaCaja,
   sembrarCajas,
   repararCajas,
