@@ -323,7 +323,10 @@ function validarUbicacionLogin(usuario, sucursalSeleccionadaId, lat, lng, DB) {
   const sucursal = DB.pos.sucursales.find((s) => Number(s.id) === sucursalReal);
   if (!sucursal) return { ok: false, motivo: "sucursal_no_coincide" };
 
-  if (!Number.isFinite(sucursal.lat) || !Number.isFinite(sucursal.lng)) {
+  // Texto numérico ("16.9") cuenta como coordenada: si no, la guarda fallaría abriendo.
+  const vacia = (v) => v == null || (typeof v === "string" && !v.trim());
+  if (vacia(sucursal.lat) || vacia(sucursal.lng)
+    || !Number.isFinite(Number(sucursal.lat)) || !Number.isFinite(Number(sucursal.lng))) {
     // Datos viejos no finitos se tratan como pendientes de configurar por decisión de Victor.
     // Se permite entrar sin GPS aquí, explícitamente; nunca calcular una distancia con NaN.
     return { ok: true };
@@ -338,7 +341,7 @@ function validarUbicacionLogin(usuario, sucursalSeleccionadaId, lat, lng, DB) {
     return { ok: false, motivo: "sin_permiso_ubicacion" };
   }
 
-  const distancia = distanciaMetros(latN, lngN, sucursal.lat, sucursal.lng);
+  const distancia = distanciaMetros(latN, lngN, Number(sucursal.lat), Number(sucursal.lng));
   if (distancia > RADIO_TOLERANCIA_METROS) {
     return { ok: false, motivo: "ubicacion_no_coincide", distancia };
   }

@@ -157,3 +157,17 @@ for (const [ruta, metodo, cuerpo] of [
     }
   });
 }
+
+test("coordenadas guardadas como texto siguen exigiendo GPS (la guarda falla cerrando)", () => {
+  Object.assign(app.DB.pos.sucursales[0], { lat: "16.9", lng: "-92.1" });
+  assert.equal(validarUbicacionLogin(personal, 1, 0, 0, app.DB).motivo, "ubicacion_no_coincide");
+  assert.deepEqual(validarUbicacionLogin(personal, 1, 16.9, -92.1, app.DB), { ok: true });
+});
+
+test("una cuenta vieja con tienda inexistente se puede desactivar sin tocar su tienda", async () => {
+  const cuenta = app.DB.admin.usuarios.find((u) => u.id === 902);
+  cuenta.sucursal_id = 99;
+  const r = await actualizarUsuario(app.DB, 902, { activo: false });
+  assert.equal(r.activo, false);
+  await assert.rejects(() => actualizarUsuario(app.DB, 902, { sucursal_id: 99 }), { message: "La sucursal asignada no existe" });
+});

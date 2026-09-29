@@ -174,7 +174,9 @@ async function actualizarUsuario(DB, id, datos) {
     ? Number(datos.sucursal_id)
     : DB.admin.usuarios[idx].sucursal_id;
 
-  if (!(DB.pos?.sucursales || []).some((s) => Number(s.id) === Number(sucursalFinal))) {
+  // Solo se valida la tienda que se esta CAMBIANDO: una cuenta vieja con tienda
+  // invalida debe poder desactivarse o cambiar contraseña sin tocarla.
+  if (datos.sucursal_id !== undefined && !(DB.pos?.sucursales || []).some((s) => Number(s.id) === Number(sucursalFinal))) {
     throw new Error("La sucursal asignada no existe");
   }
 
