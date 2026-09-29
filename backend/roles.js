@@ -75,6 +75,8 @@ function sembrarRolesIniciales(DB) {
       c !== "administrar_roles" &&
       c !== "dar_alta_personal" &&
       c !== "ver_todas_las_sucursales" &&
+      // Abrir tiendas es solo del Administrador (decision de Victor, 2026-09-28).
+      c !== "administrar_sucursales" &&
       // Quien fija la meta no puede ser quien declara si se cumplio: el cierre
       // del mes de objetivos se concede aparte (decision de Victor, 2026-09-13).
       c !== "cerrar_mes_objetivos" &&
