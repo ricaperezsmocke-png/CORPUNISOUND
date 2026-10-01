@@ -9,6 +9,7 @@ import { pedirLista } from "./cargaSegura";
 import ArticuloCompra from "./ArticuloCompra";
 import { sugerirProducto } from "./sugerirProducto";
 import AvisoPantallaMostrador from "./AvisoPantallaMostrador.jsx";
+import { incorporarImportados, guardarManual, cambiarRenglon, quitarPorUid, conUid } from "./recepcionRenglones";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick }) {
   return (
@@ -235,26 +236,18 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       .filter((x) => x.producto_id && confirmadosXml[x.idx] === true);
     if (nuevos.length === 0) return mostrarAviso("Confirma al menos un producto antes de continuar");
 
-    setRenglones((prev) => {
-      const copia = [...prev];
-      nuevos.forEach(({ concepto, producto_id }) => {
-        const idx = copia.findIndex((r) => r.producto_id === producto_id);
-        const renglon = {
-          producto_id,
-          cantidad: concepto.cantidad,
-          costo: concepto.valor_unitario,
-          descuento_pesos: 0,
-          descuento_porcentaje: 0,
-          clave_sat: concepto.clave_sat,
-          localizacion: productoDe(producto_id)?.localizacion || "",
-          aplicaIva: concepto.aplica_iva,
-          neto: true,
-          precios: productoDe(producto_id)?.precios,
-        };
-        if (idx >= 0) copia[idx] = renglon; else copia.push(renglon);
-      });
-      return copia;
-    });
+    setRenglones((prev) => incorporarImportados(prev, nuevos.map(({ concepto, producto_id }) => ({
+      producto_id,
+      cantidad: concepto.cantidad,
+      costo: concepto.valor_unitario,
+      descuento_pesos: 0,
+      descuento_porcentaje: 0,
+      clave_sat: concepto.clave_sat,
+      localizacion: productoDe(producto_id)?.localizacion || "",
+      aplicaIva: concepto.aplica_iva,
+      neto: true,
+      precios: productoDe(producto_id)?.precios,
+    }))));
     setUuidCfdiActual(xmlParseado.folioFiscal);
     setProductoIdsDeXml(nuevos.map((x) => x.producto_id));
     mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde la factura`);
@@ -271,26 +264,18 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       .filter((x) => x.producto_id && confirmadosIa[x.idx] === true);
     if (nuevos.length === 0) return mostrarAviso("Confirma al menos un producto antes de continuar");
 
-    setRenglones((prev) => {
-      const copia = [...prev];
-      nuevos.forEach(({ concepto, producto_id }) => {
-        const idx = copia.findIndex((r) => r.producto_id === producto_id);
-        const renglon = {
-          producto_id,
-          cantidad: concepto.cantidad,
-          costo: concepto.costo_unitario,
-          descuento_pesos: 0,
-          descuento_porcentaje: 0,
-          clave_sat: productoDe(producto_id)?.clave_sat || "",
-          localizacion: productoDe(producto_id)?.localizacion || "",
-          aplicaIva: concepto.aplica_iva,
-          neto: true,
-          precios: productoDe(producto_id)?.precios,
-        };
-        if (idx >= 0) copia[idx] = renglon; else copia.push(renglon);
-      });
-      return copia;
-    });
+    setRenglones((prev) => incorporarImportados(prev, nuevos.map(({ concepto, producto_id }) => ({
+      producto_id,
+      cantidad: concepto.cantidad,
+      costo: concepto.costo_unitario,
+      descuento_pesos: 0,
+      descuento_porcentaje: 0,
+      clave_sat: productoDe(producto_id)?.clave_sat || "",
+      localizacion: productoDe(producto_id)?.localizacion || "",
+      aplicaIva: concepto.aplica_iva,
+      neto: true,
+      precios: productoDe(producto_id)?.precios,
+    }))));
     mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde el documento escaneado`);
     setIaParseado(null);
     setMatchesIa({});
@@ -299,23 +284,16 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     setModal(null);
   };
 
-  const abrirArticuloParaProducto = (producto) => {
-    const existente = renglones.find((r) => r.producto_id === producto.id);
+  const abrirArticuloParaProducto = (producto, renglonElegido = null) => {
+    const existente = renglonElegido || renglones.find((r) => r.producto_id === producto.id);
     setProductoParaArticulo({ producto, existente });
     setModal("articulo");
     setBusquedaTexto("");
   };
 
   const aceptarArticulo = (renglon) => {
-    setRenglones((prev) => {
-      const idx = prev.findIndex((r) => r.producto_id === renglon.producto_id);
-      if (idx >= 0) {
-        const copia = [...prev];
-        copia[idx] = renglon;
-        return copia;
-      }
-      return [...prev, renglon];
-    });
+    const uidEditado = productoParaArticulo?.existente?.uid ?? null;
+    setRenglones((prev) => guardarManual(prev, renglon, uidEditado));
     setModal(null);
     setProductoParaArticulo(null);
   };
@@ -333,8 +311,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     }
   };
 
-  const quitarRenglon = (producto_id) => {
-    const restantes = renglones.filter((r) => r.producto_id !== producto_id);
+  const quitarRenglon = (uid) => {
+    const restantes = quitarPorUid(renglones, uid);
     setRenglones(restantes);
     if (productoIdsDeXml.length > 0 && !restantes.some((r) => productoIdsDeXml.includes(r.producto_id))) {
       setUuidCfdiActual(null);
@@ -343,8 +321,8 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
     setFilaSeleccionada(null);
   };
 
-  const actualizarCantidadRapida = (producto_id, delta) => {
-    setRenglones((prev) => prev.map((r) => r.producto_id === producto_id ? { ...r, cantidad: Math.max(1, Number(r.cantidad) + delta) } : r));
+  const actualizarCantidadRapida = (uid, delta) => {
+    setRenglones((prev) => cambiarRenglon(prev, uid, (r) => ({ cantidad: Math.max(1, Number(r.cantidad) + delta) })));
   };
 
   const limpiarFormulario = () => {
@@ -397,7 +375,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   };
 
   const recuperarEspera = (item) => {
-    setProveedorId(item.proveedorId); setFactura(item.factura); setComentario(item.comentario); setRenglones(item.renglones);
+    setProveedorId(item.proveedorId); setFactura(item.factura); setComentario(item.comentario); setRenglones(item.renglones.map(conUid));
     setEnEspera((prev) => prev.filter((e) => e.id !== item.id));
     setModal(null);
   };
@@ -418,7 +396,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         setValorTemporal(String(renglones[filaSeleccionada].cantidad)); setModal("cantidad");
       }
       else if (e.key === "F6" && !dentroDeModal && filaSeleccionada !== null) {
-        e.preventDefault(); quitarRenglon(renglones[filaSeleccionada].producto_id);
+        e.preventDefault(); quitarRenglon(renglones[filaSeleccionada].uid);
       }
       else if (e.key === "F7" && !dentroDeModal && filaSeleccionada !== null) {
         e.preventDefault();
@@ -502,8 +480,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
             <BotonBarra icono={Search} etiqueta="Buscar" atajo="F2" onClick={() => { setBusquedaTexto(""); setModal("buscar"); }} />
             <BotonBarra icono={Edit3} etiqueta="Editar" atajo="F4" onClick={() => {
               if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila primero");
-              const producto = productoDe(renglones[filaSeleccionada].producto_id);
-              if (producto) abrirArticuloParaProducto(producto);
+              const elegido = renglones[filaSeleccionada];
+              const producto = productoDe(elegido.producto_id);
+              if (producto) abrirArticuloParaProducto(producto, elegido);
             }} />
             <BotonBarra icono={Hash} etiqueta="Cantidad" atajo="F5" onClick={() => {
               if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila primero");
@@ -511,7 +490,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
             }} />
             <BotonBarra icono={Ban} etiqueta="Remover" atajo="F6" onClick={() => {
               if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila primero");
-              quitarRenglon(renglones[filaSeleccionada].producto_id);
+              quitarRenglon(renglones[filaSeleccionada].uid);
             }} />
             <BotonBarra icono={Percent} etiqueta="Desc." atajo="F7" onClick={() => {
               if (filaSeleccionada === null) return mostrarAviso("Selecciona una fila primero");
@@ -597,12 +576,12 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
                       const importe = importeRenglon(r);
                       const seleccionada = filaSeleccionada === idx;
                       return (
-                        <tr key={r.producto_id} onClick={() => setFilaSeleccionada(idx)} className={`border-b border-slate-100 cursor-pointer ${seleccionada ? "bg-blue-50" : "hover:bg-slate-50"}`}>
+                        <tr key={r.uid} onClick={() => setFilaSeleccionada(idx)} className={`border-b border-slate-100 cursor-pointer ${seleccionada ? "bg-blue-50" : "hover:bg-slate-50"}`}>
                           <td className="py-2 px-2">
                             <div className="flex items-center gap-1">
-                              <button onClick={(e) => { e.stopPropagation(); actualizarCantidadRapida(r.producto_id, -1); }} className="text-slate-400 hover:text-slate-700"><Minus size={13} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); actualizarCantidadRapida(r.uid, -1); }} className="text-slate-400 hover:text-slate-700"><Minus size={13} /></button>
                               <span className="w-8 text-center">{r.cantidad}</span>
-                              <button onClick={(e) => { e.stopPropagation(); actualizarCantidadRapida(r.producto_id, 1); }} className="text-slate-400 hover:text-slate-700"><Plus size={13} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); actualizarCantidadRapida(r.uid, 1); }} className="text-slate-400 hover:text-slate-700"><Plus size={13} /></button>
                             </div>
                           </td>
                           <td className="py-2 px-2">{producto ? producto.nombre : `Producto ${r.producto_id}`}</td>
@@ -746,9 +725,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
           />
           <button
             onClick={() => {
-              const producto_id = renglones[filaSeleccionada].producto_id;
+              const uid = renglones[filaSeleccionada].uid;
               const nueva = Number(valorTemporal) || 1;
-              setRenglones((prev) => prev.map((r) => r.producto_id === producto_id ? { ...r, cantidad: Math.max(1, nueva) } : r));
+              setRenglones((prev) => cambiarRenglon(prev, uid, () => ({ cantidad: Math.max(1, nueva) })));
               setModal(null);
             }}
             className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium"
@@ -764,9 +743,9 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
           </div>
           <button
             onClick={() => {
-              const producto_id = renglones[filaSeleccionada].producto_id;
+              const uid = renglones[filaSeleccionada].uid;
               const nuevo = Math.min(100, Math.max(0, Number(valorTemporal) || 0));
-              setRenglones((prev) => prev.map((r) => r.producto_id === producto_id ? { ...r, descuento_porcentaje: nuevo } : r));
+              setRenglones((prev) => cambiarRenglon(prev, uid, () => ({ descuento_porcentaje: nuevo })));
               setModal(null);
             }}
             className="w-full bg-[#1a7fe8] hover:bg-[#1262b8] text-white py-2 rounded-lg font-medium"
