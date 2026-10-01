@@ -248,6 +248,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       neto: true,
       precios: productoDe(producto_id)?.precios,
     }))));
+    setFilaSeleccionada(null);
     setUuidCfdiActual(xmlParseado.folioFiscal);
     setProductoIdsDeXml(nuevos.map((x) => x.producto_id));
     mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde la factura`);
@@ -276,6 +277,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
       neto: true,
       precios: productoDe(producto_id)?.precios,
     }))));
+    setFilaSeleccionada(null);
     mostrarAviso(`${nuevos.length} producto(s) agregado(s) desde el documento escaneado`);
     setIaParseado(null);
     setMatchesIa({});
@@ -285,7 +287,12 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
   };
 
   const abrirArticuloParaProducto = (producto, renglonElegido = null) => {
-    const existente = renglonElegido || renglones.find((r) => r.producto_id === producto.id);
+    const gemelos = renglones.filter((r) => r.producto_id === producto.id);
+    if (!renglonElegido && gemelos.length > 1) {
+      setModal(null);
+      return mostrarAviso(`${producto.nombre} está en ${gemelos.length} renglones: selecciona el que quieras cambiar y usa Editar (F4)`);
+    }
+    const existente = renglonElegido || gemelos[0];
     setProductoParaArticulo({ producto, existente });
     setModal("articulo");
     setBusquedaTexto("");
@@ -369,13 +376,18 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
 
   const ponerEnEspera = () => {
     if (renglones.length === 0) return mostrarAviso("No hay nada que poner en espera");
-    setEnEspera((prev) => [...prev, { id: Date.now(), proveedorId, factura, comentario, renglones }]);
+    setEnEspera((prev) => [...prev, {
+      id: Date.now(), proveedorId, factura, comentario, renglones, uuidCfdi: uuidCfdiActual, productoIdsXml: productoIdsDeXml,
+    }]);
     limpiarFormulario();
     mostrarAviso("Recepción puesta en espera");
   };
 
   const recuperarEspera = (item) => {
     setProveedorId(item.proveedorId); setFactura(item.factura); setComentario(item.comentario); setRenglones(item.renglones.map(conUid));
+    setUuidCfdiActual(item.uuidCfdi ?? null);
+    setProductoIdsDeXml(item.productoIdsXml ?? []);
+    setFilaSeleccionada(null);
     setEnEspera((prev) => prev.filter((e) => e.id !== item.id));
     setModal(null);
   };
@@ -389,7 +401,7 @@ export default function RecepcionCompras({ onVolver, permisos, usuario }) {
         e.preventDefault();
         const r = renglones[filaSeleccionada];
         const producto = productoDe(r.producto_id);
-        if (producto) abrirArticuloParaProducto(producto);
+        if (producto) abrirArticuloParaProducto(producto, r);
       }
       else if (e.key === "F5" && !dentroDeModal && filaSeleccionada !== null) {
         e.preventDefault();
