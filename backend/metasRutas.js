@@ -6,6 +6,11 @@ const { tablero } = require("./metasAvance");
 const { previoSello, sellarPeriodo, rectificarSello } = require("./metasSellos");
 const { fechaLocal } = require("./fechas");
 
+function selloParaRespuesta(sello) {
+  // La foto guarda las capturas completas; el id interno del archivo en Drive no sale.
+  return { ...sello, foto: { ...sello.foto, capturas: sello.foto.capturas.map(capturaParaRespuesta) } };
+}
+
 module.exports = function registrarRutasMetas(app, deps) {
   const { DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos } = deps;
   const permiso = (clave) => requierePermiso(clave, resolverPermisosDeRol);
@@ -54,12 +59,11 @@ module.exports = function registrarRutasMetas(app, deps) {
   app.get("/api/metas/sello", requiereLogin, admin, (req, res) => {
     const sello = DB.pos.meta_sellos.find((s) => s.periodo === req.query.periodo && s.inicio === req.query.inicio);
     if (!sello) return res.status(404).json({ error: "Sello no encontrado" });
-    // La foto guarda las capturas completas; el id interno del archivo en Drive no sale.
-    res.json({ ...sello, foto: { ...sello.foto, capturas: sello.foto.capturas.map(capturaParaRespuesta) } });
+    res.json(selloParaRespuesta(sello));
   });
   app.get("/api/metas/sello/previo", requiereLogin, admin, (req, res) => responder(res, () => previoSello(DB, periodoDe(req.query), hoy())));
   app.post("/api/metas/sello", requiereLogin, admin, (req, res) => responder(res, () =>
-    sellarPeriodo(DB, periodoDe(req.body), req.usuarioToken, hoy())));
+    selloParaRespuesta(sellarPeriodo(DB, periodoDe(req.body), req.usuarioToken, hoy()))));
   app.post("/api/metas/sello/:id/rectificar", requiereLogin, admin, (req, res) => responder(res, () =>
     rectificarSello(DB, idDeObjetivos(req.params.id, "id"), req.body || {}, req.usuarioToken)));
 

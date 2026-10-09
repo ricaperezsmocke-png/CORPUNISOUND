@@ -119,6 +119,21 @@ test("la foto no expone drive_file_id", async () => {
   assert.equal(app.DB.pos.meta_capturas[0].evidencia.drive_file_id, "archivo-privado", "se guarda en la base, no se expone");
 });
 
+test("POST y GET del sello ocultan drive_file_id sin alterar la foto guardada", async () => {
+  const meta = await crearMeta({ ...META, prueba: "foto" });
+  const archivo = { nombre_archivo: "sello.jpg", tipo_mime: "image/jpeg", contenido_base64: Buffer.from("foto-sello").toString("base64") };
+  estado(await pedir("POST", `/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, archivo }), 200);
+  const post = await pedir("POST", "/api/metas/sello", admin, SEMANA);
+  estado(post, 200);
+  assert.equal(post.cuerpo.foto.capturas.length, 1);
+  assert.equal(JSON.stringify(post.cuerpo).includes("drive_file_id"), false);
+  assert.equal(post.cuerpo.foto.capturas[0].evidencia.drive_link, "https://drive.google.com/file/d/x/view");
+  const get = await pedir("GET", `/api/metas/sello?${consulta}`, admin);
+  estado(get, 200);
+  assert.deepEqual(get.cuerpo, post.cuerpo);
+  assert.equal(app.DB.pos.meta_sellos[0].foto.capturas[0].evidencia.drive_file_id, "archivo-privado");
+});
+
 test("tablero: la vendedora no ve desglose ni capturas ajenas; la gerente sí ve el desglose", async () => {
   const meta = await crearMeta({ ...META, prueba: "ninguna" });
   estado(await pedir("POST", `/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, cantidad: 2 }), 200);
