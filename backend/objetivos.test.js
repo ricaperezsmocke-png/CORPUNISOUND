@@ -707,3 +707,49 @@ for (const { tipo, campo, lista } of [
     assert.throws(() => fijarObjetivo(DB, { ...PERIODO_META, tipo, [campo]: 99, vendedor_id: 1, monto: 0, motivo: "x" }, VICTOR), /no existe/);
   });
 }
+
+const { retirarObjetivo } = require("./objetivos");
+const LLAVE_VENTA = { tipo: "venta", mes: "2026-10", sucursal_id: 1, vendedor_id: 1 };
+
+test("retirar deja la meta sin vigente, con quién, cuándo y motivo, y sin borrarla", () => {
+  const DB = prepararDB();
+  fijarObjetivo(DB, { ...LLAVE_VENTA, monto: 5000 }, VICTOR);
+  const retirada = retirarObjetivo(DB, { ...LLAVE_VENTA, motivo: "Se fue de la tienda" }, VICTOR);
+  assert.strictEqual(objetivoVigente(DB, LLAVE_VENTA), null);
+  assert.strictEqual(DB.pos.objetivos.length, 1);
+  assert.strictEqual(retirada.vigente, false);
+  assert.strictEqual(retirada.retirada.motivo, "Se fue de la tienda");
+  assert.strictEqual(retirada.retirada.por_id, 1);
+  assert.strictEqual(retirada.retirada.por_nombre, "Victor");
+  assert.ok(!Number.isNaN(Date.parse(retirada.retirada.en)));
+});
+
+test("retirar exige motivo y una meta vigente", () => {
+  const DB = prepararDB();
+  assert.throws(() => retirarObjetivo(DB, { ...LLAVE_VENTA, motivo: "x" }, VICTOR), /No hay meta vigente que eliminar/);
+  fijarObjetivo(DB, { ...LLAVE_VENTA, monto: 5000 }, VICTOR);
+  assert.throws(() => retirarObjetivo(DB, { ...LLAVE_VENTA, motivo: "   " }, VICTOR), /motivo/);
+  retirarObjetivo(DB, { ...LLAVE_VENTA, motivo: "ok" }, VICTOR);
+  assert.throws(() => retirarObjetivo(DB, { ...LLAVE_VENTA, motivo: "otra vez" }, VICTOR), /No hay meta vigente que eliminar/);
+});
+
+test("volver a fijar tras retirar continúa la versión y encadena con la retirada", () => {
+  const DB = prepararDB();
+  fijarObjetivo(DB, { ...LLAVE_VENTA, monto: 5000 }, VICTOR);
+  fijarObjetivo(DB, { ...LLAVE_VENTA, monto: 6000, motivo: "sube" }, VICTOR);
+  const retirada = retirarObjetivo(DB, { ...LLAVE_VENTA, motivo: "error" }, VICTOR);
+  const nueva = fijarObjetivo(DB, { ...LLAVE_VENTA, monto: 4000, motivo: "vuelve" }, VICTOR);
+  assert.strictEqual(nueva.version, 3);
+  assert.strictEqual(nueva.reemplaza_a, retirada.id);
+  assert.deepStrictEqual(historialObjetivo(DB, LLAVE_VENTA).map((o) => o.version), [1, 2, 3]);
+  assert.strictEqual(objetivoVigente(DB, LLAVE_VENTA).monto, 4000);
+});
+
+test("retirar la meta de tienda no toca las de las personas", () => {
+  const DB = prepararDB();
+  fijarObjetivo(DB, { ...LLAVE_VENTA, vendedor_id: null, monto: 10000 }, VICTOR);
+  fijarObjetivo(DB, { ...LLAVE_VENTA, monto: 5000 }, VICTOR);
+  retirarObjetivo(DB, { ...LLAVE_VENTA, vendedor_id: null, motivo: "rehacer" }, VICTOR);
+  assert.strictEqual(objetivoVigente(DB, { ...LLAVE_VENTA, vendedor_id: null }), null);
+  assert.strictEqual(objetivoVigente(DB, LLAVE_VENTA).monto, 5000);
+});
