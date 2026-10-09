@@ -144,7 +144,10 @@ function fotoAl(DB, corte) {
     ...DB,
     pos: {
       ...DB.pos,
-      objetivos: objetivos.filter((o) => antes(o.creado_en)).map((o) => ({ ...o, vigente: !reemplazadasAntes.has(o.id) })),
+      objetivos: objetivos.filter((o) => antes(o.creado_en)).map((o) => ({
+        ...o,
+        vigente: !reemplazadasAntes.has(o.id) && !(o.retirada && o.retirada.en < corte),
+      })),
       objetivo_capturas: capturas.filter((c) => antes(c.capturado_en))
         .map((c) => ({ ...c, vigente: !corregidasAntes.has(c.id) })),
       objetivo_creditos: (DB.pos.objetivo_creditos || []).filter((r) => antes(r.registrado_en)).map(anuladoAlCorte),
