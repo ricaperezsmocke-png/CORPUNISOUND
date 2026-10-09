@@ -216,5 +216,5 @@ function resumenActividades(DB, filtros) {
 
 module.exports = {
   normalizarLink, registrarActividad, anularActividad, agregarResultado,
-  actividadesDelMes, resumenActividades,
+  actividadesDelMes, resumenActividades, prepararEvidencia, subidasEnCurso,
 };
