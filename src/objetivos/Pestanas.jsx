@@ -6,7 +6,7 @@ const INACTIVA = "border-2 border-transparent text-slate-600";
 // qué sección se ve; cada sección conserva su propia lógica y sus peticiones.
 export default function Pestanas({ pestanas, activa, elegir }) {
   return (
-    <div role="toolbar" aria-label="Secciones de Mi Objetivo de Venta" className="flex flex-wrap gap-2">
+    <div role="toolbar" aria-label="Secciones de Objetivos" className="flex flex-wrap gap-2">
       {pestanas.map(({ clave, etiqueta, Icono }) => (
         <button key={clave} type="button" aria-pressed={clave === activa} onClick={() => elegir(clave)}
           className={`${BASE} ${clave === activa ? ACTIVA : INACTIVA}`}>

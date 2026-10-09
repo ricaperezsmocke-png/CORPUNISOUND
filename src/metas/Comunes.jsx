@@ -4,7 +4,7 @@ import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
 import { COLOR_SEMAFORO, TEXTO_SEMAFORO } from "./metas";
 
-// Piezas compartidas por las pestañas de Metas y OKRs.
+// Piezas compartidas por las pestañas de metas de Objetivos.
 export const fechaHora = (iso) => new Date(iso).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
 export const fechaCorta = (fecha) => `${fecha.slice(8, 10)}/${fecha.slice(5, 7)}`;
 export const ALERTA = "bg-red-50 border border-red-200 text-red-900 rounded-lg p-3 text-sm";

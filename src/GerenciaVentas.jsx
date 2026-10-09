@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { BarChart3, CreditCard, Gauge, Megaphone, RefreshCw, Store, Tags, Target, Users } from "lucide-react";
+import { BarChart3, CheckSquare, CreditCard, Gauge, Lock, Megaphone, RefreshCw, Settings2, Store, Tags, Target, Users } from "lucide-react";
 import { apiFetch } from "./api";
 import Pestanas from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
@@ -14,9 +14,15 @@ import ActividadesGerente from "./objetivos/ActividadesGerente";
 import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
 import { cuentaMalLigada, fechaCorta, finDelMes, hoyLocal, leer, mesActual, mesEnPalabras } from "./objetivos/datos";
 import { pesosConCentavos } from "./objetivos/marcas";
+import PestanaMetas from "./metas/PestanaMetas";
+import { esPestanaMetas, pestanasObjetivos } from "./metas/pestanasObjetivos";
+import CierreObjetivos from "./CierreObjetivos";
+
+const ICONOS = { BarChart3, CheckSquare, CreditCard, Gauge, Lock, Megaphone, Settings2, Store, Tags, Target, Users };
 
 export default function GerenciaVentas({ permisos = [], usuario }) {
   const esJefatura = permisos.includes("editar_objetivos_venta");
+  const puedeVerVentas = esJefatura || permisos.includes("usar_gerente_ventas");
   const veTodas = permisos.includes("ver_todas_las_sucursales") || usuario?.ver_todas;
   const [mes, setMes] = useState(mesActual());
   const [sucursalId, setSucursalId] = useState(veTodas ? "" : String(usuario?.sucursal_id || ""));
@@ -41,6 +47,11 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   const [pestana, setPestana] = useState(null);
 
   useEffect(() => {
+    if (!puedeVerVentas) {
+      setIdentificado(true);
+      setCargando(false);
+      return;
+    }
     let vigente = true;
     Promise.all([
       apiFetch("/gerente-ventas/mi/vendedor").then((r) => leer(r, "No se pudo identificar tu vendedor")),
@@ -59,7 +70,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
       setCargando(false);
     });
     return () => { vigente = false; };
-  }, [esJefatura, veTodas]);
+  }, [esJefatura, veTodas, puedeVerVentas]);
 
   useEffect(() => {
     if (!identificado || miVendedorId == null || !mes) {
@@ -236,25 +247,15 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   }, new Map()).values()];
 
   const veTienda = esJefatura && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id));
-  const pestanas = [
-    ...(miVendedorId != null ? [
-      { clave: "mi-avance", etiqueta: "Mi avance", Icono: Gauge },
-      { clave: "mi-venta", etiqueta: "Mi venta", Icono: Target },
-      { clave: "mis-actividades", etiqueta: "Mis actividades", Icono: Megaphone },
-      { clave: "mis-creditos", etiqueta: "Mis créditos", Icono: CreditCard },
-    ] : []),
-    ...(veTienda ? [
-      { clave: "tienda-avance", etiqueta: "Avance de la tienda", Icono: BarChart3 },
-      { clave: "tienda-venta", etiqueta: "Venta de la tienda", Icono: Store },
-      { clave: "tienda-actividades", etiqueta: "Actividades de la tienda", Icono: Users },
-      { clave: "tienda-marcas", etiqueta: "Marcas, productos y créditos", Icono: Tags },
-    ] : []),
-  ];
+  const pestanas = pestanasObjetivos({ miVendedorId, veTienda, permisos }).map((p) => ({ ...p, Icono: ICONOS[p.icono] }));
   // La elegida se conserva al cambiar de mes o sucursal; solo cae a la primera si deja de existir.
   const activa = pestanas.some((p) => p.clave === pestana) ? pestana : pestanas[0]?.clave;
+  const muestraMetas = esPestanaMetas(activa);
+  const muestraVentas = !muestraMetas && activa !== "cierre-mes";
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
+      {muestraVentas && <>
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-sm text-slate-600">
           Mes
@@ -309,8 +310,11 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
           Este mes está cerrado. Ya no se pueden capturar ventas ni cambiar metas.
         </div>
       )}
+      </>}
       {pestanas.length > 0 && <Pestanas pestanas={pestanas} activa={activa} elegir={setPestana} />}
-      {cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
+      {muestraMetas && <PestanaMetas activa={activa} permisos={permisos} miVendedorId={miVendedorId} />}
+      {activa === "cierre-mes" && <CierreObjetivos permisos={permisos} usuario={usuario} />}
+      {muestraVentas && (cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
         <>
           {activa === "mi-avance" && objetivos && (
             <AvanceVendedor key={`avance/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId} />
@@ -351,8 +355,8 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
               nombre={nombre} permisos={permisos} actualizar={() => cargar({ silenciosa: true })} />
           )}
         </>
-      )}
-      {corrigiendo && objetivos && !objetivos.cerrado && (
+      ))}
+      {muestraVentas && corrigiendo && objetivos && !objetivos.cerrado && (
         <Modal titulo={`Corregir venta del ${fechaCorta(corrigiendo.fecha)}`} cerrar={() => setCorrigiendo(null)} guardar={corregir}
           textoGuardar="Guardar corrección"
           deshabilitado={corrigiendo.monto === "" || !corrigiendo.motivo.trim()}>
@@ -363,7 +367,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             cambiar={(motivo) => setCorrigiendo({ ...corrigiendo, motivo })} area />
         </Modal>
       )}
-      {editando && objetivos && !objetivos.cerrado && (
+      {muestraVentas && editando && objetivos && !objetivos.cerrado && (
         <Modal titulo={`Meta de ${editando.vendedor_id == null ? "la tienda" : nombre(editando.vendedor_id)} · ${mesEnPalabras(mes)} · ${nombreSucursal}`}
           cerrar={() => setEditando(null)} guardar={guardarMeta} textoGuardar="Guardar meta" error={error}
           deshabilitado={editando.monto === "" || (editando.existente && !editando.motivo.trim())}>
@@ -376,7 +380,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
           )}
         </Modal>
       )}
-      {baja && objetivos && !objetivos.cerrado && (
+      {muestraVentas && baja && objetivos && !objetivos.cerrado && (
         <Modal titulo={`Dar de baja a ${nombre(baja.vendedor_id)} · ${nombreSucursal}`}
           cerrar={() => setBaja(null)} guardar={darDeBaja} textoGuardar="Registrar baja" error={error}
           deshabilitado={!baja.hasta || !baja.motivo.trim()}>
@@ -387,7 +391,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             cambiar={(motivo) => setBaja({ ...baja, motivo })} area />
         </Modal>
       )}
-      {historial && <HistorialMetas historial={historial} nombre={nombre} cerrar={() => setHistorial(null)} />}
+      {muestraVentas && historial && <HistorialMetas historial={historial} nombre={nombre} cerrar={() => setHistorial(null)} />}
     </div>
   );
 }

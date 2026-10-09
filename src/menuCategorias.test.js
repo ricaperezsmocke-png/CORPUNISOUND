@@ -13,11 +13,11 @@ const ADMIN = {
              "cerrar_mes_objetivos"],
 };
 
-test("el administrador ve las tres categorías y los 17 módulos", () => {
+test("el administrador ve las tres categorías y los 15 módulos", () => {
   const vistas = categoriasVisibles(ADMIN);
   assert.equal(vistas.length, 3);
   assert.deepEqual(vistas.map((c) => c.id), ["operacion", "comercial", "administracion"]);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 17);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 15);
 });
 
 test("una categoría sin módulos visibles no se dibuja", () => {
@@ -30,7 +30,7 @@ test("una categoría sin módulos visibles no se dibuja", () => {
 });
 
 test("basta CUALQUIERA de los permisos de la lista", () => {
-  // A "Mi Objetivo de Venta" se entra por dos puertas distintas: la vendedora
+  // A "Objetivos" se entra, entre otras puertas, como vendedora
   // con usar_gerente_ventas y la jefatura con editar_objetivos_venta. Con una
   // sola clave, un rol que solo tuviera la de jefatura no vería el módulo.
   const soloJefatura = { modulos: ["pos"], permisos: ["editar_objetivos_venta"] };
@@ -51,7 +51,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 17);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 15);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -108,15 +108,15 @@ const PARES_CONGELADOS = {
   crm:             { modulo: "crm",           permiso: undefined },
   radar_demanda:   { modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },
   ml:              { modulo: "ml",            permiso: undefined },
-  gerencia_ventas: { modulo: "pos",           permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
-  metas_okrs:      { modulo: "pos",           permiso: ["usar_gerente_ventas", "administrar_metas_personalizadas", "anular_capturas_metas"] },
+  gerencia_ventas: { modulo: "pos", permiso: [
+    "usar_gerente_ventas", "editar_objetivos_venta", "administrar_metas_personalizadas", "anular_capturas_metas", "cerrar_mes_objetivos",
+  ] },
   reportes:        { modulo: "reportes",      permiso: "ver_reportes" },
   estado_cuenta:   { modulo: "cuenta_comun",  permiso: "ver_estado_cuenta" },
   garantias:       { modulo: "inventario",    permiso: "gestionar_garantias" },
   roles:           { modulo: "admin",         permiso: undefined },
   respaldos:       { modulo: "respaldos",     permiso: "ver_respaldos" },
   configuracion:   { modulo: "pos",           permiso: "editar_configuracion_pos" },
-  cierre_objetivos:{ modulo: "pos",         permiso: "cerrar_mes_objetivos" },
 };
 
 test("ningún módulo cambió de módulo ni de permiso", () => {
@@ -128,15 +128,21 @@ test("ningún módulo cambió de módulo ni de permiso", () => {
   assert.deepEqual(actuales, PARES_CONGELADOS);
 });
 
-test("administradora con pos y solo cerrar_mes_objetivos ve Cierre de Objetivos", () => {
+test("administradora con pos y solo cerrar_mes_objetivos ve Objetivos", () => {
   const vistas = categoriasVisibles({ modulos: ["pos"], permisos: ["cerrar_mes_objetivos"] });
-  assert.ok(vistas.flatMap((c) => c.modulos).some((m) => m.nombre === "Cierre de Objetivos"));
+  assert.ok(vistas.flatMap((c) => c.modulos).some((m) => m.nombre === "Objetivos"));
 });
 
-test("Metas y OKRs se ve con cualquiera de sus tres permisos y no sin ellos", () => {
-  const modulo = CATEGORIAS.flatMap((c) => c.modulos).find((m) => m.id === "metas_okrs");
-  assert.ok(modulo, "existe en el menú");
-  for (const permiso of ["usar_gerente_ventas", "administrar_metas_personalizadas", "anular_capturas_metas"]) {
+test("Objetivos reúne los cinco permisos y sustituye las entradas de metas y cierre", () => {
+  const modulos = CATEGORIAS.flatMap((c) => c.modulos);
+  assert.equal(modulos.some((m) => ["metas_okrs", "cierre_objetivos"].includes(m.id)), false);
+  const modulo = modulos.find((m) => m.id === "gerencia_ventas");
+  assert.equal(modulo.nombre, "Objetivos");
+  const permisos = [
+    "usar_gerente_ventas", "editar_objetivos_venta", "administrar_metas_personalizadas", "anular_capturas_metas", "cerrar_mes_objetivos",
+  ];
+  assert.deepEqual(modulo.permiso, permisos);
+  for (const permiso of permisos) {
     assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: [permiso] }), true, permiso);
   }
   assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: ["realizar_corte_caja"] }), false);

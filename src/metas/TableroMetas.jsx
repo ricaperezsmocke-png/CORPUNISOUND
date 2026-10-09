@@ -61,7 +61,7 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
       {tablero.sellado && <p className="bg-slate-100 rounded-lg p-3 text-sm text-slate-700">🔒 Periodo sellado. Ya no se puede capturar ni quitar nada.</p>}
       {!grupos.length && (
         <p className="text-sm text-slate-500">
-          No hay metas en este periodo.{esAdmin && " Créalas en la pestaña Administrar."}
+          No hay metas en este periodo.{esAdmin && " Créalas en la pestaña Administrar metas."}
         </p>
       )}
       {grupos.map((grupo) => (

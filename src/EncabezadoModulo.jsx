@@ -19,9 +19,7 @@ const TITULOS = {
   ml:         "MercadoLibre",
   reportes:   "Reportes",
   respaldos: "Respaldos",
-  gerencia_ventas: "Mi Objetivo de Venta",
-  metas_okrs: "Metas y OKRs",
-  cierre_objetivos: "Cierre de Objetivos",
+  gerencia_ventas: "Objetivos",
   radar_demanda: "Radar de Demanda",
   configuracion: "Configuración",
 };

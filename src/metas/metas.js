@@ -1,4 +1,4 @@
-// Funciones puras de la pantalla de Metas y OKRs. Los periodos son los MISMOS que valida el
+// Funciones puras de las metas de Objetivos. Los periodos son los MISMOS que valida el
 // servidor (backend/metasPeriodos.js): semana de lunes a domingo, mes y trimestre de calendario.
 const DIA_MS = 24 * 60 * 60 * 1000;
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
