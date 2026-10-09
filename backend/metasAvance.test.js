@@ -97,3 +97,13 @@ test("periodo sellado: el tablero usa el resultado rectificado", () => {
   assert.equal(t.sueltas[0].resultado, 5);
   assert.equal(t.sueltas[0].porcentaje, 50);
 });
+
+test("puede_capturar: la gerente que vende no puede capturar la meta personal de su compañera", () => {
+  const DB = DBPrueba();
+  const tienda = M.crearMeta(DB, { ...BASE, nombre: "Videos", unidad: "videos", prueba: "ninguna", valor_meta: 12, alcance: "tienda", sucursal_id: 4 }, VICTOR);
+  M.crearMeta(DB, { ...BASE, nombre: "De Luis", unidad: "x", prueba: "ninguna", valor_meta: 1, alcance: "persona", vendedor_id: 2 }, VICTOR);
+  const gerenteQueVende = { vendedor_id: 1, jefatura: true, verTodas: false, sucursalId: 4 };
+  const t = tablero(DB, gerenteQueVende, BASE, "2026-10-15");
+  assert.deepEqual(t.sueltas.map((m) => [m.nombre, m.puede_capturar]), [["Videos", true], ["De Luis", false]]);
+  assert.ok(tienda);
+});

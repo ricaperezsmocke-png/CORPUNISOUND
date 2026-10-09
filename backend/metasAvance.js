@@ -47,6 +47,15 @@ function puedeVer(DB, meta, visor) {
   return Boolean(propio) && propio.sucursal_id === meta.sucursal_id;
 }
 
+// Si quien ve el tablero puede marcar "Hecho" en esta meta. El servidor ya rechaza la captura ajena;
+// esto evita que la pantalla ofrezca un botón que va a fallar.
+function puedeCapturar(DB, meta, vendedor_id) {
+  if (vendedor_id === null || vendedor_id === undefined) return false;
+  if (meta.alcance === "persona") return meta.vendedor_id === vendedor_id;
+  if (meta.alcance === "empresa") return meta.participantes.includes(vendedor_id);
+  return DB.pos.vendedores.find((v) => v.id === vendedor_id)?.sucursal_id === meta.sucursal_id;
+}
+
 function desglosePorPersona(DB, capturas) {
   const porPersona = new Map();
   for (const c of capturas) porPersona.set(c.vendedor_id, (porPersona.get(c.vendedor_id) || 0) + c.cantidad);
@@ -64,6 +73,7 @@ function avanceMeta(DB, meta, visor, ritmo) {
     prueba: meta.prueba, alcance: meta.alcance, sucursal_id: meta.sucursal_id, vendedor_id: meta.vendedor_id,
     valor_meta: meta.valor_meta, resultado, porcentaje: pct, ritmo, semaforo: semaforo(pct, ritmo),
     mis_capturas: capturas.filter((c) => c.vendedor_id === visor.vendedor_id).map(capturaParaRespuesta),
+    puede_capturar: puedeCapturar(DB, meta, visor.vendedor_id),
   };
   if (visor.jefatura) avance.por_persona = desglosePorPersona(DB, capturas);
   return avance;
