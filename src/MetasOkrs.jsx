@@ -6,6 +6,7 @@ import { hoyLocal, leer } from "./objetivos/datos";
 import { TEXTO_PERIODO, etiquetaPeriodo, inicioDePeriodo, moverPeriodo } from "./metas/metas";
 import MisMetas from "./metas/MisMetas";
 import TableroMetas from "./metas/TableroMetas";
+import AdministrarMetas from "./metas/AdministrarMetas";
 
 const SEGMENTO = "px-3 py-1.5 text-sm rounded-lg border";
 const SEGMENTO_ACTIVO = `${SEGMENTO} bg-blue-600 border-blue-600 text-white`;
@@ -84,7 +85,7 @@ export default function MetasOkrs({ permisos = [] }) {
       <Pestanas pestanas={pestanas} activa={activa} elegir={setPestana} />
       {identificado && activa === "mis-metas" && <MisMetas {...comun} />}
       {identificado && activa === "tablero" && <TableroMetas {...comun} />}
-      {identificado && activa === "administrar" && <p key={comun.key}>Administrar</p>}
+      {identificado && activa === "administrar" && <AdministrarMetas {...comun} />}
     </div>
   );
 }
