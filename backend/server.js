@@ -51,7 +51,7 @@ const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
 const {
-  fijarObjetivo, objetivoVigente, historialObjetivo, registrarEnPlantilla,
+  fijarObjetivo, retirarObjetivo, objetivoVigente, historialObjetivo, registrarEnPlantilla,
   plantillaDelMes, darDeBajaEnPlantilla, repartoSugerido, estadoDelReparto,
 } = require("./objetivos");
 const { capturarDia, corregirCaptura, capturadoDelMes, capturadoDelMesPor, diasSinCapturar } = require("./objetivosCaptura");
@@ -2565,6 +2565,16 @@ app.post("/api/objetivos", requiereLogin, requierePermiso("editar_objetivos_vent
       return res.status(400).json({ error: "Cambiar una meta existente requiere un motivo; no puede estar vacío" });
     }
     res.json(fijarObjetivo(DB, datos, req.usuarioToken));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/objetivos/retirar", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), (req, res) => {
+  try {
+    const datos = { ...req.body, sucursal_id: idDeObjetivos(req.body?.sucursal_id, "sucursal_id"),
+      vendedor_id: req.body?.vendedor_id === null ? null : idDeObjetivos(req.body?.vendedor_id, "vendedor_id") };
+    if (!sucursalObjetivosPermitida(req, datos.sucursal_id)) return res.status(404).json({ error: "Objetivo no encontrado" });
+    validarMesObjetivosAbierto(datos.mes, datos.sucursal_id);
+    res.json(retirarObjetivo(DB, datos, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
