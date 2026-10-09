@@ -250,7 +250,7 @@ export default function CatalogoVendedores({ permisos, mostrarAviso, alCambiarVe
                   placeholder="Puedes dejarla en blanco y fijarla después"
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
-                  También puedes fijarla luego desde Mi Objetivo de Venta, con la sugerencia
+                  También puedes fijarla luego desde Objetivos, con la sugerencia
                   calculada de su historial.
                 </p>
               </div>

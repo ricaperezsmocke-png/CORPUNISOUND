@@ -42,10 +42,10 @@ export const CATEGORIAS = [
       { id: "radar_demanda", nombre: "Radar de Demanda", modulo: "radar_demanda",
         permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },
       { id: "ml", nombre: "MercadoLibre", modulo: "ml" },
-      { id: "gerencia_ventas", nombre: "Mi Objetivo de Venta", modulo: "pos",
-        permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
-      { id: "metas_okrs", nombre: "Metas y OKRs", modulo: "pos",
-        permiso: ["usar_gerente_ventas", "administrar_metas_personalizadas", "anular_capturas_metas"] },
+      { id: "gerencia_ventas", nombre: "Objetivos", modulo: "pos",
+        permiso: [
+          "usar_gerente_ventas", "editar_objetivos_venta", "administrar_metas_personalizadas", "anular_capturas_metas", "cerrar_mes_objetivos",
+        ] },
     ],
   },
   {
@@ -60,7 +60,6 @@ export const CATEGORIAS = [
       { id: "roles", nombre: "Roles y Personal", modulo: "admin" },
       { id: "respaldos", nombre: "Respaldos", modulo: "respaldos", permiso: "ver_respaldos" },
       { id: "configuracion", nombre: "Configuración", modulo: "pos", permiso: "editar_configuracion_pos" },
-      { id: "cierre_objetivos", nombre: "Cierre de Objetivos", modulo: "pos", permiso: "cerrar_mes_objetivos" },
     ],
   },
 ];
@@ -70,7 +69,7 @@ export const CATEGORIAS = [
  *
  * Copiado tal cual del Dashboard.jsx anterior, con su lógica de listas intacta:
  * `permiso` acepta una clave O UNA LISTA, y basta tener CUALQUIERA. No es un
- * descuido — hay módulos con dos puertas. A "Mi Objetivo de Venta" entra la
+ * descuido — hay módulos con varias puertas. A "Objetivos" entra la
  * vendedora (usar_gerente_ventas) y también la jefatura (editar_objetivos_venta).
  * Con una sola clave, un rol que solo tuviera el de jefatura no veía el módulo y
  * le "desaparecía" sin explicación.
