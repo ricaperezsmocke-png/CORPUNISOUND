@@ -25,6 +25,16 @@ export function finDePeriodo(periodo, inicio) {
   return aTexto(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + meses, 0)));
 }
 
+export function fechaPropuestaCaptura(periodo, inicio, hoy) {
+  const fin = finDePeriodo(periodo, inicio);
+  return hoy < inicio ? inicio : hoy > fin ? fin : hoy;
+}
+
+export function inicioAlCambiarPeriodo(periodo, inicio, nuevo, hoy) {
+  const contieneHoy = hoy >= inicio && hoy <= finDePeriodo(periodo, inicio);
+  return inicioDePeriodo(nuevo, contieneHoy ? hoy : inicio);
+}
+
 export function moverPeriodo(periodo, inicio, pasos) {
   const d = aUTC(inicio);
   if (periodo === "semanal") return aTexto(new Date(d.getTime() + pasos * 7 * DIA_MS));

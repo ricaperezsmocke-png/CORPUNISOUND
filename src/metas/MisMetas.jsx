@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
-import { cuerpoCaptura } from "./metas";
+import { cuerpoCaptura, fechaPropuestaCaptura } from "./metas";
 import {
   ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta, leerArchivoComoBase64,
 } from "./Comunes";
@@ -94,7 +94,7 @@ export default function MisMetas({ periodo, inicio, hoy }) {
         </section>
       ))}
       {capturando && (
-        <DialogoHecho meta={capturando} inicio={inicio} hoy={hoy} cerrar={() => setCapturando(null)}
+        <DialogoHecho meta={capturando} periodo={periodo} inicio={inicio} hoy={hoy} cerrar={() => setCapturando(null)}
           alTerminar={() => terminar("¡Listo! Se registró.")} />
       )}
       {quitando && (
@@ -106,8 +106,8 @@ export default function MisMetas({ periodo, inicio, hoy }) {
   );
 }
 
-function DialogoHecho({ meta, inicio, hoy, cerrar, alTerminar }) {
-  const [form, setForm] = useState({ fecha: hoy < inicio ? inicio : hoy, link: "", archivo: null, cantidad: "", nota: "" });
+function DialogoHecho({ meta, periodo, inicio, hoy, cerrar, alTerminar }) {
+  const [form, setForm] = useState({ fecha: fechaPropuestaCaptura(periodo, inicio, hoy), link: "", archivo: null, cantidad: "", nota: "" });
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
   const cambiar = (campo) => (valor) => setForm((f) => ({ ...f, [campo]: valor }));

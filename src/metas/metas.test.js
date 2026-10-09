@@ -1,6 +1,36 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { inicioDePeriodo, finDePeriodo, moverPeriodo, etiquetaPeriodo, periodoTerminado, cuerpoMeta, cuerpoCaptura } from "./metas.js";
+import * as metas from "./metas.js";
+
+test("cambiar tipo conserva hoy si está en el periodo visible y el inicio si no", () => {
+  for (const [actual, inicio, nuevo, hoy, esperado] of [
+    ["mensual", "2026-10-01", "semanal", "2026-10-09", "2026-10-05"],
+    ["mensual", "2026-09-01", "semanal", "2026-10-09", "2026-08-31"],
+    ["mensual", "2026-11-01", "semanal", "2026-10-09", "2026-10-26"],
+    ["mensual", "2026-10-01", "semanal", "2026-10-01", "2026-09-28"],
+    ["mensual", "2026-10-01", "semanal", "2026-10-31", "2026-10-26"],
+    ["semanal", "2026-09-28", "mensual", "2026-10-04", "2026-10-01"],
+    ["trimestral", "2026-10-01", "mensual", "2026-12-31", "2026-12-01"],
+  ]) {
+    assert.equal(metas.inicioAlCambiarPeriodo(actual, inicio, nuevo, hoy), esperado);
+  }
+});
+
+test("fecha propuesta de captura queda dentro del periodo antes, durante y después", () => {
+  for (const [periodo, inicio, hoy, esperada] of [
+    ["mensual", "2026-09-01", "2026-10-09", "2026-09-30"],
+    ["mensual", "2026-10-01", "2026-10-09", "2026-10-09"],
+    ["mensual", "2026-11-01", "2026-10-09", "2026-11-01"],
+    ["semanal", "2026-09-28", "2026-10-09", "2026-10-04"],
+    ["trimestral", "2026-07-01", "2026-10-09", "2026-09-30"],
+    ["mensual", "2028-02-01", "2028-03-01", "2028-02-29"],
+    ["mensual", "2026-10-01", "2026-10-01", "2026-10-01"],
+    ["mensual", "2026-10-01", "2026-10-31", "2026-10-31"],
+  ]) {
+    assert.equal(metas.fechaPropuestaCaptura(periodo, inicio, hoy), esperada);
+  }
+});
 
 test("periodos iguales a los del servidor", () => {
   assert.equal(inicioDePeriodo("semanal", "2026-10-11"), "2026-10-05");

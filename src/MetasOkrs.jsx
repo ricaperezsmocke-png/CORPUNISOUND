@@ -3,7 +3,7 @@ import { BarChart3, CheckSquare, ChevronLeft, ChevronRight, Settings2 } from "lu
 import { apiFetch } from "./api";
 import Pestanas from "./objetivos/Pestanas";
 import { hoyLocal, leer } from "./objetivos/datos";
-import { TEXTO_PERIODO, etiquetaPeriodo, inicioDePeriodo, moverPeriodo } from "./metas/metas";
+import { TEXTO_PERIODO, etiquetaPeriodo, inicioDePeriodo, inicioAlCambiarPeriodo, moverPeriodo } from "./metas/metas";
 import MisMetas from "./metas/MisMetas";
 import TableroMetas from "./metas/TableroMetas";
 import AdministrarMetas from "./metas/AdministrarMetas";
@@ -45,7 +45,10 @@ export default function MetasOkrs({ permisos = [] }) {
     return () => { vigente = false; };
   }, [usa, esJefatura]);
 
-  const cambiarTipo = (nuevo) => { setPeriodo(nuevo); setInicio(inicioDePeriodo(nuevo, inicio)); };
+  const cambiarTipo = (nuevo) => {
+    setInicio(inicioAlCambiarPeriodo(periodo, inicio, nuevo, hoy));
+    setPeriodo(nuevo);
+  };
   const pestanas = [
     ...(miVendedorId != null ? [{ clave: "mis-metas", etiqueta: "Mis metas", Icono: CheckSquare }] : []),
     { clave: "tablero", etiqueta: "Tablero", Icono: BarChart3 },
