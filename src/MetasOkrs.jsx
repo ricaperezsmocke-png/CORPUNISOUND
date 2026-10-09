@@ -52,7 +52,8 @@ export default function MetasOkrs({ permisos = [] }) {
     ...(esAdmin ? [{ clave: "administrar", etiqueta: "Administrar", Icono: Settings2 }] : []),
   ];
   const activa = pestanas.some((p) => p.clave === pestana) ? pestana : pestanas[0].clave;
-  const comun = { key: `${periodo}/${inicio}`, periodo, inicio, hoy, permisos, sucursales, vendedores, miVendedorId };
+  const llave = `${periodo}/${inicio}`;
+  const comun = { periodo, inicio, hoy, permisos, sucursales, vendedores, miVendedorId };
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
@@ -83,9 +84,9 @@ export default function MetasOkrs({ permisos = [] }) {
         </div>
       )}
       <Pestanas pestanas={pestanas} activa={activa} elegir={setPestana} />
-      {identificado && activa === "mis-metas" && <MisMetas {...comun} />}
-      {identificado && activa === "tablero" && <TableroMetas {...comun} />}
-      {identificado && activa === "administrar" && <AdministrarMetas {...comun} />}
+      {identificado && activa === "mis-metas" && <MisMetas key={llave} {...comun} />}
+      {identificado && activa === "tablero" && <TableroMetas key={llave} {...comun} />}
+      {identificado && activa === "administrar" && <AdministrarMetas key={llave} {...comun} />}
     </div>
   );
 }

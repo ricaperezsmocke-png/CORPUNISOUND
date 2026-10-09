@@ -28,6 +28,10 @@ function sellarPeriodo(DB, datos, usuario, hoy) {
   const { periodo, inicio } = datos;
   const claves = new Set(previo.resultados.map((r) => r.clave));
   const delPeriodo = (r) => r.periodo === periodo && r.inicio === inicio;
+  // Un periodo sin ninguna meta (ni eliminada) no se sella: solo impediría crearle metas después.
+  if (!DB.pos.metas_personalizadas.some((m) => (m.vigente || m.retirada) && delPeriodo(m))) {
+    throw new Error("No hay metas que sellar en este periodo");
+  }
   const foto = structuredClone({
     okrs: DB.pos.okrs.filter((o) => o.vigente && delPeriodo(o)),
     metas: DB.pos.metas_personalizadas.filter((m) => m.vigente && claves.has(m.clave)),

@@ -219,8 +219,11 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
 
   return (
     <div className="space-y-4">
-      <SelloMetas periodo={periodo} inicio={inicio} hoy={hoy} sello={sello} sucursales={sucursales} vendedores={vendedores}
-        alCambiar={cargar} />
+      {/* Sin metas no hay nada que sellar: sellar un periodo vacío solo impediría crearle metas después. */}
+      {(sello || metas.length > 0 || eliminadas.length > 0) && (
+        <SelloMetas periodo={periodo} inicio={inicio} hoy={hoy} sello={sello} sucursales={sucursales} vendedores={vendedores}
+          alCambiar={cargar} />
+      )}
       {error && <div role="alert" className={ALERTA}>{error}</div>}
       {exito && <div className={EXITO}>{exito}</div>}
       {abierto && (

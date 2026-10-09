@@ -55,3 +55,9 @@ test("rectificar cambia el resultado con motivo, conserva el sellado y lee el va
   assert.equal(r2.valor_anterior, 4);
   assert.equal(sello.foto.resultados[0].resultado, 3);
 });
+
+test("no se sella un periodo sin metas: impediría crearle metas después", () => {
+  const DB = DBPrueba();
+  assert.throws(() => sellarPeriodo(DB, BASE, VICTOR, "2026-10-12"), /no hay metas/i);
+  assert.equal(DB.pos.meta_sellos.length, 0);
+});
