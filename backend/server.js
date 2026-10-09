@@ -194,6 +194,11 @@ const DB = {
     objetivo_marcas: [],
     objetivo_productos: [],
     objetivo_creditos: [],
+    // Metas personalizadas (KPIs/OKRs). Ver metasPersonalizadas.js.
+    okrs: [],
+    metas_personalizadas: [],
+    meta_capturas: [],
+    meta_sellos: [],
     // Tareas sugeridas al vendedor para alcanzar su meta. Ver gerenteVentas.js.
     tareas_venta: { tareas: [], ultimo_id: 0 },
     sucursales: [

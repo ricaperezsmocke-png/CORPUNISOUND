@@ -80,6 +80,8 @@ function sembrarRolesIniciales(DB) {
       // Quien fija la meta no puede ser quien declara si se cumplio: el cierre
       // del mes de objetivos se concede aparte (decision de Victor, 2026-09-13).
       c !== "cerrar_mes_objetivos" &&
+      // Las metas personalizadas las crea y sella solo el Administrador (decision de Victor, 2026-10-08).
+      c !== "administrar_metas_personalizadas" &&
       !["ver_radar_demanda", "registrar_demanda", "dar_seguimiento_demanda", "cerrar_demanda", "ver_resumen_demanda"].includes(c)
     ),
     modulos: ["pos", "corte", "inventario", "crm"],
