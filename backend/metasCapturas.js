@@ -137,7 +137,8 @@ function anularCaptura(DB, id, motivo, usuario) {
 
 function capturaParaRespuesta(captura) {
   if (captura.evidencia?.tipo !== "foto") return { ...captura };
-  const { drive_file_id: _oculto, ...evidencia } = captura.evidencia;
+  const evidencia = { ...captura.evidencia };
+  delete evidencia.drive_file_id;
   return { ...captura, evidencia };
 }
 
