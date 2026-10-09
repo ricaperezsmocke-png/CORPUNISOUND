@@ -339,7 +339,8 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
             <RepartoGerente key={`${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}
               objetivos={objetivos} equipo={equipo} nombre={nombre} agregar={agregar} editar={editarMeta}
               historial={abrirHistorial} sugerencia={sugerencia} pedirSugerencia={pedirSugerencia}
-              darBaja={setBaja} actualizar={cargar} />
+              darBaja={setBaja}
+              actualizar={(opciones) => { setSugerencia(null); return cargar(opciones); }} />
           )}
           {activa === "tienda-actividades" && objetivos && (
             <ActividadesGerente key={`actividades/${mes}/${sucursalId}`} mes={mes} sucursalId={sucursalId}

@@ -621,3 +621,25 @@ test("fijar tras retirar no exige motivo y continúa la versión", async () => {
   assert.equal(nueva.cuerpo.vigente, true);
   assert.equal(nueva.cuerpo.motivo, null);
 });
+
+test("el previo del cierre trae las metas eliminadas del mes; sin permiso de cierre no", async () => {
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...META, motivo: "Rehacer reparto" }), 200);
+  const respuesta = await pedir("GET", `/api/objetivos/${MES}/1/retiradas`, admin);
+  estado(respuesta, 200);
+  assert.deepEqual(respuesta.cuerpo.map((r) => [r.elemento, r.vendedor_id, r.retirada.motivo]), [["Venta", null, "Rehacer reparto"]]);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/retiradas`, vendedor), 403);
+});
+
+test("una marca con todas sus metas eliminadas sigue en la pantalla con meta cero para ver su historial", async () => {
+  const { altaElemento } = require("./objetivosCatalogos");
+  const usuario = { id: 1, nombre: "Victor" };
+  const marca = altaElemento(app.DB, "marcas", { nombre: "Fender sin meta" }, usuario);
+  const llave = { mes: MES, sucursal_id: 1, vendedor_id: null, tipo: "marca", marca_id: marca.id };
+  fijarObjetivo(app.DB, { ...llave, monto: 1000 }, usuario);
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...llave, motivo: "Sin stock" }), 200);
+  const consulta = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
+  estado(consulta, 200);
+  const fila = consulta.cuerpo.marcas.find((m) => m.marca_id === marca.id);
+  assert.ok(fila, "la marca sigue listada");
+  assert.equal(fila.meta_tienda, 0);
+});

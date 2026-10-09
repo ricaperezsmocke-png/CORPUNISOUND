@@ -323,6 +323,7 @@ test("queda constancia de quien sello y cuando", () => {
       { actividad: "volanteo", etiqueta: "Jornada de volanteo", declaradas: 0, conjuntas: 0 },
     ],
     rectificaciones: [],
+    retiradas: [],
   });
   assert.deepEqual(DB.pos.objetivo_cierres, [cierre]);
   assert.deepEqual(DB.pos.objetivos, antes.objetivos);
@@ -712,4 +713,29 @@ test("cierre histórico sin campos nuevos conserva la rectificación de venta", 
   assert.throws(() => rectificarCierre(DB, 1, {
     vendedor_id: 1, campo: "real", marca_id: 1, valor_nuevo: 0, motivo: "Error",
   }, VICTOR));
+});
+
+test("el cierre conserva la lista de metas eliminadas del mes, con quién, cuándo y por qué", () => {
+  const { retirarObjetivo } = require("./objetivos");
+  const { metasRetiradasDelMes } = require("./objetivosCierre");
+  const DB = prepararDB();
+  registrarEnPlantilla(DB, { ...MES, vendedor_id: 1 });
+  const marca = altaElemento(DB, "marcas", { nombre: "Yamaha" }, VICTOR);
+  fijarObjetivo(DB, { ...MES, tipo: "venta", vendedor_id: 1, monto: 5000 }, VICTOR);
+  fijarObjetivo(DB, { ...MES, tipo: "marca", marca_id: marca.id, vendedor_id: null, monto: 800 }, VICTOR);
+  fijarObjetivo(DB, { ...MES, tipo: "venta", vendedor_id: 9, sucursal_id: 2, monto: 1 }, VICTOR);
+  retirarObjetivo(DB, { ...MES, tipo: "venta", vendedor_id: 1, motivo: "No llegaba" }, { id: 7, nombre: "Gerente" });
+  retirarObjetivo(DB, { ...MES, tipo: "marca", marca_id: marca.id, vendedor_id: null, motivo: "Sin stock" }, VICTOR);
+  retirarObjetivo(DB, { mes: "2026-09", sucursal_id: 2, tipo: "venta", vendedor_id: 9, motivo: "otra tienda" }, VICTOR);
+
+  const retiradas = metasRetiradasDelMes(DB, MES);
+  assert.deepStrictEqual(retiradas.map((r) => [r.elemento, r.vendedor_id, r.monto, r.retirada.por_nombre, r.retirada.motivo]), [
+    ["Venta", 1, 5000, "Gerente", "No llegaba"],
+    ["Marca: Yamaha", null, 800, "Victor", "Sin stock"],
+  ]);
+
+  const cierre = cerrarMes(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, ADMINISTRADORA);
+  assert.deepStrictEqual(cierre.retiradas.map((r) => r.elemento), ["Venta", "Marca: Yamaha"]);
+  DB.pos.objetivos.find((o) => o.retirada?.motivo === "No llegaba").retirada.motivo = "cambiado después";
+  assert.strictEqual(cierre.retiradas[0].retirada.motivo, "No llegaba");
 });

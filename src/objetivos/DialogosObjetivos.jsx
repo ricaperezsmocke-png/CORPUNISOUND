@@ -57,7 +57,8 @@ export function BotonEliminarMeta({ llave, titulo, cerrado, revision, abrir }) {
 export function RetiradaMeta({ retirada }) {
   return retirada ? (
     <p className="text-red-700">
-      Eliminada por {retirada.por_nombre} · {new Date(retirada.en).toLocaleString("es-MX")} · Motivo: {retirada.motivo}
+      Eliminada por {retirada.por_nombre}
+      {" · "}{new Date(retirada.en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })} · Motivo: {retirada.motivo}
     </p>
   ) : null;
 }
