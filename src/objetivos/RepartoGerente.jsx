@@ -4,17 +4,20 @@ import { History, Users, Target, WandSparkles } from "lucide-react";
 import { estadoReparto, fechaCorta, filasReparto, finDelMes, sugerenciaGuardada } from "./datos";
 
 import { pesosConCentavos } from "./marcas";
+import { BotonEliminarMeta, EliminarMeta } from "./DialogosObjetivos";
 
 const celda = "px-3 py-3 align-top";
 const boton = "flex items-center gap-2 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm";
 const tonos = { falta: "text-amber-700", completo: "text-emerald-700", exceso: "text-red-700", sin_meta: "text-slate-500" };
 
 export default function RepartoGerente({
-  mes, sucursalId, objetivos, equipo, nombre, agregar, editar, historial, sugerencia, pedirSugerencia, darBaja,
+  mes, sucursalId, objetivos, equipo, nombre, agregar, editar, historial, sugerencia, pedirSugerencia, darBaja, actualizar,
 }) {
   const [vendedorId, setVendedorId] = useState("");
   const [personalAbierto, setPersonalAbierto] = useState(false);
   const [desde, setDesde] = useState("");
+  const [eliminar, setEliminar] = useState(null);
+  const llaveMeta = (vendedor_id) => ({ tipo: "venta", mes, sucursal_id: Number(sucursalId), vendedor_id });
   const disponibles = equipo.filter((v) => v.activo !== false && Number(v.sucursal_id) === Number(sucursalId) &&
     !objetivos.plantilla.some((p) => Number(p.vendedor_id) === Number(v.id)));
 
@@ -68,6 +71,8 @@ export default function RepartoGerente({
         <button type="button" onClick={() => historial(null)} className={boton}>
           <History size={18} aria-hidden="true" />Historial de tienda
         </button>
+        <BotonEliminarMeta llave={llaveMeta(null)} titulo="Venta · Tienda" cerrado={objetivos.cerrado}
+          revision={objetivos} abrir={setEliminar} />
       </div>
       {sugerencia?.length === 0 && (
         <p className="text-sm text-violet-700">Primero fija la meta de tienda y registra el personal del mes.</p>
@@ -117,6 +122,8 @@ export default function RepartoGerente({
                     <button type="button" onClick={() => historial(fila.vendedor_id)} className="text-blue-600 hover:underline">
                       Historial
                     </button>
+                    <BotonEliminarMeta llave={llaveMeta(fila.vendedor_id)} titulo={`Venta · ${nombre(fila.vendedor_id)}`}
+                      cerrado={objetivos.cerrado} revision={objetivos} abrir={setEliminar} />
                   </td>
                 </tr>
               );
@@ -124,6 +131,10 @@ export default function RepartoGerente({
           </tbody>
         </table>
       </div>
+      {eliminar && !objetivos.cerrado && (
+        <EliminarMeta {...eliminar} cerrar={() => setEliminar(null)}
+          alTerminar={() => { setEliminar(null); return actualizar({ silenciosa: true }); }} />
+      )}
       {personalAbierto && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div role="dialog" aria-modal="true" aria-label="Personal del mes"

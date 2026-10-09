@@ -3,6 +3,7 @@ import { FranjaAyuda } from "./Ayuda";
 import { apiFetch } from "../api";
 import { diasDeAtraso, estadoReparto, fechaCorta, filasReparto, leer, periodoEnTienda, sugerenciaGuardada } from "./datos";
 import { declaradasPorPersona, presentacionMetaActividad, ultimoResultado } from "./actividades";
+import { BotonEliminarMeta, EliminarMeta, RetiradaMeta } from "./DialogosObjetivos";
 
 const campo = "block neu-campo rounded-lg px-3 py-2 w-full min-w-0 mt-1";
 const boton = "bg-blue-600 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-40";
@@ -21,6 +22,7 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
   const [error, setError] = useState("");
   const [errorLista, setErrorLista] = useState("");
   const [dialogo, setDialogo] = useState(null);
+  const [eliminar, setEliminar] = useState(null);
   const [sugerencias, setSugerencias] = useState({});
   const [persona, setPersona] = useState("");
   const [clase, setClase] = useState("");
@@ -29,6 +31,12 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
   const cerrado = objetivos.cerrado;
   const clases = objetivos.actividades || [];
   const raiz = `/objetivos/${mes}/${sucursalId}`;
+  const botonEliminar = (reparto, vendedorId) => (
+    <BotonEliminarMeta llave={{ tipo: "actividad", actividad: reparto.actividad, mes, sucursal_id: Number(sucursalId),
+      vendedor_id: vendedorId == null ? null : Number(vendedorId) }}
+      titulo={`${reparto.etiqueta} · ${vendedorId == null ? "Tienda" : nombre(vendedorId)}`}
+      cerrado={cerrado} revision={objetivos} abrir={setEliminar} />
+  );
 
   useEffect(() => {
     montado.current = true;
@@ -137,7 +145,7 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
             <RepartoActividad key={reparto.actividad} reparto={reparto} datos={datos} nombre={nombre}
               plantilla={objetivos.plantilla} alterna={indice % 2 === 1}
               cerrado={cerrado} ocupado={ocupado} sugerencia={sugerencias[reparto.actividad]}
-              abrir={abrirMeta} sugerir={() => sugerir(reparto.actividad)} />
+              abrir={abrirMeta} sugerir={() => sugerir(reparto.actividad)} botonEliminar={botonEliminar} />
           ))}
         </table>
       </div>
@@ -188,6 +196,19 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
           </table>
         </div>
       </div>
+      {eliminar && !cerrado && (
+        <EliminarMeta {...eliminar} cerrar={() => setEliminar(null)} alTerminar={() => {
+          if (eliminar.llave.vendedor_id == null) {
+            setSugerencias((anteriores) => {
+              const vigentes = { ...anteriores };
+              delete vigentes[eliminar.llave.actividad];
+              return vigentes;
+            });
+          }
+          setEliminar(null);
+          return actualizar({ silenciosa: true });
+        }} />
+      )}
       {dialogo && (dialogo.historial || !cerrado) && (
         <DialogoMetaActividad dialogo={dialogo} guardar={guardar} ocupado={ocupado} cerrar={() => setDialogo(null)} />
       )}
@@ -195,7 +216,7 @@ export default function ActividadesGerente({ mes, sucursalId, objetivos, nombre,
   );
 }
 
-function RepartoActividad({ reparto, datos, plantilla, alterna, nombre, cerrado, ocupado, sugerencia, abrir, sugerir }) {
+function RepartoActividad({ reparto, datos, plantilla, alterna, nombre, cerrado, ocupado, sugerencia, abrir, sugerir, botonEliminar }) {
   const [desplegada, setDesplegada] = useState(false);
   const { declaradas, inactiva } = presentacionMetaActividad(reparto, datos);
   const estado = estadoReparto({ meta: reparto.meta_tienda, sinAsignar: reparto.sin_asignar, unidad: "unidades" });
@@ -232,6 +253,7 @@ function RepartoActividad({ reparto, datos, plantilla, alterna, nombre, cerrado,
                 )}
                 <button type="button" disabled={ocupado} className={enlace}
                   onClick={() => abrir(reparto, null, reparto.meta_tienda, true)}>Historial de tienda</button>
+                {botonEliminar(reparto, null)}
               </div>
               <p className="text-slate-500">Una actividad conjunta cuenta una sola vez para la tienda.</p>
               {mostrarSugerencia && <p>La sugerencia no guarda nada: usa "Usar" en cada persona.</p>}
@@ -248,7 +270,7 @@ function RepartoActividad({ reparto, datos, plantilla, alterna, nombre, cerrado,
                   <tbody>
                     {personas.map((persona) => (
                       <ParteActividad key={persona.vendedor_id} persona={persona} reparto={reparto} datos={datos} nombre={nombre}
-                        cerrado={cerrado} ocupado={ocupado} sugerencia={sugerencia} abrir={abrir} />
+                        cerrado={cerrado} ocupado={ocupado} sugerencia={sugerencia} abrir={abrir} botonEliminar={botonEliminar} />
                     ))}
                   </tbody>
                 </table>
@@ -261,7 +283,7 @@ function RepartoActividad({ reparto, datos, plantilla, alterna, nombre, cerrado,
   );
 }
 
-function ParteActividad({ persona, reparto, datos, nombre, cerrado, ocupado, sugerencia, abrir }) {
+function ParteActividad({ persona, reparto, datos, nombre, cerrado, ocupado, sugerencia, abrir, botonEliminar }) {
   const sugerida = sugerencia?.find((item) => Number(item.vendedor_id) === persona.vendedor_id);
   const periodo = periodoEnTienda(persona);
   return (
@@ -293,6 +315,7 @@ function ParteActividad({ persona, reparto, datos, nombre, cerrado, ocupado, sug
           )}
           <button type="button" disabled={ocupado} className={enlace}
             onClick={() => abrir(reparto, persona.vendedor_id, persona.monto ?? 0, true)}>Historial</button>
+          {botonEliminar(reparto, persona.vendedor_id)}
         </div>
       </td>
     </tr>
@@ -384,6 +407,7 @@ function DialogoMetaActividad({ dialogo, guardar, ocupado, cerrar }) {
                       {version.creado_por} · {new Date(version.creado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}
                     </p>
                     {version.motivo && <p>Motivo: {version.motivo}</p>}
+                    <RetiradaMeta retirada={version.retirada} />
                   </li>
                 ))}
               </ul>
