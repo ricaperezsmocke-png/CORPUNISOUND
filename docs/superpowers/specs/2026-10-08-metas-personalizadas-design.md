@@ -58,8 +58,10 @@ metas que el sistema mide solo.
 - **Sello:** congela definición, cifra meta, capturas y resultado. Las rectificaciones posteriores solo
   corrigen el resultado capturado (NO la cifra meta, a diferencia del cierre actual
   `backend/objetivosCierre.js:246`), con motivo, conservando el valor original sellado.
-- **Privacidad:** la vendedora ve lo suyo completo y lo de su tienda solo en porcentaje
-  (misma regla que `backend/objetivosAvance.js:125,167`), también en el historial.
+- **Privacidad:** las metas personalizadas son conteos, no dinero. En metas de tienda/empresa la
+  vendedora ve cifra meta, total y %, y SOLO sus propias capturas; nunca el desglose por persona ni
+  capturas ajenas. La jefatura ve el desglose. (Concretado al planear la Entrega 1: ocultar el total
+  sería inútil porque se despeja de % × cifra meta.)
 - **Fechas en hora de Chiapas** (`fechaLocal` de `backend/fechas.js`); no se captura en fecha futura.
 - **Todo se valida en el servidor.** La pantalla solo refleja.
 
@@ -84,6 +86,10 @@ colecciones arrancan con arreglos vacíos.
 - **`meta_sellos`**: id, periodo, inicio, alcance_sellado (sucursal_id o empresa), sellado_por_id,
   sellado_por, sellado_en, foto (copia profunda de OKRs, metas vigentes, capturas válidas y resultados),
   rectificaciones [{id, meta_id, valor_anterior (leído del sello), valor_nuevo, motivo, por, en}].
+
+**Concreciones de la Entrega 1:** cada OKR y meta tiene `clave` estable (el id de su versión 1) y las
+capturas apuntan a `meta_clave`; el sello es por `periodo` + `inicio` y cubre TODAS las tiendas (lo sella
+el admin); retirar un OKR retira sus metas vigentes con el mismo motivo.
 
 **Periodos:** semana = lunes a domingo; mes = calendario; trimestre = ene–mar, abr–jun, jul–sep,
 oct–dic. `inicio` siempre es el primer día del periodo; el servidor lo valida.
