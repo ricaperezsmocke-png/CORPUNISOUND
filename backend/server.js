@@ -2898,6 +2898,11 @@ app.post("/api/objetivos/cierre/:id/rectificar", requiereLogin, requierePermiso(
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Metas personalizadas (KPIs/OKRs). Ver metasRutas.js.
+require("./metasRutas")(app, {
+  DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos,
+});
+
 // ---------- Respaldos y punto de restauración ----------
 
 app.get("/api/respaldos", requiereLogin, requierePermiso("ver_respaldos", resolverPermisosDeRol), (req, res) => {
