@@ -2517,8 +2517,11 @@ app.get("/api/objetivos/:mes/:sucursalId", requiereLogin, requierePermiso("usar_
       actividad: clave, etiqueta,
       ...estadoDelReparto(DB, { mes, sucursal_id, tipo: "actividad", actividad: clave }),
     }));
-    // Un elemento cuya meta se eliminó sigue en la lista (con meta 0) para poder abrir su historial.
-    const conHistorial = DB.pos.objetivos.filter((meta) => (meta.vigente || meta.retirada) && meta.mes === mes && meta.sucursal_id === sucursal_id);
+    // Para la jefatura, un elemento cuya meta se eliminó sigue en la lista (con meta 0) para abrir su
+    // historial. La vendedora solo ve elementos con meta vigente.
+    const veHistorial = esJefatura && alcanceNormal;
+    const conHistorial = DB.pos.objetivos.filter((meta) => (meta.vigente || (veHistorial && meta.retirada)) &&
+      meta.mes === mes && meta.sucursal_id === sucursal_id);
     const repartosDeElementos = (tipo, campo, elementos) => elementos
       .filter((elemento) => conHistorial.some((meta) => meta.tipo === tipo && meta[campo] === elemento[campo]))
       .map((elemento) => ({

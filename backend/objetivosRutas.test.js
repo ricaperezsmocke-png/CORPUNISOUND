@@ -643,3 +643,17 @@ test("una marca con todas sus metas eliminadas sigue en la pantalla con meta cer
   assert.ok(fila, "la marca sigue listada");
   assert.equal(fila.meta_tienda, 0);
 });
+
+test("la vendedora no ve una marca cuyas metas se eliminaron; la jefatura sí, para su historial", async () => {
+  const { altaElemento } = require("./objetivosCatalogos");
+  const usuario = { id: 1, nombre: "Victor" };
+  const marca = altaElemento(app.DB, "marcas", { nombre: "Gibson eliminada" }, usuario);
+  const llave = { mes: MES, sucursal_id: 1, vendedor_id: 1, tipo: "marca", marca_id: marca.id };
+  fijarObjetivo(app.DB, { ...llave, monto: 500 }, usuario);
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...llave, motivo: "Ya no" }), 200);
+  const deCompanero = await pedir("GET", `/api/objetivos/${MES}/1`, companero);
+  estado(deCompanero, 200);
+  assert.equal(deCompanero.cuerpo.marcas.some((m) => m.marca_id === marca.id), false);
+  const deGerente = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
+  assert.equal(deGerente.cuerpo.marcas.some((m) => m.marca_id === marca.id), true);
+});
