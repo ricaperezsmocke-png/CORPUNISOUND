@@ -51,6 +51,12 @@ module.exports = function registrarRutasMetas(app, deps) {
         meta_nombre: M.historial(DB, "metas_personalizadas", c.meta_clave).at(-1)?.nombre || "desconocida",
       }))));
 
+  app.get("/api/metas/sello", requiereLogin, admin, (req, res) => {
+    const sello = DB.pos.meta_sellos.find((s) => s.periodo === req.query.periodo && s.inicio === req.query.inicio);
+    if (!sello) return res.status(404).json({ error: "Sello no encontrado" });
+    // La foto guarda las capturas completas; el id interno del archivo en Drive no sale.
+    res.json({ ...sello, foto: { ...sello.foto, capturas: sello.foto.capturas.map(capturaParaRespuesta) } });
+  });
   app.get("/api/metas/sello/previo", requiereLogin, admin, (req, res) => responder(res, () => previoSello(DB, periodoDe(req.query), hoy())));
   app.post("/api/metas/sello", requiereLogin, admin, (req, res) => responder(res, () =>
     sellarPeriodo(DB, periodoDe(req.body), req.usuarioToken, hoy())));

@@ -186,3 +186,14 @@ test("historial y retiro de la meta solo para el administrador", async () => {
   assert.deepEqual(historial.cuerpo.map((v) => [v.version, v.vigente, v.retirada?.motivo ?? null]), [[1, false, null], [2, false, "Ya no aplica"]]);
   estado(await pedir("GET", `/api/metas/${meta.clave}/historial`, gerente), 403);
 });
+
+test("ver el sello de un periodo: 404 si no existe, completo si existe; solo admin", async () => {
+  estado(await pedir("GET", `/api/metas/sello?${consulta}`, admin), 404);
+  const meta = await crearMeta({ ...META, prueba: "ninguna" });
+  estado(await pedir("POST", `/api/metas/${meta.clave}/retirar`, admin, { motivo: "No aplica" }), 200);
+  estado(await pedir("POST", "/api/metas/sello", admin, SEMANA), 200);
+  const r = await pedir("GET", `/api/metas/sello?${consulta}`, admin);
+  estado(r, 200);
+  assert.deepEqual(r.cuerpo.foto.retiradas.map((m) => m.retirada.motivo), ["No aplica"]);
+  estado(await pedir("GET", `/api/metas/sello?${consulta}`, gerente), 403);
+});
