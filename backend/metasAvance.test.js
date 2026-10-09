@@ -17,6 +17,34 @@ const captura = (DB, meta, vendedor_id, cantidad, extra = {}) => DB.pos.meta_cap
   vendedor_id, sucursal_id: 4, cantidad, evidencia: null, nota: null, anulada: null, ...extra });
 const JEFE_GLOBAL = { vendedor_id: null, jefatura: true, verTodas: true, sucursalId: null };
 
+test("mis capturas incluye las anuladas propias con auditoría, sin sumarlas ni exponer Drive o capturas ajenas", () => {
+  const DB = DBPrueba();
+  const meta = M.crearMeta(DB, {
+    ...BASE, nombre: "Videos", unidad: "videos", prueba: "ninguna", valor_meta: 12, alcance: "tienda", sucursal_id: 4,
+  }, VICTOR);
+  const otra = M.crearMeta(DB, {
+    ...BASE, nombre: "Otra", unidad: "videos", prueba: "ninguna", valor_meta: 12, alcance: "tienda", sucursal_id: 4,
+  }, VICTOR);
+  const anulada = { por_id: 1, por_nombre: "Victor", en: "2026-10-09T18:00:00.000Z", motivo: "Foto equivocada" };
+  captura(DB, meta, 1, 2);
+  captura(DB, meta, 1, 1, { anulada, evidencia: { tipo: "foto", drive_file_id: "privado", drive_link: "https://drive/foto" } });
+  captura(DB, meta, 2, 3);
+  captura(DB, meta, 2, 4, { anulada });
+  captura(DB, otra, 1, 1, { anulada });
+  const ana = { vendedor_id: 1, jefatura: false, verTodas: false, sucursalId: 4 };
+  const avance = tablero(DB, ana, BASE, "2026-10-09").sueltas[0];
+  assert.deepEqual(avance.mis_capturas.map((c) => c.id), [1, 2]);
+  assert.deepEqual(avance.mis_capturas[1].anulada, anulada);
+  assert.equal(avance.mis_capturas[1].evidencia.drive_file_id, undefined);
+  assert.equal(avance.mis_capturas[1].evidencia.drive_link, "https://drive/foto");
+  assert.equal(avance.resultado, 5);
+  assert.equal(avance.por_persona, undefined);
+  assert.deepEqual(tablero(DB, JEFE_GLOBAL, BASE, "2026-10-09").sueltas[0].por_persona, [
+    { vendedor_id: 1, nombre: "Ana", resultado: 2 }, { vendedor_id: 2, nombre: "Luis", resultado: 3 },
+  ]);
+  assert.equal(DB.pos.meta_capturas[1].evidencia.drive_file_id, "privado");
+});
+
 test("porcentaje topado a 100 y semáforo contra el ritmo", () => {
   assert.equal(porcentaje(6, 12), 50);
   assert.equal(porcentaje(30, 12), 100);
@@ -67,8 +95,9 @@ test("vendedora: ve sus metas, las de su tienda y empresa donde participa; sin d
   M.crearMeta(DB, { ...BASE, nombre: "Empresa mía", unidad: "x", prueba: "ninguna", valor_meta: 1, alcance: "empresa", participantes: [1, 3] }, VICTOR);
   captura(DB, tienda, 1, 2); captura(DB, tienda, 2, 4);
   const ana = { vendedor_id: 1, jefatura: false, verTodas: false, sucursalId: 4 };
-  const t = tablero(DB, ana, BASE, "2026-10-15");
+  const t = tablero(DB, ana, { ...BASE, sucursal_id: 4 }, "2026-10-15");
   assert.deepEqual(t.sueltas.map((m) => m.nombre), ["Videos", "Empresa mía"]);
+  assert.equal(t.sueltas[1].puede_capturar, true);
   assert.equal(t.sueltas[0].resultado, 6);
   assert.equal(t.sueltas[0].por_persona, undefined);
   assert.deepEqual(t.sueltas[0].mis_capturas.map((c) => c.vendedor_id), [1]);
@@ -81,7 +110,7 @@ test("jefatura de tienda: solo su tienda, con desglose por persona; sin empresa"
   M.crearMeta(DB, { ...BASE, nombre: "Empresa", unidad: "x", prueba: "ninguna", valor_meta: 1, alcance: "empresa", participantes: [1] }, VICTOR);
   captura(DB, tienda, 1, 2); captura(DB, tienda, 2, 4);
   const gerente = { vendedor_id: null, jefatura: true, verTodas: false, sucursalId: 4 };
-  const t = tablero(DB, gerente, BASE, "2026-10-15");
+  const t = tablero(DB, gerente, { ...BASE, sucursal_id: 4 }, "2026-10-15");
   assert.deepEqual(t.sueltas.map((m) => m.nombre), ["Videos"]);
   assert.deepEqual(t.sueltas[0].por_persona, [{ vendedor_id: 1, nombre: "Ana", resultado: 2 }, { vendedor_id: 2, nombre: "Luis", resultado: 4 }]);
 });

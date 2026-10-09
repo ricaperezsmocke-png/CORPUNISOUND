@@ -72,7 +72,8 @@ function avanceMeta(DB, meta, visor, ritmo) {
     clave: meta.clave, okr_clave: meta.okr_clave, nombre: meta.nombre, descripcion: meta.descripcion, unidad: meta.unidad,
     prueba: meta.prueba, alcance: meta.alcance, sucursal_id: meta.sucursal_id, vendedor_id: meta.vendedor_id,
     valor_meta: meta.valor_meta, resultado, porcentaje: pct, ritmo, semaforo: semaforo(pct, ritmo),
-    mis_capturas: capturas.filter((c) => c.vendedor_id === visor.vendedor_id).map(capturaParaRespuesta),
+    mis_capturas: DB.pos.meta_capturas
+      .filter((c) => c.meta_clave === meta.clave && c.vendedor_id === visor.vendedor_id).map(capturaParaRespuesta),
     puede_capturar: puedeCapturar(DB, meta, visor.vendedor_id),
   };
   if (visor.jefatura) avance.por_persona = desglosePorPersona(DB, capturas);
@@ -82,7 +83,8 @@ function avanceMeta(DB, meta, visor, ritmo) {
 function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id = null }, hoy) {
   validarPeriodo(periodo, inicio);
   const ritmo = ritmoEsperado(periodo, inicio, hoy);
-  const filtro = (m) => (sucursal_id === null || m.sucursal_id === sucursal_id) && (vendedor_id === null || m.vendedor_id === vendedor_id);
+  const filtro = (m) => (sucursal_id === null || m.alcance === "empresa" || m.sucursal_id === sucursal_id) &&
+    (vendedor_id === null || m.vendedor_id === vendedor_id);
   const metas = DB.pos.metas_personalizadas
     .filter((m) => m.vigente && m.periodo === periodo && m.inicio === inicio && puedeVer(DB, m, visor) && filtro(m))
     .map((m) => avanceMeta(DB, m, visor, ritmo));
