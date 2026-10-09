@@ -14,6 +14,7 @@ import MercadoLibre from "./MercadoLibre.jsx";
 import Reportes from "./Reportes.jsx";
 import Respaldos from "./Respaldos.jsx";
 import GerenciaVentas from "./GerenciaVentas.jsx";
+import MetasOkrs from "./MetasOkrs.jsx";
 import CierreObjetivos from "./CierreObjetivos.jsx";
 import EncabezadoModulo from "./EncabezadoModulo.jsx";
 import RadarDemanda from "./radar-demanda/RadarDemanda.jsx";
@@ -21,7 +22,7 @@ import BarraLateral from "./BarraLateral.jsx";
 import Configuracion from "./Configuracion.jsx";
 import { apiFetch } from "./api";
 
-const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas", "cierre_objetivos", "radar_demanda", "configuracion"];
+const MODULOS = ["pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta", "respaldos", "gerencia_ventas", "metas_okrs", "cierre_objetivos", "radar_demanda", "configuracion"];
 
 async function seleccionarCajaPredeterminada() {
   localStorage.removeItem("caja_activa");
@@ -160,6 +161,9 @@ function App() {
         )}
         {vista === "gerencia_ventas" && (
           <GerenciaVentas onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
+        )}
+        {vista === "metas_okrs" && (
+          <MetasOkrs permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "cierre_objetivos" && (
           <CierreObjetivos permisos={usuario.permisos} usuario={usuario} />

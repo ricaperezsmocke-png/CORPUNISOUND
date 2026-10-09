@@ -92,6 +92,10 @@ const PERMISOS = [
   // toma quien va a ser medido por ella.
   { clave: "editar_objetivos_venta", etiqueta: "Fijar Objetivos de Venta del Personal", modulo: "pos", implementado: true },
   { clave: "cerrar_mes_objetivos", etiqueta: "Cerrar y Rectificar el Mes de Objetivos", modulo: "pos", implementado: true },
+  // Metas personalizadas (KPIs/OKRs). Crearlas es solo del Administrador (decisión de Victor 2026-10-08);
+  // anular capturas ajenas es revisión de jefatura y queda a nombre de quien anula.
+  { clave: "administrar_metas_personalizadas", etiqueta: "Crear y Sellar Metas Personalizadas (KPIs/OKRs)", modulo: "pos", implementado: true },
+  { clave: "anular_capturas_metas", etiqueta: "Anular Capturas de Metas del Personal", modulo: "pos", implementado: true },
   // Dar de alta/editar el catalogo de quien vende. Permiso propio y no
   // prestado de dar_alta_personal: son cosas distintas -- un vendedor es un
   // renglon del catalogo de ventas, una cuenta es un acceso al sistema.

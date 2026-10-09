@@ -44,6 +44,8 @@ export const CATEGORIAS = [
       { id: "ml", nombre: "MercadoLibre", modulo: "ml" },
       { id: "gerencia_ventas", nombre: "Mi Objetivo de Venta", modulo: "pos",
         permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
+      { id: "metas_okrs", nombre: "Metas y OKRs", modulo: "pos",
+        permiso: ["usar_gerente_ventas", "administrar_metas_personalizadas", "anular_capturas_metas"] },
     ],
   },
   {

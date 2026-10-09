@@ -194,6 +194,11 @@ const DB = {
     objetivo_marcas: [],
     objetivo_productos: [],
     objetivo_creditos: [],
+    // Metas personalizadas (KPIs/OKRs). Ver metasPersonalizadas.js.
+    okrs: [],
+    metas_personalizadas: [],
+    meta_capturas: [],
+    meta_sellos: [],
     // Tareas sugeridas al vendedor para alcanzar su meta. Ver gerenteVentas.js.
     tareas_venta: { tareas: [], ultimo_id: 0 },
     sucursales: [
@@ -2891,6 +2896,11 @@ app.post("/api/objetivos/cierre/:id/rectificar", requiereLogin, requierePermiso(
     if (!cierre || !sucursalObjetivosPermitida(req, cierre.sucursal_id)) return res.status(404).json({ error: "Cierre no encontrado" });
     res.json(rectificarCierre(DB, id, { ...req.body, vendedor_id }, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Metas personalizadas (KPIs/OKRs). Ver metasRutas.js.
+require("./metasRutas")(app, {
+  DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos,
 });
 
 // ---------- Respaldos y punto de restauración ----------

@@ -19,7 +19,10 @@ function normalizarLink(link) {
   url.password = "";
   url.hash = "";
   url.pathname = url.pathname.replace(/\/{2,}/g, "/");
-  const rastreo = new Set(["fbclid", "mibextid", "rdid", "share_url", "igsh", "igshid", "gclid"]);
+  const rastreo = new Set([
+    "fbclid", "mibextid", "rdid", "share_url", "igsh", "igshid", "gclid",
+    "si", "t", "s", "_r", "is_from_webapp", "sender_device",
+  ]);
   const parametros = [...url.searchParams]
     .filter(([nombre]) => !rastreo.has(nombre) && !nombre.startsWith("utm_"))
     .sort(([nombreA, valorA], [nombreB, valorB]) => {
@@ -64,6 +67,14 @@ function prepararEvidencia(clase, { link, archivo }) {
 }
 
 function validarRepeticion(DB, datos, evidencia) {
+  const usadaEnMeta = (DB.pos.meta_capturas || []).some((c) => {
+    if (c.anulada || c.evidencia?.tipo !== evidencia.tipo) return false;
+    if (evidencia.tipo === "foto") return c.evidencia.huella === evidencia.huella;
+    let linkGuardado = c.evidencia.link;
+    try { linkGuardado = normalizarLink(linkGuardado); } catch { /* Conservar el texto histórico inválido. */ }
+    return linkGuardado === evidencia.link;
+  });
+  if (usadaEnMeta) throw new Error("Esta prueba ya se usó en una meta");
   const repetidas = (DB.pos.objetivo_actividades || []).filter((registro) => {
     if (!registro.vigente || registro.evidencia.tipo !== evidencia.tipo) return false;
     if (evidencia.tipo !== "link") return registro.evidencia.huella === evidencia.huella;
@@ -205,5 +216,5 @@ function resumenActividades(DB, filtros) {
 
 module.exports = {
   normalizarLink, registrarActividad, anularActividad, agregarResultado,
-  actividadesDelMes, resumenActividades,
+  actividadesDelMes, resumenActividades, prepararEvidencia, subidasEnCurso,
 };

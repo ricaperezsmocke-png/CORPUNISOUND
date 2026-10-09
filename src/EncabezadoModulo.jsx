@@ -20,6 +20,7 @@ const TITULOS = {
   reportes:   "Reportes",
   respaldos: "Respaldos",
   gerencia_ventas: "Mi Objetivo de Venta",
+  metas_okrs: "Metas y OKRs",
   cierre_objetivos: "Cierre de Objetivos",
   radar_demanda: "Radar de Demanda",
   configuracion: "Configuración",

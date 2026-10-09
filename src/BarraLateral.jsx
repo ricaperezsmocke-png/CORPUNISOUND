@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   ShoppingCart, Landmark, Wallet, Boxes, ArrowRightLeft,
-  Users, RadioTower, Store, Target,
+  Users, RadioTower, Store, Target, Flag,
   FileBarChart, Scale, ShieldAlert, ShieldCheck, DatabaseBackup, Settings,
   ChevronRight, ChevronsLeft, ChevronsRight, Home,
 } from "lucide-react";
@@ -30,6 +30,7 @@ const ICONOS = {
   radar_demanda: RadioTower,
   ml: Store,
   gerencia_ventas: Target,
+  metas_okrs: Flag,
   reportes: FileBarChart,
   estado_cuenta: Scale,
   garantias: ShieldAlert,

@@ -13,11 +13,11 @@ const ADMIN = {
              "cerrar_mes_objetivos"],
 };
 
-test("el administrador ve las tres categorías y los 16 módulos", () => {
+test("el administrador ve las tres categorías y los 17 módulos", () => {
   const vistas = categoriasVisibles(ADMIN);
   assert.equal(vistas.length, 3);
   assert.deepEqual(vistas.map((c) => c.id), ["operacion", "comercial", "administracion"]);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 16);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 17);
 });
 
 test("una categoría sin módulos visibles no se dibuja", () => {
@@ -51,7 +51,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 16);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 17);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -109,6 +109,7 @@ const PARES_CONGELADOS = {
   radar_demanda:   { modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },
   ml:              { modulo: "ml",            permiso: undefined },
   gerencia_ventas: { modulo: "pos",           permiso: ["usar_gerente_ventas", "editar_objetivos_venta"] },
+  metas_okrs:      { modulo: "pos",           permiso: ["usar_gerente_ventas", "administrar_metas_personalizadas", "anular_capturas_metas"] },
   reportes:        { modulo: "reportes",      permiso: "ver_reportes" },
   estado_cuenta:   { modulo: "cuenta_comun",  permiso: "ver_estado_cuenta" },
   garantias:       { modulo: "inventario",    permiso: "gestionar_garantias" },
@@ -130,4 +131,13 @@ test("ningún módulo cambió de módulo ni de permiso", () => {
 test("administradora con pos y solo cerrar_mes_objetivos ve Cierre de Objetivos", () => {
   const vistas = categoriasVisibles({ modulos: ["pos"], permisos: ["cerrar_mes_objetivos"] });
   assert.ok(vistas.flatMap((c) => c.modulos).some((m) => m.nombre === "Cierre de Objetivos"));
+});
+
+test("Metas y OKRs se ve con cualquiera de sus tres permisos y no sin ellos", () => {
+  const modulo = CATEGORIAS.flatMap((c) => c.modulos).find((m) => m.id === "metas_okrs");
+  assert.ok(modulo, "existe en el menú");
+  for (const permiso of ["usar_gerente_ventas", "administrar_metas_personalizadas", "anular_capturas_metas"]) {
+    assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: [permiso] }), true, permiso);
+  }
+  assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: ["realizar_corte_caja"] }), false);
 });

@@ -15,6 +15,32 @@ const ARCHIVO = { nombre_archivo: "salida.jpg", tipo_mime: "image/jpeg", conteni
 const FOTO = { ...DATOS, actividad: "iglesia", link: undefined, archivo: ARCHIVO };
 const FILTRO = { mes: "2026-09", sucursal_id: 1 };
 
+test("normaliza rastreo de videos sin perder el identificador v", () => {
+  const base = "https://youtube.com/watch?v=ABC";
+  for (const query of ["si=x&t=30&s=1", "_r=x", "is_from_webapp=1", "sender_device=pc"]) {
+    assert.equal(normalizarLink(`${base}&${query}`), base);
+  }
+});
+
+for (const [datos, evidencia] of [
+  [DATOS, { tipo: "link", link: "http://www.facebook.com/x/?fbclid=1" }],
+  [FOTO, { tipo: "foto", huella: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" }],
+]) {
+  test(`una prueba usada en metas no cuenta como actividad: ${evidencia.tipo}`, async () => {
+    const DB = prepararDB();
+    DB.pos.meta_capturas = [{ id: 1, evidencia, anulada: null }];
+    const drive = driveFalso();
+    await assert.rejects(() => registrarActividad(DB, { ...datos, conjunta: true }, USUARIO, drive), {
+      message: "Esta prueba ya se usó en una meta",
+    });
+    assert.equal(DB.pos.objetivo_actividades.length, 0);
+    assert.equal(drive.llamadas.length, 0);
+    DB.pos.meta_capturas[0].anulada = { motivo: "Error" };
+    await registrarActividad(DB, datos, USUARIO, drive);
+    assert.equal(DB.pos.objetivo_actividades.length, 1);
+  });
+}
+
 function prepararDB() {
   return {
     pos: {
