@@ -118,7 +118,13 @@ versión nueva vigente), con motivo obligatorio y solo en mes abierto. Después:
 - Se puede volver a fijar una meta nueva después de retirarla (queda como versión siguiente).
 - El historial (`GET /historial/:vendedorId`) muestra la retirada.
 
-## 7. Pantallas (nueva pestaña "Metas" en `src/GerenciaVentas.jsx`)
+## 7. Pantallas
+
+**Ajuste 2026-10-09 (Victor: "algo intuitivo sin ser muy rebuscado"):** módulo propio del menú, **"Metas y
+OKRs"**, con su selector de periodo (Semana / Mes / Trimestre y flechas ‹ ›) y solo **tres pestañas**: Mis metas
+(botón "Hecho"), Tablero (la revisión y el anular van dentro, al abrir una meta) y Administrar (el sellado aparece
+arriba cuando el periodo terminó). El detalle está en `docs/superpowers/plans/2026-10-09-metas-personalizadas-pantallas.md`.
+La lista de abajo es el diseño original, reagrupado así:
 
 1. **Tablero:** tarjetas por OKR con avance promedio y semáforo; dentro, cada resultado clave con barra,
    cifra y ritmo; metas sueltas aparte. Filtros: tienda, persona, periodo. Navegar a periodos anteriores
