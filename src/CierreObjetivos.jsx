@@ -5,6 +5,7 @@ import { apiFetch } from "./api";
 import { Campo, Modal } from "./objetivos/DialogosObjetivos";
 import { leer, mesActual, mesEnPalabras } from "./objetivos/datos";
 import CierreElementos, { GRUPOS_CIERRE, nombreElemento } from "./objetivos/CierreElementos";
+import MetasRetiradas from "./objetivos/MetasRetiradas";
 import {
   armarRealesCierre, camposFaltantesCierre, esRectificacionDeElemento, formatoUnidad, llaveCampo, pesosConCentavos, restarEnCentavos,
   resumenAntesDeSellar, contadorCierre, rotuloCampoCierre,
@@ -31,6 +32,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const [sucursales, setSucursales] = useState([]);
   const [equipo, setEquipo] = useState([]);
   const [previo, setPrevio] = useState([]);
+  const [retiradas, setRetiradas] = useState([]);
   // Un valor por campo del cierre, con llaveCampo: SICAR de cada persona y el real de cada elemento.
   const [valores, setValores] = useState({});
   const [faltantes, setFaltantes] = useState([]);
@@ -52,6 +54,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const cargar = useCallback(async () => {
     setCierre(null);
     setPrevio([]);
+    setRetiradas([]);
     setRectificando(null);
     if (!mes || !sucursalId) return;
     setCargando(true);
@@ -71,6 +74,8 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       const lineas = await apiFetch(`/objetivos/${mes}/${sucursalId}/previo-cierre`)
         .then((r) => leer(r, "No se pudo preparar el cierre"));
       setPrevio(lineas);
+      setRetiradas(await apiFetch(`/objetivos/${mes}/${sucursalId}/retiradas`)
+        .then((r) => leer(r, "No se pudieron cargar las metas eliminadas")));
       setValores({});
       setFaltantes([]);
     } catch (e) {
@@ -196,6 +201,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
           <CierreElementos lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} valores={valores}
             faltantes={faltantes} cambiar={cambiarValor} />
           <ActividadesCierre key={`${mes}/${sucursalId}`} lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} />
+          <MetasRetiradas retiradas={retiradas} nombre={nombre} />
           <button type="button" disabled={previo.length === 0} onClick={revisar}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 disabled:opacity-40">
             Revisar y cerrar
@@ -332,6 +338,8 @@ export function CierreSellado({ cierre, rectificar, nombre, mes, nombreSucursal 
       <CierreElementos lineas={cierre.lineas} nombre={(id) => nombre(id)} rectificaciones={cierre.rectificaciones}
         rectificar={rectificar} />
       <ActividadesCierre key={cierre.id} lineas={cierre.lineas} nombre={nombre} />
+      {/* Los cierres sellados antes de 2026-10-08 no traen esta lista. */}
+      <MetasRetiradas retiradas={cierre.retiradas || []} nombre={nombre} />
       <div>
         <h3 className="font-medium text-slate-700 mb-2">Rectificaciones</h3>
         {cierre.rectificaciones.length ? (

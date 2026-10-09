@@ -341,3 +341,20 @@ test("sin meta ni venta propia, la vendedora no recibe el % de venta de la tiend
   assert.equal(vacio.venta, null);
   for (const grupo of ["marcas", "productos", "creditos", "actividades"]) assert.deepEqual(vacio[grupo], []);
 });
+
+test("la meta retirada hoy sigue contando en la foto de ayer y la retirada ayer ya no", () => {
+  const { fijarObjetivo, retirarObjetivo } = require("./objetivos");
+  const DB = prepararDB();
+  const llave = { ...TIENDA, tipo: "venta", vendedor_id: null };
+  const usuario = { id: 1, nombre: "Victor" };
+  const ayerISO = "2026-09-23T18:00:00.000Z";
+  const objetivo = fijarObjetivo(DB, { ...llave, monto: 1000 }, usuario);
+  objetivo.creado_en = ayerISO;
+  captura(DB, { monto: 500, fecha: "2026-09-23", capturado_en: ayerISO });
+  const porcentajeTiendaVisto = () => porcentajesParaVendedora(DB, TIENDA, avancePersona(DB, PERSONA), AHORA).venta;
+  retirarObjetivo(DB, { ...llave, motivo: "x" }, usuario);
+  objetivo.retirada.en = AHORA.toISOString();
+  assert.strictEqual(porcentajeTiendaVisto(), 50);
+  objetivo.retirada.en = ayerISO;
+  assert.strictEqual(porcentajeTiendaVisto(), null);
+});

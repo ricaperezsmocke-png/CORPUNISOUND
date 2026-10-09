@@ -51,11 +51,11 @@ const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
 const { tablero, calcularProgreso, cambiarEstadoTarea, fijarMeta, nuevoEstadoTareasVenta } = require("./gerenteVentas");
 const { sugerirMetaConExplicacion } = require("./gerenteVentasIA");
 const {
-  fijarObjetivo, objetivoVigente, historialObjetivo, registrarEnPlantilla,
+  fijarObjetivo, retirarObjetivo, objetivoVigente, historialObjetivo, registrarEnPlantilla,
   plantillaDelMes, darDeBajaEnPlantilla, repartoSugerido, estadoDelReparto,
 } = require("./objetivos");
 const { capturarDia, corregirCaptura, capturadoDelMes, capturadoDelMesPor, diasSinCapturar } = require("./objetivosCaptura");
-const { previoCierre, cerrarMes, estaCerrado, rectificarCierre } = require("./objetivosCierre");
+const { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes } = require("./objetivosCierre");
 const { CLASES_ACTIVIDAD } = require("./objetivosActividadesCatalogo");
 const { listarElementos, altaElemento, desactivarElemento } = require("./objetivosCatalogos");
 const { FINANCIERAS, registrarCredito, anularCredito, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
@@ -2517,9 +2517,13 @@ app.get("/api/objetivos/:mes/:sucursalId", requiereLogin, requierePermiso("usar_
       actividad: clave, etiqueta,
       ...estadoDelReparto(DB, { mes, sucursal_id, tipo: "actividad", actividad: clave }),
     }));
-    const metas = DB.pos.objetivos.filter((meta) => meta.vigente && meta.mes === mes && meta.sucursal_id === sucursal_id);
+    // Para la jefatura, un elemento cuya meta se eliminó sigue en la lista (con meta 0) para abrir su
+    // historial. La vendedora solo ve elementos con meta vigente.
+    const veHistorial = esJefatura && alcanceNormal;
+    const conHistorial = DB.pos.objetivos.filter((meta) => (meta.vigente || (veHistorial && meta.retirada)) &&
+      meta.mes === mes && meta.sucursal_id === sucursal_id);
     const repartosDeElementos = (tipo, campo, elementos) => elementos
-      .filter((elemento) => metas.some((meta) => meta.tipo === tipo && meta[campo] === elemento[campo]))
+      .filter((elemento) => conHistorial.some((meta) => meta.tipo === tipo && meta[campo] === elemento[campo]))
       .map((elemento) => ({
         ...elemento, ...estadoDelReparto(DB, { mes, sucursal_id, tipo, [campo]: elemento[campo] }),
       }));
@@ -2565,6 +2569,16 @@ app.post("/api/objetivos", requiereLogin, requierePermiso("editar_objetivos_vent
       return res.status(400).json({ error: "Cambiar una meta existente requiere un motivo; no puede estar vacío" });
     }
     res.json(fijarObjetivo(DB, datos, req.usuarioToken));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/objetivos/retirar", requiereLogin, requierePermiso("editar_objetivos_venta", resolverPermisosDeRol), (req, res) => {
+  try {
+    const datos = { ...req.body, sucursal_id: idDeObjetivos(req.body?.sucursal_id, "sucursal_id"),
+      vendedor_id: req.body?.vendedor_id === null ? null : idDeObjetivos(req.body?.vendedor_id, "vendedor_id") };
+    if (!sucursalObjetivosPermitida(req, datos.sucursal_id)) return res.status(404).json({ error: "Objetivo no encontrado" });
+    validarMesObjetivosAbierto(datos.mes, datos.sucursal_id);
+    res.json(retirarObjetivo(DB, datos, req.usuarioToken));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -2827,6 +2841,15 @@ app.post("/api/objetivos/actividad/:id/resultado", requiereLogin, requierePermis
     if (!registro || !esPropia || !alcance) return res.status(404).json({ error: "Actividad no encontrada" });
     validarMesObjetivosAbierto(registro.mes, registro.sucursal_id);
     res.json(actividadParaRespuesta(agregarResultado(DB, id, req.body || {}, req.usuarioToken)));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/objetivos/:mes/:sucursalId/retiradas", requiereLogin, requierePermiso("cerrar_mes_objetivos", resolverPermisosDeRol), (req, res) => {
+  try {
+    const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
+    if (!sucursalObjetivosPermitida(req, sucursal_id)) return res.status(404).json({ error: "Objetivo no encontrado" });
+    validarMesObjetivos(req.params.mes);
+    res.json(metasRetiradasDelMes(DB, { mes: req.params.mes, sucursal_id }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

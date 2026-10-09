@@ -93,15 +93,18 @@ function fijarObjetivo(DB, datos, usuario) {
   }
 
   const anterior = objetivoVigente(DB, llave);
+  // Tras retirar no hay vigente, pero la cadena sigue: la versión nueva continúa la numeración
+  // y apunta a la última, para que el historial y la foto "al corte" la lean completa.
+  const ultima = historialObjetivo(DB, llave).at(-1) || null;
   const nuevo = {
     id: DB.pos.objetivos.reduce((maximo, o) => Math.max(maximo, o.id), 0) + 1,
     ...llave,
     monto,
-    version: anterior ? anterior.version + 1 : 1,
+    version: ultima ? ultima.version + 1 : 1,
     vigente: true,
     creado_por: usuario?.nombre || "desconocido",
     creado_en: new Date().toISOString(),
-    reemplaza_a: anterior ? anterior.id : null,
+    reemplaza_a: ultima ? ultima.id : null,
     motivo: motivo ?? null,
   };
 
@@ -109,6 +112,24 @@ function fijarObjetivo(DB, datos, usuario) {
   if (anterior) anterior.vigente = false;
   DB.pos.objetivos.push(nuevo);
   return nuevo;
+}
+
+// Eliminar una meta = retirarla (decisión de Victor 2026-10-08). No se borra: si se pudiera borrar,
+// una meta incumplida desaparecería del historial. Sin versión vigente, avance, reparto y cierre la
+// ignoran solos; las capturas siguen y el cierre las muestra con meta 0.
+function retirarObjetivo(DB, datos, usuario) {
+  const motivo = typeof datos.motivo === "string" ? datos.motivo.trim() : "";
+  if (!motivo) throw new Error("Eliminar una meta requiere un motivo; no puede estar vacío");
+  const vigente = objetivoVigente(DB, datos);
+  if (!vigente) throw new Error("No hay meta vigente que eliminar");
+  vigente.vigente = false;
+  vigente.retirada = {
+    por_id: usuario?.id ?? null,
+    por_nombre: usuario?.nombre || "desconocido",
+    en: new Date().toISOString(),
+    motivo,
+  };
+  return vigente;
 }
 
 function registrarEnPlantilla(DB, { mes, sucursal_id, vendedor_id, desde, hasta, motivo }) {
@@ -260,6 +281,7 @@ function estadoDelReparto(DB, { tipo = "venta", ...datos }) {
 
 module.exports = {
   fijarObjetivo,
+  retirarObjetivo,
   objetivoVigente,
   historialObjetivo,
   registrarEnPlantilla,

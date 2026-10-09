@@ -1,6 +1,67 @@
-﻿import { pesos } from "./datos";
+import { leer, pesos } from "./datos";
+import { apiFetch } from "../api";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+
+export function EliminarMeta({ llave, titulo, alTerminar, cerrar }) {
+  const [motivo, setMotivo] = useState("");
+  const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const enCurso = useRef(false);
+  const eliminar = async () => {
+    if (enCurso.current || !motivo.trim()) return;
+    enCurso.current = true;
+    setEnviando(true);
+    setError("");
+    try {
+      await apiFetch("/objetivos/retirar", {
+        method: "POST", body: JSON.stringify({ ...llave, motivo: motivo.trim() }),
+      }).then((r) => leer(r, "No se pudo eliminar la meta"));
+      await alTerminar();
+    } catch (e) { setError(e.message); }
+    finally { enCurso.current = false; setEnviando(false); }
+  };
+  return (
+    <Modal titulo={`Eliminar meta: ${titulo}`} cerrar={cerrar} guardar={eliminar} textoGuardar="Eliminar"
+      deshabilitado={enviando || !motivo.trim()} error={error} focoEnCerrar>
+      <p className="text-sm text-slate-600 mb-2">La meta deja de contar en el avance y en el cierre. Queda en el
+        historial con tu nombre y el motivo. Lo que ya se capturó no se borra.</p>
+      <Campo etiqueta="Motivo" valor={motivo} cambiar={setMotivo} area />
+    </Modal>
+  );
+}
+
+export function BotonEliminarMeta({ llave, titulo, cerrado, revision, abrir }) {
+  const [estado, setEstado] = useState(null);
+  const { mes, sucursal_id, vendedor_id, ...referencia } = llave;
+  const consulta = `/objetivos/${mes}/${sucursal_id}/historial/${vendedor_id ?? "tienda"}?${new URLSearchParams(referencia)}`;
+  useEffect(() => {
+    if (cerrado) return;
+    let activo = true;
+    // El reparto devuelve 0 también cuando no existe meta: solo el historial distingue su vigencia.
+    apiFetch(consulta).then((r) => leer(r, "No se pudo comprobar si la meta está vigente"))
+      .then((versiones) => {
+        if (activo) setEstado({ consulta, revision, vigente: versiones.some((v) => v.vigente), error: "" });
+      })
+      .catch((e) => { if (activo) setEstado({ consulta, revision, vigente: false, error: e.message }); });
+    return () => { activo = false; };
+  }, [consulta, revision, cerrado]);
+  if (cerrado || estado?.consulta !== consulta || estado?.revision !== revision) return null;
+  if (estado.error) return <span role="alert" className="text-sm text-red-700">{estado.error}</span>;
+  if (!estado.vigente) return null;
+  return (
+    <button type="button" className="text-red-700 hover:underline" onClick={() => abrir({ llave, titulo })}>Eliminar</button>
+  );
+}
+
+export function RetiradaMeta({ retirada }) {
+  return retirada ? (
+    <p className="text-red-700">
+      Eliminada por {retirada.por_nombre}
+      {" · "}{new Date(retirada.en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })} · Motivo: {retirada.motivo}
+    </p>
+  ) : null;
+}
 
 export function Campo({ etiqueta, tipo = "text", valor, cambiar, area, min, max }) {
   const props = {
@@ -56,7 +117,7 @@ export function Modal({ titulo, cerrar, guardar, deshabilitado, children, textoG
   );
 }
 
-export function HistorialMetas({ historial, nombre, cerrar }) {
+export function HistorialMetas({ historial, nombre, cerrar, formato = pesos }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl p-5 w-full max-w-lg max-h-[80vh] overflow-auto">
@@ -67,14 +128,15 @@ export function HistorialMetas({ historial, nombre, cerrar }) {
           <ul className="space-y-2 text-sm">
             {historial.datos.map((h) => (
               <li key={h.id} className="border rounded-lg p-3">
-                <strong>Versión {h.version}: {pesos(h.monto)}</strong>
+                <strong>Versión {h.version}: {formato(h.monto)}</strong>
                 <p className="text-slate-500">{h.creado_por} · {new Date(h.creado_en).toLocaleString("es-MX")}</p>
                 {h.motivo && <p>Motivo: {h.motivo}</p>}
+                <RetiradaMeta retirada={h.retirada} />
               </li>
             ))}
           </ul>
         ) : <p className="text-sm text-slate-500">Todavía no hay versiones.</p>}
-        <button onClick={cerrar} className="mt-4 border rounded-lg px-4 py-2">Cerrar</button>
+        <button type="button" onClick={cerrar} className="mt-4 border rounded-lg px-4 py-2">Cerrar</button>
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 const { objetivoVigente, plantillaDelMes } = require("./objetivos");
 const { capturadoDelMes, capturadoDelMesPor } = require("./objetivosCaptura");
 const { actividadesDelMes, resumenActividades } = require("./objetivosActividades");
-const { creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
+const { FINANCIERAS, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
+const { claseActividad } = require("./objetivosActividadesCatalogo");
 const { listarElementos } = require("./objetivosCatalogos");
 
 const FAMILIAS = [
@@ -140,6 +141,27 @@ function previoCierre(DB, { mes, sucursal_id }) {
   });
 }
 
+// Metas eliminadas (retiradas) del mes: el cierre las lista aunque ya no cuenten, para que una
+// meta incumplida no desaparezca sin rastro (decisión de Victor 2026-10-08: "que quede el historial").
+function metasRetiradasDelMes(DB, { mes, sucursal_id }) {
+  const nombreDe = (lista, id) => listarElementos(DB, lista, { incluirInactivos: true }).find((e) => e.id === id)?.nombre || "desconocido";
+  const elemento = (o) => {
+    if (o.tipo === "venta") return "Venta";
+    if (o.tipo === "inventario") return "Inventarios rotativos";
+    if (o.tipo === "actividad") return claseActividad(o.actividad)?.etiqueta || o.actividad;
+    if (o.tipo === "marca") return `Marca: ${nombreDe("marcas", o.marca_id)}`;
+    if (o.tipo === "producto") return `Producto: ${nombreDe("productos", o.producto_meta_id)}`;
+    return `Crédito: ${FINANCIERAS.find((f) => f.clave === o.financiera)?.etiqueta || o.financiera}`;
+  };
+  return DB.pos.objetivos
+    .filter((o) => o.retirada && o.mes === mes && o.sucursal_id === sucursal_id)
+    .sort((a, b) => a.retirada.en.localeCompare(b.retirada.en) || a.id - b.id)
+    .map((o) => structuredClone({
+      id: o.id, tipo: o.tipo, elemento: elemento(o), vendedor_id: o.vendedor_id, monto: o.monto, version: o.version,
+      retirada: o.retirada,
+    }));
+}
+
 function estaCerrado(DB, mes, sucursal_id) {
   return DB.pos.objetivo_cierres.some((cierre) =>
     cierre.mes === mes && cierre.sucursal_id === sucursal_id
@@ -204,6 +226,7 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     foto,
     resumen_actividades_tienda: resumenActividades(DB, { mes, sucursal_id }),
     rectificaciones: [],
+    retiradas: metasRetiradasDelMes(DB, { mes, sucursal_id }),
   };
 
   // Como crearCorte: cálculo y fotografía completos, sin await antes del alta.
@@ -286,4 +309,4 @@ function rectificarCierre(DB, cierreId, datos, usuario) {
   return rectificacion;
 }
 
-module.exports = { previoCierre, cerrarMes, estaCerrado, rectificarCierre };
+module.exports = { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes };

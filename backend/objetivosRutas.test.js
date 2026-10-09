@@ -32,6 +32,7 @@ const RUTAS = [
   ["GET", `/api/objetivos/${MES}/1/previo-cierre`],
   ["POST", "/api/objetivos/cierre", { ...PERIODO, reales: [] }],
   ["POST", "/api/objetivos/cierre/1/rectificar", RECTIFICACION],
+  ["POST", "/api/objetivos/retirar", { ...META, motivo: "x" }],
 ];
 let servidor, base, admin, vendedor, companero, sinLigar, gerente, gerenteCierre, global, soloCierre;
 
@@ -549,4 +550,110 @@ test("registros viejos sin referencias nuevas conservan venta y agregan listas y
   assert.deepEqual(capturas.cuerpo.total_por_marca, []);
   assert.deepEqual(capturas.cuerpo.total_por_producto, []);
   assert.deepEqual(app.DB.pos, antes);
+});
+
+test("gerente retira la meta de tienda con motivo y deja de aparecer en la consulta", async () => {
+  const retirada = await pedir("POST", "/api/objetivos/retirar", gerente, { ...META, motivo: "Rehacer reparto" });
+  estado(retirada, 200);
+  assert.equal(retirada.cuerpo.vigente, false);
+  assert.equal(retirada.cuerpo.retirada.motivo, "Rehacer reparto");
+  assert.equal(retirada.cuerpo.retirada.por_id, 60);
+  assert.equal(retirada.cuerpo.retirada.por_nombre, "Gerente");
+  const consulta = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
+  estado(consulta, 200);
+  assert.equal(consulta.cuerpo.meta_tienda, 0);
+  assert.deepEqual(consulta.cuerpo.lineas, [{ vendedor_id: 1, monto: 400 }, { vendedor_id: 2, monto: 400 }]);
+});
+
+test("retirar sin motivo responde 400 sin modificar la base", async () => {
+  const antes = structuredClone(app.DB.pos);
+  const respuesta = await pedir("POST", "/api/objetivos/retirar", gerente, META);
+  estado(respuesta, 400);
+  assert.match(respuesta.cuerpo.error, /motivo/);
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("vendedor sin editar_objetivos_venta no puede retirar metas", async () => {
+  const antes = structuredClone(app.DB.pos);
+  estado(await pedir("POST", "/api/objetivos/retirar", vendedor, { ...META, motivo: "x" }), 403);
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("gerente no puede retirar una meta de otra sucursal", async () => {
+  const antes = structuredClone(app.DB.pos);
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...META, sucursal_id: "2", motivo: "x" }), 404);
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("retirar una meta de mes cerrado responde 400", async () => {
+  sellarFixture();
+  const antes = structuredClone(app.DB.pos);
+  const respuesta = await pedir("POST", "/api/objetivos/retirar", gerente, { ...META, motivo: "x" });
+  estado(respuesta, 400);
+  assert.match(respuesta.cuerpo.error, /ya está cerrado/);
+  assert.deepEqual(app.DB.pos, antes);
+});
+
+test("retirar meta de marca desactivada conserva su capturado con meta cero en previo-cierre", async () => {
+  const { altaElemento, desactivarElemento } = require("./objetivosCatalogos");
+  const usuario = { id: 1, nombre: "Victor" };
+  const marca = altaElemento(app.DB, "marcas", { nombre: "Córdoba retirada" }, usuario);
+  const llave = { mes: MES, sucursal_id: 1, vendedor_id: 1, tipo: "marca", marca_id: marca.id };
+  fijarObjetivo(app.DB, { ...llave, monto: 1000 }, usuario);
+  capturarDia(app.DB, { ...llave, fecha: `${MES}-01`, monto: 50 }, usuario);
+  desactivarElemento(app.DB, "marcas", marca.id, { motivo: "Fuera de catálogo" }, usuario);
+  const capturasAntes = structuredClone(app.DB.pos.objetivo_capturas);
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...llave, motivo: "Sin meta" }), 200);
+  const previo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
+  estado(previo, 200);
+  const elemento = previo.cuerpo.find((fila) => fila.vendedor_id === 1).marcas.find((item) => item.marca_id === marca.id);
+  assert.deepEqual(elemento, { marca_id: marca.id, nombre: "Córdoba retirada", meta: 0, capturado: 50 });
+  assert.deepEqual(app.DB.pos.objetivo_capturas, capturasAntes);
+});
+
+test("fijar tras retirar no exige motivo y continúa la versión", async () => {
+  const retirada = await pedir("POST", "/api/objetivos/retirar", gerente, { ...META, motivo: "Rehacer" });
+  estado(retirada, 200);
+  const nueva = await pedir("POST", "/api/objetivos", gerente, { ...META, monto: 900 });
+  estado(nueva, 200);
+  assert.equal(nueva.cuerpo.version, 2);
+  assert.equal(nueva.cuerpo.reemplaza_a, retirada.cuerpo.id);
+  assert.equal(nueva.cuerpo.vigente, true);
+  assert.equal(nueva.cuerpo.motivo, null);
+});
+
+test("el previo del cierre trae las metas eliminadas del mes; sin permiso de cierre no", async () => {
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...META, motivo: "Rehacer reparto" }), 200);
+  const respuesta = await pedir("GET", `/api/objetivos/${MES}/1/retiradas`, admin);
+  estado(respuesta, 200);
+  assert.deepEqual(respuesta.cuerpo.map((r) => [r.elemento, r.vendedor_id, r.retirada.motivo]), [["Venta", null, "Rehacer reparto"]]);
+  estado(await pedir("GET", `/api/objetivos/${MES}/1/retiradas`, vendedor), 403);
+});
+
+test("una marca con todas sus metas eliminadas sigue en la pantalla con meta cero para ver su historial", async () => {
+  const { altaElemento } = require("./objetivosCatalogos");
+  const usuario = { id: 1, nombre: "Victor" };
+  const marca = altaElemento(app.DB, "marcas", { nombre: "Fender sin meta" }, usuario);
+  const llave = { mes: MES, sucursal_id: 1, vendedor_id: null, tipo: "marca", marca_id: marca.id };
+  fijarObjetivo(app.DB, { ...llave, monto: 1000 }, usuario);
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...llave, motivo: "Sin stock" }), 200);
+  const consulta = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
+  estado(consulta, 200);
+  const fila = consulta.cuerpo.marcas.find((m) => m.marca_id === marca.id);
+  assert.ok(fila, "la marca sigue listada");
+  assert.equal(fila.meta_tienda, 0);
+});
+
+test("la vendedora no ve una marca cuyas metas se eliminaron; la jefatura sí, para su historial", async () => {
+  const { altaElemento } = require("./objetivosCatalogos");
+  const usuario = { id: 1, nombre: "Victor" };
+  const marca = altaElemento(app.DB, "marcas", { nombre: "Gibson eliminada" }, usuario);
+  const llave = { mes: MES, sucursal_id: 1, vendedor_id: 1, tipo: "marca", marca_id: marca.id };
+  fijarObjetivo(app.DB, { ...llave, monto: 500 }, usuario);
+  estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...llave, motivo: "Ya no" }), 200);
+  const deCompanero = await pedir("GET", `/api/objetivos/${MES}/1`, companero);
+  estado(deCompanero, 200);
+  assert.equal(deCompanero.cuerpo.marcas.some((m) => m.marca_id === marca.id), false);
+  const deGerente = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
+  assert.equal(deGerente.cuerpo.marcas.some((m) => m.marca_id === marca.id), true);
 });

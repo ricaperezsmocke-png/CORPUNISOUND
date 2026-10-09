@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FranjaAyuda } from "./Ayuda";
 import { History, Plus, Tags } from "lucide-react";
 import { apiFetch } from "../api";
-import { Campo, Modal } from "./DialogosObjetivos";
+import { BotonEliminarMeta, Campo, EliminarMeta, Modal, RetiradaMeta } from "./DialogosObjetivos";
 import ListasObjetivos from "./ListasObjetivos";
 import { leer, sugerenciaGuardada } from "./datos";
 import {
@@ -28,6 +28,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
   const [sugerencia, setSugerencia] = useState(null);
   const [editando, setEditando] = useState(null);
   const [historial, setHistorial] = useState(null);
+  const [eliminar, setEliminar] = useState(null);
   const [agregando, setAgregando] = useState(null);
   const [creditos, setCreditos] = useState(null);
   const [error, setError] = useState("");
@@ -35,6 +36,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
   const filas = filasMetasTienda(objetivos);
   const fila = filas.find((f) => f.llave === elegida) || null;
   const sugeridos = sugerenciaDeFila(sugerencia, elegida);
+  const llaveMeta = (vendedor_id) => ({ tipo: fila.tipo, [fila.clave]: fila.id, vendedor_id, mes, sucursal_id: Number(sucursalId) });
 
   const cargarCreditos = useCallback(async () => {
     try {
@@ -198,6 +200,8 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
             <button type="button" className={`${BOTON_SEC} flex gap-1 items-center`} onClick={() => abrirHistorial(null)}>
               <History size={14} aria-hidden="true" /> Historial de tienda
             </button>
+            <BotonEliminarMeta llave={llaveMeta(null)} titulo={`${fila.nombre} · Tienda`} cerrado={cerrado}
+              revision={objetivos} abrir={setEliminar} />
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -243,6 +247,8 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
                       <button type="button" className="text-slate-600 hover:underline" onClick={() => abrirHistorial(l.vendedor_id)}>
                         Historial
                       </button>
+                      <BotonEliminarMeta llave={llaveMeta(l.vendedor_id)} titulo={`${fila.nombre} · ${nombre(l.vendedor_id)}`}
+                        cerrado={cerrado} revision={objetivos} abrir={setEliminar} />
                     </td>
                   </tr>
                 );
@@ -283,6 +289,13 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
         </table>
       </div>
       {administraListas && <ListasObjetivos onCambio={cargarCatalogo} />}
+      {eliminar && !cerrado && (
+        <EliminarMeta {...eliminar} cerrar={() => setEliminar(null)} alTerminar={() => {
+          if (eliminar.llave.vendedor_id == null) setSugerencia(null);
+          setEliminar(null);
+          return actualizar();
+        }} />
+      )}
       {editando && fila && editando.llave === fila.llave && !cerrado && (
         <Modal titulo={`${fila.nombre} · ${editando.vendedor_id == null ? "Meta de la tienda" : `Meta de ${nombre(editando.vendedor_id)}`}`}
           cerrar={() => setEditando(null)} guardar={guardarEdicion}
@@ -333,6 +346,7 @@ export default function MarcasGerente({ mes, sucursalId, objetivos, nombre, actu
                     <strong>Versión {h.version}: {formatoUnidad(historial.unidad, h.monto)}</strong>
                     <p className="text-slate-500">{h.creado_por} · {new Date(h.creado_en).toLocaleString("es-MX")}</p>
                     {h.motivo && <p>Motivo: {h.motivo}</p>}
+                    <RetiradaMeta retirada={h.retirada} />
                   </li>
                 ))}
               </ul>
