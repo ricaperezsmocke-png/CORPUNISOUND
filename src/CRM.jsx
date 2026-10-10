@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { apiFetch, sinSucursalElegida } from "./api";
+import { digitosTelefono } from "./telefono";
 
 const ESTADOS = [
   { id: "contactado",    label: "Contactado",  color: "#94a3b8" },
@@ -272,6 +273,9 @@ export default function CRM({ onVolver, permisos }) {
 
   const guardarCliente = async () => {
     if (!fmC.nombre.trim() || !fmC.telefono.trim()) return mostrarAviso("Nombre y teléfono son obligatorios");
+    // El servidor lo vuelve a revisar (y además busca si ya está registrado);
+    // esto solo ahorra la vuelta cuando el número está incompleto.
+    if (digitosTelefono(fmC.telefono).length !== 10) return mostrarAviso("El teléfono debe tener 10 dígitos");
     // Sin sucursal por ningún lado (encabezado en "Todas" y select vacío) el
     // backend responde 400. Se frena aquí para no perder lo ya capturado.
     if (!fmC.sucursal_id && sinSucursal) return mostrarAviso(MOTIVO_SIN_SUCURSAL);
