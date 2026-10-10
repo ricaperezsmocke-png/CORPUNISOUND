@@ -15,9 +15,21 @@ const { crearRol } = require("./roles");
 const { listarPermisos } = require("./permisosCatalogo");
 const { fijarObjetivo, registrarEnPlantilla } = require("./objetivos");
 const { capturarDia } = require("./objetivosCaptura");
-const { cerrarMes } = require("./objetivosCierre");
+const { cerrarMes, previoCierre } = require("./objetivosCierre");
 
 const MES = "2026-08";
+
+test("fase1: HTTP cierre rechaza huella vieja con 409 y acepta revisión nueva", async () => {
+  const datos = { mes: MES, sucursal_id: "1", reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 100 })) };
+  const previo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
+  assert.ok(Array.isArray(previo.cuerpo.lineas));
+  estado(await pedir("POST", "/api/objetivos/cierre", admin, datos), 409);
+  estado(await pedir("POST", "/api/objetivos/captura", vendedor, { ...CAPTURA, fecha: `${MES}-02` }), 200);
+  estado(await pedir("POST", "/api/objetivos/cierre", admin, { ...datos, huella: previo.cuerpo.huella }), 409);
+  assert.equal(app.DB.pos.objetivo_cierres.length, 0);
+  const nuevo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
+  estado(await pedir("POST", "/api/objetivos/cierre", admin, { ...datos, huella: nuevo.cuerpo.huella }), 200);
+});
 const PERIODO = { mes: MES, sucursal_id: "1" };
 const CAPTURA = { ...PERIODO, vendedor_id: "1", tipo: "venta", fecha: "2026-08-01", monto: 100 };
 const META = { ...PERIODO, vendedor_id: null, tipo: "venta", monto: 1000 };
@@ -97,7 +109,9 @@ function estado(r, esperado) {
 }
 
 function sellarFixture(sucursal_id = 1) {
-  return cerrarMes(app.DB, { mes: MES, sucursal_id, reales: (sucursal_id === 1 ? [1, 2] : [3]).map((vendedor_id) => ({ vendedor_id, real_sicar: 100 })) }, { nombre: "Fixture" });
+  return cerrarMes(app.DB, {
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id }).huella,
+    mes: MES, sucursal_id, reales: (sucursal_id === 1 ? [1, 2] : [3]).map((vendedor_id) => ({ vendedor_id, real_sicar: 100 })) }, { nombre: "Fixture" });
 }
 
 test("sin sesión, todas las rutas responden 401", async () => {
@@ -219,7 +233,7 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
   estado(await pedir("POST", "/api/objetivos/captura/3/corregir", global, { monto: 70, motivo: "Importe correcto" }), 404);
   const previo = await pedir("GET", `/api/objetivos/${MES}/2/previo-cierre`, global);
   estado(previo, 200);
-  assert.deepEqual(previo.cuerpo.map(({ vendedor_id, meta, capturado }) => ({ vendedor_id, meta, capturado })), [{ vendedor_id: 3, meta: 600, capturado: 100 }]);
+  assert.deepEqual(previo.cuerpo.lineas.map(({ vendedor_id, meta, capturado }) => ({ vendedor_id, meta, capturado })), [{ vendedor_id: 3, meta: 600, capturado: 100 }]);
   // IDs inválidos: no se convierten silenciosamente en una consulta vacía.
   for (const invalido of ["abc", "0", "-1", "1.5", "", null, true, [], {}]) {
     const antes = structuredClone(app.DB.pos);
@@ -236,7 +250,8 @@ test("solo con ver_todas_las_sucursales se alcanza otra tienda", async () => {
     estado(await pedir("POST", `/api/objetivos/captura/${id}/corregir`, global, { monto: 10 }), 400);
     estado(await pedir("POST", `/api/objetivos/cierre/${id}/rectificar`, global, RECTIFICACION), 400);
   }
-  const cierre = await pedir("POST", "/api/objetivos/cierre", global, { mes: MES, sucursal_id: "2", reales: [{ vendedor_id: "3", real_sicar: 150 }], cerrado_por: "Intruso" });
+  const cierre = await pedir("POST", "/api/objetivos/cierre", global, {
+    huella: previo.cuerpo.huella, mes: MES, sucursal_id: "2", reales: [{ vendedor_id: "3", real_sicar: 150 }], cerrado_por: "Intruso" });
   estado(cierre, 200);
   assert.equal(cierre.cuerpo.cerrado_por, "Global");
   assert.ok(cierre.cuerpo.cerrado_en);
@@ -279,7 +294,9 @@ test("sin cerrar_mes_objetivos no se llega al previo ni al cierre", async () => 
   assert.deepEqual(app.DB.pos, antes);
   estado(await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, soloCierre), 200);
   estado(await pedir("POST", "/api/objetivos", soloCierre, META), 403);
-  const sellado = await pedir("POST", "/api/objetivos/cierre", soloCierre, { mes: "2026-07", sucursal_id: "1", reales: [] });
+  const sellado = await pedir("POST", "/api/objetivos/cierre", soloCierre, {
+    mes: "2026-07", sucursal_id: "1", reales: [], huella: previoCierre(app.DB, { mes: "2026-07", sucursal_id: 1 }).huella,
+  });
   estado(sellado, 200);
   assert.equal(sellado.cuerpo.cerrado_por, "Administradora");
   estado(await pedir("POST", `/api/objetivos/cierre/${cierre.id}/rectificar`, soloCierre, RECTIFICACION), 200);
@@ -606,7 +623,7 @@ test("retirar meta de marca desactivada conserva su capturado con meta cero en p
   estado(await pedir("POST", "/api/objetivos/retirar", gerente, { ...llave, motivo: "Sin meta" }), 200);
   const previo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
   estado(previo, 200);
-  const elemento = previo.cuerpo.find((fila) => fila.vendedor_id === 1).marcas.find((item) => item.marca_id === marca.id);
+  const elemento = previo.cuerpo.lineas.find((fila) => fila.vendedor_id === 1).marcas.find((item) => item.marca_id === marca.id);
   assert.deepEqual(elemento, { marca_id: marca.id, nombre: "Córdoba retirada", meta: 0, capturado: 50 });
   assert.deepEqual(app.DB.pos.objetivo_capturas, capturasAntes);
 });

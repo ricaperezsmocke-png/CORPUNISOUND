@@ -35,10 +35,17 @@ export default function SelloMetas({ periodo, inicio, hoy, sello, sucursales, ve
     setEnviando(true);
     setError("");
     try {
-      await apiFetch("/metas/sello", { method: "POST", body: JSON.stringify({ periodo, inicio }) }).then((r) => leer(r, "No se pudo sellar"));
+      await apiFetch("/metas/sello", { method: "POST", body: JSON.stringify({ periodo, inicio, huella: previo.huella }) })
+        .then((r) => leer(r, "No se pudo sellar"));
       setPrevio(null);
       await alCambiar();
-    } catch (e) { setError(e.message); } finally { setEnviando(false); }
+    } catch (e) {
+      if (e.status === 409) {
+        setPrevio(null);
+        await revisar();
+      }
+      setError(e.message);
+    } finally { setEnviando(false); }
   };
 
   if (!sello) {

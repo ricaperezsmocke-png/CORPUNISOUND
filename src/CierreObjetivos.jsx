@@ -33,6 +33,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const [equipo, setEquipo] = useState([]);
   const [previo, setPrevio] = useState([]);
   const [retiradas, setRetiradas] = useState([]);
+  const [huella, setHuella] = useState(null);
   // Un valor por campo del cierre, con llaveCampo: SICAR de cada persona y el real de cada elemento.
   const [valores, setValores] = useState({});
   const [faltantes, setFaltantes] = useState([]);
@@ -42,6 +43,9 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const [error, setError] = useState("");
   const [exito, setExito] = useState("");
   const [rectificando, setRectificando] = useState(null);
+  const mesTerminado = mes < mesActual();
+  const [anio, numeroMes] = mes.split("-").map(Number);
+  const siguienteMes = numeroMes === 12 ? `${anio + 1}-01` : `${anio}-${String(numeroMes + 1).padStart(2, "0")}`;
 
   useEffect(() => {
     if (!veTodas) return;
@@ -51,9 +55,10 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
     }).catch((e) => setError(e.message));
   }, [veTodas]);
 
-  const cargar = useCallback(async () => {
+  const cargar = useCallback(async (conservarReales = false) => {
     setCierre(null);
     setPrevio([]);
+    setHuella(null);
     setRetiradas([]);
     setRectificando(null);
     if (!mes || !sucursalId) return;
@@ -71,12 +76,13 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       }
       // Esta ruta usa 404 para un mes todavía abierto; el previo comprueba también el alcance.
       if (rCierre.status !== 404) await leer(rCierre, "No se pudo consultar el cierre");
-      const lineas = await apiFetch(`/objetivos/${mes}/${sucursalId}/previo-cierre`)
+      const revision = await apiFetch(`/objetivos/${mes}/${sucursalId}/previo-cierre`)
         .then((r) => leer(r, "No se pudo preparar el cierre"));
-      setPrevio(lineas);
+      setPrevio(revision.lineas);
+      setHuella(revision.huella);
       setRetiradas(await apiFetch(`/objetivos/${mes}/${sucursalId}/retiradas`)
         .then((r) => leer(r, "No se pudieron cargar las metas eliminadas")));
-      setValores({});
+      if (conservarReales !== true) setValores({});
       setFaltantes([]);
     } catch (e) {
       setError(e.message);
@@ -105,7 +111,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
     try {
       const datos = await apiFetch("/objetivos/cierre", {
         method: "POST",
-        body: JSON.stringify({ mes, sucursal_id: Number(sucursalId), reales: armarRealesCierre(previo, valores) }),
+        body: JSON.stringify({ mes, sucursal_id: Number(sucursalId), reales: armarRealesCierre(previo, valores), huella }),
       }).then((r) => leer(r, "No se pudo cerrar el mes"));
       setConfirmando(false);
       setCierre(datos);
@@ -113,6 +119,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
       setExito("El mes quedó cerrado y sellado.");
     } catch (e) {
       setConfirmando(false);
+      if (e.status === 409) await cargar(true);
       setError(e.message);
     }
   };
@@ -202,10 +209,12 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
             faltantes={faltantes} cambiar={cambiarValor} />
           <ActividadesCierre key={`${mes}/${sucursalId}`} lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} />
           <MetasRetiradas retiradas={retiradas} nombre={nombre} />
-          <button type="button" disabled={previo.length === 0} onClick={revisar}
+          {mesTerminado ? <button type="button" disabled={previo.length === 0 || !huella} onClick={revisar}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 disabled:opacity-40">
             Revisar y cerrar
-          </button>
+          </button> : <p className="text-sm text-amber-900">
+            Este mes se podrá cerrar a partir del 1 de {mesEnPalabras(siguienteMes)}
+          </p>}
           {previo.length === 0 && !error && (
             <p className="text-sm text-slate-500">No hay participantes para cerrar en este mes y sucursal.</p>
           )}

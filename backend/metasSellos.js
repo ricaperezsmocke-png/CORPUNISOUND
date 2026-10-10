@@ -4,6 +4,7 @@
 const { validarPeriodo, finDePeriodo } = require("./metasPeriodos");
 const { periodoSellado, motivoObligatorio } = require("./metasPersonalizadas");
 const { resultadoMeta, resultadoRectificado, porcentaje } = require("./metasAvance");
+const { createHash } = require("node:crypto");
 
 const siguienteId = (lista) => lista.reduce((maximo, r) => Math.max(maximo, r.id), 0) + 1;
 
@@ -13,7 +14,7 @@ function previoSello(DB, { periodo, inicio }, hoy) {
   if (hoy <= fin) throw new Error("El periodo todavía no termina; se sella a partir del día siguiente a su fin");
   if (periodoSellado(DB, periodo, inicio)) throw new Error("El periodo ya está sellado");
   const metas = DB.pos.metas_personalizadas.filter((m) => m.vigente && m.periodo === periodo && m.inicio === inicio);
-  return {
+  const previo = {
     periodo, inicio, fin,
     resultados: metas.map((m) => {
       const resultado = resultadoMeta(DB, m);
@@ -21,10 +22,29 @@ function previoSello(DB, { periodo, inicio }, hoy) {
         valor_meta: m.valor_meta, resultado, porcentaje: porcentaje(resultado, m.valor_meta) };
     }),
   };
+  const delPeriodo = (m) => m.periodo === periodo && m.inicio === inicio;
+  const incluidas = DB.pos.metas_personalizadas.filter((m) => (m.vigente || m.retirada) && delPeriodo(m));
+  const claves = new Set(incluidas.map((m) => m.clave));
+  const porId = (a, b) => a.id - b.id;
+  const contenido = {
+    periodo, inicio,
+    resultados: previo.resultados.map(({ clave, resultado, valor_meta, porcentaje }) => ({ clave, resultado, valor_meta, porcentaje }))
+      .sort((a, b) => a.clave - b.clave),
+    metas: incluidas.map((m) => ({ clave: m.clave, id: m.id, retirada: Boolean(m.retirada) })).sort(porId),
+    capturas: DB.pos.meta_capturas.filter((c) => claves.has(c.meta_clave))
+      .map((c) => ({ id: c.id, anulada: Boolean(c.anulada) })).sort(porId),
+    okrs: DB.pos.okrs.filter((o) => (o.vigente || o.retirada) && delPeriodo(o))
+      .map((o) => ({ id: o.id, retirada: Boolean(o.retirada) })).sort(porId),
+  };
+  previo.huella = createHash("sha256").update(JSON.stringify(contenido)).digest("hex");
+  return previo;
 }
 
 function sellarPeriodo(DB, datos, usuario, hoy) {
   const previo = previoSello(DB, datos, hoy);
+  if (!datos.huella || datos.huella !== previo.huella) {
+    throw Object.assign(new Error("Algo cambió desde que revisaste (capturas o metas). Revisa otra vez antes de sellar."), { status: 409 });
+  }
   const { periodo, inicio } = datos;
   const claves = new Set(previo.resultados.map((r) => r.clave));
   const delPeriodo = (r) => r.periodo === periodo && r.inicio === inicio;

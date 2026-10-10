@@ -4,6 +4,16 @@ const { actividadesDelMes, resumenActividades } = require("./objetivosActividade
 const { FINANCIERAS, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
 const { claseActividad } = require("./objetivosActividadesCatalogo");
 const { listarElementos } = require("./objetivosCatalogos");
+const { createHash } = require("node:crypto");
+const { fechaLocal } = require("./fechas");
+
+function canonico(valor) {
+  if (Array.isArray(valor)) return valor.map(canonico).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  if (valor && typeof valor === "object") {
+    return Object.fromEntries(Object.keys(valor).sort().map((clave) => [clave, canonico(valor[clave])]));
+  }
+  return valor;
+}
 
 const FAMILIAS = [
   { lista: "marcas", tipo: "marca", referencia: "marca_id" },
@@ -123,7 +133,7 @@ function previoCierre(DB, { mes, sucursal_id }) {
     if (registro.vigente) participantes.add(registro.vendedor_id);
   }
 
-  return [...participantes].sort((a, b) => a - b).map((vendedor_id) => {
+  const lineas = [...participantes].sort((a, b) => a - b).map((vendedor_id) => {
     const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
     const objetivo = objetivoVigente(DB, { tipo: "venta", mes, sucursal_id, vendedor_id });
     const actividades = resumenActividades(DB, { mes, sucursal_id, vendedor_id }).map(({ actividad, declaradas, conjuntas }) => {
@@ -139,6 +149,16 @@ function previoCierre(DB, { mes, sucursal_id }) {
       ...elementosDelPrevio(DB, { mes, sucursal_id, vendedor_id }),
     };
   });
+  const delPeriodo = (r) => r.mes === mes && r.sucursal_id === sucursal_id;
+  const contenido = {
+    mes, sucursal_id, lineas,
+    objetivos: DB.pos.objetivos.filter((r) => (r.vigente || r.retirada) && delPeriodo(r)),
+    capturas: DB.pos.objetivo_capturas.filter((r) => r.vigente && delPeriodo(r)),
+    plantilla: plantillaDelMes(DB, mes, sucursal_id),
+    actividades: actividadesDelMes(DB, { mes, sucursal_id }),
+    creditos: creditosDelMes(DB, { mes, sucursal_id }),
+  };
+  return { lineas, huella: createHash("sha256").update(JSON.stringify(canonico(contenido))).digest("hex") };
 }
 
 // Metas eliminadas (retiradas) del mes: el cierre las lista aunque ya no cuenten, para que una
@@ -168,8 +188,11 @@ function estaCerrado(DB, mes, sucursal_id) {
   );
 }
 
-function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
+function cerrarMes(DB, { mes, sucursal_id, reales, huella }, usuario, hoy = fechaLocal(new Date())) {
   validarPeriodo(mes, sucursal_id);
+  const [anio, numero] = mes.split("-").map(Number);
+  const siguiente = numero === 12 ? `${anio + 1}-01-01` : `${anio}-${String(numero + 1).padStart(2, "0")}-01`;
+  if (hoy < siguiente) throw new Error(`El mes todavía no termina; se puede cerrar a partir del ${siguiente}`);
   if (estaCerrado(DB, mes, sucursal_id)) {
     throw new Error("El mes ya está cerrado para esta sucursal");
   }
@@ -177,7 +200,11 @@ function cerrarMes(DB, { mes, sucursal_id, reales }, usuario) {
     throw new Error("Se requiere la lista de reales de SICAR de toda la plantilla");
   }
 
-  const previo = previoCierre(DB, { mes, sucursal_id });
+  const revision = previoCierre(DB, { mes, sucursal_id });
+  if (!huella || huella !== revision.huella) {
+    throw Object.assign(new Error("Algo cambió desde que revisaste. Revisa otra vez antes de cerrar."), { status: 409 });
+  }
+  const previo = revision.lineas;
   const personas = new Set(previo.map((linea) => linea.vendedor_id));
   const realesPorPersona = new Map();
   for (const real of reales) {
@@ -293,13 +320,18 @@ function rectificarCierre(DB, cierreId, datos, usuario) {
 
   // El valor anterior se LEE del cierre; no se acepta de fuera, para que nadie
   // pueda declarar un punto de partida que no fue el real.
+  const valor_sellado = familia?.tipo === "credito" && campo === "capturado" ? origen.registrados : origen[campo];
+  const referencias = [...FAMILIAS.map((f) => f.referencia), "actividad"];
+  const anterior = cierre.rectificaciones.filter((r) => Number(r.vendedor_id) === Number(vendedor_id) && r.campo === campo &&
+    referencias.every((clave) => (r[clave] ?? null) === (referencia[clave] ?? null))).at(-1);
   const rectificacion = {
     id: (cierre.rectificaciones.length
       ? Math.max(...cierre.rectificaciones.map((r) => r.id)) : 0) + 1,
     vendedor_id: Number(vendedor_id),
     campo,
     ...referencia,
-    valor_anterior: familia?.tipo === "credito" && campo === "capturado" ? origen.registrados : origen[campo],
+    valor_anterior: anterior ? anterior.valor_nuevo : valor_sellado,
+    valor_sellado,
     valor_nuevo,
     motivo: motivo.trim(),
     rectificado_por: (usuario && usuario.nombre) || "desconocido",

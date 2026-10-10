@@ -22,7 +22,7 @@ const { fijarObjetivo, registrarEnPlantilla } = require("./objetivos");
 const { altaElemento, desactivarElemento } = require("./objetivosCatalogos");
 const { capturarDia } = require("./objetivosCaptura");
 const { registrarCredito } = require("./objetivosCreditos");
-const { cerrarMes } = require("./objetivosCierre");
+const { cerrarMes, previoCierre } = require("./objetivosCierre");
 
 const MES = "2026-08";
 const RAIZ = `/api/objetivos/${MES}/1`;
@@ -111,6 +111,7 @@ function meta(llave, extra = {}) {
 
 function sellar() {
   return cerrarMes(app.DB, {
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 1 }).huella,
     mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 100,
       ...(vendedor_id === 1 ? { marcas: [{ marca_id: 1, real: 30 }],
         productos: [{ producto_meta_id: 1, real: 2 }], creditos: [{ financiera: "coppel_pay", real: 1 }] } : {}),
@@ -478,13 +479,13 @@ test("cierre HTTP cruza las familias, normaliza IDs, conserva el sello y respeta
   credito();
   const previo = await pedir("GET", `${RAIZ}/previo-cierre?sucursal_id=2`, soloCierre);
   estado(previo, 200);
-  assert.deepEqual(previo.cuerpo[0].marcas, [{ marca_id: 1, nombre: "Yamaha", meta: 0, capturado: 30 }]);
-  assert.deepEqual(previo.cuerpo[0].productos, [{ producto_meta_id: 1, nombre: "Teclados", meta: 0, capturado: 2 }]);
-  assert.deepEqual(previo.cuerpo[0].creditos, [{ financiera: "coppel_pay", meta: 0, registrados: 1 }]);
+  assert.deepEqual(previo.cuerpo.lineas[0].marcas, [{ marca_id: 1, nombre: "Yamaha", meta: 0, capturado: 30 }]);
+  assert.deepEqual(previo.cuerpo.lineas[0].productos, [{ producto_meta_id: 1, nombre: "Teclados", meta: 0, capturado: 2 }]);
+  assert.deepEqual(previo.cuerpo.lineas[0].creditos, [{ financiera: "coppel_pay", meta: 0, registrados: 1 }]);
   const reales = [{ vendedor_id: "1", real_sicar: 90,
     marcas: [{ marca_id: "1", real: 20 }], productos: [{ producto_meta_id: "1", real: 3 }],
     creditos: [{ financiera: "coppel_pay", real: 0 }] }, { vendedor_id: "2", real_sicar: 0 }];
-  const datos = { mes: MES, sucursal_id: "1", reales };
+  const datos = { mes: MES, sucursal_id: "1", reales, huella: previo.cuerpo.huella };
   const antes = structuredClone(app.DB.pos);
   for (const token of [vendedor, gerente]) estado(await pedir("POST", "/api/objetivos/cierre", token, datos), 403);
   estado(await pedir("POST", "/api/objetivos/cierre?sucursal_id=1", soloCierre, { ...datos, sucursal_id: "2" }), 404);
@@ -507,6 +508,7 @@ test("cierre HTTP cruza las familias, normaliza IDs, conserva el sello y respeta
   const rectificacion = { vendedor_id: "1", campo: "real", marca_id: "1", valor_nuevo: 15, motivo: "Error SICAR" };
   estado(await pedir("POST", ruta, vendedor, rectificacion), 403);
   const ajeno = await pedir("POST", "/api/objetivos/cierre", global, { mes: MES, sucursal_id: "2",
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 2 }).huella,
     reales: [{ vendedor_id: "3", real_sicar: 0 }] });
   estado(ajeno, 200);
   estado(await pedir("POST", `/api/objetivos/cierre/${ajeno.cuerpo.id}/rectificar?sucursal_id=1`, soloCierre, rectificacion), 404);

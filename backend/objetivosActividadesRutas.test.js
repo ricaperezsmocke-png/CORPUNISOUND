@@ -19,7 +19,7 @@ const { firmarToken } = require("./auth");
 const { crearRol } = require("./roles");
 const { fijarObjetivo, registrarEnPlantilla } = require("./objetivos");
 const { registrarActividad } = require("./objetivosActividades");
-const { cerrarMes } = require("./objetivosCierre");
+const { cerrarMes, previoCierre } = require("./objetivosCierre");
 const drive = require("./drive");
 
 const MES = "2026-08";
@@ -29,7 +29,7 @@ const DATOS = {
   actividad: "grupos", link: "https://Facebook.com/publicacion/#foto",
 };
 const META = { mes: MES, sucursal_id: "1", vendedor_id: null, tipo: "actividad", actividad: "grupos", monto: 9 };
-const ARCHIVO = { nombre_archivo: "iglesia.jpg", tipo_mime: "image/jpeg", contenido_base64: Buffer.from("foto de prueba").toString("base64") };
+const ARCHIVO = { nombre_archivo: "iglesia.jpg", tipo_mime: "image/jpeg", contenido_base64: "/9j/2Q==" };
 const RESULTADO = { contactos: 3, cotizaciones: 1, nota: "Seguimiento" };
 let servidor, base, vendedor, companero, sinLigar, gerente, gerenteAjeno, global, soloCierre;
 let sinUso, gerenteTrasladado, carpetaOriginal, subirOriginal;
@@ -108,6 +108,7 @@ function fixture(extra = {}) {
 
 function sellar() {
   return cerrarMes(app.DB, {
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 1 }).huella,
     mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 0 })),
   }, { nombre: "Fixture" });
 }
@@ -400,6 +401,7 @@ test("el cierre sellado y el previo no exponen el drive_file_id de las fotos", a
     { nombre: "Fixture" }, drive);
   estado(await pedir("GET", `${RAIZ}/previo-cierre`, soloCierre), 200);
   const cerrado = await pedir("POST", "/api/objetivos/cierre", soloCierre, {
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 1 }).huella,
     mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 0 })),
   });
   estado(cerrado, 200);

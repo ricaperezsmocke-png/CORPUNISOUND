@@ -86,11 +86,9 @@ async function subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucu
       nombre: `${datos.fecha} - ${vendedor?.nombre || vendedor_id} - meta ${meta.clave} - ${evidencia.nombre_archivo}`,
       mimeType: datos.archivo.tipo_mime, contenidoBuffer: buffer, carpetaId,
     });
+    if (subido?.id) evidencia.drive_file_id = subido.id;
     if (!subido || !subido.id || !subido.webViewLink) throw new Error("Drive no confirmó la subida de la foto; inténtalo de nuevo");
-    // Durante Drive pudo entrar la misma foto por otro lado: se rechaza aquí y solo queda un
-    // archivo huérfano en Drive, nunca una captura guardada a medias.
     validarEvidenciaUnica(DB, evidencia);
-    evidencia.drive_file_id = subido.id;
     evidencia.drive_link = subido.webViewLink;
   } finally {
     subidasEnCurso.delete(evidencia.huella);
@@ -111,18 +109,31 @@ async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, ant
   const nota = normalizarNota(datos.nota);
   const { cantidad, evidencia, buffer } = cantidadYEvidencia(meta, datos);
   validarEvidenciaUnica(DB, evidencia);
-  if (evidencia?.tipo === "foto") await subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucursal_id, drive });
-  if (antesDeGuardar) antesDeGuardar();
-  // El periodo pudo sellarse mientras subía la foto.
-  exigirAbierto(DB, meta);
-  const captura = {
-    id: siguienteId(DB.pos.meta_capturas), meta_clave: meta.clave, meta_id: meta.id, periodo: meta.periodo, inicio: meta.inicio,
-    fecha, vendedor_id, sucursal_id, cantidad, evidencia, nota,
-    creado_por_id: usuario?.id ?? null, creado_por: usuario?.nombre || "desconocido", creado_en: new Date().toISOString(),
-    anulada: null,
-  };
-  DB.pos.meta_capturas.push(captura);
-  return captura;
+  try {
+    if (evidencia?.tipo === "foto") await subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucursal_id, drive });
+    if (antesDeGuardar) antesDeGuardar();
+    const vigente = metaVigente(DB, meta.clave);
+    if (!vigente) throw new Error("La meta fue eliminada mientras se subía la foto; no se registró");
+    if (fecha < vigente.inicio || fecha > finDePeriodo(vigente.periodo, vigente.inicio)) {
+      throw new Error("La fecha no cae dentro del periodo de la meta");
+    }
+    const sucursalVigente = validarParticipacion(DB, vigente, vendedor_id, fecha);
+    exigirAbierto(DB, vigente);
+    const captura = {
+      id: siguienteId(DB.pos.meta_capturas), meta_clave: vigente.clave, meta_id: vigente.id, periodo: vigente.periodo, inicio: vigente.inicio,
+      fecha, vendedor_id, sucursal_id: sucursalVigente, cantidad, evidencia, nota,
+      creado_por_id: usuario?.id ?? null, creado_por: usuario?.nombre || "desconocido", creado_en: new Date().toISOString(),
+      anulada: null,
+    };
+    DB.pos.meta_capturas.push(captura);
+    return captura;
+  } catch (error) {
+    if (evidencia?.drive_file_id) {
+      try { await drive.eliminarArchivoDeDrive(DB, evidencia.drive_file_id); }
+      catch (fallo) { console.error("No se pudo borrar la foto de una captura rechazada", fallo); }
+    }
+    throw error;
+  }
 }
 
 function anularCaptura(DB, id, motivo, usuario) {

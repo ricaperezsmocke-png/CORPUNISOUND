@@ -69,6 +69,17 @@ async function pedir(metodo, ruta, token, datos) {
 }
 const estado = (r, esperado) => assert.equal(r.status, esperado, JSON.stringify(r));
 const consulta = `periodo=semanal&inicio=${INICIO}`;
+
+test("fase1: HTTP devuelve 409 sin huella o si alguien captura tras el previo", async () => {
+  const meta = await crearMeta();
+  const previo = await pedir("GET", `/api/metas/sello/previo?${consulta}`, admin);
+  estado(await pedir("POST", "/api/metas/sello", admin, SEMANA), 409);
+  estado(await pedir("POST", `/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, link: "https://x.com/nueva" }), 200);
+  estado(await pedir("POST", "/api/metas/sello", admin, { ...SEMANA, huella: previo.cuerpo.huella }), 409);
+  assert.equal(app.DB.pos.meta_sellos.length, 0);
+  const nuevo = await pedir("GET", `/api/metas/sello/previo?${consulta}`, admin);
+  estado(await pedir("POST", "/api/metas/sello", admin, { ...SEMANA, huella: nuevo.cuerpo.huella }), 200);
+});
 async function crearMeta(datos = META) {
   const r = await pedir("POST", "/api/metas", admin, datos);
   estado(r, 200);
@@ -112,7 +123,7 @@ test("la vendedora captura a su nombre aunque mande otro vendedor, y la liga no 
 
 test("la foto no expone drive_file_id", async () => {
   const meta = await crearMeta({ ...META, prueba: "foto" });
-  const archivo = { nombre_archivo: "a.jpg", tipo_mime: "image/jpeg", contenido_base64: Buffer.from("foto-rutas").toString("base64") };
+  const archivo = { nombre_archivo: "a.jpg", tipo_mime: "image/jpeg", contenido_base64: "/9j/2Q==" };
   const r = await pedir("POST", `/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, archivo });
   estado(r, 200);
   assert.ok(!JSON.stringify(r.cuerpo).includes("drive_file_id"));
@@ -121,9 +132,10 @@ test("la foto no expone drive_file_id", async () => {
 
 test("POST y GET del sello ocultan drive_file_id sin alterar la foto guardada", async () => {
   const meta = await crearMeta({ ...META, prueba: "foto" });
-  const archivo = { nombre_archivo: "sello.jpg", tipo_mime: "image/jpeg", contenido_base64: Buffer.from("foto-sello").toString("base64") };
+  const archivo = { nombre_archivo: "sello.jpg", tipo_mime: "image/jpeg", contenido_base64: "/9j/2Q==" };
   estado(await pedir("POST", `/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, archivo }), 200);
-  const post = await pedir("POST", "/api/metas/sello", admin, SEMANA);
+  const post = await pedir("POST", "/api/metas/sello", admin, { ...SEMANA,
+    huella: (await pedir("GET", "/api/metas/sello/previo?" + consulta, admin)).cuerpo.huella });
   estado(post, 200);
   assert.equal(post.cuerpo.foto.capturas.length, 1);
   assert.equal(JSON.stringify(post.cuerpo).includes("drive_file_id"), false);
@@ -171,7 +183,8 @@ test("sellado: nada cambia después y solo se rectifica el resultado", async () 
   const c = (await pedir("POST", `/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, cantidad: 2 })).cuerpo;
   estado(await pedir("GET", `/api/metas/sello/previo?${consulta}`, admin), 200);
   estado(await pedir("POST", "/api/metas/sello", gerente, SEMANA), 403);
-  const sello = await pedir("POST", "/api/metas/sello", admin, SEMANA);
+  const sello = await pedir("POST", "/api/metas/sello", admin, { ...SEMANA,
+    huella: (await pedir("GET", "/api/metas/sello/previo?" + consulta, admin)).cuerpo.huella });
   estado(sello, 200);
   for (const [ruta, token, datos] of [
     [`/api/metas/${meta.clave}/captura`, ana, { fecha: FECHA, cantidad: 1 }],
@@ -206,7 +219,8 @@ test("ver el sello de un periodo: 404 si no existe, completo si existe; solo adm
   estado(await pedir("GET", `/api/metas/sello?${consulta}`, admin), 404);
   const meta = await crearMeta({ ...META, prueba: "ninguna" });
   estado(await pedir("POST", `/api/metas/${meta.clave}/retirar`, admin, { motivo: "No aplica" }), 200);
-  estado(await pedir("POST", "/api/metas/sello", admin, SEMANA), 200);
+  estado(await pedir("POST", "/api/metas/sello", admin, { ...SEMANA,
+    huella: (await pedir("GET", "/api/metas/sello/previo?" + consulta, admin)).cuerpo.huella }), 200);
   const r = await pedir("GET", `/api/metas/sello?${consulta}`, admin);
   estado(r, 200);
   assert.deepEqual(r.cuerpo.foto.retiradas.map((m) => m.retirada.motivo), ["No aplica"]);
