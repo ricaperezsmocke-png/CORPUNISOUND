@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { BarChart3, CheckSquare, CreditCard, Gauge, Lock, Megaphone, RefreshCw, Settings2, Store, Tags, Target, Users } from "lucide-react";
+import { BarChart3, CreditCard, Gauge, ListChecks, Lock, Megaphone, RefreshCw, Settings2, Store, Tags, Target, Users } from "lucide-react";
 import { apiFetch } from "./api";
-import Pestanas from "./objetivos/Pestanas";
+import Pestanas, { GruposPestanas } from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
 import MarcasDelDia from "./objetivos/MarcasDelDia";
 import CreditosVendedor from "./objetivos/CreditosVendedor";
@@ -15,10 +15,10 @@ import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
 import { cuentaMalLigada, fechaCorta, finDelMes, hoyLocal, leer, mesActual, mesEnPalabras } from "./objetivos/datos";
 import { pesosConCentavos } from "./objetivos/marcas";
 import PestanaMetas from "./metas/PestanaMetas";
-import { esPestanaMetas, pestanasObjetivos } from "./metas/pestanasObjetivos";
+import { esPestanaMetas, gruposObjetivos, pestanasObjetivos, resolverActiva } from "./metas/pestanasObjetivos";
 import CierreObjetivos from "./CierreObjetivos";
 
-const ICONOS = { BarChart3, CheckSquare, CreditCard, Gauge, Lock, Megaphone, Settings2, Store, Tags, Target, Users };
+const ICONOS = { BarChart3, CreditCard, Gauge, ListChecks, Lock, Megaphone, Settings2, Store, Tags, Target, Users };
 
 export default function GerenciaVentas({ permisos = [], usuario }) {
   const esJefatura = permisos.includes("editar_objetivos_venta");
@@ -44,7 +44,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   const [historial, setHistorial] = useState(null);
   const [sugerencia, setSugerencia] = useState(null);
   const [baja, setBaja] = useState(null);
-  const [pestana, setPestana] = useState(null);
+  const [seleccion, setSeleccion] = useState({ grupo: null, pestana: null, ultimaPorGrupo: {} });
 
   useEffect(() => {
     if (!puedeVerVentas) {
@@ -248,13 +248,25 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
 
   const veTienda = esJefatura && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id));
   const pestanas = pestanasObjetivos({ miVendedorId, veTienda, permisos }).map((p) => ({ ...p, Icono: ICONOS[p.icono] }));
-  // La elegida se conserva al cambiar de mes o sucursal; solo cae a la primera si deja de existir.
-  const activa = pestanas.some((p) => p.clave === pestana) ? pestana : pestanas[0]?.clave;
+  const grupos = gruposObjetivos(pestanas);
+  const { grupo, pestana: activa } = resolverActiva({ pestanas, ...seleccion });
+  const elegir = (opciones) => setSeleccion((anterior) => {
+    const actual = resolverActiva({ pestanas, ...anterior });
+    const ultimaPorGrupo = { ...anterior.ultimaPorGrupo };
+    if (actual.grupo) ultimaPorGrupo[actual.grupo] = actual.pestana;
+    const siguiente = resolverActiva({ pestanas, grupo: actual.grupo, ...opciones, ultimaPorGrupo });
+    return { ...siguiente, ultimaPorGrupo };
+  });
+  const setPestana = (pestana) => elegir({ pestana });
   const muestraMetas = esPestanaMetas(activa);
   const muestraVentas = !muestraMetas && activa !== "cierre-mes";
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
+      {pestanas.length > 0 && <div className="space-y-3 min-w-0 max-w-full">
+        <GruposPestanas grupos={grupos} activo={grupo} elegir={(grupo) => elegir({ grupo })} />
+        <Pestanas pestanas={pestanas.filter((p) => p.grupo === grupo)} activa={activa} elegir={setPestana} />
+      </div>}
       {muestraVentas && <>
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-sm text-slate-600">
@@ -311,7 +323,6 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
         </div>
       )}
       </>}
-      {pestanas.length > 0 && <Pestanas pestanas={pestanas} activa={activa} elegir={setPestana} />}
       {muestraMetas && <PestanaMetas activa={activa} permisos={permisos} miVendedorId={miVendedorId} />}
       {activa === "cierre-mes" && <CierreObjetivos permisos={permisos} usuario={usuario} />}
       {muestraVentas && (cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
