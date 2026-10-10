@@ -18,7 +18,7 @@ module.exports = function registrarRutasMetas(app, deps) {
   const uso = permiso("usar_gerente_ventas");
   const tiene = (req, clave) => resolverPermisosDeRol(req.usuarioToken.rol_id).includes(clave);
   const hoy = () => fechaLocal(new Date());
-  const responder = (res, fn) => { try { res.json(fn()); } catch (e) { res.status(400).json({ error: e.message }); } };
+  const responder = (res, fn) => { try { res.json(fn()); } catch (e) { res.status(e.status === 409 ? 409 : 400).json({ error: e.message }); } };
   const opcional = (valor, campo) => (valor === undefined || valor === "" ? null : idDeObjetivos(valor, campo));
   const clave = (req) => idDeObjetivos(req.params.clave, "clave");
   const periodoDe = (fuente) => ({ periodo: fuente?.periodo, inicio: fuente?.inicio });
@@ -63,7 +63,7 @@ module.exports = function registrarRutasMetas(app, deps) {
   });
   app.get("/api/metas/sello/previo", requiereLogin, admin, (req, res) => responder(res, () => previoSello(DB, periodoDe(req.query), hoy())));
   app.post("/api/metas/sello", requiereLogin, admin, (req, res) => responder(res, () =>
-    selloParaRespuesta(sellarPeriodo(DB, periodoDe(req.body), req.usuarioToken, hoy()))));
+    selloParaRespuesta(sellarPeriodo(DB, { ...periodoDe(req.body), huella: req.body?.huella }, req.usuarioToken, hoy()))));
   app.post("/api/metas/sello/:id/rectificar", requiereLogin, admin, (req, res) => responder(res, () =>
     rectificarSello(DB, idDeObjetivos(req.params.id, "id"), req.body || {}, req.usuarioToken)));
 

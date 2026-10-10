@@ -8,7 +8,36 @@ const VICTOR = { id: 1, nombre: "Victor" };
 const ANA = { id: 10, nombre: "Ana" };
 const HOY = "2026-09-15";
 const MES = { periodo: "mensual", inicio: "2026-09-01" };
+
+test("fase1: retiro durante Drive rechaza captura y borra la foto subida", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "foto");
+  const archivos = new Set();
+  const drive = { ...driveFalso, subirArchivoADrive: async () => {
+    archivos.add("archivo-privado");
+    M.retirarMeta(DB, meta.clave, "No aplica", VICTOR);
+    return driveFalso.subirArchivoADrive();
+  }, eliminarArchivoDeDrive: async (db, id) => { assert.equal(db, DB); archivos.delete(id); } };
+  const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" };
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", archivo }, 1, { drive }),
+    { message: "La meta fue eliminada mientras se subía la foto; no se registró" });
+  assert.equal(DB.pos.meta_capturas.length, 0);
+  assert.equal(archivos.size, 0);
+});
+
+test("fase1: captura usa versión vigente después de antesDeGuardar", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "foto");
+  const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" };
+  let nueva;
+  const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", archivo }, 1, {
+    antesDeGuardar: () => { nueva = M.editarMeta(DB, meta.clave, { valor_meta: 15, motivo: "Ajuste" }, VICTOR); },
+  });
+  assert.equal(c.meta_id, nueva.id);
+  assert.notEqual(c.meta_id, meta.id);
+});
 const driveFalso = {
+  eliminarArchivoDeDrive: async () => {},
   asegurarCarpetaActividadesSucursal: async () => "carpeta",
   subirArchivoADrive: async () => ({ id: "archivo-privado", webViewLink: "https://drive.google.com/file/d/x/view" }),
 };
@@ -24,6 +53,46 @@ const metaTienda = (DB, prueba = "liga") => M.crearMeta(DB, { nombre: "Videos", 
   ...MES, alcance: "tienda", sucursal_id: 4 }, VICTOR);
 const capturar = (DB, clave, datos, vendedor_id = 1, extra = {}) =>
   capturarMeta(DB, clave, datos, { usuario: ANA, vendedor_id, drive: driveFalso, hoy: HOY, ...extra });
+
+for (const causa of ["plantilla", "periodo", "sello", "duplicada", "confirmación", "antesDeGuardar"]) {
+  test(`fase1: limpia Drive cuando falla después de subir por ${causa}`, async () => {
+    const DB = DBPrueba();
+    const meta = metaTienda(DB, "foto");
+    const archivos = new Set();
+    const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" };
+    const drive = { ...driveFalso, subirArchivoADrive: async () => {
+      archivos.add("archivo-privado");
+      if (causa === "plantilla") DB.pos.vendedores[0].sucursal_id = 1;
+      if (causa === "periodo") meta.inicio = "2026-10-01";
+      if (causa === "sello") DB.pos.meta_sellos.push({ id: 1, ...MES });
+      if (causa === "duplicada") DB.pos.objetivo_actividades.push({ vigente: true, evidencia: {
+        tipo: "foto", huella: require("node:crypto").createHash("sha256").update(Buffer.from(archivo.contenido_base64, "base64")).digest("hex"),
+      } });
+      return causa === "confirmación" ? { id: "archivo-privado" } : driveFalso.subirArchivoADrive();
+    }, eliminarArchivoDeDrive: async (db, id) => { assert.equal(db, DB); archivos.delete(id); } };
+    const errores = { plantilla: /sucursal|plantilla/, periodo: /periodo/, sello: /sellado/, duplicada: /ya se usó/,
+      confirmación: /no confirmó/, antesDeGuardar: /eliminada mientras/ };
+    const antesDeGuardar = () => { if (causa === "antesDeGuardar") M.retirarMeta(DB, meta.clave, "Error", VICTOR); };
+    await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", archivo }, 1, { drive, antesDeGuardar }), errores[causa]);
+    assert.equal(DB.pos.meta_capturas.length, 0);
+    assert.equal(archivos.size, 0);
+  });
+}
+
+test("fase1: fallo al borrar foto no tapa el rechazo original", async (t) => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "foto");
+  const errores = [];
+  t.mock.method(console, "error", (...args) => errores.push(args));
+  const drive = { ...driveFalso, eliminarArchivoDeDrive: async () => { throw new Error("Drive caído"); } };
+  const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" };
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", archivo }, 1, {
+    drive, antesDeGuardar: () => M.retirarMeta(DB, meta.clave, "Error", VICTOR),
+  }), /eliminada mientras/);
+  assert.equal(DB.pos.meta_capturas.length, 0);
+  assert.equal(errores.length, 1);
+  assert.equal(errores[0][1].message, "Drive caído");
+});
 
 test("Hecho con liga cuenta 1 y guarda la liga normalizada", async () => {
   const DB = DBPrueba();
@@ -78,7 +147,7 @@ test("quién puede capturar: persona, tienda y empresa", async () => {
 test("foto: sube a Drive, la misma foto no cuenta dos veces y la respuesta no expone drive_file_id", async () => {
   const DB = DBPrueba();
   const meta = metaTienda(DB, "foto");
-  const archivo = { contenido_base64: Buffer.from("foto-1").toString("base64"), tipo_mime: "image/jpeg", nombre_archivo: "a.jpg" };
+  const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "a.jpg" };
   const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", archivo });
   assert.equal(c.evidencia.tipo, "foto");
   assert.ok(!JSON.stringify(capturaParaRespuesta(c)).includes("drive_file_id"));
@@ -88,7 +157,7 @@ test("foto: sube a Drive, la misma foto no cuenta dos veces y la respuesta no ex
 test("si el periodo se sella mientras sube la foto, no se guarda", async () => {
   const DB = DBPrueba();
   const meta = metaTienda(DB, "foto");
-  const archivo = { contenido_base64: Buffer.from("foto-2").toString("base64"), tipo_mime: "image/png", nombre_archivo: "b.png" };
+  const archivo = { contenido_base64: "iVBORw0KGgo=", tipo_mime: "image/png", nombre_archivo: "b.png" };
   const drive = { ...driveFalso, subirArchivoADrive: async () => {
     DB.pos.meta_sellos.push({ id: 2, ...MES });
     return driveFalso.subirArchivoADrive();

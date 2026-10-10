@@ -23,6 +23,91 @@ const VICTOR = { id: 1, nombre: "Victor" };
 const ADMINISTRADORA = { id: 3, nombre: "Administración" };
 const MES = { mes: "2026-09", sucursal_id: 1 };
 
+test("fase1: solo cierra después del fin de mes local, incluido diciembre", () => {
+  for (const [mes, hoy, siguiente] of [
+    ["2026-09", "2026-09-30", "2026-10-01"], ["2030-01", "2026-10-09", "2030-02-01"],
+    ["2026-12", "2026-12-31", "2027-01-01"],
+  ]) {
+    const DB = prepararDB();
+    assert.throws(() => cerrarMes(DB, { mes, sucursal_id: 1, reales: [] }, VICTOR, hoy),
+      { message: `El mes todavía no termina; se puede cerrar a partir del ${siguiente}` });
+    assert.equal(DB.pos.objetivo_cierres.length, 0);
+  }
+});
+
+test("fase1: cierre exige huella y rechaza capturas posteriores al previo", () => {
+  const DB = prepararMes();
+  const datos = { ...MES, reales: realesDelMes() };
+  const previo = previoCierre(DB, MES);
+  assert.throws(() => cerrarMes(DB, datos, VICTOR), { status: 409 });
+  capturar(DB, 1, 100, MES, "05");
+  assert.throws(() => cerrarMes(DB, { ...datos, huella: previo.huella }, VICTOR), { status: 409 });
+  assert.equal(DB.pos.objetivo_cierres.length, 0);
+  const actualizado = previoCierre(DB, MES);
+  assert.match(actualizado.huella, /^[a-f0-9]{64}$/);
+  const cierre = cerrarMes(DB, { ...datos, huella: actualizado.huella }, VICTOR, "2026-10-01");
+  assert.equal(cierre.lineas[0].capturado, 100100);
+});
+
+test("fase1: rectificaciones encadenan la misma persona, campo y referencia", () => {
+  const DB = prepararMes();
+  const previo = previoCierre(DB, MES);
+  const cierre = cerrarMes(DB, { ...MES, huella: previo.huella, reales: realesDelMes() }, VICTOR);
+  const original = structuredClone({ lineas: cierre.lineas, foto: cierre.foto });
+  const rectificar = (vendedor_id, campo, valor_nuevo) =>
+    rectificarCierre(DB, cierre.id, { vendedor_id, campo, valor_nuevo, motivo: "Corrección" }, VICTOR);
+  rectificar(1, "capturado", 90000);
+  rectificar(2, "capturado", 15000);
+  rectificar(1, "meta", 120000);
+  const segunda = rectificar("1", "capturado", 80000);
+  assert.equal(segunda.valor_anterior, 90000);
+  assert.equal(segunda.valor_sellado, 100000);
+  assert.deepEqual({ lineas: cierre.lineas, foto: cierre.foto }, original);
+});
+
+function cerrarRevisado(DB, datos, usuario) {
+  return cerrarMes(DB, { ...datos, huella: previoCierre(DB, datos).huella }, usuario, "2026-10-02");
+}
+
+test("fase1: el día de cierre usa México aunque en UTC ya sea el siguiente mes", () => {
+  const DB = prepararDB();
+  const datos = { ...MES, reales: [], huella: previoCierre(DB, MES).huella };
+  conRelojEn("2026-10-01T05:59:59Z", () => assert.throws(() => cerrarMes(DB, datos, VICTOR), /todavía no termina/));
+  conRelojEn("2026-10-01T06:00:00Z", () => assert.equal(cerrarMes(DB, datos, VICTOR).mes, "2026-09"));
+});
+
+test("fase1: huella de cierre detecta versiones sin cambio de cifra y no depende del orden", () => {
+  const DB = prepararMes();
+  const inicial = previoCierre(DB, MES).huella;
+  DB.pos.objetivos.reverse();
+  DB.pos.objetivo_capturas.reverse();
+  assert.equal(previoCierre(DB, MES).huella, inicial);
+  const captura = DB.pos.objetivo_capturas.find((c) => c.vendedor_id === 1);
+  corregirCaptura(DB, captura.id, captura.monto, "Confirmado", VICTOR);
+  assert.notEqual(previoCierre(DB, MES).huella, inicial);
+  const corregida = previoCierre(DB, MES).huella;
+  fijar(DB, 1, 100000);
+  assert.notEqual(previoCierre(DB, MES).huella, corregida);
+});
+
+test("fase1: rectificaciones de elementos y crédito capturado conservan cadenas separadas", () => {
+  const DB = prepararNuevos();
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesNuevos() }, VICTOR);
+  const original = structuredClone({ foto: cierre.foto, lineas: cierre.lineas });
+  const corregir = (ref, campo, valor_nuevo) => rectificarCierre(DB, cierre.id,
+    { vendedor_id: 1, ...ref, campo, valor_nuevo, motivo: "Ajuste" }, VICTOR);
+  for (const ref of [{ marca_id: 1 }, { producto_meta_id: 1 }, { financiera: "coppel_pay" }]) {
+    const r1 = corregir(ref, "capturado", 3);
+    corregir({}, "capturado", 45);
+    corregir(ref, "meta", 50);
+    const r2 = corregir(ref, "capturado", 2);
+    assert.equal(r2.valor_anterior, 3);
+    assert.equal(r2.valor_sellado, r1.valor_anterior);
+    if (ref.financiera) assert.equal(r2.valor_sellado, 1);
+  }
+  assert.deepEqual({ foto: cierre.foto, lineas: cierre.lineas }, original);
+});
+
 function conRelojEn(instante, trabajo) {
   const DateReal = Date;
   global.Date = class extends DateReal {
@@ -98,7 +183,7 @@ test("el previo muestra meta y capturado de cada persona de la plantilla", () =>
   capturar(DB, 1, 888888, otroMes);
   const antes = structuredClone(DB);
 
-  assert.deepEqual(previoCierre(DB, MES), [
+  assert.deepEqual(previoCierre(DB, MES).lineas, [
     { vendedor_id: 1, nombre: "Juan", meta: 110000, capturado: 100000, marcas: [], productos: [], creditos: [], actividades: actividadesVacias() },
     { vendedor_id: 2, nombre: "Maria", meta: 80000, capturado: 20000, marcas: [], productos: [], creditos: [], actividades: actividadesVacias() },
   ]);
@@ -106,7 +191,7 @@ test("el previo muestra meta y capturado de cada persona de la plantilla", () =>
 
   const sinMovimientos = prepararDB();
   registrarEnPlantilla(sinMovimientos, { ...MES, vendedor_id: 1 });
-  assert.deepEqual(previoCierre(sinMovimientos, MES), [
+  assert.deepEqual(previoCierre(sinMovimientos, MES).lineas, [
     { vendedor_id: 1, nombre: "Juan", meta: 0, capturado: 0, marcas: [], productos: [], creditos: [], actividades: actividadesVacias() },
   ]);
 });
@@ -120,12 +205,12 @@ test("alguien con capturas fuera de plantilla participa, exige real y queda en l
     capturado_en: "2026-09-05T18:30:00.000Z", corrige_a: null, vigente: true,
   });
 
-  assert.deepEqual(previoCierre(DB, MES).map((linea) => linea.vendedor_id), [1, 2, 3]);
+  assert.deepEqual(previoCierre(DB, MES).lineas.map((linea) => linea.vendedor_id), [1, 2, 3]);
   assert.throws(
-    () => cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA),
+    () => cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA),
     /falta.*real|SICAR/i
   );
-  const cierre = cerrarMes(DB, {
+  const cierre = cerrarRevisado(DB, {
     ...MES, reales: [...realesDelMes(), { vendedor_id: 3, real_sicar: 6500 }],
   }, ADMINISTRADORA);
   assert.deepEqual(cierre.lineas[2], {
@@ -140,11 +225,11 @@ test("alguien que solo tiene meta personal participa en el cierre", () => {
   DB.pos.vendedores.push({ id: 3, nombre: "Luisa", sucursal_id: 1, activo: false });
   fijar(DB, 3, 30000);
 
-  assert.deepEqual(previoCierre(DB, MES)[2], {
+  assert.deepEqual(previoCierre(DB, MES).lineas[2], {
     vendedor_id: 3, nombre: "Luisa", meta: 30000, capturado: 0,
     marcas: [], productos: [], creditos: [], actividades: actividadesVacias(),
   });
-  const cierre = cerrarMes(DB, {
+  const cierre = cerrarRevisado(DB, {
     ...MES, reales: [...realesDelMes(), { vendedor_id: 3, real_sicar: 0 }],
   }, ADMINISTRADORA);
   assert.equal(cierre.lineas.filter((linea) => linea.vendedor_id === 3).length, 1);
@@ -154,7 +239,7 @@ test("alguien en plantilla y con capturas aparece una sola vez", () => {
   const DB = prepararMes();
   capturar(DB, 1, 5000, MES, "04");
 
-  const previo = previoCierre(DB, MES);
+  const previo = previoCierre(DB, MES).lineas;
   assert.equal(previo.filter((linea) => linea.vendedor_id === 1).length, 1);
   assert.equal(previo.find((linea) => linea.vendedor_id === 1).capturado, 105000);
 });
@@ -162,7 +247,7 @@ test("alguien en plantilla y con capturas aparece una sola vez", () => {
 test("cerrar guarda la diferencia entre lo capturado y lo real de SICAR", () => {
   const DB = prepararMes();
   const reales = realesDelMes().reverse();
-  const cierre = cerrarMes(DB, { ...MES, reales }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales }, ADMINISTRADORA);
   assert.deepEqual(cierre.lineas, [
     { vendedor_id: 1, meta: 100000, capturado: 100000, real_sicar: 85000, diferencia: 15000, marcas: [], productos: [], creditos: [], actividades: actividadesVacias() },
     { vendedor_id: 2, meta: 80000, capturado: 20000, real_sicar: 25000, diferencia: -5000, marcas: [], productos: [], creditos: [], actividades: actividadesVacias() },
@@ -171,7 +256,7 @@ test("cerrar guarda la diferencia entre lo capturado y lo real de SICAR", () => 
   assert.equal(DB.pos.objetivo_cierres[0].lineas[1].real_sicar, 25000);
 
   const conCero = prepararMes();
-  const cierreCero = cerrarMes(conCero, { ...MES, reales: [
+  const cierreCero = cerrarRevisado(conCero, { ...MES, reales: [
     { vendedor_id: 1, real_sicar: 0 }, { vendedor_id: 2, real_sicar: 20000 },
   ] }, ADMINISTRADORA);
   assert.equal(cierreCero.lineas[0].real_sicar, 0, "cero es un real válido");
@@ -188,7 +273,7 @@ test("EL SELLO CONGELA: cambiar una meta despues NO cambia el cierre", () => {
   registrarEnPlantilla(DB, { ...otroMes, vendedor_id: 1 });
   fijar(DB, 9, 999999, otraTienda);
   fijar(DB, null, 888888, otroMes);
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   const sellado = structuredClone(cierre);
   assert.deepEqual(cierre.foto.objetivos.map((o) => [o.vendedor_id, o.monto]), [
     [null, 180000], [2, 80000], [1, 110000],
@@ -213,7 +298,7 @@ test("EL SELLO CONGELA LAS CAPTURAS: corregir despues no cambia el cierre", () =
   const vigente = corregirCaptura(DB, 1, 95000, "Revisión antes del cierre", VICTOR);
   capturar(DB, 9, 999999, { mes: "2026-09", sucursal_id: 2 });
   capturar(DB, 1, 888888, { mes: "2026-08", sucursal_id: 1 });
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   const sellado = structuredClone(cierre);
   assert.deepEqual(cierre.foto.capturas.map((c) => [c.vendedor_id, c.monto]), [
     [2, 20000], [1, 95000],
@@ -232,10 +317,10 @@ test("EL SELLO CONGELA LAS CAPTURAS: corregir despues no cambia el cierre", () =
 
 test("no se puede cerrar dos veces la misma tienda y mes", () => {
   const DB = prepararMes();
-  cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   const antes = structuredClone(DB);
   assert.throws(
-    () => cerrarMes(DB, { ...MES, reales: realesDelMes() }, VICTOR),
+    () => cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, VICTOR),
     /ya (esta|está) cerrado/i
   );
   assert.deepEqual(DB, antes);
@@ -244,12 +329,12 @@ test("no se puede cerrar dos veces la misma tienda y mes", () => {
 test("cerrar una tienda NO cierra las otras", () => {
   const DB = prepararMes();
   assert.equal(estaCerrado(DB, "2026-09", 1), false);
-  const primero = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const primero = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   assert.equal(estaCerrado(DB, "2026-09", 1), true);
   assert.equal(estaCerrado(DB, "2026-09", 2), false);
   assert.equal(estaCerrado(DB, "2026-10", 1), false);
   registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 9 });
-  const segundo = cerrarMes(DB, { mes: "2026-09", sucursal_id: 2,
+  const segundo = cerrarRevisado(DB, { mes: "2026-09", sucursal_id: 2,
     reales: [{ vendedor_id: 9, real_sicar: 0 }],
   }, ADMINISTRADORA);
   assert.equal(estaCerrado(DB, "2026-09", 2), true);
@@ -263,8 +348,8 @@ test("cerrar una tienda NO cierra las otras", () => {
 test("quien estuvo el mes aparece en el cierre aunque hoy este inactivo", () => {
   const DB = prepararMes();
   DB.pos.vendedores.find((v) => v.id === 2).activo = false;
-  assert.ok(previoCierre(DB, MES).some((p) => p.vendedor_id === 2));
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  assert.ok(previoCierre(DB, MES).lineas.some((p) => p.vendedor_id === 2));
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   assert.deepEqual(cierre.lineas[1], {
     vendedor_id: 2, meta: 80000, capturado: 20000, real_sicar: 25000, diferencia: -5000,
     marcas: [], productos: [], creditos: [], actividades: actividadesVacias(),
@@ -275,7 +360,7 @@ test("quien estuvo el mes aparece en el cierre aunque hoy este inactivo", () => 
 test("falta el real de alguien: se rechaza el cierre entero, sin escribir nada", () => {
   const DB = prepararMes();
   registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 2, vendedor_id: 9 });
-  cerrarMes(DB, { mes: "2026-09", sucursal_id: 2,
+  cerrarRevisado(DB, { mes: "2026-09", sucursal_id: 2,
     reales: [{ vendedor_id: 9, real_sicar: 0 }],
   }, ADMINISTRADORA);
   const antes = structuredClone(DB);
@@ -288,15 +373,15 @@ test("falta el real de alguien: se rechaza el cierre entero, sin escribir nada",
   listasInvalidas.push([...realesDelMes(), { vendedor_id: 9, real_sicar: 1 }]);
   listasInvalidas.push([...realesDelMes(), null]);
   for (const reales of listasInvalidas) {
-    assert.throws(() => cerrarMes(DB, { ...MES, reales }, ADMINISTRADORA), /real|SICAR|plantilla/i);
+    assert.throws(() => cerrarRevisado(DB, { ...MES, reales }, ADMINISTRADORA), /real|SICAR|plantilla/i);
     assert.strictEqual(DB.pos.objetivo_cierres, listaOriginal);
     assert.deepEqual(DB, antes, "el rechazo no modifica siquiera un cierre anterior");
   }
   for (const mes of [null, "2026-9", "2026-13", "2026-09\n"]) {
-    assert.throws(() => cerrarMes(DB, { ...MES, mes, reales: realesDelMes() }, ADMINISTRADORA), /mes/i);
+    assert.throws(() => cerrarRevisado(DB, { ...MES, mes, reales: realesDelMes() }, ADMINISTRADORA), /mes/i);
   }
   for (const sucursal_id of [undefined, null, 0, -1, "1", NaN]) {
-    assert.throws(() => cerrarMes(DB, { ...MES, sucursal_id, reales: realesDelMes() }, ADMINISTRADORA), /sucursal/i);
+    assert.throws(() => cerrarRevisado(DB, { ...MES, sucursal_id, reales: realesDelMes() }, ADMINISTRADORA), /sucursal/i);
   }
   assert.deepEqual(DB, antes);
 });
@@ -305,7 +390,7 @@ test("queda constancia de quien sello y cuando", () => {
   const DB = prepararMes();
   const antes = structuredClone(DB.pos);
   const cierre = conRelojEn("2026-10-01T18:30:00.000Z", () =>
-    cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA)
+    cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA)
   );
   assert.deepEqual(cierre, {
     id: 1, mes: "2026-09", sucursal_id: 1,
@@ -339,15 +424,15 @@ for (const origen of ["meta", "registro"]) {
     DB.pos.vendedores[0].activo = false;
     DB.pos.vendedores[0].sucursal_id = 2;
     const antes = structuredClone(DB);
-    assert.throws(() => cerrarMes(DB, { ...MES, reales: [] }, ADMINISTRADORA), /falta.*real|SICAR/i);
+    assert.throws(() => cerrarRevisado(DB, { ...MES, reales: [] }, ADMINISTRADORA), /falta.*real|SICAR/i);
     assert.deepEqual(DB, antes, "rechazar el cierre incompleto no escribe nada");
     const esperado = actividadesVacias();
     if (origen === "meta") esperado[2].meta = 3;
     else esperado[0].declaradas = 1;
-    assert.deepEqual(previoCierre(DB, MES), [
+    assert.deepEqual(previoCierre(DB, MES).lineas, [
       { vendedor_id: 1, nombre: "Juan", meta: 0, capturado: 0, marcas: [], productos: [], creditos: [], actividades: esperado },
     ]);
-    const cierre = cerrarMes(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, ADMINISTRADORA);
+    const cierre = cerrarRevisado(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, ADMINISTRADORA);
     assert.deepEqual(cierre.lineas, [
       { vendedor_id: 1, meta: 0, capturado: 0, real_sicar: 0, diferencia: 0, marcas: [], productos: [], creditos: [], actividades: esperado },
     ]);
@@ -367,7 +452,7 @@ test("el previo filtra actividades por mes, tienda y vigencia sin duplicar parti
   const otroMes = { mes: "2026-08", sucursal_id: 1 };
   fijarActividad(DB, 1, "iglesia", 8, otroMes);
   await registrar(DB, 1, { ...otroMes, fecha: "2026-08-03", link: "https://facebook.com/agosto" });
-  assert.deepEqual(previoCierre(DB, MES), [], "ni anuladas, ni metas de tienda ni otros periodos agregan personas");
+  assert.deepEqual(previoCierre(DB, MES).lineas, [], "ni anuladas, ni metas de tienda ni otros periodos agregan personas");
 
   fijarActividad(DB, 2, "iglesia", 7);
   fijarActividad(DB, 2, "iglesia", 3);
@@ -381,9 +466,9 @@ test("el previo filtra actividades por mes, tienda y vigencia sin duplicar parti
     { actividad: "iglesia", meta: 3, declaradas: 0, conjuntas: 0 },
     { actividad: "volanteo", meta: 0, declaradas: 0, conjuntas: 0 },
   ];
-  assert.deepEqual(previoCierre(DB, MES), [{ vendedor_id: 2, nombre: "Maria", meta: 0, capturado: 0, marcas: [], productos: [], creditos: [], actividades }]);
+  assert.deepEqual(previoCierre(DB, MES).lineas, [{ vendedor_id: 2, nombre: "Maria", meta: 0, capturado: 0, marcas: [], productos: [], creditos: [], actividades }]);
   assert.deepEqual(DB, antes, "el previo de actividades tampoco escribe");
-  const cierre = cerrarMes(DB, { ...MES, reales: [{ vendedor_id: 2, real_sicar: 0 }] }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: [{ vendedor_id: 2, real_sicar: 0 }] }, ADMINISTRADORA);
   assert.deepEqual(cierre.lineas[0].actividades, actividades);
 });
 
@@ -398,7 +483,7 @@ test("el sello conserva actividades vigentes y anuladas, evidencia y todos sus r
   await registrar(DB, 9, { sucursal_id: 2 });
   await registrar(DB, 1, { mes: "2026-08", fecha: "2026-08-03", link: "https://facebook.com/agosto" });
   const esperadas = structuredClone([vigente, anulada]);
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   assert.deepEqual(cierre.foto.actividades, esperadas, "incluye anuladas y excluye otros meses y tiendas");
   assert.deepEqual(cierre.lineas[0].actividades[0], { actividad: "grupos", meta: 0, declaradas: 1, conjuntas: 0 });
   assert.deepEqual(cierre.lineas[1].actividades, actividadesVacias());
@@ -423,7 +508,7 @@ test("la foto de objetivos ya incluye metas de actividad vigentes de tienda y pe
   const tienda = fijarActividad(DB, null, "iglesia", 3);
   fijarActividad(DB, 9, "grupos", 8, { ...MES, sucursal_id: 2 });
   fijarActividad(DB, null, "iglesia", 5, { ...MES, mes: "2026-08" });
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   assert.deepEqual(cierre.foto.objetivos.filter((o) => o.tipo === "actividad"), [vigente, tienda]);
   const sellado = structuredClone(cierre);
   vigente.monto = 100;
@@ -438,8 +523,8 @@ for (const anularOriginal of [false, true]) {
     const original = await registrar(DB, 1);
     await registrar(DB, 2, { link: original.evidencia.link, conjunta: true });
     if (anularOriginal) anularActividad(DB, original.id, "Anulo mi registro", VICTOR);
-    const previo = previoCierre(DB, MES);
-    const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+    const previo = previoCierre(DB, MES).lineas;
+    const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
     assert.deepEqual(cierre.resumen_actividades_tienda, [
       { actividad: "grupos", etiqueta: "Publicación en grupos", declaradas: 1, conjuntas: 1 },
       { actividad: "marketplace", etiqueta: "Publicación en Marketplace", declaradas: 0, conjuntas: 0 },
@@ -458,7 +543,7 @@ test("las actividades no alteran meta de venta, capturado, real SICAR ni diferen
   const DB = prepararMes();
   fijarActividad(DB, 1, "grupos", 500);
   await registrar(DB, 1);
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   assert.deepEqual(cierre.lineas.map(({ meta, capturado, real_sicar, diferencia }) => ({ meta, capturado, real_sicar, diferencia })), [
     { meta: 100000, capturado: 100000, real_sicar: 85000, diferencia: 15000 },
     { meta: 80000, capturado: 20000, real_sicar: 25000, diferencia: -5000 },
@@ -485,7 +570,7 @@ test("las actividades no alteran meta de venta, capturado, real SICAR ni diferen
 
 test("una rectificacion NO cambia el cierre original", () => {
   const DB = prepararMes();
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   const lineasAntes = JSON.stringify(cierre.lineas);
   const fotoAntes = JSON.stringify(cierre.foto);
 
@@ -500,7 +585,7 @@ test("una rectificacion NO cambia el cierre original", () => {
 
 test("la rectificacion guarda valor anterior, nuevo, motivo, quien y cuando", () => {
   const DB = prepararMes();
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
 
   const r = rectificarCierre(DB, cierre.id, {
     vendedor_id: 1, campo: "real_sicar", valor_nuevo: 73000, motivo: "Error de dedo al teclear SICAR",
@@ -517,7 +602,7 @@ test("la rectificacion guarda valor anterior, nuevo, motivo, quien y cuando", ()
 
 test("una venta cancelada despues del cierre se registra como rectificacion", () => {
   const DB = prepararMes();
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
 
   // el cliente devolvio un teclado de $12,000 que ya conto para la comision
   const r = rectificarCierre(DB, cierre.id, {
@@ -533,7 +618,7 @@ test("una venta cancelada despues del cierre se registra como rectificacion", ()
 
 test("no se rectifica un cierre que no existe", () => {
   const DB = prepararMes();
-  cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   assert.throws(() => rectificarCierre(DB, 9999, {
     vendedor_id: 1, campo: "real_sicar", valor_nuevo: 1, motivo: "x",
   }, ADMINISTRADORA), /no existe/i);
@@ -541,7 +626,7 @@ test("no se rectifica un cierre que no existe", () => {
 
 test("no se rectifica sin motivo", () => {
   const DB = prepararMes();
-  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesDelMes() }, ADMINISTRADORA);
   for (const motivo of [undefined, null, "", "   "]) {
     assert.throws(() => rectificarCierre(DB, cierre.id, {
       vendedor_id: 1, campo: "real_sicar", valor_nuevo: 73000, motivo,
@@ -584,19 +669,19 @@ test("la diferencia de marcas se guarda en centavos exactos, sin residuos de dec
   const reales = realesNuevos();
   reales[0].marcas = [{ marca_id: 1, real: 70.2 }];
   // 80.5 - 70.2 en binario da 10.299999999999997: la pantalla diría "$0.00 más" en vez de cuadrar.
-  const cierre = cerrarMes(DB, { ...MES, reales }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales }, ADMINISTRADORA);
   assert.equal(cierre.lineas[0].marcas[0].diferencia, 10.3);
 });
 
 test("el previo cruza las tres familias sin mutar y el cierre guarda sus diferencias", () => {
   const DB = prepararNuevos();
   const antes = structuredClone(DB);
-  const linea = previoCierre(DB, MES)[0];
+  const linea = previoCierre(DB, MES).lineas[0];
   assert.deepEqual(linea.marcas, [{ marca_id: 1, nombre: "Yamaha", meta: 100, capturado: 80.5 }]);
   assert.deepEqual(linea.productos, [{ producto_meta_id: 1, nombre: "Teclados", meta: 5, capturado: 4 }]);
   assert.deepEqual(linea.creditos, [{ financiera: "coppel_pay", meta: 3, registrados: 1 }]);
   assert.deepEqual(DB, antes);
-  const cierre = cerrarMes(DB, { ...MES, reales: realesNuevos() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesNuevos() }, ADMINISTRADORA);
   assert.deepEqual(cierre.lineas[0].marcas, [{ ...linea.marcas[0], real: 70.25, diferencia: 10.25 }]);
   assert.deepEqual(cierre.lineas[0].productos, [{ ...linea.productos[0], real: 5, diferencia: -1 }]);
   assert.deepEqual(cierre.lineas[0].creditos, [{ ...linea.creditos[0], real: 0, diferencia: 1 }]);
@@ -615,7 +700,7 @@ for (const [lista, referencia] of [["marcas", "marca_id"], ["productos", "produc
     for (const elementos of invalidos) {
       const reales = realesNuevos();
       reales[0][lista] = elementos;
-      assert.throws(() => cerrarMes(DB, { ...MES, reales }, ADMINISTRADORA), /real|elemento|lista|referencia/i);
+      assert.throws(() => cerrarRevisado(DB, { ...MES, reales }, ADMINISTRADORA), /real|elemento|lista|referencia/i);
       assert.deepEqual(DB, antes);
     }
   });
@@ -638,11 +723,11 @@ for (const origen of ["marca", "producto", "credito", "solo_credito", "solo_prod
     });
     DB.pos.vendedores[0].activo = false;
     DB.pos.vendedores[0].sucursal_id = 2;
-    const previo = previoCierre(DB, MES);
+    const previo = previoCierre(DB, MES).lineas;
     assert.deepEqual(previo.map((l) => l.vendedor_id), [1]);
     assert.equal([...previo[0].marcas, ...previo[0].productos, ...previo[0].creditos].length, 1);
     const antes = structuredClone(DB);
-    assert.throws(() => cerrarMes(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, VICTOR), /real/i);
+    assert.throws(() => cerrarRevisado(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, VICTOR), /real/i);
     assert.deepEqual(DB, antes);
   });
 }
@@ -654,7 +739,7 @@ test("el sello congela créditos vigentes y anulados y nombres de listas incluso
   }, VICTOR));
   anularCredito(DB, anulado.id, "Error", VICTOR);
   desactivarElemento(DB, "productos", 1, { motivo: "Ya no se usa" }, VICTOR);
-  const cierre = cerrarMes(DB, { ...MES, reales: realesNuevos() }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesNuevos() }, ADMINISTRADORA);
   assert.deepEqual(cierre.foto.creditos, DB.pos.objetivo_creditos);
   assert.deepEqual(cierre.foto.marcas, [{ id: 1, nombre: "Yamaha" }]);
   assert.deepEqual(cierre.foto.productos, [{ id: 1, nombre: "Teclados" }]);
@@ -672,7 +757,7 @@ for (const [referencia, valor, lista, capturado] of [
 ]) {
   test(`rectifica ${referencia} desde el sello sin alterar líneas ni foto`, () => {
     const DB = prepararNuevos();
-    const cierre = cerrarMes(DB, { ...MES, reales: realesNuevos() }, ADMINISTRADORA);
+    const cierre = cerrarRevisado(DB, { ...MES, reales: realesNuevos() }, ADMINISTRADORA);
     const sellado = structuredClone(cierre);
     for (const campo of ["real", "meta", "capturado"]) {
       const r = rectificarCierre(DB, cierre.id, {
@@ -734,7 +819,7 @@ test("el cierre conserva la lista de metas eliminadas del mes, con quién, cuán
     ["Marca: Yamaha", null, 800, "Victor", "Sin stock"],
   ]);
 
-  const cierre = cerrarMes(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, ADMINISTRADORA);
+  const cierre = cerrarRevisado(DB, { ...MES, reales: [{ vendedor_id: 1, real_sicar: 0 }] }, ADMINISTRADORA);
   assert.deepStrictEqual(cierre.retiradas.map((r) => r.elemento), ["Venta", "Marca: Yamaha"]);
   DB.pos.objetivos.find((o) => o.retirada?.motivo === "No llegaba").retirada.motivo = "cambiado después";
   assert.strictEqual(cierre.retiradas[0].retirada.motivo, "No llegaba");

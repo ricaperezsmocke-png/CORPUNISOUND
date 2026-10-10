@@ -60,8 +60,13 @@ function prepararEvidencia(clase, { link, archivo }) {
     throw new Error("El archivo debe tener nombre");
   }
   const buffer = Buffer.from(archivo.contenido_base64, "base64");
-  if (!buffer.length) throw new Error("Adjunta una foto en JPG o PNG");
   if (buffer.length > TAMANO_MAXIMO_BYTES) throw new Error("El archivo no puede pesar más de 10 MB");
+  const firma = archivo.tipo_mime === "image/jpeg" ? Buffer.from([0xff, 0xd8, 0xff]) : Buffer.from("89504e470d0a1a0a", "hex");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(archivo.contenido_base64) ||
+      buffer.toString("base64") !== archivo.contenido_base64 || !buffer.subarray(0, firma.length).equals(firma)) {
+    throw new Error("El archivo no es una foto JPG o PNG válida");
+  }
+  if (!buffer.length) throw new Error("Adjunta una foto en JPG o PNG");
   const huella = crypto.createHash("sha256").update(buffer).digest("hex");
   return { buffer, evidencia: { tipo: "foto", nombre_archivo: archivo.nombre_archivo, huella } };
 }

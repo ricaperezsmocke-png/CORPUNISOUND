@@ -2906,8 +2906,8 @@ app.post("/api/objetivos/cierre", requiereLogin, requierePermiso("cerrar_mes_obj
     const reales = Array.isArray(req.body?.reales)
       ? req.body.reales.map((real) => ({ ...real, vendedor_id: idDeObjetivos(real?.vendedor_id, "vendedor_id") }))
       : req.body?.reales;
-    res.json(cierreParaRespuesta(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales }, req.usuarioToken)));
-  } catch (e) { res.status(400).json({ error: e.message }); }
+    res.json(cierreParaRespuesta(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales, huella: req.body?.huella }, req.usuarioToken)));
+  } catch (e) { res.status(e.status === 409 ? 409 : 400).json({ error: e.message }); }
 });
 
 app.post("/api/objetivos/cierre/:id/rectificar", requiereLogin, requierePermiso("cerrar_mes_objetivos", resolverPermisosDeRol), (req, res) => {

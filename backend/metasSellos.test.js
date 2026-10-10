@@ -5,6 +5,22 @@ const { previoSello, sellarPeriodo, rectificarSello } = require("./metasSellos")
 
 const VICTOR = { id: 1, nombre: "Victor" };
 const BASE = { periodo: "semanal", inicio: "2026-10-05" };
+
+test("fase1: sello exige huella y detecta captura o anulación después de revisar", () => {
+  for (const cambio of ["nueva", "anulada"]) {
+    const { DB, meta } = conMeta();
+    const previo = previoSello(DB, BASE, "2026-10-12");
+    assert.throws(() => sellarPeriodo(DB, BASE, VICTOR, "2026-10-12"), { status: 409 });
+    if (cambio === "nueva") DB.pos.meta_capturas.push({ id: 2, meta_clave: meta.clave, cantidad: 1, anulada: null });
+    else DB.pos.meta_capturas[0].anulada = { motivo: "Error" };
+    assert.throws(() => sellarPeriodo(DB, { ...BASE, huella: previo.huella }, VICTOR, "2026-10-12"), { status: 409 });
+    assert.equal(DB.pos.meta_sellos.length, 0);
+    const nuevo = previoSello(DB, BASE, "2026-10-12");
+    assert.match(nuevo.huella, /^[a-f0-9]{64}$/);
+    const sello = sellarPeriodo(DB, { ...BASE, huella: nuevo.huella }, VICTOR, "2026-10-12");
+    assert.equal(sello.foto.resultados[0].resultado, cambio === "nueva" ? 4 : 0);
+  }
+});
 function DBPrueba() {
   return { pos: {
     sucursales: [{ id: 4, nombre: "Palenque" }], vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 4 }],
@@ -19,6 +35,23 @@ function conMeta() {
   return { DB, meta };
 }
 
+test("fase1: huella incluye retiradas y capturas anuladas aunque no cambie el total", () => {
+  const { DB, meta } = conMeta();
+  const antes = previoSello(DB, BASE, "2026-10-12");
+  DB.pos.meta_capturas.push({ id: 2, meta_clave: meta.clave, cantidad: 1, anulada: { motivo: "Error" } });
+  const despues = previoSello(DB, BASE, "2026-10-12");
+  assert.deepEqual(antes.resultados, despues.resultados);
+  assert.notEqual(antes.huella, despues.huella);
+  DB.pos.meta_capturas.reverse();
+  assert.equal(previoSello(DB, BASE, "2026-10-12").huella, despues.huella);
+  M.editarMeta(DB, meta.clave, { nombre: "Videos nuevos", motivo: "Nombre" }, VICTOR);
+  assert.notEqual(previoSello(DB, BASE, "2026-10-12").huella, despues.huella);
+  M.retirarMeta(DB, meta.clave, "Retirada", VICTOR);
+  const retirada = previoSello(DB, BASE, "2026-10-12");
+  DB.pos.meta_capturas.push({ id: 3, meta_clave: meta.clave, cantidad: 1, anulada: { motivo: "Histórica" } });
+  assert.notEqual(previoSello(DB, BASE, "2026-10-12").huella, retirada.huella);
+});
+
 test("no se sella un periodo que no ha terminado", () => {
   const { DB } = conMeta();
   assert.throws(() => previoSello(DB, BASE, "2026-10-11"), /todavía no termina/);
@@ -29,21 +62,21 @@ test("sellar congela una copia, guarda las eliminadas y no se sella dos veces", 
   const { DB, meta } = conMeta();
   const quitada = M.crearMeta(DB, { ...BASE, nombre: "Reseñas", unidad: "reseñas", prueba: "liga", valor_meta: 9, alcance: "tienda", sucursal_id: 4 }, VICTOR);
   M.retirarMeta(DB, quitada.clave, "No aplica en Palenque", { id: 5, nombre: "Gerente" });
-  const sello = sellarPeriodo(DB, BASE, VICTOR, "2026-10-12");
+  const sello = sellarPeriodo(DB, { ...BASE, huella: previoSello(DB, BASE, "2026-10-12").huella }, VICTOR, "2026-10-12");
   assert.equal(sello.sellado_por, "Victor");
   assert.equal(sello.foto.resultados[0].resultado, 3);
   assert.deepEqual(sello.foto.retiradas.map((r) => [r.nombre, r.retirada.por_nombre, r.retirada.motivo]),
     [["Reseñas", "Gerente", "No aplica en Palenque"]]);
   DB.pos.meta_capturas[0].cantidad = 99;
   assert.equal(sello.foto.capturas[0].cantidad, 3);
-  assert.throws(() => sellarPeriodo(DB, BASE, VICTOR, "2026-10-12"), /ya está sellado/);
+  assert.throws(() => sellarPeriodo(DB, { ...BASE, huella: previoSello(DB, BASE, "2026-10-12").huella }, VICTOR, "2026-10-12"), /ya está sellado/);
   assert.equal(M.periodoSellado(DB, BASE.periodo, BASE.inicio), true);
   assert.ok(meta);
 });
 
 test("rectificar cambia el resultado con motivo, conserva el sellado y lee el valor anterior", () => {
   const { DB, meta } = conMeta();
-  const sello = sellarPeriodo(DB, BASE, VICTOR, "2026-10-12");
+  const sello = sellarPeriodo(DB, { ...BASE, huella: previoSello(DB, BASE, "2026-10-12").huella }, VICTOR, "2026-10-12");
   assert.throws(() => rectificarSello(DB, sello.id, { meta_clave: meta.clave, valor_nuevo: 4, motivo: " " }, VICTOR), /motivo/);
   assert.throws(() => rectificarSello(DB, sello.id, { meta_clave: meta.clave, valor_nuevo: -1, motivo: "x" }, VICTOR), /entero/);
   assert.throws(() => rectificarSello(DB, sello.id, { meta_clave: 999, valor_nuevo: 1, motivo: "x" }, VICTOR), /no está en este sello/);
@@ -58,6 +91,6 @@ test("rectificar cambia el resultado con motivo, conserva el sellado y lee el va
 
 test("no se sella un periodo sin metas: impediría crearle metas después", () => {
   const DB = DBPrueba();
-  assert.throws(() => sellarPeriodo(DB, BASE, VICTOR, "2026-10-12"), /no hay metas/i);
+  assert.throws(() => sellarPeriodo(DB, { ...BASE, huella: previoSello(DB, BASE, "2026-10-12").huella }, VICTOR, "2026-10-12"), /no hay metas/i);
   assert.equal(DB.pos.meta_sellos.length, 0);
 });

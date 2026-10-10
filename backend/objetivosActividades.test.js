@@ -11,9 +11,24 @@ const DATOS = {
   mes: "2026-09", fecha: "2026-09-03", sucursal_id: 1, vendedor_id: 1,
   actividad: "grupos", link: "https://Facebook.com/x/",
 };
-const ARCHIVO = { nombre_archivo: "salida.jpg", tipo_mime: "image/jpeg", contenido_base64: "YWJj" };
+const ARCHIVO = { nombre_archivo: "salida.jpg", tipo_mime: "image/jpeg", contenido_base64: "/9j/2Q==" };
 const FOTO = { ...DATOS, actividad: "iglesia", link: undefined, archivo: ARCHIVO };
 const FILTRO = { mes: "2026-09", sucursal_id: 1 };
+
+test("fase1: comprueba firma JPG/PNG y base64 canónico antes de subir", () => {
+  const { prepararEvidencia } = require("./objetivosActividades");
+  const png = "iVBORw0KGgo=";
+  const jpg = "/9j/2Q==";
+  const preparar = (contenido_base64, tipo_mime) => prepararEvidencia({ evidencia: "foto" }, {
+    archivo: { nombre_archivo: "foto.png", tipo_mime, contenido_base64 },
+  });
+  for (const [base64, mime] of [["dGV4dG8=", "image/png"], [png, "image/jpeg"],
+    [jpg + "!", "image/jpeg"], ["/9j/2R==", "image/jpeg"], ["/9j/2Q=", "image/jpeg"]]) {
+    assert.throws(() => preparar(base64, mime), { message: "El archivo no es una foto JPG o PNG válida" });
+  }
+  assert.equal(preparar(png, "image/png").buffer.toString("hex"), "89504e470d0a1a0a");
+  assert.equal(preparar(jpg, "image/jpeg").buffer.toString("hex"), "ffd8ffd9");
+});
 
 test("normaliza rastreo de videos sin perder el identificador v", () => {
   const base = "https://youtube.com/watch?v=ABC";
@@ -24,7 +39,7 @@ test("normaliza rastreo de videos sin perder el identificador v", () => {
 
 for (const [datos, evidencia] of [
   [DATOS, { tipo: "link", link: "http://www.facebook.com/x/?fbclid=1" }],
-  [FOTO, { tipo: "foto", huella: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" }],
+  [FOTO, { tipo: "foto", huella: "32461d5bd1773012acef0ba15636752949bd7c2ce50f9172159d9f56cf0dd9af" }],
 ]) {
   test(`una prueba usada en metas no cuenta como actividad: ${evidencia.tipo}`, async () => {
     const DB = prepararDB();
@@ -157,17 +172,19 @@ test("JPG y PNG suben los bytes a la carpeta de tienda y guardan la huella", asy
   for (const tipo_mime of ["image/jpeg", "image/png"]) {
     const DB = prepararDB();
     const drive = driveFalso();
-    const registro = await registrarActividad(DB, { ...FOTO, archivo: { ...ARCHIVO, tipo_mime } }, USUARIO, drive);
+    const contenido_base64 = tipo_mime === "image/jpeg" ? "/9j/2Q==" : "iVBORw0KGgo=";
+    const registro = await registrarActividad(DB, { ...FOTO, archivo: { ...ARCHIVO, tipo_mime, contenido_base64 } }, USUARIO, drive);
     assert.deepEqual(registro.evidencia, {
       tipo: "foto", nombre_archivo: "salida.jpg", drive_file_id: "foto-1", drive_link: "https://drive/foto-1",
-      huella: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      huella: tipo_mime === "image/jpeg" ? "32461d5bd1773012acef0ba15636752949bd7c2ce50f9172159d9f56cf0dd9af" :
+        "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
     });
     assert.equal(registro.nota, null);
     assert.equal(drive.llamadas[0].sucursal, DB.pos.sucursales[0]);
     assert.equal(drive.llamadas[1].DB, DB);
     assert.deepEqual(drive.llamadas[1].datos, {
       nombre: "2026-09-03 - Juan - iglesia - salida.jpg",
-      mimeType: tipo_mime, contenidoBuffer: Buffer.from("abc"), carpetaId: "carpeta-1",
+      mimeType: tipo_mime, contenidoBuffer: Buffer.from(contenido_base64, "base64"), carpetaId: "carpeta-1",
     });
   }
 });
@@ -197,7 +214,7 @@ test("valida evidencia, clase y nota antes de cualquier llamada a Drive", async 
 
 test("acepta exactamente 10 MB y notas de 300 caracteres después de recortar", async () => {
   const registro = await registrarActividad(prepararDB(), {
-    ...FOTO, archivo: { ...ARCHIVO, contenido_base64: Buffer.alloc(10 * 1024 * 1024).toString("base64") },
+    ...FOTO, archivo: { ...ARCHIVO, contenido_base64: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(10 * 1024 * 1024 - 3)]).toString("base64") },
     nota: `  ${"a".repeat(300)}  `,
   }, USUARIO, driveFalso());
   assert.equal(registro.nota.length, 300);
@@ -408,7 +425,7 @@ test("subidas de fotos distintas reciben ids únicos al terminar", async () => {
   const DB = prepararDB();
   const registros = await Promise.all([
     registrarActividad(DB, FOTO, USUARIO, driveFalso()),
-    registrarActividad(DB, { ...FOTO, archivo: { ...ARCHIVO, contenido_base64: "eHl6" } }, USUARIO, driveFalso()),
+    registrarActividad(DB, { ...FOTO, archivo: { ...ARCHIVO, contenido_base64: "/9j/eHl6" } }, USUARIO, driveFalso()),
   ]);
   assert.deepEqual(registros.map((r) => r.id).sort(), [1, 2]);
 });
@@ -421,7 +438,7 @@ test("revalida repetición después de Drive y conserva solo el registro que ent
     async subirArchivoADrive() {
       entrante = {
         ...DATOS, id: 7, vigente: true, conjunta_con: null,
-        evidencia: { tipo: "foto", huella: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+        evidencia: { tipo: "foto", huella: "32461d5bd1773012acef0ba15636752949bd7c2ce50f9172159d9f56cf0dd9af" },
       };
       DB.pos.objetivo_actividades.push(entrante);
       return { id: "huerfano", webViewLink: "https://drive/huerfano" };
