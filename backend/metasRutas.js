@@ -94,7 +94,9 @@ module.exports = function registrarRutasMetas(app, deps) {
       res.json(await proponerPlan(DB, clienteIA(), req.body || {}, req.usuarioToken, { hoy: hoy() }));
     } catch (e) {
       // El intento fallido queda en el registro: el guardado automático solo corre con respuestas exitosas.
-      if (e.status === 502 && guardarDB) guardarDB();
+      if (e.status === 502 && guardarDB) {
+        try { guardarDB(); } catch (errorGuardar) { console.error("No se pudo guardar el intento fallido del planeador:", errorGuardar); }
+      }
       res.status(e.status || 400).json({ error: e.message });
     }
   });
