@@ -40,6 +40,7 @@ export default function AvanceVendedor({ mes, sucursalId }) {
         <Gauge size={18} className="text-blue-600" aria-hidden="true" />
         Mi avance del mes
       </h2>
+      {propio.cierre && <ResumenCierre cierre={propio.cierre} />}
       <div className="grid lg:grid-cols-[16rem_1fr] gap-6 items-start">
         <div className="space-y-2">
           <Anillo titulo="Mi meta de venta" porcentaje={venta.porcentaje} estado={estado}
@@ -57,5 +58,33 @@ export default function AvanceVendedor({ mes, sucursalId }) {
         La barra gris de la tienda muestra su avance al cierre de ayer; en metas chicas de piezas, créditos o actividades no se muestra.
       </p>
     </section>
+  );
+}
+
+const fechaCierre = (iso) => new Date(iso).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+const CAMPOS_CIERRE = { meta: "meta", capturado: "declarado", real_sicar: "real de SICAR", real: "real", declaradas: "declaradas" };
+
+function ResumenCierre({ cierre }) {
+  return (
+    <aside className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2 text-sm">
+      <h3 className="font-semibold">Mes cerrado el {fechaCierre(cierre.cerrado_en)}</h3>
+      <p>
+        Declaraste {pesosConCentavos(cierre.venta.declarado)} · Real de SICAR {pesosConCentavos(cierre.venta.real_sicar)}
+        {" · "}Diferencia {pesosConCentavos(cierre.venta.diferencia)}
+      </p>
+      {cierre.rectificaciones.length > 0 && (
+        <ul className="space-y-1">
+          {cierre.rectificaciones.map((r, i) => {
+            const formato = !r.referencia || r.referencia.startsWith("Marca:") ? pesosConCentavos : String;
+            return (
+              <li key={i}>
+                Corrección: {CAMPOS_CIERRE[r.campo] || r.campo}{r.referencia ? ` (${r.referencia})` : ""}
+                {" de "}{formato(r.valor_anterior)} a {formato(r.valor_nuevo)} — Motivo: {r.motivo} ({fechaCierre(r.rectificado_en)})
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </aside>
   );
 }

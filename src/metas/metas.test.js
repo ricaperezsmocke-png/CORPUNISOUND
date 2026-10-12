@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import { inicioDePeriodo, finDePeriodo, moverPeriodo, etiquetaPeriodo, periodoTerminado, cuerpoMeta, cuerpoCaptura } from "./metas.js";
 import * as metas from "./metas.js";
 
+test("query del tablero incluye filtros vacíos para impedir heredar la tienda del encabezado", () => {
+  for (const filtros of [{}, { sucursal_id: "", vendedor_id: "" }, { sucursal_id: null, vendedor_id: null }]) {
+    const query = new URLSearchParams(metas.queryTablero({ periodo: "mensual", inicio: "2026-09-01", ...filtros }));
+    assert.equal(query.get("sucursal_id"), "");
+    assert.equal(query.get("vendedor_id"), "");
+    assert.equal(query.get("periodo"), "mensual");
+    assert.equal(query.get("inicio"), "2026-09-01");
+  }
+  const query = new URLSearchParams(metas.queryTablero({ periodo: "mensual", inicio: "2026-09-01", sucursal_id: 4, vendedor_id: "2" }));
+  assert.equal(query.get("sucursal_id"), "4");
+  assert.equal(query.get("vendedor_id"), "2");
+});
+
 test("cambiar tipo conserva hoy si está en el periodo visible y el inicio si no", () => {
   for (const [actual, inicio, nuevo, hoy, esperado] of [
     ["mensual", "2026-10-01", "semanal", "2026-10-09", "2026-10-05"],

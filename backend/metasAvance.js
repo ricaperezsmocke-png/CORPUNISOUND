@@ -2,7 +2,9 @@
 // metas compartidas, pero nunca quién capturó qué (solo lo suyo). La jefatura ve el desglose.
 const { validarPeriodo, finDePeriodo, ritmoEsperado } = require("./metasPeriodos");
 const { periodoSellado } = require("./metasPersonalizadas");
-const { capturaParaRespuesta } = require("./metasCapturas");
+const { capturaParaRespuesta, validarParticipacion } = require("./metasCapturas");
+const { plantillaDelMes } = require("./objetivos");
+const { fechaLocal } = require("./fechas");
 
 // Las capturas apuntan a la clave estable: editar la meta no pierde lo ya capturado.
 const validas = (DB, meta) => DB.pos.meta_capturas.filter((c) => c.meta_clave === meta.clave && !c.anulada);
@@ -35,6 +37,20 @@ function resultadoRectificado(DB, meta) {
   return sellado ? sellado.resultado : resultadoMeta(DB, meta);
 }
 
+function participoEnTienda(DB, meta, vendedor_id) {
+  const fin = finDePeriodo(meta.periodo, meta.inicio);
+  const mes = new Date(`${meta.inicio.slice(0, 7)}-01T00:00:00Z`);
+  while (mes.toISOString().slice(0, 7) <= fin.slice(0, 7)) {
+    if (plantillaDelMes(DB, mes.toISOString().slice(0, 7), meta.sucursal_id).some((r) =>
+      r.vendedor_id === vendedor_id && r.desde <= fin && (r.hasta === null || r.hasta >= meta.inicio))) return true;
+    mes.setUTCMonth(mes.getUTCMonth() + 1);
+  }
+  return false;
+}
+
+const capturasPropias = (DB, meta, vendedor_id) => DB.pos.meta_capturas
+  .filter((c) => c.meta_clave === meta.clave && c.vendedor_id === vendedor_id);
+
 function puedeVer(DB, meta, visor) {
   if (visor.jefatura) {
     if (visor.verTodas) return true;
@@ -44,16 +60,26 @@ function puedeVer(DB, meta, visor) {
   if (meta.alcance === "persona") return meta.vendedor_id === visor.vendedor_id;
   if (meta.alcance === "empresa") return meta.participantes.includes(visor.vendedor_id);
   const propio = DB.pos.vendedores.find((v) => v.id === visor.vendedor_id);
-  return Boolean(propio) && propio.sucursal_id === meta.sucursal_id;
+  return propio?.sucursal_id === meta.sucursal_id || capturasPropias(DB, meta, visor.vendedor_id).length > 0 ||
+    participoEnTienda(DB, meta, visor.vendedor_id);
 }
 
 // Si quien ve el tablero puede marcar "Hecho" en esta meta. El servidor ya rechaza la captura ajena;
 // esto evita que la pantalla ofrezca un botón que va a fallar.
-function puedeCapturar(DB, meta, vendedor_id) {
+function puedeCapturar(DB, meta, vendedor_id, hoy) {
   if (vendedor_id === null || vendedor_id === undefined) return false;
-  if (meta.alcance === "persona") return meta.vendedor_id === vendedor_id;
-  if (meta.alcance === "empresa") return meta.participantes.includes(vendedor_id);
-  return DB.pos.vendedores.find((v) => v.id === vendedor_id)?.sucursal_id === meta.sucursal_id;
+  if (hoy < meta.inicio || periodoSellado(DB, meta.periodo, meta.inicio)) return false;
+  // Basta un día del periodo (hasta hoy) en que el servidor aceptaría la captura: a quien trasladaron a media
+  // semana o mes todavía le toca registrar lo que hizo antes del cambio, con la fecha de ese día.
+  const fin = finDePeriodo(meta.periodo, meta.inicio);
+  const ultimo = hoy > fin ? fin : hoy;
+  for (let dia = new Date(`${meta.inicio}T00:00:00Z`); dia.toISOString().slice(0, 10) <= ultimo; dia.setUTCDate(dia.getUTCDate() + 1)) {
+    try {
+      validarParticipacion(DB, meta, vendedor_id, dia.toISOString().slice(0, 10));
+      return true;
+    } catch { /* ese día no participaba; probar el siguiente */ }
+  }
+  return false;
 }
 
 function desglosePorPersona(DB, capturas) {
@@ -64,7 +90,7 @@ function desglosePorPersona(DB, capturas) {
   }));
 }
 
-function avanceMeta(DB, meta, visor, ritmo) {
+function avanceMeta(DB, meta, visor, ritmo, hoy) {
   const resultado = resultadoRectificado(DB, meta);
   const pct = porcentaje(resultado, meta.valor_meta);
   const capturas = validas(DB, meta);
@@ -72,22 +98,30 @@ function avanceMeta(DB, meta, visor, ritmo) {
     clave: meta.clave, okr_clave: meta.okr_clave, nombre: meta.nombre, descripcion: meta.descripcion, unidad: meta.unidad,
     prueba: meta.prueba, alcance: meta.alcance, sucursal_id: meta.sucursal_id, vendedor_id: meta.vendedor_id,
     valor_meta: meta.valor_meta, resultado, porcentaje: pct, ritmo, semaforo: semaforo(pct, ritmo),
-    mis_capturas: DB.pos.meta_capturas
-      .filter((c) => c.meta_clave === meta.clave && c.vendedor_id === visor.vendedor_id).map(capturaParaRespuesta),
-    puede_capturar: puedeCapturar(DB, meta, visor.vendedor_id),
+    mis_capturas: capturasPropias(DB, meta, visor.vendedor_id).map(capturaParaRespuesta),
+    puede_capturar: puedeCapturar(DB, meta, visor.vendedor_id, hoy),
   };
   if (visor.jefatura) avance.por_persona = desglosePorPersona(DB, capturas);
   return avance;
 }
 
-function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id = null }, hoy) {
+function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id = null }, hoy = fechaLocal(new Date())) {
   validarPeriodo(periodo, inicio);
   const ritmo = ritmoEsperado(periodo, inicio, hoy);
   const filtro = (m) => (sucursal_id === null || m.alcance === "empresa" || m.sucursal_id === sucursal_id) &&
     (vendedor_id === null || m.vendedor_id === vendedor_id);
   const metas = DB.pos.metas_personalizadas
     .filter((m) => m.vigente && m.periodo === periodo && m.inicio === inicio && puedeVer(DB, m, visor) && filtro(m))
-    .map((m) => avanceMeta(DB, m, visor, ritmo));
+    .map((m) => avanceMeta(DB, m, visor, ritmo, hoy));
+  const retiradas = DB.pos.metas_personalizadas
+    .filter((m) => m.retirada && m.periodo === periodo && m.inicio === inicio && puedeVer(DB, m, visor) && filtro(m))
+    .filter((m) => visor.jefatura || capturasPropias(DB, m, visor.vendedor_id).length > 0)
+    .map((m) => ({
+      clave: m.clave, nombre: m.nombre, unidad: m.unidad, alcance: m.alcance,
+      sucursal_id: m.sucursal_id, vendedor_id: m.vendedor_id, valor_meta: m.valor_meta,
+      retirada: { por_nombre: m.retirada.por_nombre, en: m.retirada.en, motivo: m.retirada.motivo },
+      mis_capturas: capturasPropias(DB, m, visor.vendedor_id).map(capturaParaRespuesta),
+    }));
   const okrs = DB.pos.okrs
     .filter((o) => o.vigente && o.periodo === periodo && o.inicio === inicio)
     .map((o) => {
@@ -98,7 +132,7 @@ function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id =
     })
     .filter((o) => o.metas.length);
   return { periodo, inicio, fin: finDePeriodo(periodo, inicio), sellado: periodoSellado(DB, periodo, inicio),
-    okrs, sueltas: metas.filter((m) => m.okr_clave === null) };
+    okrs, sueltas: metas.filter((m) => m.okr_clave === null), retiradas };
 }
 
 module.exports = { resultadoMeta, porcentaje, semaforo, resultadoRectificado, tablero };

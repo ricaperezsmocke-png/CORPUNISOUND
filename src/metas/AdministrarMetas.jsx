@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
-import { TEXTO_PRUEBA, cuerpoMeta, etiquetaPeriodo } from "./metas";
+import { TEXTO_PRUEBA, cuerpoMeta, etiquetaPeriodo, queryTablero } from "./metas";
 import { ALERTA, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, TARJETA, fechaHora } from "./Comunes";
 import SelloMetas from "./SelloMetas";
 import PlaneadorIA from "./PlaneadorIA";
@@ -195,7 +195,7 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
 
   const cargar = useCallback(async () => {
     setError("");
-    const base = `periodo=${periodo}&inicio=${inicio}`;
+    const base = queryTablero({ periodo, inicio });
     try {
       setDatos(await apiFetch(`/metas/admin?${base}`).then((r) => leer(r, "No se pudieron cargar las metas")));
       const r = await apiFetch(`/metas/sello?${base}`);

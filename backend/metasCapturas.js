@@ -153,4 +153,4 @@ function capturaParaRespuesta(captura) {
   return { ...captura, evidencia };
 }
 
-module.exports = { capturarMeta, anularCaptura, capturaParaRespuesta };
+module.exports = { capturarMeta, anularCaptura, capturaParaRespuesta, validarParticipacion };

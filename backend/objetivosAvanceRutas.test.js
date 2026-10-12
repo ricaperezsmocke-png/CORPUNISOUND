@@ -93,6 +93,25 @@ function estado(r, esperado) {
   if (esperado === 404) assert.match(r.cuerpo.error, /no encontrad/i);
 }
 
+test("avance HTTP muestra cierre propio con SICAR rectificado 100 a 80, sin correcciones ajenas", async () => {
+  const { rectificarCierre } = require("./objetivosCierre");
+  app.DB.pos.objetivo_cierres.push({ id: 1, mes: MES, sucursal_id: 1,
+    cerrado_en: "2026-09-01T18:00:00Z", cerrado_por: "Victor",
+    lineas: [{ vendedor_id: 1, meta: 120, capturado: 90, real_sicar: 100, diferencia: -10 },
+      { vendedor_id: 2, meta: 1000, capturado: 900, real_sicar: 800, diferencia: 100 }], rectificaciones: [] });
+  rectificarCierre(app.DB, 1, { vendedor_id: 1, campo: "real_sicar", valor_nuevo: 80, motivo: "Devolución" }, { nombre: "Victor" });
+  rectificarCierre(app.DB, 1, { vendedor_id: 2, campo: "real_sicar", valor_nuevo: 700, motivo: "Motivo privado ajeno" }, { nombre: "Victor" });
+  const r = await pedir(vendedora);
+  estado(r, 200);
+  assert.ok(r.cuerpo.propio.cierre, "Mi avance debe incluir el cierre personal");
+  assert.deepEqual(r.cuerpo.propio.cierre.venta, { meta: 120, declarado: 90, real_sicar: 80, diferencia: 10 });
+  assert.equal(r.cuerpo.propio.cierre.rectificaciones.length, 1);
+  assert.equal(r.cuerpo.propio.cierre.rectificaciones[0].motivo, "Devolución");
+  assert.doesNotMatch(r.crudo, /Motivo privado ajeno|lineas|valor_sellado/);
+  app.DB.pos.objetivo_cierres[0].lineas = app.DB.pos.objetivo_cierres[0].lineas.slice(1);
+  assert.equal((await pedir(vendedora)).cuerpo.propio.cierre, undefined);
+});
+
 function sinCifras(valor) {
   if (valor === null || typeof valor !== "object") return;
   for (const [clave, contenido] of Object.entries(valor)) {
