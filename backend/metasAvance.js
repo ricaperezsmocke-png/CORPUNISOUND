@@ -69,12 +69,17 @@ function puedeVer(DB, meta, visor) {
 function puedeCapturar(DB, meta, vendedor_id, hoy) {
   if (vendedor_id === null || vendedor_id === undefined) return false;
   if (hoy < meta.inicio || periodoSellado(DB, meta.periodo, meta.inicio)) return false;
+  // Basta un día del periodo (hasta hoy) en que el servidor aceptaría la captura: a quien trasladaron a media
+  // semana o mes todavía le toca registrar lo que hizo antes del cambio, con la fecha de ese día.
   const fin = finDePeriodo(meta.periodo, meta.inicio);
-  const fecha = hoy > fin ? fin : hoy;
-  try {
-    validarParticipacion(DB, meta, vendedor_id, fecha);
-    return true;
-  } catch { return false; }
+  const ultimo = hoy > fin ? fin : hoy;
+  for (let dia = new Date(`${meta.inicio}T00:00:00Z`); dia.toISOString().slice(0, 10) <= ultimo; dia.setUTCDate(dia.getUTCDate() + 1)) {
+    try {
+      validarParticipacion(DB, meta, vendedor_id, dia.toISOString().slice(0, 10));
+      return true;
+    } catch { /* ese día no participaba; probar el siguiente */ }
+  }
+  return false;
 }
 
 function desglosePorPersona(DB, capturas) {

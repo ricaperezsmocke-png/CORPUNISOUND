@@ -237,3 +237,19 @@ test("puede_capturar: la gerente que vende no puede capturar la meta personal de
   assert.deepEqual(t.sueltas.map((m) => [m.nombre, m.puede_capturar]), [["Videos", true], ["De Luis", false]]);
   assert.ok(tienda);
 });
+
+test("fase2: trasladada a media mes conserva Hecho para los dias que estuvo en la tienda", () => {
+  const DB = { pos: { sucursales: [{ id: 1 }, { id: 4 }], vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }],
+    okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [], objetivo_plantilla: [] } };
+  M.crearMeta(DB, { periodo: "mensual", inicio: "2026-10-01", nombre: "V", unidad: "v", prueba: "ninguna",
+    valor_meta: 10, alcance: "tienda", sucursal_id: 1 }, VICTOR);
+  registrarEnPlantilla(DB, { mes: "2026-10", desde: "2026-10-01", hasta: "2026-10-15", sucursal_id: 1, vendedor_id: 1 });
+  DB.pos.vendedores[0].sucursal_id = 4;
+  registrarEnPlantilla(DB, { mes: "2026-10", desde: "2026-10-16", hasta: null, sucursal_id: 4, vendedor_id: 1 });
+  const visor = { vendedor_id: 1, jefatura: false, verTodas: false, sucursalId: 4 };
+  const tb = tablero(DB, visor, { periodo: "mensual", inicio: "2026-10-01" }, "2026-10-20");
+  assert.equal(tb.sueltas.length, 1);
+  assert.equal(tb.sueltas[0].puede_capturar, true);
+  const antes = tablero(DB, visor, { periodo: "mensual", inicio: "2026-10-01" }, "2026-09-30");
+  assert.equal(antes.sueltas[0].puede_capturar, false); // periodo que no ha empezado
+});
