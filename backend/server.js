@@ -201,6 +201,8 @@ const DB = {
     metas_personalizadas: [],
     meta_capturas: [],
     meta_sellos: [],
+    // Borradores e intentos del planeador con IA. Ver planIA.js.
+    planes_ia: [],
     // Tareas sugeridas al vendedor para alcanzar su meta. Ver gerenteVentas.js.
     tareas_venta: { tareas: [], ultimo_id: 0 },
     sucursales: [
@@ -375,6 +377,7 @@ avisarSiLaEpocaEstaEnElFuturo(DB);
 // Normaliza bases anteriores y garantiza las dos cajas fijas por sucursal.
 // sembrarCajas lanza si los datos no tienen exactamente una predeterminada.
 if (!Array.isArray(DB.pos.cajas)) DB.pos.cajas = [];
+if (!Array.isArray(DB.pos.planes_ia)) DB.pos.planes_ia = [];
 try {
   sembrarCajas(DB);
 } catch (e) {
@@ -2923,6 +2926,9 @@ app.post("/api/objetivos/cierre/:id/rectificar", requiereLogin, requierePermiso(
 // Metas personalizadas (KPIs/OKRs). Ver metasRutas.js.
 require("./metasRutas")(app, {
   DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos,
+  // Las pruebas fijan un cliente falso; sin ANTHROPIC_API_KEY el planeador queda apagado.
+  guardarDB: () => guardar(DB),
+  clienteIA: () => (app.locals.clienteIA !== undefined ? app.locals.clienteIA : (process.env.ANTHROPIC_API_KEY ? anthropic : null)),
 });
 
 // ---------- Respaldos y punto de restauración ----------

@@ -5,6 +5,8 @@ import { Campo, Modal } from "../objetivos/DialogosObjetivos";
 import { TEXTO_PRUEBA, cuerpoMeta, etiquetaPeriodo } from "./metas";
 import { ALERTA, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, TARJETA, fechaHora } from "./Comunes";
 import SelloMetas from "./SelloMetas";
+import PlaneadorIA from "./PlaneadorIA";
+import PlanesIA from "./PlanesIA";
 
 const BOTON = "bg-blue-600 text-white rounded-lg px-4 py-2 text-sm";
 const SEGMENTO = "px-3 py-1.5 text-sm rounded-lg border";
@@ -161,6 +163,9 @@ function Historial({ registro, cerrar }) {
               <strong>Versión {v.version}: {v.valor_meta} {v.unidad} — {v.nombre}</strong>
               <p className="text-slate-500">{v.creado_por} · {fechaHora(v.creado_en)}</p>
               {v.motivo && <p>Motivo: {v.motivo}</p>}
+              {v.origen?.tipo === "plan_ia" && (
+                <p className="text-violet-700">Origen: plan con IA · validado por {v.origen.validado_por_nombre} · {fechaHora(v.origen.validado_en)}</p>
+              )}
               {v.retirada && (
                 <p className="text-red-700">Eliminada por {v.retirada.por_nombre} · {fechaHora(v.retirada.en)} · Motivo: {v.retirada.motivo}</p>
               )}
@@ -182,6 +187,7 @@ const paraQuien = (r, sucursales, vendedores) => {
 export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, vendedores }) {
   const [datos, setDatos] = useState(null);
   const [sello, setSello] = useState(null);
+  const [planes, setPlanes] = useState({ configurado: false, planes: [] });
   const [dialogo, setDialogo] = useState(null);
   const [verEliminadas, setVerEliminadas] = useState(false);
   const [error, setError] = useState("");
@@ -194,6 +200,7 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
       setDatos(await apiFetch(`/metas/admin?${base}`).then((r) => leer(r, "No se pudieron cargar las metas")));
       const r = await apiFetch(`/metas/sello?${base}`);
       setSello(r.status === 404 ? null : await leer(r, "No se pudo consultar el sello"));
+      setPlanes(await apiFetch("/metas/plan-ia").then((r) => leer(r, "No se pudieron cargar los planes con IA")));
     } catch (e) { setError(e.message); }
   }, [periodo, inicio]);
   useEffect(() => { cargar(); }, [cargar]);
@@ -227,10 +234,17 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
       {error && <div role="alert" className={ALERTA}>{error}</div>}
       {exito && <div className={EXITO}>{exito}</div>}
       {abierto && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <button type="button" className={BOTON} onClick={() => { setExito(""); setDialogo({ tipo: "okr" }); }}>+ Nuevo OKR</button>
           <button type="button" className={BOTON} onClick={() => { setExito(""); setDialogo({ tipo: "meta" }); }}>+ Nueva meta</button>
+          <button type="button" className={`${BOTON} disabled:opacity-50`} disabled={!planes.configurado}
+            title={planes.configurado ? undefined : "El planeador con IA no está configurado"}
+            onClick={() => { setExito(""); setDialogo({ tipo: "planeador" }); }}>✨ Proponer plan con IA</button>
+          {!planes.configurado && <span className="text-xs text-slate-500">El planeador con IA no está configurado</span>}
         </div>
+      )}
+      {planes.planes.length > 0 && (
+        <button type="button" className={`${ENLACE} text-sm`} onClick={() => setDialogo({ tipo: "planes" })}>Planes con IA ({planes.planes.length})</button>
       )}
       {!okrs.length && !metas.length && <p className="text-sm text-slate-500">Todavía no hay metas en este periodo.</p>}
       {grupos.filter((g) => g.okr || g.metas.length).map(({ okr, metas: suyas }) => (
@@ -279,6 +293,11 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
       )}
       {(dialogo?.tipo === "okr" || dialogo?.tipo === "meta") && <DialogoEdicion tipo={dialogo.tipo} registro={dialogo.registro} {...comunes} />}
       {dialogo?.tipo === "historial" && <Historial registro={dialogo.registro} cerrar={() => setDialogo(null)} />}
+      {dialogo?.tipo === "planeador" && (
+        <PlaneadorIA periodo={periodo} inicio={inicio} sucursales={sucursales} vendedores={vendedores} cerrar={() => setDialogo(null)}
+          alTerminar={terminar} />
+      )}
+      {dialogo?.tipo === "planes" && <PlanesIA planes={planes.planes} sucursales={sucursales} cerrar={() => setDialogo(null)} />}
       {dialogo?.tipo === "eliminar" && (
         <DialogoMotivo titulo={`Eliminar ${dialogo.esOkr ? "OKR" : "meta"}: ${dialogo.registro.titulo || dialogo.registro.nombre}`}
           textoGuardar="Eliminar" cerrar={() => setDialogo(null)}
