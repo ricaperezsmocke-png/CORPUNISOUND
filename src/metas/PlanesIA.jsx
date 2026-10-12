@@ -27,6 +27,7 @@ export default function PlanesIA({ planes, sucursales, cerrar }) {
                   <p className="text-slate-600">Objetivo: {p.entrada?.objetivo_texto}</p>
                   {p.error && <p className="text-red-700">Motivo: {p.error}</p>}
                   {p.validado_por_nombre && <p>Validado por {p.validado_por_nombre} · {fechaHora(p.validado_en)}</p>}
+                  {p.descartado_por_nombre && <p>Descartado por {p.descartado_por_nombre} · {fechaHora(p.descartado_en)}</p>}
                   {p.propuesta && (
                     <ul className="list-disc pl-5">
                       <li>OKR: {p.propuesta.okr.titulo}{p.decisiones[0] ? ` — ${texto(p.decisiones[0])}` : ""}</li>

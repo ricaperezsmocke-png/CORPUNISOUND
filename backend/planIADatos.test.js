@@ -86,6 +86,22 @@ test("quitarNombres: cambia nombres de personal y usuarios sin importar acentos 
   assert.equal(texto, "Que [persona] [persona] y [persona] vendan más guitarras; [persona] también");
 });
 
+test("metas anteriores: sin metas de una sola persona y sin nombres de personal en el nombre", () => {
+  const db = dbFalso();
+  db.pos.metas_personalizadas.push({ id: 2, clave: 2, vigente: true, nombre: "Reto de Ana", unidad: "u", prueba: "ninguna", valor_meta: 2,
+    periodo: "semanal", inicio: "2026-09-14", alcance: "tienda", sucursal_id: 1 }, { id: 3, clave: 3, vigente: true, nombre: "Solo Carlos",
+    unidad: "u", prueba: "ninguna", valor_meta: 2, periodo: "semanal", inicio: "2026-09-14", alcance: "persona", sucursal_id: 1, vendedor_id: 2 });
+  const { datos, catalogo } = armarDatosPlan(db, { sucursal_id: 1, periodo: "mensual", inicio: "2026-11-01" }, HOY);
+  const texto = JSON.stringify({ datos, catalogo });
+  assert.ok(!texto.includes("Ana") && !texto.includes("Carlos"));
+  assert.ok(datos.metas_anteriores.some((m) => m.nombre === "Reto de [persona]"));
+});
+
+test("quitarNombres: tapa telefonos escritos en el objetivo", () => {
+  assert.equal(quitarNombres(dbFalso(), "Llamar a la escuela 961 123 4567 y 9191234567, meta 120"),
+    "Llamar a la escuela [número] y [número], meta 120");
+});
+
 test("FACTOR_PERIODO convierte a escala mensual", () => {
   assert.deepEqual(FACTOR_PERIODO, { semanal: 0.25, mensual: 1, trimestral: 3 });
 });

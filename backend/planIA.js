@@ -7,22 +7,24 @@ const { validarPeriodo } = require("./metasPeriodos");
 const { fechaLocal } = require("./fechas");
 
 const MODELO = "claude-opus-5-5";
-const MAX_TOKENS = 4096;
+// El razonamiento de este modelo siempre está encendido y cuenta dentro de max_tokens: se deja holgado.
+const MAX_TOKENS = 16000;
 const TIMEOUT_MS = 30_000;
 const LIMITE_DIARIO = 20;
 const MENSAJE_FALLA = "No se pudo armar el plan; puedes intentarlo otra vez o dar de alta las metas a mano";
 
-const META_SCHEMA = { type: "object", required: ["accion", "nombre", "unidad", "prueba", "valor_meta", "por_que"], properties: {
-  accion: { type: "string", description: "Una 'accion' del catálogo, o 'nueva' si es una idea que no está en el catálogo" },
-  nombre: { type: "string" }, unidad: { type: "string" }, prueba: { type: "string", enum: ["ninguna", "liga", "foto"] },
-  valor_meta: { type: "integer", minimum: 1 }, por_que: { type: "string", description: "Una línea, máximo 200 caracteres" } } };
-const HERRAMIENTA = {
-  name: "proponer_plan",
-  description: "Propone un OKR y de 3 a 6 metas medibles para el periodo.",
-  input_schema: { type: "object", required: ["okr", "metas"], properties: {
-    okr: { type: "object", required: ["titulo"], properties: { titulo: { type: "string" }, descripcion: { type: "string" } } },
-    metas: { type: "array", minItems: 3, maxItems: 6, items: META_SCHEMA } } },
-};
+// Respuesta con salida estructurada (output_config.format). Este modelo RECHAZA forzar una herramienta
+// (tool_choice "tool"/"any" da 400), así que no se usa el patrón de facturaIA.js. Los límites (3 a 6 metas,
+// cifra > 0, topes) los revisa planIAValidar.js: el esquema solo asegura la forma.
+const META_SCHEMA = { type: "object", additionalProperties: false, required: ["accion", "nombre", "unidad", "prueba", "valor_meta", "por_que"],
+  properties: {
+    accion: { type: "string", description: "Una 'accion' del catálogo, o 'nueva' si es una idea que no está en el catálogo" },
+    nombre: { type: "string" }, unidad: { type: "string" }, prueba: { type: "string", enum: ["ninguna", "liga", "foto"] },
+    valor_meta: { type: "integer" }, por_que: { type: "string", description: "Una línea, máximo 200 caracteres" } } };
+const ESQUEMA = { type: "object", additionalProperties: false, required: ["okr", "metas"], properties: {
+  okr: { type: "object", additionalProperties: false, required: ["titulo", "descripcion"],
+    properties: { titulo: { type: "string" }, descripcion: { type: "string" } } },
+  metas: { type: "array", items: META_SCHEMA } } };
 
 const INSTRUCCIONES = `Ayudas al dueño de una cadena de tiendas de instrumentos musicales en Chiapas, México, a planear metas del periodo.
 Recibes su objetivo en palabras y un JSON con datos reales y agregados de la tienda. Propón un OKR y de 3 a 6 metas medibles.
@@ -31,7 +33,7 @@ Reglas que no puedes romper:
 - Las cifras son enteros alcanzables: no más de 3 veces lo mejor que la tienda ha hecho en esa acción, ajustado al periodo.
 - En "por_que" no menciones ningún número que no esté en el JSON.
 - No conoces a las personas y no inventes nombres.
-Escribe en español de México, breve y concreto.`;
+Escribe en español de México, breve y concreto. Responde solo con el JSON pedido.`;
 
 function errorCon(status, mensaje) {
   const error = new Error(mensaje);
@@ -59,15 +61,17 @@ async function pedirAlModelo(cliente, contenido, timeoutMs) {
   try {
     const respuesta = await Promise.race([
       cliente.messages.create({
-        model: MODELO, max_tokens: MAX_TOKENS, system: INSTRUCCIONES, tools: [HERRAMIENTA],
-        tool_choice: { type: "tool", name: HERRAMIENTA.name },
+        model: MODELO, max_tokens: MAX_TOKENS, system: INSTRUCCIONES,
+        output_config: { format: { type: "json_schema", schema: ESQUEMA }, effort: "low" },
         messages: [{ role: "user", content: JSON.stringify(contenido) }],
       }, { signal: corte.signal }),
       new Promise((_, rechazar) => { temporizador = setTimeout(() => { corte.abort(); rechazar(new Error("tiempo agotado")); }, timeoutMs); }),
     ]);
-    const bloque = respuesta?.content?.find((b) => b.type === "tool_use" && b.name === HERRAMIENTA.name);
+    if (respuesta?.stop_reason === "refusal") throw new Error("la IA se negó a responder");
+    if (respuesta?.stop_reason === "max_tokens") throw new Error("la respuesta de la IA quedó cortada");
+    const bloque = respuesta?.content?.find((b) => b.type === "text");
     if (!bloque) throw new Error("la IA no devolvió el plan");
-    return bloque.input;
+    return JSON.parse(bloque.text);
   } finally {
     clearTimeout(temporizador);
   }
@@ -101,4 +105,4 @@ async function proponerPlan(DB, cliente, entrada, usuario, { hoy, timeoutMs = TI
   return plan;
 }
 
-module.exports = { proponerPlan, MENSAJE_FALLA, LIMITE_DIARIO, MODELO, HERRAMIENTA };
+module.exports = { proponerPlan, MENSAJE_FALLA, LIMITE_DIARIO, MODELO, ESQUEMA };

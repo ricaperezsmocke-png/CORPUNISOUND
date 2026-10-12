@@ -20,7 +20,7 @@ const PROPUESTA = { okr: { titulo: "Más acústicas" }, metas: [
   { accion: "nueva", nombre: "Clínica", unidad: "clínica", prueba: "foto", valor_meta: 1, por_que: "" },
   { accion: "nueva", nombre: "Video", unidad: "videos", prueba: "liga", valor_meta: 2, por_que: "" },
   { accion: "actividad:volanteo", nombre: "Volanteo", unidad: "jornadas", prueba: "foto", valor_meta: 2, por_que: "" }] };
-const clienteFalso = { messages: { create: async () => ({ content: [{ type: "tool_use", name: "proponer_plan", input: PROPUESTA }] }) } };
+const clienteFalso = { messages: { create: async () => ({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(PROPUESTA) }] }) } };
 let servidor, base, admin, gerente;
 
 before(async () => {

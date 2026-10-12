@@ -2927,6 +2927,7 @@ app.post("/api/objetivos/cierre/:id/rectificar", requiereLogin, requierePermiso(
 require("./metasRutas")(app, {
   DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos,
   // Las pruebas fijan un cliente falso; sin ANTHROPIC_API_KEY el planeador queda apagado.
+  guardarDB: () => guardar(DB),
   clienteIA: () => (app.locals.clienteIA !== undefined ? app.locals.clienteIA : (process.env.ANTHROPIC_API_KEY ? anthropic : null)),
 });
 

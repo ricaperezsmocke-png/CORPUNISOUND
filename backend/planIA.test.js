@@ -23,11 +23,11 @@ function clienteFalso(respuesta, registro = []) {
   return { messages: { create: async (cuerpo, opciones) => {
     registro.push({ cuerpo, opciones });
     if (respuesta instanceof Error) throw respuesta;
-    return { content: [{ type: "tool_use", name: "proponer_plan", input: respuesta }] };
+    return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(respuesta) }] };
   } } };
 }
 
-test("borrador: llama al modelo con herramienta forzada, sin nombres, y guarda el plan", async () => {
+test("borrador: pide salida estructurada, sin nombres, y guarda el plan", async () => {
   const DB = dbMinimo();
   const llamadas = [];
   const plan = await proponerPlan(DB, clienteFalso(PROPUESTA, llamadas), ENTRADA, USUARIO, { hoy: HOY });
@@ -38,7 +38,10 @@ test("borrador: llama al modelo con herramienta forzada, sin nombres, y guarda e
   assert.deepEqual(DB.pos.planes_ia, [plan]);
   const { cuerpo, opciones } = llamadas[0];
   assert.equal(cuerpo.model, MODELO);
-  assert.deepEqual(cuerpo.tool_choice, { type: "tool", name: "proponer_plan" });
+  assert.equal("tool_choice" in cuerpo, false); // claude-opus-5-5 rechaza forzar herramienta
+  assert.equal("tools" in cuerpo, false);
+  assert.equal(cuerpo.output_config.format.type, "json_schema");
+  assert.equal(cuerpo.output_config.effort, "low");
   assert.equal("temperature" in cuerpo, false);
   assert.ok(opciones.signal);
   assert.ok(!JSON.stringify(cuerpo.messages).includes("Ana"));
@@ -92,7 +95,7 @@ test("propuestas simultaneas respetan el limite diario y conservan ids distintos
   const cliente = { messages: { create: () => new Promise((resolve) => pendientes.push(resolve)) } };
   const intentos = Array.from({ length: 21 }, () => proponerPlan(DB, cliente, ENTRADA, USUARIO, { hoy }));
   const resultados = Promise.allSettled(intentos);
-  for (const resolve of pendientes) resolve({ content: [{ type: "tool_use", name: "proponer_plan", input: PROPUESTA }] });
+  for (const resolve of pendientes) resolve({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(PROPUESTA) }] });
   const respuestas = await resultados;
   assert.equal(respuestas.filter((r) => r.status === "fulfilled").length, 20);
   assert.equal(respuestas[20].reason.status, 429);
@@ -108,6 +111,17 @@ test("mientras la IA responde el plan queda pendiente y no se puede validar", as
   await new Promise((listo) => setImmediate(listo));
   assert.equal(DB.pos.planes_ia[0].estado, "pendiente");
   assert.throws(() => validarPlan(DB, DB.pos.planes_ia[0].id, {}, USUARIO), /ya no está en borrador/);
-  responder({ content: [{ type: "tool_use", name: "proponer_plan", input: PROPUESTA }] });
+  responder({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(PROPUESTA) }] });
   assert.equal((await promesa).estado, "borrador");
+});
+
+test("la IA se niega, se corta o manda texto que no es JSON: 502 y fallido", async () => {
+  const respuestas = [{ stop_reason: "refusal", content: [] }, { stop_reason: "max_tokens", content: [{ type: "text", text: "{\"okr\":" }] },
+    { stop_reason: "end_turn", content: [{ type: "text", text: "no es json" }] }];
+  for (const respuesta of respuestas) {
+    const DB = dbMinimo();
+    const cliente = { messages: { create: async () => respuesta } };
+    await assert.rejects(proponerPlan(DB, cliente, ENTRADA, USUARIO, { hoy: HOY }), (e) => e.status === 502);
+    assert.equal(DB.pos.planes_ia[0].estado, "fallido");
+  }
 });

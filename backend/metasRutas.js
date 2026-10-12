@@ -15,7 +15,7 @@ function selloParaRespuesta(sello) {
 
 module.exports = function registrarRutasMetas(app, deps) {
   const { DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos,
-    clienteIA } = deps;
+    clienteIA, guardarDB } = deps;
   const permiso = (clave) => requierePermiso(clave, resolverPermisosDeRol);
   const admin = permiso("administrar_metas_personalizadas");
   const uso = permiso("usar_gerente_ventas");
@@ -92,7 +92,11 @@ module.exports = function registrarRutasMetas(app, deps) {
   app.post("/api/metas/plan-ia", requiereLogin, admin, async (req, res) => {
     try {
       res.json(await proponerPlan(DB, clienteIA(), req.body || {}, req.usuarioToken, { hoy: hoy() }));
-    } catch (e) { res.status(e.status || 400).json({ error: e.message }); }
+    } catch (e) {
+      // El intento fallido queda en el registro: el guardado automático solo corre con respuestas exitosas.
+      if (e.status === 502 && guardarDB) guardarDB();
+      res.status(e.status || 400).json({ error: e.message });
+    }
   });
   app.post("/api/metas/plan-ia/:id/validar", requiereLogin, admin, (req, res) => responder(res, () =>
     validarPlan(DB, idDeObjetivos(req.params.id, "id"), req.body || {}, req.usuarioToken)));

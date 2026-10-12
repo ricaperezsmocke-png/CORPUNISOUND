@@ -35,9 +35,10 @@ function armarDatosPlan(DB, { sucursal_id, periodo, inicio }, hoy) {
 
   const capturas = DB.pos.meta_capturas.filter((c) => !c.anulada && deTienda(c));
   const metas_anteriores = DB.pos.metas_personalizadas
-    .filter((m) => m.vigente && m.inicio < inicio && (sucursal_id === null || m.sucursal_id === sucursal_id))
+    // Las metas de una sola persona no van: su resultado sería una cifra individual.
+    .filter((m) => m.vigente && m.alcance !== "persona" && m.inicio < inicio && (sucursal_id === null || m.sucursal_id === sucursal_id))
     .sort((a, b) => b.inicio.localeCompare(a.inicio)).slice(0, 20)
-    .map((m) => ({ nombre: m.nombre, unidad: m.unidad, periodo: m.periodo, valor_meta: m.valor_meta,
+    .map((m) => ({ nombre: quitarNombres(DB, m.nombre), unidad: m.unidad, periodo: m.periodo, valor_meta: m.valor_meta,
       resultado: capturas.filter((c) => c.meta_clave === m.clave).reduce((suma, c) => suma + Number(c.cantidad || 0), 0) }));
 
   const tienda = sucursal_id === null ? "toda la empresa" : DB.pos.sucursales.find((s) => s.id === sucursal_id)?.nombre || "tienda";
@@ -82,7 +83,9 @@ function quitarNombres(DB, texto) {
   const nombres = [...DB.pos.vendedores, ...(DB.admin?.usuarios || [])].flatMap((p) => [p.nombre, p.usuario])
     .filter(Boolean).flatMap((n) => comparable(n).match(/\p{L}+/gu) || []).filter((palabra) => palabra.length >= 3 && !CONECTORES.has(palabra));
   const prohibidas = new Set(nombres);
-  return texto.replace(/\p{L}+/gu, (palabra) => (prohibidas.has(comparable(palabra)) ? "[persona]" : palabra));
+  // Un teléfono escrito en el objetivo tampoco sale: 7 dígitos o más, con espacios o guiones.
+  return texto.replace(/\p{L}+/gu, (palabra) => (prohibidas.has(comparable(palabra)) ? "[persona]" : palabra))
+    .replace(/\d(?:[\s-]?\d){6,}/g, "[número]");
 }
 
 module.exports = { armarDatosPlan, quitarNombres, FACTOR_PERIODO };
