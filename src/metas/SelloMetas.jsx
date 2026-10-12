@@ -2,7 +2,7 @@ import { useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
-import { periodoTerminado } from "./metas";
+import { periodoTerminado, queryTablero } from "./metas";
 import { ENLACE, fechaHora } from "./Comunes";
 
 const TABLA = "w-full text-sm border-collapse";
@@ -22,7 +22,7 @@ export default function SelloMetas({ periodo, inicio, hoy, sello, sucursales, ve
   const [corrigiendo, setCorrigiendo] = useState(null);
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
-  const base = `periodo=${periodo}&inicio=${inicio}`;
+  const base = queryTablero({ periodo, inicio });
 
   if (!sello && !periodoTerminado(periodo, inicio, hoy)) return null;
 

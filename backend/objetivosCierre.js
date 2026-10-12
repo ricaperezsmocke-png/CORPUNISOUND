@@ -341,4 +341,39 @@ function rectificarCierre(DB, cierreId, datos, usuario) {
   return rectificacion;
 }
 
-module.exports = { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes };
+function referenciaDeRectificacion(linea, r) {
+  if (r.marca_id != null) {
+    const nombre = linea.marcas?.find((m) => Number(m.marca_id) === Number(r.marca_id))?.nombre;
+    return `Marca: ${nombre || r.marca_id}`;
+  }
+  if (r.producto_meta_id != null) {
+    const nombre = linea.productos?.find((p) => Number(p.producto_meta_id) === Number(r.producto_meta_id))?.nombre;
+    return `Producto: ${nombre || r.producto_meta_id}`;
+  }
+  if (r.financiera != null) return `Financiera: ${FINANCIERAS.find((f) => f.clave === r.financiera)?.etiqueta || r.financiera}`;
+  if (r.actividad != null) return `Actividad: ${claseActividad(r.actividad)?.etiqueta || r.actividad}`;
+  return null;
+}
+
+// Proyección personal: nunca devuelve la foto, líneas ajenas ni objetos mutables del sello.
+function cierreDePersona(DB, { mes, sucursal_id, vendedor_id }) {
+  const cierre = (DB.pos.objetivo_cierres || []).find((c) => c.mes === mes && c.sucursal_id === Number(sucursal_id));
+  const linea = cierre?.lineas.find((l) => l.vendedor_id === Number(vendedor_id));
+  if (!linea) return null;
+  const propias = (cierre.rectificaciones || []).filter((r) => Number(r.vendedor_id) === Number(vendedor_id));
+  const deVenta = propias.filter((r) => referenciaDeRectificacion(linea, r) === null);
+  const vigente = (campo) => deVenta.filter((r) => r.campo === campo).at(-1)?.valor_nuevo ?? linea[campo];
+  const declarado = vigente("capturado");
+  const real_sicar = vigente("real_sicar");
+  return {
+    cerrado_en: cierre.cerrado_en, cerrado_por: cierre.cerrado_por,
+    venta: { meta: vigente("meta"), declarado, real_sicar, diferencia: restarEnCentavos(declarado, real_sicar) },
+    rectificaciones: propias.map((r) => {
+      const referencia = referenciaDeRectificacion(linea, r);
+      return { campo: r.campo, ...(referencia ? { referencia } : {}), valor_anterior: r.valor_anterior,
+        valor_nuevo: r.valor_nuevo, motivo: r.motivo, rectificado_en: r.rectificado_en };
+    }),
+  };
+}
+
+module.exports = { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes, cierreDePersona };

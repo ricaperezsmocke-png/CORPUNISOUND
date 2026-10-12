@@ -11,6 +11,11 @@ export const TEXTO_SEMAFORO = { verde: "Vas a tiempo", amarillo: "Un poco atrás
 export const TEXTO_PRUEBA = { ninguna: "Sin prueba", liga: "Liga de la publicación", foto: "Foto" };
 export const TEXTO_PERIODO = { semanal: "Semana", mensual: "Mes", trimestral: "Trimestre" };
 
+// Vacío explícito impide que apiFetch herede la sucursal del encabezado.
+export function queryTablero({ periodo, inicio, sucursal_id, vendedor_id }) {
+  return new URLSearchParams({ periodo, inicio, sucursal_id: sucursal_id ?? "", vendedor_id: vendedor_id ?? "" }).toString();
+}
+
 export function inicioDePeriodo(periodo, fecha) {
   const d = aUTC(fecha);
   if (periodo === "semanal") return aTexto(new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * DIA_MS));

@@ -1,14 +1,18 @@
-const { test } = require("node:test");
+const { test, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const M = require("./metasPersonalizadas");
 const { porcentaje, semaforo, resultadoMeta, tablero } = require("./metasAvance");
+const { registrarEnPlantilla } = require("./objetivos");
+const { capturarMeta } = require("./metasCapturas");
+
+beforeEach((t) => t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-20T18:00:00Z") }));
 
 const VICTOR = { id: 1, nombre: "Victor" };
 function DBPrueba() {
   return { pos: {
     sucursales: [{ id: 1, nombre: "Ocosingo" }, { id: 4, nombre: "Palenque" }],
     vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 4 }, { id: 2, nombre: "Luis", sucursal_id: 4 }, { id: 3, nombre: "Eva", sucursal_id: 1 }],
-    okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [],
+    okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [], objetivo_plantilla: [],
   } };
 }
 const BASE = { periodo: "mensual", inicio: "2026-10-01" };
@@ -16,6 +20,103 @@ const captura = (DB, meta, vendedor_id, cantidad, extra = {}) => DB.pos.meta_cap
   id: DB.pos.meta_capturas.length + 1, meta_clave: meta.clave, meta_id: meta.id, ...BASE, fecha: "2026-10-03",
   vendedor_id, sucursal_id: 4, cantidad, evidencia: null, nota: null, anulada: null, ...extra });
 const JEFE_GLOBAL = { vendedor_id: null, jefatura: true, verTodas: true, sucursalId: null };
+
+const ANA = { vendedor_id: 1, jefatura: false, verTodas: false, sucursalId: 4 };
+const PASADO = { periodo: "mensual", inicio: "2026-09-01" };
+function metaDeTienda(DB, periodo = PASADO) {
+  return M.crearMeta(DB, { ...periodo, nombre: "Videos", unidad: "videos", prueba: "ninguna",
+    valor_meta: 10, alcance: "tienda", sucursal_id: 1 }, VICTOR);
+}
+function plantillaAna(DB, mes, desde, hasta = null) {
+  DB.pos.vendedores[0].sucursal_id = 1;
+  registrarEnPlantilla(DB, { mes, desde, hasta, sucursal_id: 1, vendedor_id: 1 });
+  DB.pos.vendedores[0].sucursal_id = 4;
+}
+
+for (const anulada of [null, { motivo: "Duplicada" }]) {
+  test(`trasladada conserva la meta y su captura histórica, anulada: ${Boolean(anulada)}`, () => {
+    const DB = DBPrueba();
+    const meta = metaDeTienda(DB);
+    captura(DB, meta, 1, 3, { ...PASADO, fecha: "2026-09-03", sucursal_id: 1, anulada });
+    const t = tablero(DB, ANA, PASADO, "2026-10-09");
+    assert.equal(t.sueltas.length, 1);
+    assert.equal(t.sueltas[0].mis_capturas[0].cantidad, 3);
+    assert.equal(t.sueltas[0].puede_capturar, false);
+    assert.equal(tablero(DB, { ...ANA, vendedor_id: 2 }, PASADO, "2026-10-09").sueltas.length, 0);
+    const gerente = { ...ANA, jefatura: true };
+    assert.equal(tablero(DB, gerente, PASADO, "2026-10-09").sueltas.length, 0);
+  });
+}
+
+test("plantilla histórica permite ver y capturar al final del periodo después del traslado", async () => {
+  const DB = DBPrueba();
+  const meta = metaDeTienda(DB);
+  plantillaAna(DB, "2026-09", "2026-09-01");
+  const t = tablero(DB, ANA, PASADO, "2026-10-09");
+  assert.equal(t.sueltas.length, 1);
+  assert.equal(t.sueltas[0].puede_capturar, true);
+  const c = await capturarMeta(DB, meta.clave, { fecha: "2026-09-30", cantidad: 1 }, { usuario: VICTOR, vendedor_id: 1 });
+  assert.equal(c.sucursal_id, 1);
+});
+
+test("visibilidad cruza meses del trimestre y respeta los días de una semana", () => {
+  const DB = DBPrueba();
+  plantillaAna(DB, "2026-08", "2026-08-15", "2026-08-20");
+  const trimestre = { periodo: "trimestral", inicio: "2026-07-01" };
+  metaDeTienda(DB, trimestre);
+  assert.equal(tablero(DB, ANA, trimestre, "2026-10-09").sueltas.length, 1);
+  const semana = { periodo: "semanal", inicio: "2026-08-24" };
+  metaDeTienda(DB, semana);
+  assert.equal(tablero(DB, ANA, semana, "2026-10-09").sueltas.length, 0);
+});
+
+test("tienda actual no ofrece Hecho si la plantilla rechaza esa fecha", async () => {
+  const DB = DBPrueba();
+  const meta = metaDeTienda(DB);
+  registrarEnPlantilla(DB, { mes: "2026-09", sucursal_id: 4, vendedor_id: 1 });
+  DB.pos.vendedores[0].sucursal_id = 1;
+  assert.equal(tablero(DB, ANA, PASADO, "2026-10-09").sueltas[0].puede_capturar, false);
+  await assert.rejects(capturarMeta(DB, meta.clave, { fecha: "2026-09-30", cantidad: 1 },
+    { usuario: VICTOR, vendedor_id: 1 }), /plantilla/);
+});
+
+test("Hecho queda desactivado para periodos futuros y sellados", () => {
+  const DB = DBPrueba();
+  const futuro = { periodo: "mensual", inicio: "2026-11-01" };
+  metaDeTienda(DB, futuro);
+  const eva = { ...ANA, vendedor_id: 3 };
+  assert.equal(tablero(DB, eva, futuro, "2026-10-09").sueltas[0].puede_capturar, false);
+  metaDeTienda(DB);
+  DB.pos.meta_sellos.push({ ...PASADO, foto: { resultados: [] } });
+  assert.equal(tablero(DB, eva, PASADO, "2026-10-09").sueltas[0].puede_capturar, false);
+});
+
+test("retirada conserva tres capturas propias sin Drive ni efecto en OKR", () => {
+  const DB = DBPrueba();
+  const okr = M.crearOkr(DB, { ...PASADO, titulo: "Redes", alcance: "tienda", sucursal_id: 1 }, VICTOR);
+  const meta = M.crearMeta(DB, { okr_clave: okr.clave, nombre: "Videos", unidad: "videos", prueba: "ninguna", valor_meta: 10 }, VICTOR);
+  const vigente = M.crearMeta(DB, { okr_clave: okr.clave, nombre: "Visitas", unidad: "visitas", prueba: "ninguna", valor_meta: 10 }, VICTOR);
+  plantillaAna(DB, "2026-09", "2026-09-01");
+  captura(DB, vigente, 1, 5);
+  captura(DB, meta, 1, 1);
+  captura(DB, meta, 1, 1, { anulada: { motivo: "Duplicada" } });
+  captura(DB, meta, 1, 1, { evidencia: { tipo: "foto", drive_file_id: "privado", drive_link: "https://drive/foto" } });
+  captura(DB, meta, 3, 9);
+  M.retirarMeta(DB, meta.clave, "Cambio de campaña", VICTOR);
+  const t = tablero(DB, ANA, PASADO, "2026-10-09");
+  assert.equal(t.retiradas?.length, 1);
+  assert.equal(t.retiradas[0].mis_capturas.length, 3);
+  assert.equal(t.retiradas[0].retirada.motivo, "Cambio de campaña");
+  assert.equal(t.retiradas[0].mis_capturas[2].evidencia.drive_file_id, undefined);
+  assert.equal(t.retiradas[0].resultado, undefined);
+  assert.equal(t.okrs[0].porcentaje, 50);
+  assert.deepEqual(t.okrs[0].metas.map((m) => m.clave), [vigente.clave]);
+  assert.equal(t.sueltas.length, 0);
+  DB.pos.vendedores[1].sucursal_id = 1;
+  assert.deepEqual(tablero(DB, { ...ANA, vendedor_id: 2 }, PASADO, "2026-10-09").retiradas, []);
+  assert.equal(tablero(DB, JEFE_GLOBAL, PASADO, "2026-10-09").retiradas.length, 1);
+  assert.deepEqual(tablero(DB, { ...ANA, jefatura: true }, PASADO, "2026-10-09").retiradas, []);
+});
 
 test("mis capturas incluye las anuladas propias con auditoría, sin sumarlas ni exponer Drive o capturas ajenas", () => {
   const DB = DBPrueba();

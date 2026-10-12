@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
+import { queryTablero } from "./metas";
 import { ALERTA, Anulada, Barra, DialogoMotivo, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta } from "./Comunes";
 
 const SELECT = "block neu-campo rounded-lg px-3 py-2 mt-1";
@@ -20,10 +21,9 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
 
   const cargar = useCallback(async () => {
     setError("");
-    const extra = Object.entries(filtros).filter(([, v]) => v).map(([k, v]) => `&${k}=${v}`).join("");
     try {
-      const base = `periodo=${periodo}&inicio=${inicio}`;
-      setTablero(await apiFetch(`/metas/tablero?${base}${extra}`).then((r) => leer(r, "No se pudo cargar el tablero")));
+      const base = queryTablero({ periodo, inicio, ...filtros });
+      setTablero(await apiFetch(`/metas/tablero?${base}`).then((r) => leer(r, "No se pudo cargar el tablero")));
       if (puedeAnular) setCapturas(await apiFetch(`/metas/revision?${base}`).then((r) => leer(r, "No se pudieron cargar las capturas")));
     } catch (e) { setError(e.message); }
   }, [periodo, inicio, filtros, puedeAnular]);

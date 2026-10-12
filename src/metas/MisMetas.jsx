@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
-import { cuerpoCaptura, fechaPropuestaCaptura } from "./metas";
+import { cuerpoCaptura, fechaPropuestaCaptura, queryTablero } from "./metas";
 import {
-  ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta, leerArchivoComoBase64,
+  ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta, fechaHora, leerArchivoComoBase64,
 } from "./Comunes";
 
 const BOTON_HECHO = "bg-blue-600 text-white rounded-lg px-5 py-2.5 font-semibold shrink-0";
@@ -23,15 +23,15 @@ export default function MisMetas({ periodo, inicio, hoy }) {
   const cargar = useCallback(async () => {
     setError("");
     try {
-      setTablero(await apiFetch(`/metas/tablero?periodo=${periodo}&inicio=${inicio}`).then((r) => leer(r, "No se pudieron cargar tus metas")));
+      setTablero(await apiFetch(`/metas/tablero?${queryTablero({ periodo, inicio })}`).then((r) => leer(r, "No se pudieron cargar tus metas")));
     } catch (e) { setError(e.message); }
   }, [periodo, inicio]);
   useEffect(() => { cargar(); }, [cargar]);
 
   if (!tablero) return error ? <div role="alert" className={ALERTA}>{error}</div> : <p className="text-sm text-slate-500">Cargando…</p>;
   const grupos = [
-    ...tablero.okrs.map((o) => ({ titulo: o.titulo, metas: o.metas.filter((m) => m.puede_capturar) })),
-    { titulo: null, metas: tablero.sueltas.filter((m) => m.puede_capturar) },
+    ...tablero.okrs.map((o) => ({ titulo: o.titulo, metas: o.metas })),
+    { titulo: null, metas: tablero.sueltas },
   ].filter((g) => g.metas.length);
   const terminar = async (mensaje) => { setCapturando(null); setQuitando(null); setExito(mensaje); await cargar(); };
 
@@ -40,7 +40,7 @@ export default function MisMetas({ periodo, inicio, hoy }) {
       {error && <div role="alert" className={ALERTA}>{error}</div>}
       {exito && <div className={EXITO}>{exito}</div>}
       {tablero.sellado && <p className="bg-slate-100 rounded-lg p-3 text-sm text-slate-700">🔒 Periodo sellado. Ya no se puede capturar.</p>}
-      {!grupos.length && <p className="text-sm text-slate-500">No tienes metas en este periodo.</p>}
+      {!grupos.length && <p className="text-sm text-slate-500">No tienes metas vigentes en este periodo.</p>}
       {grupos.map((grupo) => (
         <section key={grupo.titulo || "sueltas"} className="space-y-3">
           {grupo.titulo && <h3 className="font-semibold text-slate-700">{grupo.titulo}</h3>}
@@ -61,7 +61,7 @@ export default function MisMetas({ periodo, inicio, hoy }) {
                       {meta.alcance !== "persona" && <span className="text-xs text-slate-600">Tú llevas {mias}</span>}
                     </div>
                   </div>
-                  {!tablero.sellado && (
+                  {!tablero.sellado && meta.puede_capturar && (
                     <button type="button" className={BOTON_HECHO} onClick={() => { setExito(""); setCapturando(meta); }}>Hecho</button>
                   )}
                 </div>
@@ -93,6 +93,29 @@ export default function MisMetas({ periodo, inicio, hoy }) {
           })}
         </section>
       ))}
+      {tablero.retiradas?.length > 0 && (
+        <details className={TARJETA}>
+          <summary className="cursor-pointer font-semibold text-slate-700">Metas retiradas</summary>
+          {tablero.retiradas.map((meta) => (
+            <article key={meta.clave} className="space-y-2 border-t border-slate-100 pt-3 text-sm">
+              <strong className="line-through">{meta.nombre}</strong>
+              <p className="text-slate-600">
+                Retirada por {meta.retirada.por_nombre} el {fechaHora(meta.retirada.en)} · Motivo: {meta.retirada.motivo}
+              </p>
+              <ul className="space-y-2">
+                {meta.mis_capturas.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-3">
+                    <span>{fechaCorta(c.fecha)}</span>
+                    <span>{c.cantidad} {meta.unidad}</span>
+                    {c.evidencia && <Prueba captura={c} />}
+                    <Anulada anulada={c.anulada} />
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </details>
+      )}
       {capturando && (
         <DialogoHecho meta={capturando} periodo={periodo} inicio={inicio} hoy={hoy} cerrar={() => setCapturando(null)}
           alTerminar={() => terminar("¡Listo! Se registró.")} />

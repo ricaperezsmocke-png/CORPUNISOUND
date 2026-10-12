@@ -2517,6 +2517,11 @@ app.get("/api/objetivos/:mes/:sucursalId/avance", requiereLogin, requierePermiso
     if ((!esJefatura || !alcanceNormal) && propioLigado == null) return res.status(404).json({ error: "Objetivo no encontrado" });
     const datos = { mes, sucursal_id };
     const propio = alcancePropio ? avancePersona(DB, { ...datos, vendedor_id: propioLigado }) : null;
+    if (propio) {
+      const { cierreDePersona } = require("./objetivosCierre");
+      const cierre = cierreDePersona(DB, { ...datos, vendedor_id: propioLigado });
+      if (cierre) propio.cierre = cierre;
+    }
     // Porcentajes de tienda al cierre de ayer, solo de lo suyo y sin metas chicas (decisión de Victor 2026-09-25).
     const respuesta = { propio, tienda_porcentajes: porcentajesParaVendedora(DB, datos, propio) };
     if (esJefatura && alcanceNormal) {

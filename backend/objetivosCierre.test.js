@@ -23,6 +23,60 @@ const VICTOR = { id: 1, nombre: "Victor" };
 const ADMINISTRADORA = { id: 3, nombre: "Administración" };
 const MES = { mes: "2026-09", sucursal_id: 1 };
 
+test("cierre personal toma últimas correcciones de venta, calcula centavos y no filtra datos ajenos", () => {
+  const { cierreDePersona } = require("./objetivosCierre");
+  const DB = prepararDB();
+  const cierre = { id: 1, ...MES, cerrado_en: "2026-10-02T18:00:00Z", cerrado_por: "Victor",
+    lineas: [{ vendedor_id: 1, meta: 120, capturado: 90, real_sicar: 100, diferencia: -10 },
+      { vendedor_id: 2, meta: 9000, capturado: 8000, real_sicar: 7000, diferencia: 1000 }],
+    rectificaciones: [] };
+  DB.pos.objetivo_cierres.push(cierre);
+  for (const datos of [
+    { vendedor_id: 1, campo: "real_sicar", valor_nuevo: 80 },
+    { vendedor_id: 2, campo: "real_sicar", valor_nuevo: 6000 },
+    { vendedor_id: 1, campo: "capturado", valor_nuevo: 80.5 },
+    { vendedor_id: 1, campo: "meta", valor_nuevo: 110 },
+    { vendedor_id: 1, campo: "real_sicar", valor_nuevo: 70.2 },
+  ]) rectificarCierre(DB, 1, { ...datos, motivo: "Revisión SICAR" }, VICTOR);
+  const antes = structuredClone(DB);
+  const propio = cierreDePersona(DB, { ...MES, vendedor_id: "1", sucursal_id: "1" });
+  assert.deepStrictEqual(propio.venta, { meta: 110, declarado: 80.5, real_sicar: 70.2, diferencia: 10.3 });
+  assert.equal(propio.cerrado_por, "Victor");
+  assert.equal(propio.cerrado_en, cierre.cerrado_en);
+  assert.equal(propio.rectificaciones.length, 4);
+  assert.deepStrictEqual(propio.rectificaciones[0], { campo: "real_sicar", valor_anterior: 100, valor_nuevo: 80,
+    motivo: "Revisión SICAR", rectificado_en: cierre.rectificaciones[0].rectificado_en });
+  assert.equal(propio.lineas, undefined);
+  assert.equal(propio.foto, undefined);
+  assert.ok(!JSON.stringify(propio).includes("6000"));
+  assert.deepStrictEqual(DB, antes);
+});
+
+test("cierre personal omite a quien no fue sellado y respeta mes y tienda", () => {
+  const { cierreDePersona } = require("./objetivosCierre");
+  const DB = prepararDB();
+  DB.pos.objetivo_cierres.push({ ...MES, cerrado_por: "Victor", cerrado_en: "2026-10-02T18:00:00Z",
+    lineas: [{ vendedor_id: 1, meta: 120, capturado: 90, real_sicar: 100, diferencia: -10 }] });
+  for (const consulta of [{ ...MES, vendedor_id: 9 }, { mes: "2026-08", sucursal_id: 1, vendedor_id: 1 },
+    { ...MES, sucursal_id: 2, vendedor_id: 1 }]) assert.equal(cierreDePersona(DB, consulta), null);
+  const propio = cierreDePersona(DB, { ...MES, vendedor_id: 1 });
+  assert.deepStrictEqual(propio.venta, { meta: 120, declarado: 90, real_sicar: 100, diferencia: -10 });
+  assert.deepStrictEqual(propio.rectificaciones, []);
+});
+
+test("correcciones de elementos tienen referencia sellada legible y no cambian la venta", () => {
+  const { cierreDePersona } = require("./objetivosCierre");
+  const DB = prepararNuevos();
+  const cierre = cerrarRevisado(DB, { ...MES, reales: realesNuevos() }, VICTOR);
+  for (const referencia of [{ marca_id: 1 }, { producto_meta_id: 1 }, { financiera: "coppel_pay" }]) {
+    rectificarCierre(DB, cierre.id, { vendedor_id: 1, campo: "meta", ...referencia, valor_nuevo: 2, motivo: "Ajuste" }, VICTOR);
+  }
+  DB.pos.objetivo_marcas[0].nombre = "Nombre posterior";
+  const propio = cierreDePersona(DB, { ...MES, vendedor_id: 1 });
+  assert.equal(propio.venta.meta, 100000);
+  assert.deepStrictEqual(propio.rectificaciones.map((r) => r.referencia), ["Marca: Yamaha", "Producto: Teclados", "Financiera: Coppel Pay"]);
+});
+
 test("fase1: solo cierra después del fin de mes local, incluido diciembre", () => {
   for (const [mes, hoy, siguiente] of [
     ["2026-09", "2026-09-30", "2026-10-01"], ["2030-01", "2026-10-09", "2030-02-01"],

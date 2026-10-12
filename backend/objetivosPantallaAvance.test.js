@@ -3,25 +3,81 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { createRequire } = require("node:module");
-const { buildSync } = require("../node_modules/esbuild");
+const { transformSync } = require("../node_modules/esbuild");
+const { readFileSync, existsSync } = require("node:fs");
 
 const raiz = path.join(__dirname, "..");
 const requerirDeRaiz = createRequire(path.join(raiz, "package.json"));
 const React = requerirDeRaiz("react");
 const { renderToStaticMarkup } = requerirDeRaiz("react-dom/server");
 
-function cargar(relativo) {
-  const { outputFiles } = buildSync({
-    entryPoints: [path.join(raiz, relativo)], bundle: true, write: false, format: "cjs", platform: "node",
-    jsx: "automatic", external: ["react", "react-dom", "lucide-react"], logLevel: "silent",
-    define: { "import.meta.env": "{}" },
-  });
-  const mod = { exports: {} };
-  new Function("module", "exports", "require", outputFiles[0].text)(mod, mod.exports, requerirDeRaiz);
-  return mod.exports;
+function cargar(relativo, estados = []) {
+  let indice = 0;
+  const reactConDatos = { ...React, useState: (inicial) => React.useState(indice < estados.length ? estados[indice++] : inicial) };
+  const cache = new Map();
+  // Transformar fuentes conocidas evita que el bundler recorra directorios fuera del worktree.
+  function modulo(archivo) {
+    if (cache.has(archivo)) return cache.get(archivo).exports;
+    const mod = { exports: {} };
+    cache.set(archivo, mod);
+    const { code } = transformSync(readFileSync(archivo, "utf8"), {
+      loader: "jsx", format: "cjs", jsx: "automatic", define: { "import.meta.env": "{}" },
+    });
+    const requerir = (nombre) => {
+      if (nombre === "react") return reactConDatos;
+      if (!nombre.startsWith(".")) return requerirDeRaiz(nombre);
+      const base = path.resolve(path.dirname(archivo), nombre);
+      const destino = [base, `${base}.js`, `${base}.jsx`].find((ruta) => existsSync(ruta));
+      return modulo(destino);
+    };
+    new Function("module", "exports", "require", code)(mod, mod.exports, requerir);
+    return mod.exports;
+  }
+  return modulo(path.join(raiz, relativo));
 }
 
 const texto = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+test("Mi avance presenta el cierre y motivo de corrección sin reemplazar el anillo capturado", () => {
+  const propio = { venta: { meta: 120, capturado: 90, porcentaje: 75 }, serie: [], marcas: [], productos: [], creditos: [], actividades: [],
+    cierre: { cerrado_en: "2026-10-01T18:00:00Z", cerrado_por: "Victor",
+      venta: { meta: 120, declarado: 90, real_sicar: 80, diferencia: 10 },
+      rectificaciones: [{ campo: "real_sicar", valor_anterior: 100, valor_nuevo: 80, motivo: "Devolución", rectificado_en: "2026-10-02T18:00:00Z" }] } };
+  const Avance = cargar("src/objetivos/AvanceVendedor.jsx", [{ propio }]).default;
+  const pagina = texto(renderToStaticMarkup(React.createElement(Avance, { mes: "2026-09", sucursalId: 1 })));
+  assert.match(pagina, /Mes cerrado el/);
+  assert.match(pagina, /Declaraste \$90\.00 · Real de SICAR \$80\.00 · Diferencia \$10\.00/);
+  assert.match(pagina, /Corrección: real de SICAR de \$100\.00 a \$80\.00.*Motivo: Devolución/);
+  assert.match(pagina, /\$90\.00 de \$120\.00/);
+});
+
+test("Mis metas conserva metas históricas visibles aunque ya no permitan Hecho", () => {
+  const meta = { clave: 1, nombre: "Videos históricos", alcance: "tienda", resultado: 3, valor_meta: 10,
+    porcentaje: 30, semaforo: "verde", unidad: "videos", puede_capturar: false, mis_capturas: [{ id: 1, cantidad: 3 }] };
+  const MisMetas = cargar("src/metas/MisMetas.jsx", [{ okrs: [], sueltas: [meta], retiradas: [], sellado: false }]).default;
+  const pagina = texto(renderToStaticMarkup(React.createElement(MisMetas, { periodo: "mensual", inicio: "2026-09-01", hoy: "2026-10-09" })));
+  assert.match(pagina, /Videos históricos/);
+  assert.match(pagina, /Ver lo que capturé \(1\)/);
+  assert.doesNotMatch(pagina, /Hecho/);
+});
+
+test("Mis metas muestra retiradas con capturas y auditoría sin acciones de captura o anulación", () => {
+  const meta = { clave: 1, nombre: "Videos retirados", unidad: "videos",
+    retirada: { por_nombre: "Victor", en: "2026-10-02T18:00:00Z", motivo: "Cambio de campaña" },
+    mis_capturas: [
+      { id: 1, fecha: "2026-09-03", cantidad: 3, evidencia: null },
+      { id: 2, fecha: "2026-09-04", cantidad: 1, evidencia: { tipo: "foto", drive_link: "https://drive/foto" },
+        anulada: { por_nombre: "Victor", en: "2026-10-01T18:00:00Z", motivo: "Duplicada" } },
+    ] };
+  const MisMetas = cargar("src/metas/MisMetas.jsx", [{ okrs: [], sueltas: [], retiradas: [meta], sellado: false }]).default;
+  const html = renderToStaticMarkup(React.createElement(MisMetas, { periodo: "mensual", inicio: "2026-09-01", hoy: "2026-10-09" }));
+  const pagina = texto(html);
+  assert.match(html, /<details/);
+  assert.match(html, /line-through[^>]*>Videos retirados/);
+  assert.match(pagina, /Metas retiradas.*Retirada por Victor el.*Motivo: Cambio de campaña/);
+  assert.match(pagina, /03\/09.*3.*04\/09.*1.*Ver foto.*Duplicada/);
+  assert.doesNotMatch(pagina, /Hecho|Quitar/);
+});
 
 test("las barras de la vendedora muestran su cifra y el porcentaje de la tienda, nunca cifras de tienda", () => {
   const { BarrasMetas } = cargar("src/objetivos/GraficasAvance.jsx");
