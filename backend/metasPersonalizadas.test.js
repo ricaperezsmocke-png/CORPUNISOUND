@@ -104,3 +104,16 @@ test("periodo sellado: no se crea, edita ni retira", () => {
   assert.throws(() => M.editarMeta(DB, meta.clave, { valor_meta: 3, motivo: "x" }, VICTOR), /sellado/);
   assert.throws(() => M.retirarMeta(DB, meta.clave, "x", VICTOR), /sellado/);
 });
+
+test("planeador ia: crearOkr y crearMeta guardan el origen; sin origen queda null", () => {
+  const DB = DBPrueba();
+  const usuario = { id: 1, nombre: "Victor" };
+  const origen = { tipo: "plan_ia", plan_id: 3, validado_por_nombre: "Victor", validado_en: "2026-10-12T18:00:00.000Z" };
+  const okr = M.crearOkr(DB, { titulo: "Plan", periodo: OKR.periodo, inicio: OKR.inicio, alcance: "tienda", sucursal_id: 1 }, usuario,
+    { origen });
+  const meta = M.crearMeta(DB, { okr_clave: okr.clave, nombre: "Grupos", unidad: "pub", prueba: "liga", valor_meta: 5 }, usuario, { origen });
+  const mano = M.crearMeta(DB, { okr_clave: okr.clave, nombre: "Otra", unidad: "pub", prueba: "liga", valor_meta: 5 }, usuario);
+  assert.deepEqual(okr.origen, origen);
+  assert.deepEqual(meta.origen, origen);
+  assert.equal(mano.origen, null);
+});

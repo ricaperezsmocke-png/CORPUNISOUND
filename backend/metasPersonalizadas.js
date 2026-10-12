@@ -91,7 +91,7 @@ function retirar(registro, motivo, usuario) {
   return registro;
 }
 
-function crearOkr(DB, datos, usuario) {
+function crearOkr(DB, datos, usuario, { origen = null } = {}) {
   const titulo = texto(datos.titulo, "título", 120);
   const descripcion = texto(datos.descripcion, "descripción", 500, { obligatorio: false });
   validarPeriodo(datos.periodo, datos.inicio);
@@ -99,7 +99,7 @@ function crearOkr(DB, datos, usuario) {
   const alcance = validarAlcance(DB, datos);
   const id = siguienteId(DB.pos.okrs);
   const okr = { id, clave: id, version: 1, vigente: true, retirada: null, reemplaza_a: null, motivo: null,
-    titulo, descripcion, periodo: datos.periodo, inicio: datos.inicio, ...alcance, ...auditoria(usuario) };
+    titulo, descripcion, periodo: datos.periodo, inicio: datos.inicio, ...alcance, origen, ...auditoria(usuario) };
   DB.pos.okrs.push(okr);
   return okr;
 }
@@ -129,7 +129,7 @@ function retirarOkr(DB, clave, motivo, usuario) {
   return retirar(okr, limpio, usuario);
 }
 
-function crearMeta(DB, datos, usuario) {
+function crearMeta(DB, datos, usuario, { origen = null } = {}) {
   const nombre = texto(datos.nombre, "nombre", 120);
   const descripcion = texto(datos.descripcion, "descripción", 500, { obligatorio: false });
   const unidad = texto(datos.unidad, "unidad", 40);
@@ -149,7 +149,7 @@ function crearMeta(DB, datos, usuario) {
   const id = siguienteId(DB.pos.metas_personalizadas);
   const meta = { id, clave: id, version: 1, vigente: true, retirada: null, reemplaza_a: null, motivo: null,
     okr_clave, nombre, descripcion, unidad, prueba, valor_meta, periodo: base.periodo, inicio: base.inicio,
-    ...alcance, ...auditoria(usuario) };
+    ...alcance, origen, ...auditoria(usuario) };
   DB.pos.metas_personalizadas.push(meta);
   return meta;
 }

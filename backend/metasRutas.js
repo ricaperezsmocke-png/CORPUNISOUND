@@ -5,6 +5,8 @@ const { capturarMeta, anularCaptura, capturaParaRespuesta } = require("./metasCa
 const { tablero } = require("./metasAvance");
 const { previoSello, sellarPeriodo, rectificarSello } = require("./metasSellos");
 const { fechaLocal } = require("./fechas");
+const { proponerPlan } = require("./planIA");
+const { validarPlan, descartarPlan, listarPlanes } = require("./planIACrear");
 
 function selloParaRespuesta(sello) {
   // La foto guarda las capturas completas; el id interno del archivo en Drive no sale.
@@ -12,7 +14,8 @@ function selloParaRespuesta(sello) {
 }
 
 module.exports = function registrarRutasMetas(app, deps) {
-  const { DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos } = deps;
+  const { DB, drive, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, vendedorLigadoAObjetivos, idDeObjetivos,
+    clienteIA } = deps;
   const permiso = (clave) => requierePermiso(clave, resolverPermisosDeRol);
   const admin = permiso("administrar_metas_personalizadas");
   const uso = permiso("usar_gerente_ventas");
@@ -83,6 +86,18 @@ module.exports = function registrarRutasMetas(app, deps) {
       res.json(capturaParaRespuesta(anularCaptura(DB, id, req.body?.motivo, req.usuarioToken)));
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
+
+  // La IA solo propone; se crea únicamente lo que una persona con permiso validó punto por punto.
+  app.get("/api/metas/plan-ia", requiereLogin, admin, (req, res) => responder(res, () => ({ configurado: Boolean(clienteIA()), planes: listarPlanes(DB) })));
+  app.post("/api/metas/plan-ia", requiereLogin, admin, async (req, res) => {
+    try {
+      res.json(await proponerPlan(DB, clienteIA(), req.body || {}, req.usuarioToken, { hoy: hoy() }));
+    } catch (e) { res.status(e.status || 400).json({ error: e.message }); }
+  });
+  app.post("/api/metas/plan-ia/:id/validar", requiereLogin, admin, (req, res) => responder(res, () =>
+    validarPlan(DB, idDeObjetivos(req.params.id, "id"), req.body || {}, req.usuarioToken)));
+  app.post("/api/metas/plan-ia/:id/descartar", requiereLogin, admin, (req, res) => responder(res, () =>
+    descartarPlan(DB, idDeObjetivos(req.params.id, "id"), req.usuarioToken)));
 
   app.post("/api/metas", requiereLogin, admin, (req, res) => responder(res, () => M.crearMeta(DB, req.body || {}, req.usuarioToken)));
   app.post("/api/metas/:clave/editar", requiereLogin, admin, (req, res) => responder(res, () =>
