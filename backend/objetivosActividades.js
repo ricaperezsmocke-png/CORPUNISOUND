@@ -40,7 +40,7 @@ function normalizarLink(link) {
 // dos veces se identifica por plataforma + número/código. Las ligas cortas (fb.watch, vm.tiktok.com) no se
 // pueden resolver sin consultar internet y se comparan tal cual; lo que no se reconoce, normalizado como antes.
 const PUBLICACIONES = [
-  [/^facebook\.com$/, (ruta, q) => {
+  [/^(?:(?:web|mbasic|touch|business)\.)?facebook\.com$/, (ruta, q) => {
     const post = ruta.match(/\/(?:posts|permalink)\/([A-Za-z0-9]+)$/) || (/^\/(?:permalink|story)\.php$/.test(ruta) && [null, q.get("story_fbid")]);
     if (post?.[1]) return `fb:post:${post[1]}`;
     const video = ruta.match(/\/(?:videos|reel)\/(\d+)$/) || (/^\/watch$/.test(ruta) && [null, q.get("v")]);
@@ -59,9 +59,10 @@ const PUBLICACIONES = [
     return id ? `tt:${id[1]}` : null;
   }],
   [/^(?:youtube\.com|youtu\.be)$/, (ruta, q, host) => {
-    const id = host === "youtu.be" ? ruta.match(/^\/([A-Za-z0-9_-]{6,})$/)?.[1]
-      : (ruta === "/watch" && q.get("v")) || ruta.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]+)$/)?.[1];
-    return id ? `yt:${id}` : null;
+    // Los videos de YouTube tienen ids de 11 caracteres. "videoseries" (una lista) también mide 11: se excluye a mano.
+    const id = host === "youtu.be" ? ruta.match(/^\/([A-Za-z0-9_-]{11})$/)?.[1]
+      : (ruta === "/watch" && q.get("v")) || ruta.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{11})$/)?.[1];
+    return id && id !== "videoseries" && /^[A-Za-z0-9_-]{11}$/.test(id) ? `yt:${id}` : null;
   }],
 ];
 
@@ -114,16 +115,17 @@ function prepararEvidencia(clase, { link, archivo }) {
 }
 
 function validarRepeticion(DB, datos, evidencia) {
+  const clave = evidencia.tipo === "link" ? clavePublicacion(evidencia.link) : null;
   const usadaEnMeta = (DB.pos.meta_capturas || []).some((c) => {
     if (c.anulada || c.evidencia?.tipo !== evidencia.tipo) return false;
     if (evidencia.tipo === "foto") return c.evidencia.huella === evidencia.huella;
-    return clavePublicacion(c.evidencia.link) === clavePublicacion(evidencia.link);
+    return clavePublicacion(c.evidencia.link) === clave;
   });
   if (usadaEnMeta) throw new Error("Esta prueba ya se usó en una meta");
   const repetidas = (DB.pos.objetivo_actividades || []).filter((registro) => {
     if (!registro.vigente || registro.evidencia.tipo !== evidencia.tipo) return false;
     if (evidencia.tipo !== "link") return registro.evidencia.huella === evidencia.huella;
-    return clavePublicacion(registro.evidencia.link) === clavePublicacion(evidencia.link);
+    return clavePublicacion(registro.evidencia.link) === clave;
   });
   const propia = repetidas.find((registro) => registro.vendedor_id === datos.vendedor_id);
   if (propia) throw new Error(`Ya presentaste esta evidencia el ${propia.fecha}`);

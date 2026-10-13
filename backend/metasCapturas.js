@@ -99,6 +99,7 @@ function operacionPrevia(DB, operacion_id, vendedor_id, clave) {
   if (typeof operacion_id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(operacion_id)) throw new Error("El id de operación no es válido");
   const previa = DB.pos.meta_capturas.find((c) => c.operacion_id === operacion_id && c.vendedor_id === vendedor_id);
   if (previa && previa.meta_clave !== Number(clave)) throw new Error("Esa operación ya se usó en otra meta; vuelve a abrir la ventana");
+  if (previa?.anulada) throw new Error("Esa captura fue quitada mientras la registrabas; abre la ventana de nuevo si quieres registrar otra");
   return previa || null;
 }
 
@@ -150,6 +151,10 @@ async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, ant
     return captura;
   } catch (error) {
     if (evidencia?.drive_file_id) await borrarFoto(drive, DB, evidencia.drive_file_id);
+    // Si la falla fue porque la primera petición de esta misma ventana ya quedó (p.ej. "foto ya usada"), se devuelve esa.
+    let primera = null;
+    try { primera = operacionPrevia(DB, operacion_id, vendedor_id, meta.clave); } catch { /* se reporta el error original */ }
+    if (primera) return primera;
     throw error;
   }
 }

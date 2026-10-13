@@ -31,3 +31,9 @@ test("ligas que no se reconocen se comparan normalizadas, como antes", () => {
   assert.notEqual(clavePublicacion("https://fb.watch/abc"), clavePublicacion("https://fb.watch/xyz"));
   assert.equal(clavePublicacion("no es liga"), "no es liga"); // texto histórico inválido no truena
 });
+
+test("revisión: listas de YouTube distintas no se confunden; web. y mbasic. de Facebook sí se reconocen", () => {
+  assert.notEqual(clavePublicacion("https://www.youtube.com/embed/videoseries?list=PLaaa"),
+    clavePublicacion("https://www.youtube.com/embed/videoseries?list=PLbbb"));
+  iguales("https://web.facebook.com/unisound/posts/123456789", "https://mbasic.facebook.com/story.php?story_fbid=123456789&id=1");
+});

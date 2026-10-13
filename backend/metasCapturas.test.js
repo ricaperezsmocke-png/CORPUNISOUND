@@ -238,3 +238,32 @@ test("fase3: un reintento de foto mientras la primera sube no deja dos capturas 
   assert.ok(b instanceof Error ? /subiendo|ya se usó/.test(b.message) : b.id === a.id, String(b?.message || b?.id));
   assert.equal(archivos.size, 1);
 });
+
+test("revisión: reintento sobre una captura ya quitada avisa en vez de decir que se guardó", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-1234abcd" });
+  c.anulada = { por_nombre: "Supervisora", en: "2026-09-14T20:00:00Z", motivo: "duplicada" };
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-1234abcd" }), /quitada/);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+});
+
+test("revisión: reintento de foto que llega cuando la primera ya quedó devuelve la primera, sin foto huérfana", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "foto");
+  const archivos = new Set();
+  const datos = { fecha: "2026-09-14", operacion_id: "op-foto-0002",
+    archivo: { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" } };
+  const huella = require("node:crypto").createHash("sha256").update(Buffer.from(datos.archivo.contenido_base64, "base64")).digest("hex");
+  const primera = { id: 1, meta_clave: meta.clave, meta_id: meta.id, vendedor_id: 1, sucursal_id: 4, fecha: "2026-09-14", cantidad: 1,
+    operacion_id: "op-foto-0002", evidencia: { tipo: "foto", huella, drive_file_id: "archivo-1" }, anulada: null };
+  const drive = { ...driveFalso, subirArchivoADrive: async () => {
+    archivos.add("archivo-2");
+    DB.pos.meta_capturas.push(primera); // la primera petición termina de guardarse mientras el reintento sube
+    return { id: "archivo-2", webViewLink: "https://drive.google.com/file/d/archivo-2/view" };
+  }, eliminarArchivoDeDrive: async (db, id) => { archivos.delete(id); } };
+  const segunda = await capturar(DB, meta.clave, datos, 1, { drive });
+  assert.equal(segunda.id, primera.id);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+  assert.equal(archivos.size, 0, "la foto del reintento se borró");
+});
