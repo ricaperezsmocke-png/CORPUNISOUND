@@ -91,3 +91,19 @@ test("cuerpo de la captura según la prueba de la meta", () => {
     { fecha: "2026-10-08", archivo, nota: "Tienda" });
   assert.deepEqual(cuerpoCaptura({ prueba: "ninguna" }, { fecha: "2026-10-08", cantidad: "5" }), { fecha: "2026-10-08", cantidad: 5 });
 });
+
+test("fase3: texto de lo que falta y cuándo termina", () => {
+  const meta = { resultado: 8, valor_meta: 12, unidad: "videos" };
+  assert.equal(metas.textoFaltan(meta, "2026-10-18", "2026-10-14"), "Faltan 4 videos · termina el domingo 18 de octubre");
+  assert.equal(metas.textoFaltan(meta, "2026-10-18", "2026-10-18"), "Faltan 4 videos · termina hoy");
+  assert.equal(metas.textoFaltan(meta, "2026-10-18", "2026-10-20"), "Faltaron 4 videos");
+  assert.equal(metas.textoFaltan({ ...meta, resultado: 12 }, "2026-10-18", "2026-10-14"), "Meta cumplida");
+  assert.equal(metas.textoFaltan({ ...meta, resultado: 15 }, "2026-10-18", "2026-10-20"), "Meta cumplida");
+});
+
+test("fase3: cada ventana de Hecho tiene su propia operación válida para el servidor", () => {
+  const a = metas.nuevaOperacion();
+  const b = metas.nuevaOperacion();
+  assert.notEqual(a, b);
+  for (const id of [a, b]) assert.match(id, /^[A-Za-z0-9-]{8,64}$/);
+});

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
-import { cuerpoCaptura, fechaPropuestaCaptura, queryTablero } from "./metas";
+import { cuerpoCaptura, fechaPropuestaCaptura, nuevaOperacion, queryTablero, textoFaltan } from "./metas";
 import {
   ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta, fechaHora, leerArchivoComoBase64,
 } from "./Comunes";
@@ -55,6 +55,7 @@ export default function MisMetas({ periodo, inicio, hoy }) {
                       <span className="text-xs bg-slate-100 text-slate-600 rounded px-2 py-0.5">{DE_QUIEN[meta.alcance]}</span>
                     </div>
                     <p className="text-sm text-slate-700">{meta.resultado} de {meta.valor_meta} {meta.unidad}</p>
+                    <p className="text-xs text-slate-600">{textoFaltan(meta, tablero.fin, hoy)}</p>
                     <Barra porcentaje={meta.porcentaje} />
                     <div className="flex flex-wrap gap-4 items-center">
                       <Semaforo semaforo={meta.semaforo} />
@@ -133,6 +134,7 @@ function DialogoHecho({ meta, periodo, inicio, hoy, cerrar, alTerminar }) {
   const [form, setForm] = useState({ fecha: fechaPropuestaCaptura(periodo, inicio, hoy), link: "", archivo: null, cantidad: "", nota: "" });
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [operacion] = useState(nuevaOperacion);
   const cambiar = (campo) => (valor) => setForm((f) => ({ ...f, [campo]: valor }));
   const falta = (meta.prueba === "liga" && !form.link.trim()) || (meta.prueba === "foto" && !form.archivo) ||
     (meta.prueba === "ninguna" && !(Number(form.cantidad) >= 1));
@@ -141,7 +143,7 @@ function DialogoHecho({ meta, periodo, inicio, hoy, cerrar, alTerminar }) {
     setEnviando(true);
     setError("");
     try {
-      await apiFetch(`/metas/${meta.clave}/captura`, { method: "POST", body: JSON.stringify(cuerpoCaptura(meta, form)) })
+      await apiFetch(`/metas/${meta.clave}/captura`, { method: "POST", body: JSON.stringify({ ...cuerpoCaptura(meta, form), operacion_id: operacion }) })
         .then((r) => leer(r, "No se pudo registrar"));
       await alTerminar();
     } catch (e) { setError(e.message); } finally { setEnviando(false); }

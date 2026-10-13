@@ -36,6 +36,48 @@ function normalizarLink(link) {
   return normalizado;
 }
 
+// Una misma publicación se copia de muchas formas (app, navegador, "compartir", grupo, perfil). Para no contarla
+// dos veces se identifica por plataforma + número/código. Las ligas cortas (fb.watch, vm.tiktok.com) no se
+// pueden resolver sin consultar internet y se comparan tal cual; lo que no se reconoce, normalizado como antes.
+const PUBLICACIONES = [
+  [/^facebook\.com$/, (ruta, q) => {
+    const post = ruta.match(/\/(?:posts|permalink)\/([A-Za-z0-9]+)$/) || (/^\/(?:permalink|story)\.php$/.test(ruta) && [null, q.get("story_fbid")]);
+    if (post?.[1]) return `fb:post:${post[1]}`;
+    const video = ruta.match(/\/(?:videos|reel)\/(\d+)$/) || (/^\/watch$/.test(ruta) && [null, q.get("v")]);
+    if (video?.[1]) return `fb:video:${video[1]}`;
+    const foto = (/^\/photo(?:\.php)?$/.test(ruta) && [null, q.get("fbid")]) || ruta.match(/\/photos\/(?:[^/]+\/)?(\d+)$/);
+    if (foto?.[1]) return `fb:foto:${foto[1]}`;
+    const articulo = ruta.match(/^\/marketplace\/item\/(\d+)$/);
+    return articulo ? `fb:marketplace:${articulo[1]}` : null;
+  }],
+  [/^instagram\.com$/, (ruta) => {
+    const codigo = ruta.match(/\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)$/);
+    return codigo ? `ig:${codigo[1]}` : null;
+  }],
+  [/^tiktok\.com$/, (ruta) => {
+    const id = ruta.match(/^\/@[^/]+\/(?:video|photo)\/(\d+)$/);
+    return id ? `tt:${id[1]}` : null;
+  }],
+  [/^(?:youtube\.com|youtu\.be)$/, (ruta, q, host) => {
+    const id = host === "youtu.be" ? ruta.match(/^\/([A-Za-z0-9_-]{6,})$/)?.[1]
+      : (ruta === "/watch" && q.get("v")) || ruta.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]+)$/)?.[1];
+    return id ? `yt:${id}` : null;
+  }],
+];
+
+function clavePublicacion(link) {
+  let normalizado;
+  try { normalizado = normalizarLink(link); } catch { return link; } // texto histórico inválido: se compara tal cual
+  const url = new URL(normalizado);
+  const ruta = url.pathname.replace(/\/$/, "");
+  for (const [host, extraer] of PUBLICACIONES) {
+    if (!host.test(url.hostname)) continue;
+    const clave = extraer(ruta, url.searchParams, url.hostname);
+    if (clave) return clave;
+  }
+  return normalizado;
+}
+
 function normalizarNota(nota) {
   if (nota === undefined || nota === null) return null;
   if (typeof nota !== "string") throw new Error("La nota debe ser texto");
@@ -75,17 +117,13 @@ function validarRepeticion(DB, datos, evidencia) {
   const usadaEnMeta = (DB.pos.meta_capturas || []).some((c) => {
     if (c.anulada || c.evidencia?.tipo !== evidencia.tipo) return false;
     if (evidencia.tipo === "foto") return c.evidencia.huella === evidencia.huella;
-    let linkGuardado = c.evidencia.link;
-    try { linkGuardado = normalizarLink(linkGuardado); } catch { /* Conservar el texto histórico inválido. */ }
-    return linkGuardado === evidencia.link;
+    return clavePublicacion(c.evidencia.link) === clavePublicacion(evidencia.link);
   });
   if (usadaEnMeta) throw new Error("Esta prueba ya se usó en una meta");
   const repetidas = (DB.pos.objetivo_actividades || []).filter((registro) => {
     if (!registro.vigente || registro.evidencia.tipo !== evidencia.tipo) return false;
     if (evidencia.tipo !== "link") return registro.evidencia.huella === evidencia.huella;
-    let linkGuardado = registro.evidencia.link;
-    try { linkGuardado = normalizarLink(linkGuardado); } catch { /* Conservar el texto histórico inválido. */ }
-    return linkGuardado === evidencia.link;
+    return clavePublicacion(registro.evidencia.link) === clavePublicacion(evidencia.link);
   });
   const propia = repetidas.find((registro) => registro.vendedor_id === datos.vendedor_id);
   if (propia) throw new Error(`Ya presentaste esta evidencia el ${propia.fecha}`);
@@ -220,6 +258,7 @@ function resumenActividades(DB, filtros) {
 }
 
 module.exports = {
+  clavePublicacion,
   normalizarLink, registrarActividad, anularActividad, agregarResultado,
   actividadesDelMes, resumenActividades, prepararEvidencia, subidasEnCurso,
 };
