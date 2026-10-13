@@ -75,3 +75,21 @@ export function cuerpoCaptura(meta, form) {
   if (meta.prueba === "foto") return { fecha: form.fecha, archivo: form.archivo, ...nota };
   return { fecha: form.fecha, cantidad: Number(form.cantidad), ...nota };
 }
+
+const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+// "Faltan 4 videos · termina el domingo 18 de octubre": lo que le falta a la meta y cuánto tiempo queda.
+export function textoFaltan(meta, fin, hoy) {
+  const faltan = meta.valor_meta - meta.resultado;
+  if (faltan <= 0) return "Meta cumplida";
+  if (hoy > fin) return `Faltaron ${faltan} ${meta.unidad}`;
+  const { dia, mes } = partes(fin);
+  const cuando = hoy === fin ? "termina hoy" : `termina el ${DIAS[aUTC(fin).getUTCDay()]} ${dia} de ${MESES[mes]}`;
+  return `Faltan ${faltan} ${meta.unidad} · ${cuando}`;
+}
+
+// Id de la ventana de "Hecho": si la señal falla y se vuelve a guardar, el servidor no la cuenta dos veces.
+export function nuevaOperacion() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}

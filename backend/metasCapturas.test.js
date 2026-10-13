@@ -179,3 +179,91 @@ test("anular con motivo; no dos veces; no en periodo sellado; la liga anulada se
   assert.throws(() => anularCaptura(DB, nueva.id, "x", VICTOR), /sellado/);
   await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", link: "https://x.com/v/2" }), /sellado/);
 });
+
+test("fase3: la misma publicación copiada de otra forma no cuenta dos veces", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB);
+  await capturar(DB, meta.clave, { fecha: "2026-09-14", link: "https://www.facebook.com/unisound/videos/777" });
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", link: "https://m.facebook.com/watch/?v=777&mibextid=a" }, 2),
+    /ya se usó/);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+});
+
+test("fase3: reintento con la misma operación no duplica; otra operación sí cuenta", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const primera = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-1234abcd" });
+  const reintento = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-1234abcd" });
+  assert.equal(reintento.id, primera.id);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+  await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-9999zzzz" });
+  await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3 }); // sin operación: como antes
+  assert.equal(DB.pos.meta_capturas.length, 3);
+});
+
+test("fase3: la operación es de quien captura; otra persona o meta con el mismo id se rechaza", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const otra = M.crearMeta(DB, { nombre: "Llamadas", unidad: "llamadas", prueba: "ninguna", valor_meta: 5, ...MES,
+    alcance: "tienda", sucursal_id: 4 }, VICTOR);
+  await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 2, operacion_id: "op-1234abcd" });
+  const deLuis = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 2, operacion_id: "op-1234abcd" }, 2);
+  assert.equal(deLuis.vendedor_id, 2); // la operación de Ana no le tapa la captura a Luis
+  await assert.rejects(capturar(DB, otra.clave, { fecha: "2026-09-14", cantidad: 1, operacion_id: "op-1234abcd" }), /operación/);
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 1, operacion_id: "x" }), /operación/);
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 1, operacion_id: 12345678 }), /operación/);
+});
+
+test("fase3: un reintento de foto mientras la primera sube no deja dos capturas ni fotos huérfanas", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "foto");
+  const archivos = new Set();
+  let n = 0;
+  let soltar;
+  const espera = new Promise((listo) => { soltar = listo; });
+  const drive = { ...driveFalso, subirArchivoADrive: async () => {
+    const id = `archivo-${++n}`;
+    archivos.add(id);
+    if (n === 1) await espera;
+    return { id, webViewLink: `https://drive.google.com/file/d/${id}/view` };
+  }, eliminarArchivoDeDrive: async (db, id) => { archivos.delete(id); } };
+  const datos = { fecha: "2026-09-14", operacion_id: "op-foto-0001",
+    archivo: { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" } };
+  const primera = capturar(DB, meta.clave, datos, 1, { drive });
+  await new Promise((listo) => setImmediate(listo));
+  const segunda = capturar(DB, meta.clave, datos, 1, { drive }).catch((e) => e);
+  soltar();
+  const [a, b] = [await primera, await segunda];
+  assert.equal(DB.pos.meta_capturas.length, 1);
+  assert.ok(b instanceof Error ? /subiendo|ya se usó/.test(b.message) : b.id === a.id, String(b?.message || b?.id));
+  assert.equal(archivos.size, 1);
+});
+
+test("revisión: reintento sobre una captura ya quitada avisa en vez de decir que se guardó", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-1234abcd" });
+  c.anulada = { por_nombre: "Supervisora", en: "2026-09-14T20:00:00Z", motivo: "duplicada" };
+  await assert.rejects(capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3, operacion_id: "op-1234abcd" }), /quitada/);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+});
+
+test("revisión: reintento de foto que llega cuando la primera ya quedó devuelve la primera, sin foto huérfana", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "foto");
+  const archivos = new Set();
+  const datos = { fecha: "2026-09-14", operacion_id: "op-foto-0002",
+    archivo: { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "foto.jpg" } };
+  const huella = require("node:crypto").createHash("sha256").update(Buffer.from(datos.archivo.contenido_base64, "base64")).digest("hex");
+  const primera = { id: 1, meta_clave: meta.clave, meta_id: meta.id, vendedor_id: 1, sucursal_id: 4, fecha: "2026-09-14", cantidad: 1,
+    operacion_id: "op-foto-0002", evidencia: { tipo: "foto", huella, drive_file_id: "archivo-1" }, anulada: null };
+  const drive = { ...driveFalso, subirArchivoADrive: async () => {
+    archivos.add("archivo-2");
+    DB.pos.meta_capturas.push(primera); // la primera petición termina de guardarse mientras el reintento sube
+    return { id: "archivo-2", webViewLink: "https://drive.google.com/file/d/archivo-2/view" };
+  }, eliminarArchivoDeDrive: async (db, id) => { archivos.delete(id); } };
+  const segunda = await capturar(DB, meta.clave, datos, 1, { drive });
+  assert.equal(segunda.id, primera.id);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+  assert.equal(archivos.size, 0, "la foto del reintento se borró");
+});

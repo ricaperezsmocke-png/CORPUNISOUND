@@ -3,22 +3,19 @@
 // solo cuenta una vez en todo el sistema (metas y actividades).
 const { metaVigente, periodoSellado, motivoObligatorio } = require("./metasPersonalizadas");
 const { finDePeriodo } = require("./metasPeriodos");
-const { normalizarLink, prepararEvidencia, subidasEnCurso } = require("./objetivosActividades");
+const { clavePublicacion, prepararEvidencia, subidasEnCurso } = require("./objetivosActividades");
 const { validarFechaYPlantilla, fechaValida } = require("./objetivosFechas");
 const { fechaLocal } = require("./fechas");
 
 const siguienteId = (lista) => lista.reduce((maximo, r) => Math.max(maximo, r.id), 0) + 1;
-
-function linkGuardado(link) {
-  try { return normalizarLink(link); } catch { return link; }
-}
 
 function validarEvidenciaUnica(DB, evidencia) {
   if (!evidencia) return;
   const enMetas = DB.pos.meta_capturas.filter((c) => !c.anulada && c.evidencia?.tipo === evidencia.tipo);
   const enActividades = (DB.pos.objetivo_actividades || []).filter((r) => r.vigente && r.evidencia?.tipo === evidencia.tipo);
   if (evidencia.tipo === "link") {
-    if ([...enMetas, ...enActividades].some((r) => linkGuardado(r.evidencia.link) === evidencia.link)) {
+    const clave = clavePublicacion(evidencia.link);
+    if ([...enMetas, ...enActividades].some((r) => clavePublicacion(r.evidencia.link) === clave)) {
       throw new Error("Esta liga ya se usó como prueba; no puede contar dos veces");
     }
     return;
@@ -95,7 +92,26 @@ async function subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucu
   }
 }
 
+// Cada ventana de "Hecho" manda un id de operación. Si la señal falla y la vendedora vuelve a guardar, el
+// reintento devuelve la captura que ya quedó en vez de contarla dos veces. Es por persona: no tapa a nadie más.
+function operacionPrevia(DB, operacion_id, vendedor_id, clave) {
+  if (operacion_id === undefined || operacion_id === null) return null;
+  if (typeof operacion_id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(operacion_id)) throw new Error("El id de operación no es válido");
+  const previa = DB.pos.meta_capturas.find((c) => c.operacion_id === operacion_id && c.vendedor_id === vendedor_id);
+  if (previa && previa.meta_clave !== Number(clave)) throw new Error("Esa operación ya se usó en otra meta; vuelve a abrir la ventana");
+  if (previa?.anulada) throw new Error("Esa captura fue quitada mientras la registrabas; abre la ventana de nuevo si quieres registrar otra");
+  return previa || null;
+}
+
+async function borrarFoto(drive, DB, id) {
+  try { await drive.eliminarArchivoDeDrive(DB, id); }
+  catch (fallo) { console.error("No se pudo borrar la foto de una captura rechazada", fallo); }
+}
+
 async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, antesDeGuardar, hoy = fechaLocal(new Date()) }) {
+  const operacion_id = datos?.operacion_id ?? null;
+  const yaGuardada = operacionPrevia(DB, operacion_id, vendedor_id, clave);
+  if (yaGuardada) return yaGuardada;
   const meta = metaVigente(DB, clave);
   if (!meta) throw new Error("La meta no existe o fue eliminada");
   exigirAbierto(DB, meta);
@@ -119,19 +135,26 @@ async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, ant
     }
     const sucursalVigente = validarParticipacion(DB, vigente, vendedor_id, fecha);
     exigirAbierto(DB, vigente);
+    // Mientras subía la foto pudo entrar el reintento de la misma operación: se conserva la primera.
+    const entretanto = operacionPrevia(DB, operacion_id, vendedor_id, vigente.clave);
+    if (entretanto) {
+      if (evidencia?.drive_file_id) await borrarFoto(drive, DB, evidencia.drive_file_id);
+      return entretanto;
+    }
     const captura = {
       id: siguienteId(DB.pos.meta_capturas), meta_clave: vigente.clave, meta_id: vigente.id, periodo: vigente.periodo, inicio: vigente.inicio,
       fecha, vendedor_id, sucursal_id: sucursalVigente, cantidad, evidencia, nota,
-      creado_por_id: usuario?.id ?? null, creado_por: usuario?.nombre || "desconocido", creado_en: new Date().toISOString(),
+      operacion_id, creado_por_id: usuario?.id ?? null, creado_por: usuario?.nombre || "desconocido", creado_en: new Date().toISOString(),
       anulada: null,
     };
     DB.pos.meta_capturas.push(captura);
     return captura;
   } catch (error) {
-    if (evidencia?.drive_file_id) {
-      try { await drive.eliminarArchivoDeDrive(DB, evidencia.drive_file_id); }
-      catch (fallo) { console.error("No se pudo borrar la foto de una captura rechazada", fallo); }
-    }
+    if (evidencia?.drive_file_id) await borrarFoto(drive, DB, evidencia.drive_file_id);
+    // Si la falla fue porque la primera petición de esta misma ventana ya quedó (p.ej. "foto ya usada"), se devuelve esa.
+    let primera = null;
+    try { primera = operacionPrevia(DB, operacion_id, vendedor_id, meta.clave); } catch { /* se reporta el error original */ }
+    if (primera) return primera;
     throw error;
   }
 }
