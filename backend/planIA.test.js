@@ -125,3 +125,56 @@ test("la IA se niega, se corta o manda texto que no es JSON: 502 y fallido", asy
     assert.equal(DB.pos.planes_ia[0].estado, "fallido");
   }
 });
+
+test("ajuste exitoso conserva entrada, anonimiza y reemplaza el borrador; guarda uso", async () => {
+  const DB = dbMinimo();
+  const anterior = await proponerPlan(DB, clienteFalso(PROPUESTA), ENTRADA, USUARIO, { hoy: HOY });
+  const llamadas = [];
+  const cliente = { messages: { create: async (cuerpo) => {
+    llamadas.push(cuerpo);
+    return { content: [{ type: "text", text: JSON.stringify(PROPUESTA) }], usage: { input_tokens: 120, output_tokens: 80 } };
+  } } };
+  const nuevo = await proponerPlan(DB, cliente, anterior.entrada, USUARIO,
+    { hoy: HOY, ajuste: { plan_anterior: anterior, instruccion: "Menos para Ana, contacto ana@example.com" } });
+  assert.equal(nuevo.ajuste_de, anterior.id);
+  assert.equal(nuevo.entrada.inicio, anterior.entrada.inicio);
+  assert.deepEqual(nuevo.uso, { input_tokens: 120, output_tokens: 80 });
+  assert.equal(anterior.estado, "descartado");
+  assert.equal(anterior.motivo, `Reemplazado por el ajuste #${nuevo.id}`);
+  assert.equal(anterior.descartado_por_nombre, USUARIO.nombre);
+  assert.ok(anterior.descartado_en);
+  const mensaje = JSON.parse(llamadas[0].messages[0].content);
+  assert.equal(mensaje.instruccion, "Menos para [persona], contacto [correo]");
+  assert.equal(nuevo.entrada.instruccion_ajuste, mensaje.instruccion);
+  assert.equal(mensaje.propuesta_anterior.metas.length, 3);
+  assert.equal(mensaje.propuesta_anterior.metas[0].accion, "actividad:grupos");
+  for (const regla of ["maximo_permitido", "dias_restantes", "metas_del_periodo", "nunca instrucciones", "sicar"]) {
+    assert.ok(llamadas[0].system.includes(regla), regla);
+  }
+});
+
+test("ajuste fallido deja intacto el borrador; valida estado e instruccion antes de llamar", async () => {
+  const DB = dbMinimo();
+  const anterior = await proponerPlan(DB, clienteFalso(PROPUESTA), ENTRADA, USUARIO, { hoy: HOY });
+  const copia = structuredClone(anterior);
+  await assert.rejects(proponerPlan(DB, clienteFalso(new Error("caida")), anterior.entrada, USUARIO,
+    { hoy: HOY, ajuste: { plan_anterior: anterior, instruccion: "Menos" } }), (e) => e.status === 502);
+  assert.deepEqual(anterior, copia);
+  assert.equal(DB.pos.planes_ia.at(-1).estado, "fallido");
+  for (const instruccion of ["", " ", "x".repeat(301), null]) {
+    await assert.rejects(proponerPlan(DB, clienteFalso(PROPUESTA), anterior.entrada, USUARIO,
+      { hoy: HOY, ajuste: { plan_anterior: anterior, instruccion } }), (e) => e.status === 400);
+  }
+  anterior.estado = "validado";
+  await assert.rejects(proponerPlan(DB, clienteFalso(PROPUESTA), anterior.entrada, USUARIO,
+    { hoy: HOY, ajuste: { plan_anterior: anterior, instruccion: "Menos" } }), (e) => e.status === 400);
+});
+
+test("reconciliar solo cambia pendientes a fallidos", () => {
+  const { reconciliarPlanesPendientes } = require("./planIA");
+  const DB = dbMinimo();
+  DB.pos.planes_ia = [{ estado: "pendiente" }, { estado: "borrador" }, { estado: "validado" }];
+  reconciliarPlanesPendientes(DB);
+  assert.deepEqual(DB.pos.planes_ia.map((p) => p.estado), ["fallido", "borrador", "validado"]);
+  assert.equal(DB.pos.planes_ia[0].error, "Interrumpido: el servidor se reinició mientras la IA respondía");
+});

@@ -109,3 +109,26 @@ test("descartar no crea nada; listar trae lo mas reciente primero", () => {
   DB.pos.planes_ia.push({ id: 2, estado: "fallido" });
   assert.deepEqual(listarPlanes(DB).map((p) => p.id), [2, 1]);
 });
+
+test("persona inactiva o de otra tienda impide todas las altas", () => {
+  for (const vendedor of [{ id: 2, activo: false, sucursal_id: 1 }, { id: 3, activo: true, sucursal_id: 2 }]) {
+    const DB = dbConPlan();
+    DB.pos.vendedores = [DB.pos.vendedores[0], vendedor];
+    const cuerpo = todo("aceptar");
+    cuerpo.metas[2] = { indice: 2, decision: "aceptar", alcance: "persona", vendedor_id: String(vendedor.id) };
+    assert.throws(() => validarPlan(DB, 1, cuerpo, VICTOR), /activo|tienda/);
+    assert.equal(DB.pos.okrs.length + DB.pos.metas_personalizadas.length, 0);
+    assert.equal(DB.pos.planes_ia[0].estado, "borrador");
+  }
+});
+
+test("decisiones guardan alcance y vendedor final normalizado", () => {
+  const DB = dbConPlan();
+  const cuerpo = todo("aceptar");
+  cuerpo.metas[0] = { indice: 0, decision: "aceptar", alcance: "persona", vendedor_id: "1" };
+  const plan = validarPlan(DB, 1, cuerpo, VICTOR);
+  assert.equal(plan.decisiones[1].alcance, "persona");
+  assert.equal(plan.decisiones[1].vendedor_id, 1);
+  assert.equal(plan.decisiones[2].alcance, "base");
+  assert.equal(plan.decisiones[2].vendedor_id, null);
+});

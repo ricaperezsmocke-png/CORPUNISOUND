@@ -23,6 +23,12 @@ function dbFalso() {
       ],
       objetivos: [{ id: 1, tipo: "venta", mes: "2026-10", sucursal_id: 1, vendedor_id: null, actividad: null, marca_id: null,
         producto_meta_id: null, financiera: null, monto: 50000, vigente: true }],
+      objetivo_capturas: [
+        { mes: "2026-09", fecha: "2026-09-10", sucursal_id: 1, tipo: "venta", monto: 1500, vigente: true },
+        { mes: "2026-08", fecha: "2026-08-02", sucursal_id: 1, tipo: "venta", monto: 2000, vigente: true },
+        { mes: "2026-09", fecha: "2026-09-01", sucursal_id: 2, tipo: "venta", monto: 999, vigente: true },
+        { mes: "2026-10", fecha: "2026-10-05", sucursal_id: 1, tipo: "venta", monto: 700, vigente: true },
+      ],
       objetivo_actividades: [
         { id: 1, mes: "2026-09", sucursal_id: 1, actividad: "grupos", vigente: true },
         { id: 2, mes: "2026-09", sucursal_id: 1, actividad: "grupos", vigente: true },
@@ -49,10 +55,11 @@ test("armarDatosPlan: solo cifras agregadas de la tienda, sin nombres, clientes,
   assert.equal(datos.tienda, "Ocosingo");
   assert.deepEqual(datos.venta_por_mes.map((m) => m.mes), ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
   assert.equal(datos.venta_por_mes.find((m) => m.mes === "2026-09").venta, 1500); // ni cancelada ni otra tienda
-  assert.deepEqual(datos.venta_mes_actual, { mes: "2026-10", meta: 50000, vendido_hasta_hoy: 700 });
+  assert.deepEqual(datos.venta_mes_actual, { mes: "2026-10", meta: 50000, declarado_hasta_hoy: 700, fuente: "declarado" });
   assert.equal(datos.personas_activas, 1);
   assert.equal(datos.actividades_por_mes.find((m) => m.mes === "2026-09").grupos, 2); // la anulada no cuenta
-  assert.deepEqual(datos.metas_anteriores, [{ nombre: "Videos de tips", unidad: "videos", periodo: "semanal", valor_meta: 4, resultado: 3 }]);
+  assert.deepEqual(datos.metas_anteriores, [{ accion: "meta:1", nombre: "Videos de tips", unidad: "videos", periodo: "semanal",
+    inicio: "2026-09-07", fin: "2026-09-13", valor_meta: 4, resultado: 3 }]);
   assert.deepEqual(datos.marcas, ["Yamaha"]);
 });
 
@@ -60,10 +67,10 @@ test("armarDatosPlan: catalogo y maximos mensuales por accion", () => {
   const { catalogo, maximos, sinHistorial } = armarDatosPlan(dbFalso(), { sucursal_id: 1, periodo: "mensual", inicio: "2026-11-01" }, HOY);
   assert.ok(catalogo.some((c) => c.accion === "actividad:grupos" && c.prueba === "liga"));
   assert.ok(catalogo.some((c) => c.accion === "actividad:iglesia" && c.prueba === "foto"));
-  assert.ok(catalogo.some((c) => c.accion === "meta:Videos de tips" && c.unidad === "videos"));
+  assert.ok(catalogo.some((c) => c.accion === "meta:1" && c.unidad === "videos"));
   assert.equal(maximos["actividad:grupos"], 2);
   assert.equal(maximos["actividad:volanteo"], 0);
-  assert.equal(maximos["meta:Videos de tips"], 12); // 3 en una semana = 12 al mes
+  assert.equal(maximos["meta:1"], 12); // 3 en una semana = 12 al mes
   assert.equal(sinHistorial, false);
 });
 
@@ -110,4 +117,59 @@ test("quitarNombres: los conectores de nombres compuestos no se tachan", () => {
   const db = dbFalso();
   db.pos.vendedores.push({ id: 9, nombre: "Lupita de los Santos", sucursal_id: 1 });
   assert.equal(quitarNombres(db, "Vender los teclados de Lupita"), "Vender los teclados de [persona]");
+});
+
+test("SICAR rectificado, declarado, sin dato y empresa mixta; ignora el POS", () => {
+  const db = dbFalso();
+  db.pos.objetivo_cierres = [{ mes: "2026-09", sucursal_id: 1,
+    lineas: [{ vendedor_id: 1, real_sicar: 100, marcas: [{ marca_id: 1, nombre: "Yamaha", real: 10 }] }],
+    rectificaciones: [
+      { vendedor_id: 1, campo: "real_sicar", valor_nuevo: 120 },
+      { vendedor_id: 1, campo: "real_sicar", valor_nuevo: 130 },
+      { vendedor_id: 1, campo: "real", marca_id: 1, valor_nuevo: 25 },
+    ] }];
+  const entrada = { sucursal_id: 1, periodo: "mensual", inicio: "2026-11-01" };
+  const leer = () => armarDatosPlan(db, entrada, HOY);
+  const { datos } = leer();
+  assert.deepEqual(datos.venta_por_mes.at(-1), { mes: "2026-09", venta: 130, fuente: "sicar" });
+  assert.deepEqual(datos.venta_por_mes.at(-2), { mes: "2026-08", venta: 2000, fuente: "declarado" });
+  assert.deepEqual(datos.venta_por_mes[0], { mes: "2026-04", venta: null, fuente: "sin_dato" });
+  assert.deepEqual(datos.marcas_vendidas, [{ marca: "Yamaha", venta_sicar: 25, meses_con_dato: 1 }]);
+  db.pos.ventas = [];
+  assert.deepEqual(leer().datos, datos);
+  entrada.sucursal_id = null;
+  assert.deepEqual(leer().datos.venta_por_mes.at(-1), { mes: "2026-09", venta: 1129, fuente: "mixto" });
+});
+
+test("historial terminado, identidad por clave, topes y metas del periodo", () => {
+  const db = dbFalso();
+  const meta = { ...db.pos.metas_personalizadas[0], clave: 2, nombre: "Reto de Ana", prueba: "foto" };
+  db.pos.metas_personalizadas.push(meta, { ...meta, clave: 3, periodo: "mensual", inicio: "2026-11-01" },
+    { ...meta, clave: 4, periodo: "mensual", inicio: "2026-12-01" });
+  const { datos, catalogo } = armarDatosPlan(db, { sucursal_id: 1, periodo: "mensual", inicio: "2026-12-01" }, HOY);
+  assert.equal(datos.metas_anteriores.length, 2);
+  assert.equal(catalogo.find((c) => c.accion === "meta:2").prueba, "foto");
+  assert.equal(catalogo.find((c) => c.accion === "meta:1").maximo_permitido, 36);
+  assert.equal(catalogo.find((c) => c.accion === "actividad:volanteo").maximo_permitido, null);
+  assert.deepEqual(datos.metas_del_periodo, [{ nombre: "Reto de [persona]", unidad: "videos", valor_meta: 4 }]);
+  assert.equal(datos.fecha_hoy, HOY);
+  assert.equal(datos.periodo_inicio, "2026-12-01");
+  assert.equal(datos.periodo_fin, "2026-12-31");
+  assert.equal(datos.dias_del_periodo, 31);
+  assert.equal(datos.dias_restantes, 31);
+  for (const [inicio, restantes] of [["2026-09-01", 0], ["2026-10-01", 20]]) {
+    assert.equal(armarDatosPlan(db, { sucursal_id: 1, periodo: "mensual", inicio }, HOY).datos.dias_restantes, restantes);
+  }
+});
+
+test("quitarNombres tapa correos completos antes de sustituir nombres", () => {
+  assert.equal(quitarNombres(dbFalso(), "ana.lopez@example.com y ventas+web@tienda.mx"), "[correo] y [correo]");
+});
+
+test("ningun texto libre del historial envia datos personales", () => {
+  const db = dbFalso();
+  db.pos.metas_personalizadas[0].unidad = "visitas de Ana ana@example.com";
+  const { datos, catalogo } = armarDatosPlan(db, { sucursal_id: 1, periodo: "mensual", inicio: "2026-11-01" }, HOY);
+  assert.ok(!JSON.stringify({ datos, catalogo }).includes("Ana"));
+  assert.ok(!JSON.stringify({ datos, catalogo }).includes("@example.com"));
 });

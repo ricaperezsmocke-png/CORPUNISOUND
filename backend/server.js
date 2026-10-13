@@ -378,6 +378,7 @@ avisarSiLaEpocaEstaEnElFuturo(DB);
 // sembrarCajas lanza si los datos no tienen exactamente una predeterminada.
 if (!Array.isArray(DB.pos.cajas)) DB.pos.cajas = [];
 if (!Array.isArray(DB.pos.planes_ia)) DB.pos.planes_ia = [];
+require("./planIA").reconciliarPlanesPendientes(DB);
 try {
   sembrarCajas(DB);
 } catch (e) {

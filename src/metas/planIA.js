@@ -1,5 +1,6 @@
 // Lógica de la ventana del planeador con IA. Nada viene aceptado de entrada: cada punto se decide a mano.
 import { etiquetaPeriodo } from "./metas.js";
+import { leer } from "../objetivos/datos.js";
 
 export function estadoInicial(plan) {
   const { okr, metas } = plan.propuesta;
@@ -15,7 +16,35 @@ export const faltanPorDecidir = (estado) => puntos(estado).filter((p) => !p.deci
 
 export function puedeCrear(estado) {
   return faltanPorDecidir(estado) === 0 && puntos(estado).some((p) => p.decision === "aceptar")
+    && !errorParaCrear(estado)
     && estado.metas.every((m) => m.decision !== "aceptar" || m.alcance !== "persona" || m.vendedor_id !== "");
+}
+
+export function errorParaCrear(estado) {
+  for (const [i, meta] of estado.metas.entries()) {
+    if (meta.decision !== "aceptar") continue;
+    if (!meta.form.nombre.trim()) return `La meta ${i + 1} necesita nombre.`;
+    if (!meta.form.unidad.trim()) return `La meta ${i + 1} necesita unidad.`;
+    const cifra = Number(meta.form.valor_meta);
+    if (!Number.isInteger(cifra) || cifra < 1) return `La meta ${i + 1} (${meta.form.nombre}) necesita una cifra entera mayor que cero.`;
+  }
+  return "";
+}
+
+export async function confirmarPlan(plan, estado, pedir) {
+  try {
+    const respuesta = await pedir(`/metas/plan-ia/${plan.id}/validar`, { method: "POST", body: JSON.stringify(cuerpoValidacion(plan, estado)) });
+    return await leer(respuesta, "No se pudo guardar");
+  } catch (error) {
+    if (!error.status) {
+      try {
+        const registro = await pedir("/metas/plan-ia").then((r) => leer(r, "No se pudo consultar el plan"));
+        const guardado = registro.planes.find((p) => Number(p.id) === Number(plan.id) && p.estado === "validado");
+        if (guardado) return guardado;
+      } catch { /* Conserva el error original si tampoco se pudo consultar. */ }
+    }
+    throw error;
+  }
 }
 
 function cambios(original, form) {

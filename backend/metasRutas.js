@@ -100,6 +100,19 @@ module.exports = function registrarRutasMetas(app, deps) {
       res.status(e.status || 400).json({ error: e.message });
     }
   });
+  app.post("/api/metas/plan-ia/:id/ajustar", requiereLogin, admin, async (req, res) => {
+    try {
+      const id = idDeObjetivos(req.params.id, "id");
+      const anterior = DB.pos.planes_ia.find((p) => p.id === id);
+      res.json(await proponerPlan(DB, clienteIA(), anterior?.entrada, req.usuarioToken,
+        { hoy: hoy(), ajuste: { plan_anterior: anterior, instruccion: req.body?.instruccion } }));
+    } catch (e) {
+      if (e.status === 502 && guardarDB) {
+        try { guardarDB(); } catch (errorGuardar) { console.error("No se pudo guardar el ajuste fallido del planeador:", errorGuardar); }
+      }
+      res.status(e.status || 400).json({ error: e.message });
+    }
+  });
   app.post("/api/metas/plan-ia/:id/validar", requiereLogin, admin, (req, res) => responder(res, () =>
     validarPlan(DB, idDeObjetivos(req.params.id, "id"), req.body || {}, req.usuarioToken)));
   app.post("/api/metas/plan-ia/:id/descartar", requiereLogin, admin, (req, res) => responder(res, () =>
