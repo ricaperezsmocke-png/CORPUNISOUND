@@ -23,6 +23,7 @@ const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
  * permisos) es exactamente lo que este guardia impide.
  */
 const MODULOS_QUE_REQUIEREN_PERMISOS = [
+  "sicar",
   "pos",
   "corte",
   "inventario",

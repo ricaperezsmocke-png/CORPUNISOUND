@@ -127,10 +127,10 @@ const {
 // cada venta del día se escribía en el vacío, con un console.warn que nadie lee.
 const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
 
-let cargar = () => null, guardar = () => {};
+let cargar = () => null, guardar = () => {}, conexionSqlite = null;
 try {
   const p = require("./persistencia");
-  cargar = p.cargar; guardar = p.guardar;
+  cargar = p.cargar; guardar = p.guardar; conexionSqlite = p.obtenerConexionSqlite();
   console.log("✅ Módulo de persistencia SQLite cargado");
 } catch (e) {
   const abortar = debeAbortarSinPersistencia();
@@ -145,6 +145,10 @@ try {
 }
 
 const app = express();
+const { crearRepositorioSicar } = require("./sicarRepositorio");
+const { registrarAgenteSicar, registrarRutasSicar } = require("./sicarRutas");
+// Sin SQLite (solo tolerado en desarrollo) la integración SICAR queda apagada y responde 503.
+const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite) : null;
 app.use(cors({
   origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
 }));
@@ -154,6 +158,8 @@ app.use(cors({
 // Límite subido a 50mb: el reporte de ventas histórico de una sucursal
 // (años de tickets) puede pesar varios MB en crudo, más al viajar en
 // base64 dentro del body JSON — misma filosofía que Migración de Datos.
+if (repoSicar) registrarAgenteSicar(app, { repo: repoSicar, mantenimiento });
+else app.use(["/api/integraciones/sicar", "/api/sicar"], (req, res) => res.status(503).json({ codigo: "SIN_PERSISTENCIA" }));
 app.use(express.json({ limit: "50mb" }));
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
@@ -672,6 +678,12 @@ const resolverAlcanceAutorizado = (req) => {
   if (permisos.includes("ver_todas_las_sucursales")) return { verTodas: true, sucursalId: null };
   return { verTodas: false, sucursalId: Number(req.usuarioToken.sucursal_id) };
 };
+
+// SICAR confirma sus propias tablas SQLite y no participa en la persistencia del JSON.
+if (repoSicar) registrarRutasSicar(app, {
+  repo: repoSicar, requiereLogin, requierePermiso, resolverPermisos: resolverPermisosDeRol,
+  resolverAlcanceAutorizado, tiendas: () => DB.pos.sucursales, mantenimiento,
+});
 
 // Auto-persistencia: guarda el DB después de cada mutación exitosa
 app.use((req, res, next) => {

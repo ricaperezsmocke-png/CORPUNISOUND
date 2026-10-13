@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { apiFetch, sinSucursalElegida } from "./api";
 import { digitosTelefono } from "./telefono";
+import SicarAdministracion from "./SicarAdministracion";
 
 const ESTADOS = [
   { id: "contactado",    label: "Contactado",  color: "#94a3b8" },
@@ -117,6 +118,7 @@ function Sec({ title, action, children }) {
 // COMPONENTE PRINCIPAL
 // ============================================================
 export default function CRM({ onVolver, permisos }) {
+  const puedeSicar = permisos?.some(p => ['administrar_llaves_sicar', 'ver_sincronizacion_sicar'].includes(p));
   const puede = (clave) => !permisos || permisos.includes(clave);
   // El cliente nace en UNA tienda (es la que decide quién puede verlo después).
   // A diferencia de Punto de Venta o Corte de Caja, aquí el encabezado en
@@ -333,6 +335,9 @@ export default function CRM({ onVolver, permisos }) {
           {[["hoy", "Hoy"], ["clientes", "Clientes"], ["dashboard", "Dashboard"]].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: tab === id ? "rgba(255,255,255,.2)" : "transparent", color: "#fff" }}>{label}</button>
           ))}
+          {puedeSicar && <button onClick={() => setTab("sicar")} className="rounded px-3 py-1 text-sm font-semibold text-white">
+            SICAR
+          </button>}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {apartadosPorVencer.length > 0 && puede("registrar_contacto_cliente") && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(255,255,255,.2)", color: "#fff", fontWeight: 600 }}>⏰ {apartadosPorVencer.length} apartados</span>}
@@ -350,6 +355,7 @@ export default function CRM({ onVolver, permisos }) {
       {error && <div style={{ background: "#fef2f2", color: "#b91c1c", fontSize: 12, padding: "8px 24px", borderBottom: "1px solid #fecaca" }}>{error}</div>}
 
       <div className="crm-contenido" style={{ maxWidth: 1280, margin: "0 auto", padding: "20px 24px", boxSizing: "border-box" }}>
+        {tab === "sicar" && puedeSicar && <SicarAdministracion permisos={permisos} />}
         {/* STATS */}
         <div className="crm-estadisticas" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 18 }}>
           {[{ l: "Clientes", v: rich.length }, { l: "Ventas", v: $(totalV) }, { l: "Conversión", v: tasa + "%" }, { l: "Alertas", v: alerts.length }, { l: "Compras", v: rich.reduce((a, c) => a + (c.compras || []).length, 0) }].map((x, i) => (

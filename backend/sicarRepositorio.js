@@ -102,10 +102,10 @@ function prepararEscrituras(sqlite) {
       ON CONFLICT(sucursal_id, cli_id) DO UPDATE SET nombre=excluded.nombre, telefono=excluded.telefono,
         celular=excluded.celular, email=excluded.email, rfc=excluded.rfc, status=excluded.status, clave=excluded.clave`),
     venta: sqlite.prepare(`INSERT INTO sicar_ventas
-      (sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
-      VALUES (@sucursal_id, @ven_id, @cli_id, @fecha_local, @estado, @total_centavos, @revision, @hash)
+      (sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash, cuadra)
+      VALUES (@sucursal_id, @ven_id, @cli_id, @fecha_local, @estado, @total_centavos, @revision, @hash, @cuadra)
       ON CONFLICT(sucursal_id, ven_id) DO UPDATE SET cli_id=excluded.cli_id, fecha_local=excluded.fecha_local,
-        estado=excluded.estado, total_centavos=excluded.total_centavos, revision=excluded.revision, hash=excluded.hash`),
+        estado=excluded.estado, total_centavos=excluded.total_centavos, revision=excluded.revision, hash=excluded.hash, cuadra=excluded.cuadra`),
     tombstone: sqlite.prepare(`UPDATE sicar_ventas SET estado=@estado, revision=@revision, hash=@hash,
       cli_id=CASE WHEN @estado='excluida' THEN NULL ELSE cli_id END WHERE sucursal_id=@sucursal_id AND ven_id=@ven_id`),
     borrarDetalle: sqlite.prepare('DELETE FROM sicar_detalles WHERE sucursal_id=? AND ven_id=?'),
@@ -115,7 +115,8 @@ function prepararEscrituras(sqlite) {
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
-    avanzar: sqlite.prepare(`UPDATE sicar_tiendas SET siguiente_secuencia=?, ultima_recepcion=?, mapping_version=? WHERE sucursal_id=?`),
+    avanzar: sqlite.prepare(`UPDATE sicar_tiendas SET siguiente_secuencia=?, ultima_recepcion=?,
+      mapping_version=COALESCE(?, mapping_version) WHERE sucursal_id=?`),
   };
 }
 
@@ -126,7 +127,10 @@ function escribirVenta(sentencias, sucursalId, venta, revision, hash) {
     if (venta.estado === 'excluida') sentencias.borrarDetalle.run(sucursalId, venta.ven_id);
     return;
   }
-  sentencias.venta.run({ ...identidad, cli_id: venta.cli_id, fecha_local: venta.fecha_local, total_centavos: centavos(venta.total) });
+  const total = centavos(venta.total);
+  const suma = venta.detalle.reduce((acumulado, d) => acumulado + BigInt(centavos(d.importe_con)), 0n);
+  sentencias.venta.run({ ...identidad, cli_id: venta.cli_id, fecha_local: venta.fecha_local,
+    total_centavos: total, cuadra: suma === BigInt(total) ? 1 : 0 });
   sentencias.borrarDetalle.run(sucursalId, venta.ven_id);
   for (const detalle of venta.detalle) {
     sentencias.detalle.run({
@@ -142,7 +146,20 @@ function crearRepositorioSicar(sqlite) {
   if (sqlite.pragma('foreign_keys', { simple: true }) !== 1) {
     throw new ErrorSicar('FK_DESACTIVADAS', 'No se pudieron activar las claves foráneas.');
   }
-  sqlite.transaction(() => sqlite.exec(ESQUEMA))();
+  sqlite.transaction(() => {
+    sqlite.exec(ESQUEMA);
+    if (!sqlite.prepare('SELECT 1 FROM sicar_esquema WHERE version=2').get()) {
+      sqlite.exec('ALTER TABLE sicar_ventas ADD COLUMN cuadra INTEGER NOT NULL DEFAULT 0 CHECK (cuadra IN (0, 1))');
+      // BigInt evita desbordar al conciliar detalles históricos; el total fuente nunca se ajusta.
+      const detalles = sqlite.prepare('SELECT importe_centavos FROM sicar_detalles WHERE sucursal_id=? AND ven_id=?');
+      const marcar = sqlite.prepare('UPDATE sicar_ventas SET cuadra=? WHERE sucursal_id=? AND ven_id=?');
+      for (const venta of sqlite.prepare('SELECT sucursal_id, ven_id, total_centavos FROM sicar_ventas').all()) {
+        const suma = detalles.all(venta.sucursal_id, venta.ven_id).reduce((n, d) => n + BigInt(d.importe_centavos), 0n);
+        marcar.run(suma === BigInt(venta.total_centavos) ? 1 : 0, venta.sucursal_id, venta.ven_id);
+      }
+      sqlite.prepare('INSERT INTO sicar_esquema(version, aplicada) VALUES (2, ?)').run(new Date().toISOString());
+    }
+  })();
   const sentencias = prepararEscrituras(sqlite);
   const leerEstado = sqlite.prepare('SELECT siguiente_secuencia, ultima_recepcion FROM sicar_tiendas WHERE sucursal_id=?');
   const leerEnvio = sqlite.prepare('SELECT hash, respuesta FROM sicar_envios WHERE sucursal_id=? AND batch_id=?');
@@ -151,13 +168,17 @@ function crearRepositorioSicar(sqlite) {
     return leerEstado.get(sucursalId) ?? { siguiente_secuencia: '1', ultima_recepcion: null };
   }
 
+  function reciboAnterior(sucursalId, batchId, hash) {
+    const anterior = leerEnvio.get(sucursalId, batchId);
+    if (!anterior) return null;
+    if (anterior.hash !== hash) throw new ErrorSicar('CONFLICTO_BATCH', 'El lote ya existe con otro hash.');
+    return JSON.parse(anterior.respuesta);
+  }
+
   // T1b valida el contrato HTTP. Aquí solo se reciben lotes ya validados.
   const aplicar = sqlite.transaction(({ sucursalId, lote, hash }) => {
-    const anterior = leerEnvio.get(sucursalId, lote.batch_id);
-    if (anterior) {
-      if (anterior.hash !== hash) throw new ErrorSicar('CONFLICTO_BATCH', 'El lote ya existe con otro hash.');
-      return JSON.parse(anterior.respuesta);
-    }
+    const anterior = reciboAnterior(sucursalId, lote.batch_id, hash);
+    if (anterior) return anterior;
     const siguiente = estado(sucursalId).siguiente_secuencia;
     if (lote.sequence !== siguiente) {
       throw new ErrorSicar('SECUENCIA_INCORRECTA', 'La secuencia no es la siguiente esperada.', siguiente);
@@ -182,7 +203,25 @@ function crearRepositorioSicar(sqlite) {
     return recibo;
   });
 
-  return { estado, aplicarLote: datos => aplicar.immediate(datos) };
+  const guardarLlave = sqlite.transaction(llave => {
+    sentencias.tienda.run(llave.sucursal_id);
+    sqlite.prepare(`INSERT INTO sicar_llaves(key_id, sucursal_id, secreto_hash, creada, actor)
+      VALUES (@key_id, @sucursal_id, @secreto_hash, @creada, @actor)`).run(llave);
+  });
+  return {
+    estado, reciboAnterior, aplicarLote: datos => aplicar.immediate(datos),
+    guardarLlave: llave => guardarLlave.immediate(llave),
+    obtenerLlave: id => sqlite.prepare('SELECT * FROM sicar_llaves WHERE key_id=?').get(id),
+    listarLlaves: () => sqlite.prepare('SELECT key_id, sucursal_id, creada, revocada, actor FROM sicar_llaves ORDER BY creada DESC').all(),
+    revocarLlave: id => sqlite.prepare('UPDATE sicar_llaves SET revocada=COALESCE(revocada, ?) WHERE key_id=?').run(new Date().toISOString(), id),
+    listarEnvios: sucursalId => sqlite.prepare(`SELECT sucursal_id, batch_id, secuencia, clientes, ventas, rechazados, fecha, resultado
+      FROM sicar_envios WHERE (? IS NULL OR sucursal_id=?) ORDER BY fecha DESC, rowid DESC LIMIT 100`).all(sucursalId, sucursalId),
+    listarIntentos: sucursalId => sqlite.prepare(`SELECT * FROM sicar_intentos
+      WHERE (? IS NULL OR sucursal_id=?) ORDER BY id DESC LIMIT 100`).all(sucursalId, sucursalId),
+    registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
+      (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
+      VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),
+  };
 }
 
 module.exports = { crearRepositorioSicar, ErrorSicar };

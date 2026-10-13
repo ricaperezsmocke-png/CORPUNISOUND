@@ -100,6 +100,9 @@ function filtrarObjeto(obj, visitados, secretos = secretosVivos()) {
 function depurarSecretos(evento) {
   try {
     if (!evento || typeof evento !== "object") return evento;
+    // Estas rutas transportan datos personales y secretos de un solo uso.
+    // Descartar el evento completo cubre también cuerpos crudos y variables locales.
+    if (esRutaSicar(evento.request?.url) || esRutaSicar(evento.transaction)) return null;
     const visitados = new WeakSet();
 
     const values = evento.exception && evento.exception.values;
@@ -133,6 +136,10 @@ function depurarSecretos(evento) {
   }
 }
 
+function esRutaSicar(valor) {
+  return typeof valor === "string" && /\/api\/(?:integraciones\/sicar|sicar)(?:\/|\?|$)/i.test(valor);
+}
+
 if (sentryHabilitado) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN || DSN_POR_DEFECTO,
@@ -155,6 +162,12 @@ if (sentryHabilitado) {
     // corriendo. Hoy es el único, así que se limita a llamar a depurarSecretos.
     beforeSend(event) {
       return depurarSecretos(event);
+    },
+    beforeSendTransaction(event) {
+      return depurarSecretos(event);
+    },
+    beforeBreadcrumb(breadcrumb) {
+      return esRutaSicar(breadcrumb.data?.url) ? null : breadcrumb;
     },
   });
 } else {
