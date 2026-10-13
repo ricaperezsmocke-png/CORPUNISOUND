@@ -38,30 +38,41 @@ test("mas de 2 ideas nuevas se rechaza", () => {
   falla(propuesta([nueva, nueva, nueva]), "más de 2 ideas nuevas");
 });
 
-test("accion fuera del catalogo se rechaza", () => falla(propuesta([meta(), meta(), meta({ accion: "actividad:tiktok" })]), "fuera del catálogo"));
+test("accion fuera del catalogo se rechaza", () => falla(propuesta([meta(), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ accion: "actividad:tiktok" })]), "fuera del catálogo"));
 
 test("prueba, cifra y textos invalidos se rechazan", () => {
-  falla(propuesta([meta(), meta(), meta({ prueba: "video" })]), "prueba");
-  falla(propuesta([meta(), meta(), meta({ valor_meta: 2.5 })]), "cifra");
-  falla(propuesta([meta(), meta(), meta({ valor_meta: 0 })]), "cifra");
-  falla(propuesta([meta(), meta(), meta({ nombre: "" })]), "nombre");
-  falla({ okr: { titulo: "x".repeat(121) }, metas: [meta(), meta(), meta()] }, "OKR");
+  falla(propuesta([meta(), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ prueba: "video" })]), "prueba");
+  falla(propuesta([meta(), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ valor_meta: 2.5 })]), "cifra");
+  falla(propuesta([meta(), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ valor_meta: 0 })]), "cifra");
+  falla(propuesta([meta(), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ nombre: "" })]), "nombre");
+  falla({ okr: { titulo: "x".repeat(121) }, metas: [meta(), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta()] }, "OKR");
   falla(null, "sin contenido");
 });
 
-test("tope: mas de 3 veces el maximo mensual se rechaza; sin historico se acepta y se marca", () => {
-  falla(propuesta([meta(), meta(), meta({ valor_meta: 31 })]), "pasa de 30");
-  const r = validarPropuesta(propuesta([meta({ valor_meta: 30 }), meta(), meta({ accion: "actividad:volanteo", valor_meta: 50 })]), CONTEXTO);
-  assert.equal(r.metas[0].tope, 30);
-  assert.equal(r.metas[2].sin_historico, true);
-  const semanal = { ...CONTEXTO, periodo: "semanal" };
-  assert.throws(() => validarPropuesta(propuesta([meta({ valor_meta: 9 }), meta({ valor_meta: 1 }), meta({ valor_meta: 1 })]), semanal),
-    /pasa de 8/);
+test("topes ajustan la cifra y conservan la propuesta original", () => {
+  const contexto = { ...CONTEXTO, maximos: { "actividad:grupos": 4 } };
+  const r = validarPropuesta(propuesta([meta({ valor_meta: 40 }),
+    meta({ accion: "actividad:volanteo", valor_meta: 5000000, por_que: "" }),
+    meta({ accion: "nueva", valor_meta: 5000000 })]), contexto);
+  assert.equal(r.metas[0].valor_meta, 12);
+  assert.equal(r.metas[0].ajustada, true);
+  assert.equal(r.metas[0].propuesta_ia, 40);
+  assert.equal(r.metas[1].valor_meta, 1000000);
+  assert.equal(r.metas[2].valor_meta, 1000000);
+  assert.equal(r.metas[1].por_que, "Propuesta sin datos históricos de la tienda");
+});
+
+test("unidad y prueba del catálogo; acciones repetidas se rechazan", () => {
+  const r = validarPropuesta(propuesta([meta({ unidad: "conciertos", prueba: "ninguna" }),
+    meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ accion: "nueva" })]), CONTEXTO);
+  assert.equal(r.metas[0].unidad, "publicación");
+  assert.equal(r.metas[0].prueba, "liga");
+  falla(propuesta([meta(), meta(), meta({ accion: "nueva" })]), "repetida");
 });
 
 test("por que con un numero inventado se sustituye por el texto del sistema", () => {
-  const r = validarPropuesta(propuesta([meta({ por_que: "Las tiendas similares hacen 45 por mes" }), meta(), meta()]), CONTEXTO);
+  const r = validarPropuesta(propuesta([meta({ por_que: "Las tiendas similares hacen 45 por mes" }), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ accion: "nueva" })]), CONTEXTO);
   assert.equal(r.metas[0].por_que, TEXTO_POR_QUE);
-  const ok = validarPropuesta(propuesta([meta({ por_que: "Vendiste $1,500 y propongo 12" }), meta(), meta()]), CONTEXTO);
+  const ok = validarPropuesta(propuesta([meta({ por_que: "Vendiste $1,500 y propongo 12" }), meta({ accion: "actividad:iglesia", valor_meta: 1 }), meta({ accion: "nueva" })]), CONTEXTO);
   assert.equal(ok.metas[0].por_que, TEXTO_POR_QUE); // 12 no estaba en los datos enviados
 });

@@ -101,3 +101,23 @@ test("falla de la IA: 502 con el mensaje para la pantalla", async () => {
   assert.equal(r.status, 502);
   assert.match(r.cuerpo.error, /dar de alta las metas a mano/);
 });
+
+test("ajustar exige permiso, crea otro plan y rechaza el anterior descartado", async () => {
+  const plan = (await pedir("POST", "/api/metas/plan-ia", admin, ENTRADA)).cuerpo;
+  const ruta = `/api/metas/plan-ia/${plan.id}/ajustar`;
+  assert.equal((await pedir("POST", ruta, gerente, { instruccion: "Menos" })).status, 403);
+  const r = await pedir("POST", ruta, admin, { instruccion: "Menos" });
+  assert.equal(r.status, 200);
+  assert.equal(r.cuerpo.ajuste_de, plan.id);
+  assert.equal(app.DB.pos.planes_ia[0].estado, "descartado");
+  assert.equal((await pedir("POST", ruta, admin, { instruccion: "Menos" })).status, 400);
+});
+
+test("ajuste fallido queda registrado y el original sigue disponible", async () => {
+  const plan = (await pedir("POST", "/api/metas/plan-ia", admin, ENTRADA)).cuerpo;
+  app.locals.clienteIA = { messages: { create: async () => { throw new Error("caida"); } } };
+  const r = await pedir("POST", `/api/metas/plan-ia/${plan.id}/ajustar`, admin, { instruccion: "Menos" });
+  assert.equal(r.status, 502);
+  assert.equal(app.DB.pos.planes_ia[0].estado, "borrador");
+  assert.equal(app.DB.pos.planes_ia[1].estado, "fallido");
+});

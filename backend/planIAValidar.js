@@ -1,5 +1,4 @@
-// Lo que responde la IA se revisa aquí ANTES de mostrarlo. Si algo no cumple, el plan entero se rechaza:
-// no se "arregla" a medias (spec 2026-10-12, sección 5).
+// Revisa la forma antes de mostrar el plan y ajusta las cifras que excedan los topes.
 const { FACTOR_PERIODO } = require("./planIADatos");
 const { PRUEBAS } = require("./metasPersonalizadas");
 
@@ -28,6 +27,7 @@ function validarPropuesta(propuesta, { catalogo, maximos, periodo, cifrasPermiti
 
   const acciones = new Set(catalogo.map((c) => c.accion));
   const permitidas = new Set(cifrasPermitidas);
+  const usadas = new Set();
   const limpias = metas.map((m, indice) => {
     const n = indice + 1;
     if (!m || !textoValido(m.nombre, 120) || !textoValido(m.unidad, 40)) falla(`la meta ${n} no tiene nombre o unidad válidos`);
@@ -35,12 +35,17 @@ function validarPropuesta(propuesta, { catalogo, maximos, periodo, cifrasPermiti
     if (!Number.isInteger(m.valor_meta) || m.valor_meta < 1) falla(`la cifra de la meta ${n} debe ser un entero mayor que 0`);
     const nueva = m.accion === "nueva";
     if (!nueva && !acciones.has(m.accion)) falla(`la meta ${n} usa una acción fuera del catálogo`);
+    if (!nueva && usadas.has(m.accion)) falla(`la meta ${n} usa una acción repetida`);
+    if (!nueva) usadas.add(m.accion);
+    const referencia = catalogo.find((c) => c.accion === m.accion);
     const maximo = nueva ? 0 : maximos[m.accion] || 0;
     const tope = maximo > 0 ? Math.ceil(TOPE_HISTORICO * maximo * FACTOR_PERIODO[periodo]) : null;
-    if (tope !== null && m.valor_meta > tope) falla(`la cifra de la meta ${n} pasa de ${tope}`);
-    const porQue = textoValido(m.por_que, 200) && numerosEn(m.por_que).every((x) => permitidas.has(x)) ? m.por_que.trim() : TEXTO_POR_QUE;
-    return { indice, accion: m.accion, nueva, nombre: m.nombre.trim(), unidad: m.unidad.trim(), prueba: m.prueba,
-      valor_meta: m.valor_meta, tope, sin_historico: tope === null, por_que: porQue };
+    const valor_meta = Math.min(m.valor_meta, tope ?? 1000000, 1000000);
+    const reemplazo = tope === null ? "Propuesta sin datos históricos de la tienda" : TEXTO_POR_QUE;
+    const porQue = textoValido(m.por_que, 200) && numerosEn(m.por_que).every((x) => permitidas.has(x)) ? m.por_que.trim() : reemplazo;
+    return { indice, accion: m.accion, nueva, nombre: m.nombre.trim(), unidad: referencia?.unidad ?? m.unidad.trim(),
+      prueba: referencia?.prueba ?? m.prueba, valor_meta, tope, sin_historico: tope === null, por_que: porQue,
+      ...(valor_meta < m.valor_meta ? { ajustada: true, propuesta_ia: m.valor_meta } : {}) };
   });
   return { okr: { titulo: okr.titulo.trim(), descripcion: okr.descripcion?.trim() || null }, metas: limpias };
 }

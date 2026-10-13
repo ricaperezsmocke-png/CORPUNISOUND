@@ -295,9 +295,12 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
       {dialogo?.tipo === "historial" && <Historial registro={dialogo.registro} cerrar={() => setDialogo(null)} />}
       {dialogo?.tipo === "planeador" && (
         <PlaneadorIA periodo={periodo} inicio={inicio} sucursales={sucursales} vendedores={vendedores} cerrar={() => setDialogo(null)}
-          alTerminar={terminar} />
+          plan={dialogo.plan} alTerminar={terminar} />
       )}
-      {dialogo?.tipo === "planes" && <PlanesIA planes={planes.planes} sucursales={sucursales} cerrar={() => setDialogo(null)} />}
+      {dialogo?.tipo === "planes" && (
+        <PlanesIA planes={planes.planes} sucursales={sucursales} cerrar={() => setDialogo(null)} alTerminar={terminar}
+          continuar={(plan) => setDialogo({ tipo: "planeador", plan })} />
+      )}
       {dialogo?.tipo === "eliminar" && (
         <DialogoMotivo titulo={`Eliminar ${dialogo.esOkr ? "OKR" : "meta"}: ${dialogo.registro.titulo || dialogo.registro.nombre}`}
           textoGuardar="Eliminar" cerrar={() => setDialogo(null)}

@@ -54,7 +54,7 @@ test("Mi avance presenta el cierre y motivo de corrección sin reemplazar el ani
 test("Mis metas conserva metas históricas visibles aunque ya no permitan Hecho", () => {
   const meta = { clave: 1, nombre: "Videos históricos", alcance: "tienda", resultado: 3, valor_meta: 10,
     porcentaje: 30, semaforo: "verde", unidad: "videos", puede_capturar: false, mis_capturas: [{ id: 1, cantidad: 3 }] };
-  const MisMetas = cargar("src/metas/MisMetas.jsx", [{ okrs: [], sueltas: [meta], retiradas: [], sellado: false }]).default;
+  const MisMetas = cargar("src/metas/MisMetas.jsx", [{ okrs: [], sueltas: [meta], retiradas: [], sellado: false, fin: "2026-09-30" }]).default;
   const pagina = texto(renderToStaticMarkup(React.createElement(MisMetas, { periodo: "mensual", inicio: "2026-09-01", hoy: "2026-10-09" })));
   assert.match(pagina, /Videos históricos/);
   assert.match(pagina, /Ver lo que capturé \(1\)/);

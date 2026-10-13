@@ -59,6 +59,17 @@ function validarPlan(DB, id, cuerpo, usuario) {
   const { okr, metas } = leerDecisiones(plan, cuerpo);
   const { periodo, inicio } = plan.entrada;
   const base = alcanceBase(DB, plan.entrada);
+  for (const m of metas) {
+    if (!m.persona) { m.vendedor_id = null; continue; }
+    const id = typeof m.vendedor_id === "number" || typeof m.vendedor_id === "string" ? Number(m.vendedor_id) : NaN;
+    m.vendedor_id = Number.isSafeInteger(id) && id > 0 ? id : null;
+    if (m.decision !== "aceptar") continue;
+    const vendedor = DB.pos.vendedores.find((v) => Number(v.id) === m.vendedor_id);
+    if (!vendedor || !estaActivo(vendedor)) throw new Error("El vendedor debe existir y estar activo");
+    if (plan.entrada.sucursal_id !== null && Number(vendedor.sucursal_id) !== Number(plan.entrada.sucursal_id)) {
+      throw new Error("La persona debe pertenecer a la tienda del plan");
+    }
+  }
   const validado_en = new Date().toISOString();
   const origen = { tipo: "plan_ia", plan_id: plan.id, validado_por_nombre: usuario?.nombre || "desconocido", validado_en };
   const largoOkrs = DB.pos.okrs.length;
@@ -81,7 +92,8 @@ function validarPlan(DB, id, cuerpo, usuario) {
     throw e;
   }
   plan.decisiones = [{ punto: "okr", decision: okr.decision, cambios: okr.diferencias },
-    ...metas.map((m) => ({ punto: m.original.indice, decision: m.decision, cambios: m.diferencias }))];
+    ...metas.map((m) => ({ punto: m.original.indice, decision: m.decision, cambios: m.diferencias,
+      alcance: m.persona ? "persona" : "base", vendedor_id: m.vendedor_id }))];
   Object.assign(plan, { estado: "validado", validado_por_id: usuario?.id ?? null, validado_por_nombre: origen.validado_por_nombre,
     validado_en, creados });
   return plan;
