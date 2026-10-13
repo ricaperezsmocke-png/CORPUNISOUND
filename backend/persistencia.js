@@ -64,4 +64,8 @@ function guardar(db) {
   _guardar.run(JSON.stringify(db));
 }
 
-module.exports = { cargar, guardar };
+function obtenerConexionSqlite() {
+  return sqlite;
+}
+
+module.exports = { cargar, guardar, obtenerConexionSqlite };
