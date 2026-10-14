@@ -207,4 +207,4 @@ function crearNativoConVinculos(repo, DB, guardar, crear) {
   }
 }
 
-module.exports = { resolverVinculosSicar, resolverDecisionSicar, listarVinculosSicar, crearNativoConVinculos };
+module.exports = { resolverVinculosSicar, resolverDecisionSicar, listarVinculosSicar, crearNativoConVinculos, esPublicoSicar };

@@ -148,6 +148,7 @@ const app = express();
 const { crearRepositorioSicar } = require("./sicarRepositorio");
 const { registrarAgenteSicar, registrarRutasSicar } = require("./sicarRutas");
 const { crearNativoConVinculos } = require("./sicarVinculos");
+const { crearConsultasCRM } = require("./crmFuentes");
 // Sin SQLite (solo tolerado en desarrollo) la integración SICAR queda apagada y responde 503.
 const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, { clientesNativos: () => DB.crm.clientes }) : null;
 app.use(cors({
@@ -1854,6 +1855,31 @@ app.get("/api/crm/ranking-vendedores", requiereLogin, (req, res) => {
   res.json(rankingVendedores(DB, alcance));
 });
 
+// ---------- CRM v2: compras del POS y de SICAR combinadas (solo lectura) ----------
+// El alcance sale del token; ?sucursal_id= solo recorta listas y resumen (regla 5 de CLAUDE.md).
+const consultasCRM = crearConsultasCRM(DB, repoSicar);
+function contextoCRM(req) {
+  const alcance = resolverAlcanceAutorizado(req);
+  const pedido = Number(req.query.sucursal_id);
+  const filtroSucursal = Number.isSafeInteger(pedido) && pedido > 0
+    && (alcance.verTodas || pedido === alcance.sucursalId) ? pedido : null;
+  const verSicar = resolverPermisosDeRol(req.usuarioToken.rol_id).includes("ver_clientes_sicar");
+  return { alcance, filtroSucursal, verSicar };
+}
+function rutaCRM(fn) {
+  return (req, res) => {
+    try { res.json(fn(contextoCRM(req), req)); }
+    catch (e) { res.status(e.status || 503).json({ error: e.status ? e.message : "No se pudo consultar el CRM." }); }
+  };
+}
+const filtrosCRM = (req) => ({ cursor: req.query.cursor ?? 0, limit: req.query.limit ?? 50, buscar: req.query.buscar });
+app.get("/api/crm/v2/clientes", requiereLogin, rutaCRM((ctx, req) => consultasCRM.listar(ctx, filtrosCRM(req))));
+app.get("/api/crm/v2/clientes/:ref", requiereLogin, rutaCRM((ctx, req) => consultasCRM.ficha(ctx, req.params.ref)));
+app.get("/api/crm/v2/clientes/:ref/compras", requiereLogin,
+  rutaCRM((ctx, req) => consultasCRM.compras(ctx, req.params.ref, filtrosCRM(req))));
+app.get("/api/crm/v2/compras/:ref", requiereLogin, rutaCRM((ctx, req) => consultasCRM.detalle(ctx, req.params.ref)));
+app.get("/api/crm/v2/resumen", requiereLogin, rutaCRM((ctx) => consultasCRM.resumen(ctx)));
+
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
 app.get("/api/ventas", requiereLogin, requierePermiso("ver_lista_ventas", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -2353,7 +2379,9 @@ app.get("/api/gerente-ventas/:vendedorId", requiereLogin, requierePermiso("usar_
     const vendedorId = vendedorPermitido(req, req.params.vendedorId);
     // 404 y no 403: no se confirma que el tablero de otra persona exista.
     if (vendedorId == null) return res.status(404).json({ error: "Tablero no encontrado" });
-    const t = tablero(DB, vendedorId);
+    // Las compras SICAR unidas al cliente solo deciden si sigue en riesgo; no tocan meta ni progreso.
+    const ultimasCompras = (ids) => consultasCRM.ultimasCompras({ alcance: { verTodas: true, sucursalId: null }, verSicar: true }, ids);
+    const t = tablero(DB, vendedorId, undefined, { ultimasCompras });
     // Este GET genera tareas, y la auto-persistencia solo cubre POST/PUT/DELETE.
     // Se guarda solo cuando de verdad hubo tareas nuevas, para no reescribir la
     // base entera cada vez que alguien abre su pantalla.
