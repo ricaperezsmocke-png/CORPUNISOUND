@@ -5,6 +5,8 @@ const BOTON = 'rounded border border-slate-400 bg-white px-3 py-2 text-sm disabl
 const TARJETA = 'space-y-3 rounded-lg border border-slate-300 bg-white p-4';
 const ESTADOS = { pendiente: 'Unión pendiente', confirmado: 'Unión confirmada', separado: 'Unión deshecha',
   revision: 'Requiere revisión', externo: 'Ficha externa sin coincidencia' };
+// fecha_local de SICAR viene sin zona (hora de la tienda): se muestra tal cual, solo el día.
+const fecha = valor => (valor ? new Date(`${String(valor).slice(0, 10)}T12:00:00`).toLocaleDateString('es-MX') : 'Sin compras');
 const importe = centavos => (centavos / 100).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
 async function consultar(ruta, opciones) {
@@ -28,7 +30,7 @@ function Identidad({ item, ocupado, resolver }) {
       <p className="font-semibold">{ESTADOS[item.estado] || item.estado}</p>
       <p>{item.motivo}</p>
       {item.cliente_nombre && <p>Cliente CRM: {item.cliente_nombre}</p>}
-      <p>{item.numero_compras} compras · {importe(item.monto_centavos)} · Última: {item.ultima_compra || 'Sin compras'}</p>
+      <p>{item.numero_compras} {item.numero_compras === 1 ? 'compra' : 'compras'} · {importe(item.monto_centavos)} · Última: {fecha(item.ultima_compra)}</p>
       <p className="text-sm text-slate-600">Compras de esta identidad y tienda. La fuente SICAR es de consulta.</p>
       {item.estado === 'pendiente' && <p className="text-amber-800">Estas compras ya están vinculadas; falta revisar la unión.</p>}
     </div>

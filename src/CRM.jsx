@@ -302,7 +302,7 @@ export default function CRM({ onVolver, permisos }) {
       setFmC({ nombre: "", telefono: "", email: "", ubicacion: "", sucursal_id: "", vendedor_asignado_id: "" });
       await cargarTodo();
       setSelId(nuevo.id);
-      mostrarAviso("Cliente agregado");
+      mostrarAviso(nuevo.aviso_sicar ? `Cliente agregado. ${nuevo.aviso_sicar}` : "Cliente agregado");
     } catch (e) { mostrarAviso("❌ " + e.message); }
   };
 

@@ -27,6 +27,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
   const [exito, setExito] = useState(false);
+  const [avisoSicar, setAvisoSicar] = useState("");
   const envioEnCurso = useRef(false);
 
   const coincidencias = useMemo(() => {
@@ -49,7 +50,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
   const actualizar = (campo, valor) => setForm((actual) => ({ ...actual, [campo]: valor }));
   const reiniciar = () => {
     setForm(VACIO); setBusqueda(""); setBusquedaCliente(""); setModoProducto("catalogo");
-    setModoCliente("anonimo"); setObservacionAbierta(false); setError(""); setExito(false);
+    setModoCliente("anonimo"); setObservacionAbierta(false); setError(""); setExito(false); setAvisoSicar("");
   };
 
   const elegirProducto = (producto) => {
@@ -98,7 +99,8 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
     setGuardando(true);
     try {
       const payload = { ...form, cantidad, fecha_seguimiento: form.fecha_seguimiento || null };
-      await registrarDemanda(payload);
+      const respuesta = await registrarDemanda(payload);
+      setAvisoSicar(respuesta?.aviso_sicar || "");
       setExito(true);
       onRegistrada?.();
     } catch (e) {
@@ -114,6 +116,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
       <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={28} /></div>
       <h2 className="text-xl font-bold text-slate-800">Demanda registrada</h2>
       <p className="mt-2 text-sm text-slate-500">{form.intencion_compra ? "La solicitud quedó guardada y el cliente fue vinculado al CRM como interesado." : "La solicitud quedó guardada en Radar sin agregar al cliente al CRM."}</p>
+      {avisoSicar && <p role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{avisoSicar}</p>}
       <button onClick={reiniciar} className="mt-6 min-h-11 rounded-xl bg-blue-600 px-6 font-semibold text-white hover:bg-blue-700">Registrar otra</button>
     </div>
   );

@@ -1,15 +1,22 @@
 const { normalizarTelefono } = require('./clientes');
 
+// Ids de "Público en general" medidos en F0 por tienda (sección 14 del plan). Solo Ocosingo está medida.
+const PUBLICO_POR_TIENDA = new Map([[1, new Set(['2', '3', '13', '21', '33', '4566', '4567', '4572'])]]);
+
 function esPublicoSicar(cliente) {
-  return String(cliente.cli_id) === '1' || /^P.BLICO EN GENERAL/iu.test(String(cliente.nombre).trim());
+  const id = String(cliente.cli_id);
+  return id === '1' || !!PUBLICO_POR_TIENDA.get(Number(cliente.sucursal_id))?.has(id)
+    || /^P.BLICO EN GENERAL/iu.test(String(cliente.nombre).trim());
 }
 
 function telefonos(cliente) {
   const numeros = new Set();
   let ambiguo = false;
   for (const valor of [cliente.telefono, cliente.celular]) {
-    const texto = String(valor ?? '').trim();
+    let texto = String(valor ?? '').trim();
     if (!texto) continue;
+    // El único prefijo que se acepta es +52 escrito explícitamente; cualquier otro queda ambiguo.
+    if (/^\+52[\s().-]*\d/.test(texto)) texto = texto.replace(/^\+52/, '').trim();
     // Solo números nacionales completos: no recortar un prefijo internacional.
     if (!/^[\d\s().-]+$/.test(texto) || texto.replace(/\D/g, '').length !== 10) {
       ambiguo = true;
@@ -20,11 +27,24 @@ function telefonos(cliente) {
   return { numeros, ambiguo };
 }
 
-function candidatosPara(fuente, clientes) {
+// Índice teléfono -> clientes nativos, armado una sola vez por lote (5 mil fuentes x miles de nativos).
+function indicePorTelefono(clientes) {
+  const indice = new Map();
+  for (const c of clientes) {
+    if (!Number.isSafeInteger(Number(c.id)) || Number(c.id) <= 0) continue;
+    for (const n of telefonos(c).numeros) {
+      if (!indice.has(n)) indice.set(n, new Map());
+      indice.get(n).set(Number(c.id), c);
+    }
+  }
+  return indice;
+}
+
+function candidatosPara(fuente, indice) {
   const { numeros, ambiguo } = telefonos(fuente);
-  const candidatos = clientes.filter(c => Number.isSafeInteger(Number(c.id)) && Number(c.id) > 0
-    && [...telefonos(c).numeros].some(n => numeros.has(n)));
-  return { ambiguo, candidatos: [...new Map(candidatos.map(c => [Number(c.id), c])).values()] };
+  const candidatos = new Map();
+  for (const n of numeros) for (const [id, c] of indice.get(n) || []) candidatos.set(id, c);
+  return { ambiguo, candidatos: [...candidatos.values()] };
 }
 
 function errorVinculo(status, mensaje) {
@@ -50,6 +70,7 @@ function escribirVinculo(sqlite, vinculo) {
 
 function resolverVinculosSicar(repo, clientesNativos, identidades) {
   const sqlite = repo.conexionParaVinculos();
+  const indice = indicePorTelefono(clientesNativos);
   return sqlite.transaction(() => {
     for (const identidad of identidades) {
       const fuente = sqlite.prepare('SELECT * FROM sicar_clientes WHERE sucursal_id=? AND cli_id=?')
@@ -70,7 +91,7 @@ function resolverVinculosSicar(repo, clientesNativos, identidades) {
         }
         continue;
       }
-      const { ambiguo, candidatos } = candidatosPara(fuente, clientesNativos);
+      const { ambiguo, candidatos } = candidatosPara(fuente, indice);
       const unico = !ambiguo && candidatos.length === 1;
       const clienteId = unico ? Number(candidatos[0].id) : null;
       const estado = unico ? 'pendiente' : ambiguo || candidatos.length > 1 ? 'revision' : 'externo';
@@ -151,23 +172,37 @@ function listarVinculosSicar(repo, alcance, actor, offset = 0) {
 }
 
 // Solo las altas nativas existentes pasan por aquí; nunca se crean nativos desde SICAR.
+// Únicamente se re-evalúan las fuentes SICAR que comparten teléfono con los clientes recién creados.
 function crearNativoConVinculos(repo, DB, guardar, crear) {
   if (!repo) return crear();
   const previo = { crm: structuredClone(DB.crm), radar: structuredClone(DB.radar_demanda) };
+  const idsPrevios = new Set((DB.crm?.clientes || []).map(c => Number(c.id)));
+  const sqlite = repo.conexionParaVinculos();
+  let creado = false;
   try {
-    return repo.conexionParaVinculos().transaction(() => {
+    const { resultado, nuevos } = sqlite.transaction(() => {
       const resultado = crear();
-      try {
-        const identidades = repo.conexionParaVinculos().prepare('SELECT sucursal_id, cli_id FROM sicar_clientes').all();
+      creado = true;
+      const nuevos = DB.crm.clientes.filter(c => !idsPrevios.has(Number(c.id)));
+      const numeros = new Set(nuevos.flatMap(c => [...telefonos(c).numeros]));
+      if (numeros.size) {
+        const identidades = sqlite.prepare('SELECT sucursal_id, cli_id, telefono, celular FROM sicar_clientes').all()
+          .filter(f => [...telefonos(f).numeros].some(n => numeros.has(n)));
         resolverVinculosSicar(repo, DB.crm.clientes, identidades);
-        guardar(DB);
-      } catch { throw errorVinculo(503, 'No se pudo guardar el cliente y sus vínculos.'); }
-      return resultado;
+      }
+      guardar(DB);
+      return { resultado, nuevos };
     }).immediate();
+    const pendiente = nuevos.length && sqlite.prepare(`SELECT 1 FROM sicar_vinculos WHERE estado='pendiente'
+      AND cliente_id IN (${nuevos.map(() => '?').join(',')}) LIMIT 1`).get(...nuevos.map(c => Number(c.id)));
+    if (!pendiente || !resultado || typeof resultado !== 'object' || Array.isArray(resultado)) return resultado;
+    return { ...resultado, aviso_sicar: 'Unión SICAR pendiente de revisión.' };
   } catch (error) {
     DB.crm = previo.crm;
     if (previo.radar === undefined) delete DB.radar_demanda;
     else DB.radar_demanda = previo.radar;
+    // Un error de validación del alta conserva su respuesta; cualquier fallo al ligar o guardar es 503.
+    if (creado && !error.status) throw errorVinculo(503, 'No se pudo guardar el cliente y sus vínculos.');
     throw error;
   }
 }
