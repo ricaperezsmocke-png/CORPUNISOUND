@@ -102,7 +102,7 @@ const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, repor
 const crypto = require("crypto");
 const {
   crearRespaldo, limpiarViejos, verificarRespaldo, copiaParaReverificar, restaurar,
-  estadoRespaldos, compararConEstadoActual, claveRestauracionConfigurada,
+  estadoRespaldos, compararConEstadoActual, claveRestauracionConfigurada, configurarSicar, estadoCoberturaSicar,
 } = require("./respaldos");
 const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
@@ -338,6 +338,7 @@ const DB = {
   },
 };
 
+if (repoSicar) configurarSicar(DB, repoSicar, guardar);
 sembrarRolesIniciales(DB);
 
 // Restaurar estado guardado en SQLite (si existe)
@@ -680,6 +681,11 @@ const resolverAlcanceAutorizado = (req) => {
 };
 
 // SICAR confirma sus propias tablas SQLite y no participa en la persistencia del JSON.
+if (repoSicar) app.get('/api/sicar/respaldo', requiereLogin,
+  requierePermiso('ver_sincronizacion_sicar', resolverPermisosDeRol), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(estadoCoberturaSicar(DB));
+  });
 if (repoSicar) registrarRutasSicar(app, {
   repo: repoSicar, requiereLogin, requierePermiso, resolverPermisos: resolverPermisosDeRol,
   resolverAlcanceAutorizado, tiendas: () => DB.pos.sucursales, mantenimiento,

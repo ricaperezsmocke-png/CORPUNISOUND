@@ -209,6 +209,7 @@ function crearRepositorioSicar(sqlite) {
       VALUES (@key_id, @sucursal_id, @secreto_hash, @creada, @actor)`).run(llave);
   });
   return {
+    conexionParaRespaldo: () => sqlite,
     estado, reciboAnterior, aplicarLote: datos => aplicar.immediate(datos),
     guardarLlave: llave => guardarLlave.immediate(llave),
     obtenerLlave: id => sqlite.prepare('SELECT * FROM sicar_llaves WHERE key_id=?').get(id),

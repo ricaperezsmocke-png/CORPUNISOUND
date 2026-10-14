@@ -20,6 +20,7 @@ export default function SicarAdministracion({ permisos = [] }) {
   const [llaves, setLlaves] = useState([]);
   const [envios, setEnvios] = useState([]);
   const [intentos, setIntentos] = useState([]);
+  const [respaldo, setRespaldo] = useState(null);
   const [tienda, setTienda] = useState('');
   const [secreto, setSecreto] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -27,14 +28,16 @@ export default function SicarAdministracion({ permisos = [] }) {
   const [copiado, setCopiado] = useState(false);
 
   const cargar = useCallback(async () => {
-    const [acceso, actividad] = await Promise.all([
+    const [acceso, actividad, cobertura] = await Promise.all([
       administra ? consultar('/sicar/llaves') : null,
       sincroniza ? consultar('/sicar/envios') : null,
+      sincroniza ? consultar('/sicar/respaldo') : null,
     ]);
     setTiendas(acceso?.tiendas || actividad?.tiendas || []);
     setLlaves(acceso?.llaves || []);
     setEnvios(actividad?.envios || []);
     setIntentos(actividad?.intentos || []);
+    setRespaldo(cobertura);
   }, [administra, sincroniza]);
 
   useEffect(() => {
@@ -77,6 +80,12 @@ export default function SicarAdministracion({ permisos = [] }) {
     </div>
     {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
     {ocupado && <p role="status">Cargando…</p>}
+    {sincroniza && respaldo && <div className="rounded border border-slate-400 bg-white p-3" aria-label="Respaldo SICAR">
+      <p className="font-semibold">Respaldo SICAR en Drive</p>
+      <p>Último respaldo completo verificado: {respaldo.ultimo_completo ? fecha(respaldo.ultimo_completo) : 'Todavía no hay uno'}.</p>
+      <p>Último intento: {({ completo: 'Completo verificado', parcial: 'Parcial: SICAR no está protegido',
+        fallido: 'Fallido', sin_respaldo: 'Sin respaldo' })[respaldo.estado] || 'Estado desconocido'}.</p>
+    </div>}
     {administra && <>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">Tienda
