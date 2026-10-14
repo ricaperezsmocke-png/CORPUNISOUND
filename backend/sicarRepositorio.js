@@ -224,6 +224,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     estado, reciboAnterior, aplicarLote: datos => aplicar.immediate(datos),
     guardarLlave: llave => guardarLlave.immediate(llave),
     obtenerLlave: id => sqlite.prepare('SELECT * FROM sicar_llaves WHERE key_id=?').get(id),
+    // "Agente activo" = la tienda tiene al menos una llave SICAR sin revocar (Q6 del plan).
+    tieneAgenteActivo: sucursalId => !!sqlite.prepare('SELECT 1 FROM sicar_llaves WHERE sucursal_id=? AND revocada IS NULL LIMIT 1')
+      .get(Number(sucursalId)),
     listarLlaves: () => sqlite.prepare('SELECT key_id, sucursal_id, creada, revocada, actor FROM sicar_llaves ORDER BY creada DESC').all(),
     revocarLlave: id => sqlite.prepare('UPDATE sicar_llaves SET revocada=COALESCE(revocada, ?) WHERE key_id=?').run(new Date().toISOString(), id),
     listarEnvios: sucursalId => sqlite.prepare(`SELECT sucursal_id, batch_id, secuencia, clientes, ventas, rechazados, fecha, resultado

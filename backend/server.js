@@ -1253,6 +1253,16 @@ app.post("/api/compras/importar-ia", requiereLogin, requierePermiso("recibir_com
   }
 });
 
+// Q6: con el agente SICAR activo en la tienda, sus clientes llegan de SICAR y no por Excel.
+// Misma guarda para previsualizar y aplicar. Si la consulta falla, se bloquea (falla cerrando).
+function clientesExcelBloqueadosPorSicar(tipo, sucursalId) {
+  if (tipo !== "clientes" || !repoSicar) return null;
+  let activo = true;
+  try { activo = repoSicar.tieneAgenteActivo(sucursalId); } catch { activo = true; }
+  return activo ? "Esta tienda ya recibe sus clientes desde SICAR: no se importan clientes por Excel. " +
+    "Artículos, proveedores y la exportación siguen disponibles." : null;
+}
+
 app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
   try {
     const { tipo, archivo_base64 } = req.body;
@@ -1273,6 +1283,8 @@ app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_
       sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     }
+    const bloqueoSicar = clientesExcelBloqueadosPorSicar(tipo, sucursal_id);
+    if (bloqueoSicar) return res.status(409).json({ error: bloqueoSicar });
     const { filas, columnas_reconocidas, columnas_no_reconocidas } = parsearExcel(archivo_base64, tipo);
     const previsualizacion = previsualizarImportacion(DB, tipo, filas, sucursal_id);
     res.json({ ...previsualizacion, columnas_reconocidas, columnas_no_reconocidas });
@@ -1290,6 +1302,8 @@ app.post("/api/migracion/aplicar", requiereLogin, requierePermiso("migrar_datos"
       sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     }
+    const bloqueoSicar = clientesExcelBloqueadosPorSicar(tipo, sucursal_id);
+    if (bloqueoSicar) return res.status(409).json({ error: bloqueoSicar });
     const resumen = aplicarImportacion(DB, tipo, filas, sucursal_id, defaults, nombre_archivo);
     res.json(resumen);
   } catch (e) { res.status(400).json({ error: e.message }); }
