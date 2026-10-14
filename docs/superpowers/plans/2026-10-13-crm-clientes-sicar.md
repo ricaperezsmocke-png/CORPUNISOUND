@@ -837,6 +837,10 @@ Fuente: `C:\Users\PC\proyectos\SICAR_F0_clientes.md` en DESKTOP-QIBAQER. Resumen
 - SEGURIDAD BLOQUEANTE para F4: `consultas@'%'` tiene `FILE ... WITH GRANT OPTION` ademas de SELECT y
   `bind_address=*`. No es solo lectura. Corregirlo requiere root y autorizacion de Victor antes de activar el agente.
 
+Contrato v1 final para el agente (T4a, 2026-10-14): `docs/sicar-contrato-v1.md`, comprobado de punta a punta
+por `backend/sicarContrato.test.js` (recibo, reenvio idempotente, conflicto, 400/422 sin avanzar secuencia,
+cancelacion vieja, cambio de cliente, exclusion, limite de 12 envios por minuto y llave revocada).
+
 ## 15. Decisiones cerradas por Victor (2026-10-13) — sustituyen las preguntas de la seccion 12
 
 - **Q1:** Administrador crea/revoca llaves. Gerente revisa uniones de SU tienda; uniones entre tiendas solo
