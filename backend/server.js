@@ -3038,6 +3038,8 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       ok: true,
       restaurado_a: `${resultado.copia.fecha} ${resultado.copia.hora_local}`,
       respaldo_previo: resultado.pre_restauracion.nombre_archivo,
+      sicar_restaurado: resultado.sicar_restaurado,
+      aviso_sicar: resultado.aviso_sicar || null,
       // Si la foto traia el catalogo de cajas torcido, restaurar lo repara en
       // vez de rechazarla. Se dice en pantalla: una reparacion invisible deja a
       // Victor creyendo que restauro tal cual, cuando el sistema cambio algo.

@@ -26,6 +26,23 @@ const contextosSicar = new WeakMap();
 
 function configurarSicar(DB, repo, guardar) { contextosSicar.set(DB, { repo, guardar }); }
 
+function reconciliarVinculosParciales(sqlite, clientes, fechaFoto) {
+  const ids = new Set(clientes.map(c => Number(c.id)));
+  const fecha = Date.parse(fechaFoto);
+  const soltar = sqlite.prepare(`UPDATE sicar_vinculos
+    SET cliente_id=NULL, estado='pendiente', motivo='Revisar por restauración parcial',
+        version=version+1, actualizada=? WHERE sucursal_id=? AND cli_id=?`);
+  const decisionPosterior = sqlite.prepare(`SELECT 1 FROM sicar_decisiones
+    WHERE sucursal_id=? AND cli_id=? AND julianday(fecha)>julianday(?) LIMIT 1`);
+  const ahora = new Date().toISOString();
+  for (const v of sqlite.prepare('SELECT * FROM sicar_vinculos WHERE cliente_id IS NOT NULL').all()) {
+    if (!ids.has(Number(v.cliente_id)) || Date.parse(v.creada) > fecha || Date.parse(v.actualizada) > fecha
+      || decisionPosterior.get(v.sucursal_id, v.cli_id, fechaFoto)) {
+      soltar.run(ahora, v.sucursal_id, v.cli_id);
+    }
+  }
+}
+
 function estadoCoberturaSicar(DB) {
   const copias = (DB.respaldos?.copias || []).filter(c => c.sicar_estado);
   const ultima = copias.at(-1);
@@ -313,6 +330,10 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   if (masRecienteUtilizable) protegidas.add(masRecienteUtilizable);
   const masRecienteVerificada = [...utilizables].filter((c) => c.verificado_en).sort(porFechaDesc)[0];
   if (masRecienteVerificada) protegidas.add(masRecienteVerificada);
+  const completasSicar = utilizables.filter(c => c.sicar_estado === 'completo').sort(porFechaDesc);
+  if (completasSicar[0]) protegidas.add(completasSicar[0]);
+  const completaVerificada = completasSicar.find(c => c.verificado_en);
+  if (completaVerificada) protegidas.add(completaVerificada);
   // Caso degenerado: si NUNCA hubo una subida exitosa, se protege el renglón más
   // nuevo que haya, sea cual sea su estado. Mejor un archivo de más que ninguno.
   if (!protegidas.size) protegidas.add([...copias].sort(porFechaDesc)[0]);
@@ -693,7 +714,8 @@ async function restaurar(DB, drive, {
         avisoSicar = 'No se pudo respaldar SICAR antes de restaurar; SICAR se conservó como estaba.';
       }
 
-      if (preparadaSicar) {
+      // Sin datos SICAR no hay vínculos que reconciliar: se usa el camino de restauración de siempre.
+      if (preparadaSicar || (contextoSicar && sicar.tieneDatosSicar(contextoSicar.repo))) {
         const siguiente = { ...DB, ...foto.datos, respaldos: structuredClone(DB.respaldos) };
         for (const [coleccion, campo] of Object.entries(CREDENCIALES_A_CONSERVAR)) {
           if (DB[coleccion]?.[campo]) siguiente[coleccion][campo] = DB[coleccion][campo];
@@ -701,10 +723,19 @@ async function restaurar(DB, drive, {
         const reparaciones = alTerminar?.(siguiente)?.reparaciones || [];
         pushMovimiento(siguiente, copia.id, 'restauracion',
           `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} Respaldo previo: ${pre.nombre_archivo}`, usuario);
-        preparadaSicar.aplicar(() => contextoSicar.guardar(siguiente));
+        if (preparadaSicar) preparadaSicar.aplicar(() => contextoSicar.guardar(siguiente));
+        else {
+          const sqlite = contextoSicar.repo.conexionParaRespaldo();
+          sqlite.transaction(() => {
+            reconciliarVinculosParciales(sqlite, siguiente.crm?.clientes || [], foto.generado_en);
+            const guardado = contextoSicar.guardar(siguiente);
+            if (guardado?.then) throw new Error('El guardado de la restauración debe ser síncrono.');
+          }).immediate();
+        }
         // Solo después del COMMIT se publica la misma foto en memoria, sin ningún await entre ambas operaciones.
         Object.assign(DB, siguiente);
-        return { copia, pre_restauracion: pre, aplicado: true, comparacion, reparaciones, sicar_restaurado: true };
+        return { copia, pre_restauracion: pre, aplicado: true, comparacion, reparaciones,
+          sicar_restaurado: !!preparadaSicar, ...(avisoSicar ? { aviso_sicar: avisoSicar } : {}) };
       }
 
       // Las credenciales vivas se apartan ANTES de mutar. Ver

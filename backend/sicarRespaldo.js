@@ -239,7 +239,8 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
         if (liberada || aplicada) throw new Error('La preparación SICAR ya fue utilizada o liberada.');
         sqlite.transaction(() => {
           // Conserva las revocaciones también para llaves que aún no existían en la foto.
-          const nuevaInstalacion = !sqlite.prepare('SELECT 1 FROM sicar_llaves LIMIT 1').get();
+          sqlite.prepare(`UPDATE ${PREFIJO}sicar_llaves SET revocada=?
+            WHERE key_id NOT IN (SELECT key_id FROM sicar_llaves)`).run(new Date().toISOString());
           sqlite.exec(`INSERT OR IGNORE INTO ${PREFIJO}sicar_tiendas(sucursal_id)
             SELECT sucursal_id FROM sicar_llaves WHERE revocada IS NOT NULL;
             INSERT INTO ${PREFIJO}sicar_llaves
@@ -247,7 +248,6 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
             ON CONFLICT(key_id) DO UPDATE SET revocada=excluded.revocada`);
           for (const tabla of [...TABLAS].reverse()) sqlite.exec(`DELETE FROM ${tabla}`);
           for (const tabla of TABLAS) sqlite.exec(`INSERT INTO ${tabla} SELECT * FROM ${PREFIJO}${tabla}`);
-          if (nuevaInstalacion) sqlite.prepare('UPDATE sicar_llaves SET revocada=COALESCE(revocada, ?)').run(new Date().toISOString());
           const resultado = guardarEstado();
           if (resultado?.then) throw new Error('El guardado de estado debe ser síncrono dentro de la transacción SICAR.');
         }).immediate();

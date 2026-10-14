@@ -108,5 +108,16 @@ test('servidor expone cobertura SICAR con su permiso y respalda automáticamente
   const despues = await fetch(`${base}/sicar/respaldo`, { headers });
   assert.ok((await despues.json()).ultimo_completo);
   assert.equal((await fetch(`${base}/sicar/respaldo`)).status, 401);
+  process.env.CLAVE_RESTAURACION = 'local';
+  const id = app.DB.respaldos.copias[0].id;
+  const foto = await respaldos.leerRespaldo(app.DB, real, id, LLAVE);
+  f.drive.archivos.delete(foto.foto.sicar.trozos[0].drive_file_id);
+  const restaurada = await fetch(`${base}/respaldos/${id}/restaurar`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clave: 'local', confirmacion: 'RESTAURAR' }),
+  });
+  assert.equal(restaurada.status, 200, await restaurada.clone().text());
+  const resultado = await restaurada.json();
+  assert.equal(resultado.sicar_restaurado, false);
+  assert.match(resultado.aviso_sicar, /SICAR/);
 });
-

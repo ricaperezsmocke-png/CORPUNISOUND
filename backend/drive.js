@@ -286,12 +286,18 @@ async function descargarArchivoDeDrive(DB, fileId) {
 
 async function eliminarArchivoDeDrive(DB, fileId) {
   const token = await tokenActivo(DB);
-  const r = await fetch(`${DRIVE_API}/${fileId}`, {
-    method: "DELETE",
-    headers: driveHeaders(token),
-  });
-  if (!r.ok && r.status !== 404) {
-    throw new Error("Error al borrar archivo en Google Drive: " + (await r.text()));
+  const controlador = new AbortController();
+  const temporizador = setTimeout(() => controlador.abort(), 30000);
+  try {
+    const r = await fetch(`${DRIVE_API}/${fileId}`, {
+      method: "DELETE",
+      headers: driveHeaders(token), signal: controlador.signal,
+    });
+    if (!r.ok && r.status !== 404) {
+      throw new Error("Error al borrar archivo en Google Drive: " + (await r.text()));
+    }
+  } finally {
+    clearTimeout(temporizador);
   }
 }
 

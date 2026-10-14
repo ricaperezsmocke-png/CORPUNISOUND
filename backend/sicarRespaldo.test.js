@@ -101,6 +101,77 @@ function api() {
 const opciones = copiaId => ({ copiaId, llave: LLAVE, clave: 'local', confirmacion: 'RESTAURAR',
   env: { CLAVE_RESTAURACION: 'local' }, usuario: { id: 1 }, permisos: ['ver_todas_las_sucursales'] });
 
+for (const modo of ['sin copia', 'dañada', 'previo fallido']) {
+test(`restauración parcial (${modo}) suelta vínculos posteriores y huérfanos de forma atómica`, async t => {
+  const f = preparar(t);
+  respaldos.configurarSicar(f.DB, f.repo, f.guardar);
+  if (modo !== 'sin copia') sembrar(f);
+  const c = await respaldos.crearRespaldo(f.DB, f.drive, { llave: LLAVE });
+  if (modo === 'sin copia') sembrar(f);
+  if (modo === 'dañada') {
+    const foto = await respaldos.leerRespaldo(f.DB, f.drive, c.id, LLAVE);
+    f.drive.archivos.get(foto.foto.sicar.trozos[0].drive_file_id)[0] ^= 1;
+  }
+  if (modo === 'previo fallido') {
+    const subir = f.drive.subirArchivoADrive;
+    f.drive.subirArchivoADrive = async (db, args) => {
+      if (args.nombre.startsWith('sicar-')) throw new Error('SICAR no se pudo respaldar');
+      return subir(db, args);
+    };
+  }
+  const anterior = '2000-01-01T00:00:00.000Z';
+  const posterior = '2099-01-01T00:00:00.000Z';
+  const nativo = f.DB.crm.clientes[1].id;
+  for (const [cli, id, creada, decision] of [
+    ['nuevo', nativo, posterior, anterior], ['decision', nativo, anterior, posterior],
+    ['huerfano', 999999, anterior, anterior], ['seguro', nativo, anterior, anterior],
+  ]) {
+    f.sqlite.prepare('INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (1, ?, ?)').run(cli, cli);
+    f.sqlite.prepare('INSERT INTO sicar_vinculos VALUES (1, ?, ?, ?, 1, NULL, ?, ?, ?)')
+      .run(cli, id, 'confirmado', '1', creada, creada);
+    f.sqlite.prepare('INSERT INTO sicar_decisiones(sucursal_id, cli_id, cliente_id, accion, version, actor, fecha) VALUES (1, ?, ?, ?, 1, ?, ?)')
+      .run(cli, id, 'confirmar', '1', decision);
+  }
+  const decisiones = f.sqlite.prepare('SELECT * FROM sicar_decisiones').all();
+  const clientes = structuredClone(f.DB.crm.clientes);
+  f.DB.crm.clientes[1].nombre = 'Otro estado';
+  f.guardar(f.DB);
+  const persistido = f.sqlite.prepare('SELECT datos FROM estado').get().datos;
+  const antes = JSON.stringify(f.DB);
+  respaldos.configurarSicar(f.DB, f.repo, db => { f.guardar(db); throw new Error('fallo simulado'); });
+  await assert.rejects(respaldos.restaurar(f.DB, f.drive, opciones(c.id)), /fallo simulado/);
+  assert.equal(f.DB.crm.clientes[1].nombre, JSON.parse(antes).crm.clientes[1].nombre);
+  assert.equal(f.sqlite.prepare('SELECT datos FROM estado').get().datos, persistido);
+  assert.equal(f.sqlite.prepare("SELECT cliente_id FROM sicar_vinculos WHERE cli_id='nuevo'").get().cliente_id, nativo);
+  respaldos.configurarSicar(f.DB, f.repo, f.guardar);
+  await respaldos.restaurar(f.DB, f.drive, opciones(c.id));
+  for (const cli of ['nuevo', 'decision', 'huerfano']) {
+    const v = f.sqlite.prepare('SELECT * FROM sicar_vinculos WHERE cli_id=?').get(cli);
+    assert.equal(v.cliente_id, null);
+    assert.equal(v.estado, 'pendiente');
+    assert.match(v.motivo, /restauración parcial/i);
+  }
+  assert.equal(f.sqlite.prepare("SELECT cliente_id FROM sicar_vinculos WHERE cli_id='seguro'").get().cliente_id, nativo);
+  assert.deepEqual(f.sqlite.prepare('SELECT * FROM sicar_decisiones').all(), decisiones);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_ventas').get().n, 1);
+  assert.deepEqual(f.DB.crm.clientes, clientes);
+  assert.deepEqual(JSON.parse(f.sqlite.prepare('SELECT datos FROM estado').get().datos).crm.clientes, clientes);
+});
+}
+
+test('servidor de reemplazo con llave nueva revoca las llaves desconocidas de la foto', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  f.sqlite.exec('DELETE FROM sicar_intentos; DELETE FROM sicar_llaves');
+  f.repo.guardarLlave({ key_id: 'nueva', sucursal_id: 1, secreto_hash: 'b'.repeat(64), creada: '2026-10-14', actor: '1' });
+  const inicio = Date.now();
+  const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.ok(Date.parse(f.repo.obtenerLlave('llave').revocada) >= inicio);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_ventas').get().n, 1);
+});
+
 test('snapshot y restauración recuperan compra, detalle, enlace deshecho y recibo sin duplicar ni cambiar dinero', async t => {
   const f = preparar(t), s = api();
   const recibo = sembrar(f);
