@@ -13,6 +13,10 @@
  */
 
 const PERMISOS = [
+  { clave: "administrar_llaves_sicar", etiqueta: "Administrar llaves SICAR", modulo: "sicar", implementado: true },
+  { clave: "ver_sincronizacion_sicar", etiqueta: "Ver sincronización SICAR", modulo: "sicar", implementado: true },
+  { clave: "resolver_vinculos_sicar", etiqueta: "Resolver vínculos SICAR", modulo: "sicar", implementado: true },
+  { clave: "ver_clientes_sicar", etiqueta: "Ver clientes SICAR", modulo: "sicar", implementado: false },
   { clave: "autorizar_cancelaciones", etiqueta: "Autorizar cancelaciones de venta", modulo: "pos", implementado: true },
   // ---- Punto de Venta ----
   { clave: "abrir_cajon_dinero", etiqueta: "Abrir Cajón de Dinero", modulo: "pos", implementado: true },
@@ -151,6 +155,7 @@ const PERMISOS = [
 ];
 
 const MODULOS_SISTEMA = [
+  { id: "sicar", nombre: "Integración SICAR" },
   { id: "pos",       nombre: "Punto de Venta" },
   { id: "corte",     nombre: "Corte de Caja" },
   { id: "inventario", nombre: "Inventario y Productos" },

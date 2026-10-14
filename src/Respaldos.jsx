@@ -29,6 +29,7 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
   const [errorCopias, setErrorCopias] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState(null);
+  const [avisoRestauracion, setAvisoRestauracion] = useState(null);
   const [respaldando, setRespaldando] = useState(false);
 
   // Modal de restauración
@@ -147,6 +148,11 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
           reparaciones.join("\n• ")
         : "";
       // Los usuarios y roles acaban de cambiar: no hay sesión que valga.
+      if (data.aviso_sicar) {
+        localStorage.removeItem("token");
+        setAvisoRestauracion({ sicar: data.aviso_sicar, general: data.aviso + detalleReparaciones });
+        return;
+      }
       window.alert(data.aviso + detalleReparaciones);
       localStorage.removeItem("token");
       window.location.reload();
@@ -258,6 +264,21 @@ export default function Respaldos({ onVolver, permisos, usuario }) {
 
   const puntosDeRestauracion = copias.filter((c) => c.tipo !== "hora");
   const detallePorHora = copias.filter((c) => c.tipo === "hora");
+
+  if (avisoRestauracion) {
+    return (
+      <div className="p-6 space-y-4">
+        <div role="alert" className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-900">
+          <h2 className="font-bold">Restauración parcial: revisa SICAR</h2>
+          <p>{avisoRestauracion.sicar}</p>
+        </div>
+        <p className="whitespace-pre-line">{avisoRestauracion.general}</p>
+        <button className="rounded bg-slate-800 px-4 py-2 text-white" onClick={() => window.location.reload()}>
+          Volver a iniciar sesión
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full flex flex-col bg-background text-slate-800 text-sm">

@@ -286,16 +286,59 @@ async function descargarArchivoDeDrive(DB, fileId) {
 
 async function eliminarArchivoDeDrive(DB, fileId) {
   const token = await tokenActivo(DB);
-  const r = await fetch(`${DRIVE_API}/${fileId}`, {
-    method: "DELETE",
-    headers: driveHeaders(token),
-  });
-  if (!r.ok && r.status !== 404) {
-    throw new Error("Error al borrar archivo en Google Drive: " + (await r.text()));
+  const controlador = new AbortController();
+  const temporizador = setTimeout(() => controlador.abort(), 30000);
+  try {
+    const r = await fetch(`${DRIVE_API}/${fileId}`, {
+      method: "DELETE",
+      headers: driveHeaders(token), signal: controlador.signal,
+    });
+    if (!r.ok && r.status !== 404) {
+      throw new Error("Error al borrar archivo en Google Drive: " + (await r.text()));
+    }
+  } finally {
+    clearTimeout(temporizador);
+  }
+}
+
+// Solo los trozos SICAR usan esta descarga: los consumidores existentes conservan su contrato.
+async function descargarArchivoDeDriveLimitado(DB, fileId, maxBytes) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error("El límite de descarga debe ser un entero positivo.");
+  const token = await tokenActivo(DB);
+  const controlador = new AbortController();
+  const temporizador = setTimeout(() => controlador.abort(), 60000);
+  let lector;
+  try {
+    const r = await fetch(`${DRIVE_API}/${fileId}?alt=media`, {
+      headers: driveHeaders(token), signal: controlador.signal,
+    });
+    if (!r.ok) throw new Error("Error al descargar archivo de Google Drive: " + (await r.text()));
+    if (!r.body) throw new Error("Drive devolvió un archivo sin contenido.");
+    lector = r.body.getReader();
+    const partes = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        const error = new Error("El trozo de respaldo excede el límite de descarga.");
+        error.codigo = 'TROZO_EXCESIVO';
+        controlador.abort();
+        try { await lector.cancel(); } catch { /* Se conserva el error de tamaño. */ }
+        throw error;
+      }
+      partes.push(Buffer.from(value));
+    }
+    return Buffer.concat(partes, total);
+  } finally {
+    clearTimeout(temporizador);
+    lector?.releaseLock();
   }
 }
 
 module.exports = {
+  descargarArchivoDeDriveLimitado,
   intercambiarCodigo, urlAutorizacion, tokenActivo, verificarConexion,
   asegurarCarpetaRaiz, asegurarCarpetaEmpleado,
   asegurarCarpetaGarantia,

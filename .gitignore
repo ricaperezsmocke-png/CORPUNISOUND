@@ -14,3 +14,5 @@ backend/test_output.txt
 
 # Lleva el TOKEN_DESCARGA_RESPALDOS de Victor: solo vive en su PC.
 scripts/respaldo-local.config.json
+*.sqlite-wal
+*.sqlite-shm

@@ -21,6 +21,35 @@ const { empaquetar } = require("./respaldoCifrado");
 const { fechaLocal, ahora, momentoLocal } = require("./fechas");
 const mantenimiento = require("./mantenimiento");
 const { validarAntesDeRestaurar } = require("./reconciliarRestauracion");
+const sicar = require('./sicarRespaldo');
+const contextosSicar = new WeakMap();
+
+function configurarSicar(DB, repo, guardar) { contextosSicar.set(DB, { repo, guardar }); }
+
+function reconciliarVinculosParciales(sqlite, clientes, fechaFoto) {
+  const ids = new Set(clientes.map(c => Number(c.id)));
+  const fecha = Date.parse(fechaFoto);
+  const soltar = sqlite.prepare(`UPDATE sicar_vinculos
+    SET cliente_id=NULL, estado='pendiente', motivo='Revisar por restauración parcial',
+        version=version+1, actualizada=? WHERE sucursal_id=? AND cli_id=?`);
+  const decisionPosterior = sqlite.prepare(`SELECT 1 FROM sicar_decisiones
+    WHERE sucursal_id=? AND cli_id=? AND julianday(fecha)>julianday(?) LIMIT 1`);
+  const ahora = new Date().toISOString();
+  for (const v of sqlite.prepare('SELECT * FROM sicar_vinculos WHERE cliente_id IS NOT NULL').all()) {
+    if (!ids.has(Number(v.cliente_id)) || Date.parse(v.creada) > fecha || Date.parse(v.actualizada) > fecha
+      || decisionPosterior.get(v.sucursal_id, v.cli_id, fechaFoto)) {
+      soltar.run(ahora, v.sucursal_id, v.cli_id);
+    }
+  }
+}
+
+function estadoCoberturaSicar(DB) {
+  const copias = (DB.respaldos?.copias || []).filter(c => c.sicar_estado);
+  const ultima = copias.at(-1);
+  const completas = copias.filter(c => c.sicar_estado === 'completo' && c.estado === 'ok' && c.verificado_en);
+  return { ultimo_completo: completas.at(-1)?.fecha_hora || null,
+    estado: ultima?.sicar_estado || 'sin_respaldo', ultimo_intento: ultima?.fecha_hora || null };
+}
 
 // Versión 2 (2026-08-15): la 1 OLVIDABA "catalogo-productos" — el catálogo
 // entero de la tienda (productos, categorías, proveedores, departamentos). Un
@@ -159,11 +188,16 @@ function armarFoto(DB, tipo) {
  * de Drive deje rastro visible en la pantalla en vez de desaparecer sin ruido.
  * Solo pasa a "ok" cuando Drive confirmó.
  */
-async function crearRespaldo(DB, drive, { tipo = "hora", llave, usuario = null } = {}) {
+async function crearRespaldo(DB, drive, { tipo = "hora", llave, usuario = null, incluirSicar = false } = {}) {
   if (!llave) throw new Error("RESPALDO_LLAVE no está configurada — no se puede respaldar");
 
+  const disponible = contextosSicar.get(DB);
+  // Antes del primer dato SICAR no hay identidades ni decisiones que proteger: conserva el formato anterior.
+  const contexto = disponible && (incluirSicar || sicar.tieneDatosSicar(disponible.repo)) ? disponible : null;
   const foto = armarFoto(DB, tipo);
-  const paquete = empaquetar(foto, llave); // si esto revienta, no se toca Drive
+  // Separar el JSON vivo antes del primer await: coincide con la transacción lectora SICAR.
+  if (contexto) foto.datos = structuredClone(foto.datos);
+  let paquete = empaquetar(foto, llave); // si esto revienta, no se toca Drive
 
   const m = momentoLocal(foto.generado_en);
   // Reserva SÍNCRONA, antes del primer await.
@@ -180,6 +214,21 @@ async function crearRespaldo(DB, drive, { tipo = "hora", llave, usuario = null }
   DB.respaldos.copias.push(copia);
   DB.respaldos.ultimo_intento = foto.generado_en;
 
+  if (contexto) {
+    copia.sicar_estado = 'fallido';
+    copia.sicar_archivos = [];
+    foto.version_formato = 3;
+    try {
+      foto.sicar = await sicar.crearSnapshotSicar(contexto.repo, drive, { DB, llave,
+        registrarArchivo: idArchivo => copia.sicar_archivos.push(idArchivo) });
+    } catch (e) {
+      foto.sicar = { estado: 'parcial', error: e.message };
+      copia.sicar_error = e.message;
+    }
+    paquete = empaquetar(foto, llave);
+    copia.bytes = paquete.length;
+  }
+
   const carpetaId = await drive.asegurarCarpetaRespaldos(DB);
   const subido = await drive.subirArchivoADrive(DB, {
     nombre: nombre_archivo,
@@ -191,6 +240,15 @@ async function crearRespaldo(DB, drive, { tipo = "hora", llave, usuario = null }
 
   copia.drive_file_id = subido.id;
   copia.drive_link = subido.webViewLink || null;
+  if (contexto) {
+    // El manifiesto final también se relee de Drive antes de declarar cobertura completa.
+    const guardado = await drive.descargarArchivoDeDriveLimitado(DB, subido.id, paquete.length);
+    if (!paquete.equals(guardado)) throw new Error('Drive devolvió un manifiesto distinto al respaldo enviado.');
+    // Una falla de SICAR nunca le quita al negocio su respaldo: el JSON subió y se releyó idéntico,
+    // así que la copia es utilizable; solo la cobertura SICAR queda marcada como parcial.
+    copia.sicar_estado = foto.sicar.estado;
+    if (copia.sicar_estado === 'completo') copia.verificado_en = ahora();
+  }
   copia.estado = "ok";
   DB.respaldos.ultimo_exitoso = copia.fecha_hora;
   pushMovimiento(DB, id, "creacion", `Respaldo ${tipo} (${paquete.length} bytes)`, usuario);
@@ -272,6 +330,10 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
   if (masRecienteUtilizable) protegidas.add(masRecienteUtilizable);
   const masRecienteVerificada = [...utilizables].filter((c) => c.verificado_en).sort(porFechaDesc)[0];
   if (masRecienteVerificada) protegidas.add(masRecienteVerificada);
+  const completasSicar = utilizables.filter(c => c.sicar_estado === 'completo').sort(porFechaDesc);
+  if (completasSicar[0]) protegidas.add(completasSicar[0]);
+  const completaVerificada = completasSicar.find(c => c.verificado_en);
+  if (completaVerificada) protegidas.add(completaVerificada);
   // Caso degenerado: si NUNCA hubo una subida exitosa, se protege el renglón más
   // nuevo que haya, sea cual sea su estado. Mejor un archivo de más que ninguno.
   if (!protegidas.size) protegidas.add([...copias].sort(porFechaDesc)[0]);
@@ -285,6 +347,9 @@ async function limpiarViejos(DB, drive, ahoraMs = Date.now()) {
 
   let borradas = 0;
   for (const c of vencidas) {
+    try {
+      for (const id of c.sicar_archivos || []) await drive.eliminarArchivoDeDrive(DB, id);
+    } catch { continue; }
     if (c.drive_file_id) {
       try {
         await drive.eliminarArchivoDeDrive(DB, c.drive_file_id);
@@ -323,11 +388,12 @@ async function leerRespaldo(DB, drive, copiaId, llave) {
   const bytes = await drive.descargarArchivoDeDrive(DB, copia.drive_file_id);
   const foto = desempaquetar(bytes, llave); // lanza si está alterado o corrupto
 
-  if (foto.version_formato !== VERSION_FORMATO) {
+  if (![VERSION_FORMATO, 3].includes(foto.version_formato)) {
     throw new Error(
       `Ese respaldo usa la versión de formato ${foto.version_formato} y este sistema entiende la ${VERSION_FORMATO}. No se puede aplicar.`
     );
   }
+  if (foto.version_formato === 3 && !foto.sicar) throw new Error('El respaldo está incompleto: falta el manifiesto SICAR.');
   if (!foto.datos || typeof foto.datos !== "object" || Array.isArray(foto.datos)) {
     throw new Error("El respaldo está incompleto: no trae datos");
   }
@@ -385,6 +451,18 @@ async function verificarRespaldo(DB, drive, copiaId, llave) {
   try {
     copia = buscarCopia(DB, copiaId);
     const leido = await leerRespaldo(DB, drive, copiaId, llave);
+    // SICAR se comprueba aparte: un trozo dañado le quita la cobertura SICAR a la copia,
+    // pero no invalida el respaldo del negocio, que se verifica por su cuenta abajo.
+    let errorSicar = null;
+    if (leido.foto.version_formato === 3) {
+      try {
+        const contexto = contextosSicar.get(DB);
+        if (!contexto) throw new Error('No hay repositorio SICAR disponible para verificar este respaldo.');
+        if (leido.foto.sicar.estado !== 'completo') throw new Error('La copia SICAR de este respaldo quedó parcial.');
+        sicar.configurarContexto(contexto.repo, { DB, llave });
+        await sicar.verificarSnapshotSicar(contexto.repo, drive, leido.foto.sicar);
+      } catch (e) { errorSicar = e.message; }
+    }
     const reales = contarRegistros(leido.foto.datos);
     const diferencias = Object.keys(copia.conteos || {}).filter(
       (k) => Number(copia.conteos[k]) !== Number(reales[k])
@@ -392,15 +470,19 @@ async function verificarRespaldo(DB, drive, copiaId, llave) {
 
     if (diferencias.length) {
       copia.verificado_en = null;
+      if (copia.sicar_estado) copia.sicar_estado = 'fallido';
       pushMovimiento(DB, copia.id, "verificacion_fallida", diferencias.join("; "), null);
       return { ok: false, verificado_en: null, diferencias };
     }
     copia.verificado_en = ahora();
+    if (copia.sicar_estado) copia.sicar_estado = errorSicar ? 'fallido' : 'completo';
     pushMovimiento(DB, copia.id, "verificacion", "Descargado de Drive y comprobado", null);
-    return { ok: true, verificado_en: copia.verificado_en, diferencias: [] };
+    if (errorSicar) pushMovimiento(DB, copia.id, "verificacion_fallida", `SICAR: ${errorSicar}`, null);
+    return { ok: true, verificado_en: copia.verificado_en, diferencias: [], ...(errorSicar ? { sicar_error: errorSicar } : {}) };
   } catch (e) {
     if (copia) {
       copia.verificado_en = null;
+      if (copia.sicar_estado) copia.sicar_estado = 'fallido';
       pushMovimiento(DB, copia.id, "verificacion_fallida", e.message, null);
     }
     return { ok: false, verificado_en: null, diferencias: [e.message] };
@@ -566,12 +648,31 @@ async function restaurar(DB, drive, {
     throw new Error("Ya hay una restauración en curso. Espera a que termine antes de intentar otra.");
   }
   restauracionEnVuelo = true;
+  const contextoSicar = contextosSicar.get(DB);
+  let preparadaSicar;
   try {
     // Se baja y valida ENTERA antes de tocar nada. Si el archivo está corrupto,
     // incompleto o de otra versión, se rechaza aquí y la base ni se enteró.
     // Esto va ANTES de bloquear el sistema a propósito: un archivo dañado no debe
     // dejar la tienda cerrada ni un segundo.
     const { copia, foto } = await leerRespaldo(DB, drive, copiaId, llave);
+    // SICAR nunca le impide al negocio recuperar sus datos. Sin una copia SICAR completa y legible,
+    // se restauran solo los datos del negocio y las tablas SICAR vivas quedan como están (el agente
+    // las vuelve a llenar desde SICAR). El aviso viaja en la respuesta para que no pase en silencio.
+    let avisoSicar = null;
+    if (contextoSicar && foto.version_formato === 3 && foto.sicar?.estado === 'completo') {
+      // Bloquea al agente antes de preparar: ningún lote entra entre la preparación y el reemplazo.
+      mantenimiento.activar('Ya hay una restauración en curso: SICAR y datos del negocio. Espera a que termine.');
+      try {
+        sicar.configurarContexto(contextoSicar.repo, { DB, llave });
+        preparadaSicar = await sicar.prepararRestauracionSicar(contextoSicar.repo, drive, foto.sicar);
+      } catch (e) {
+        preparadaSicar = null;
+        avisoSicar = `La copia SICAR no se pudo usar (${e.message}); SICAR se conservó como estaba.`;
+      }
+    } else if (contextoSicar && sicar.tieneDatosSicar(contextoSicar.repo)) {
+      avisoSicar = 'Este respaldo no trae una copia SICAR completa; SICAR se conservó como estaba.';
+    }
 
     // La misma reconciliación que se aplicará al DB se ensaya sobre una copia
     // aislada. Detecta formas internas y catálogos de cajas inconsistentes sin
@@ -596,7 +697,8 @@ async function restaurar(DB, drive, {
       // restaurar sin poder deshacerlo.
       let pre;
       try {
-        pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario });
+        pre = await crearRespaldo(DB, drive, { tipo: "pre_restauracion", llave, usuario, incluirSicar: !!preparadaSicar });
+        if (pre.estado !== 'ok') throw new Error('El respaldo previo no quedó utilizable.');
       } catch (e) {
         throw new Error(
           "No se pudo crear el respaldo de seguridad previo, así que la restauración se canceló " +
@@ -605,6 +707,36 @@ async function restaurar(DB, drive, {
       }
 
       const comparacion = compararConEstadoActual(DB, copia);
+      // Sin red de seguridad SICAR completa no se reemplaza SICAR: no habría cómo deshacerlo.
+      if (preparadaSicar && pre.sicar_estado !== 'completo') {
+        preparadaSicar.liberar();
+        preparadaSicar = null;
+        avisoSicar = 'No se pudo respaldar SICAR antes de restaurar; SICAR se conservó como estaba.';
+      }
+
+      // Sin datos SICAR no hay vínculos que reconciliar: se usa el camino de restauración de siempre.
+      if (preparadaSicar || (contextoSicar && sicar.tieneDatosSicar(contextoSicar.repo))) {
+        const siguiente = { ...DB, ...foto.datos, respaldos: structuredClone(DB.respaldos) };
+        for (const [coleccion, campo] of Object.entries(CREDENCIALES_A_CONSERVAR)) {
+          if (DB[coleccion]?.[campo]) siguiente[coleccion][campo] = DB[coleccion][campo];
+        }
+        const reparaciones = alTerminar?.(siguiente)?.reparaciones || [];
+        pushMovimiento(siguiente, copia.id, 'restauracion',
+          `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} Respaldo previo: ${pre.nombre_archivo}`, usuario);
+        if (preparadaSicar) preparadaSicar.aplicar(() => contextoSicar.guardar(siguiente));
+        else {
+          const sqlite = contextoSicar.repo.conexionParaRespaldo();
+          sqlite.transaction(() => {
+            reconciliarVinculosParciales(sqlite, siguiente.crm?.clientes || [], foto.generado_en);
+            const guardado = contextoSicar.guardar(siguiente);
+            if (guardado?.then) throw new Error('El guardado de la restauración debe ser síncrono.');
+          }).immediate();
+        }
+        // Solo después del COMMIT se publica la misma foto en memoria, sin ningún await entre ambas operaciones.
+        Object.assign(DB, siguiente);
+        return { copia, pre_restauracion: pre, aplicado: true, comparacion, reparaciones,
+          sicar_restaurado: !!preparadaSicar, ...(avisoSicar ? { aviso_sicar: avisoSicar } : {}) };
+      }
 
       // Las credenciales vivas se apartan ANTES de mutar. Ver
       // CREDENCIALES_A_CONSERVAR: restaurar no debe desconectar Google Drive,
@@ -656,7 +788,8 @@ async function restaurar(DB, drive, {
         );
       }
 
-      return { copia, pre_restauracion: pre, aplicado: true, comparacion, reparaciones };
+      return { copia, pre_restauracion: pre, aplicado: true, comparacion, reparaciones,
+        sicar_restaurado: false, ...(avisoSicar ? { aviso_sicar: avisoSicar } : {}) };
     } finally {
       // SIEMPRE se desbloquea: si algo revienta a media restauración, la tienda no
       // se queda cerrada esperando a que alguien reinicie el servidor. Un `finally`
@@ -665,11 +798,16 @@ async function restaurar(DB, drive, {
       mantenimiento.desactivar();
     }
   } finally {
-    restauracionEnVuelo = false;
+    try { preparadaSicar?.liberar(); }
+    finally {
+      if (contextoSicar) mantenimiento.desactivar();
+      restauracionEnVuelo = false;
+    }
   }
 }
 
 module.exports = {
+  configurarSicar, estadoCoberturaSicar,
   nuevoEstadoRespaldos, contarRegistros, armarFoto, crearRespaldo, estadoRespaldos,
   pushMovimiento, siguienteId, limpiarViejos,
   leerRespaldo, verificarRespaldo, buscarCopia, copiaParaReverificar,

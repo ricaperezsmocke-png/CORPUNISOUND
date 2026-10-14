@@ -38,6 +38,10 @@ if (!process.env.DB_PATH) {
 }
 
 const sqlite = new Database(DB_PATH);
+// Lector independiente para respaldos SICAR sin impedir el COMMIT de la ingesta.
+// Las pruebas de concurrencia y recuperación cubren este modo; no se usa un archivo de copia.
+sqlite.pragma('journal_mode = WAL');
+sqlite.pragma('cache_size = -8192');
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS estado (
@@ -64,4 +68,8 @@ function guardar(db) {
   _guardar.run(JSON.stringify(db));
 }
 
-module.exports = { cargar, guardar };
+function obtenerConexionSqlite() {
+  return sqlite;
+}
+
+module.exports = { cargar, guardar, obtenerConexionSqlite };

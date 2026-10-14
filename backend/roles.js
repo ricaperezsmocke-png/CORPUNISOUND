@@ -71,6 +71,7 @@ function sembrarRolesIniciales(DB) {
     // de "todos menos cuatro". Radar se concede después, explícitamente, desde
     // Roles y Personal. El Administrador sí se reconcilia contra el catálogo.
     permisos: todasLasClaves.filter((c) =>
+      !c.endsWith("_sicar") &&
       c !== "eliminar_producto" &&
       c !== "administrar_roles" &&
       c !== "dar_alta_personal" &&

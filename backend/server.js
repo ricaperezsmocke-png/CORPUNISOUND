@@ -102,7 +102,7 @@ const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, repor
 const crypto = require("crypto");
 const {
   crearRespaldo, limpiarViejos, verificarRespaldo, copiaParaReverificar, restaurar,
-  estadoRespaldos, compararConEstadoActual, claveRestauracionConfigurada,
+  estadoRespaldos, compararConEstadoActual, claveRestauracionConfigurada, configurarSicar, estadoCoberturaSicar,
 } = require("./respaldos");
 const { llaveDesdeEnv } = require("./respaldoCifrado");
 const { debeRespaldar, INTERVALO_REVISION_MS } = require("./respaldoReloj");
@@ -127,10 +127,10 @@ const {
 // cada venta del día se escribía en el vacío, con un console.warn que nadie lee.
 const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
 
-let cargar = () => null, guardar = () => {};
+let cargar = () => null, guardar = () => {}, conexionSqlite = null;
 try {
   const p = require("./persistencia");
-  cargar = p.cargar; guardar = p.guardar;
+  cargar = p.cargar; guardar = p.guardar; conexionSqlite = p.obtenerConexionSqlite();
   console.log("✅ Módulo de persistencia SQLite cargado");
 } catch (e) {
   const abortar = debeAbortarSinPersistencia();
@@ -145,6 +145,11 @@ try {
 }
 
 const app = express();
+const { crearRepositorioSicar } = require("./sicarRepositorio");
+const { registrarAgenteSicar, registrarRutasSicar } = require("./sicarRutas");
+const { crearNativoConVinculos } = require("./sicarVinculos");
+// Sin SQLite (solo tolerado en desarrollo) la integración SICAR queda apagada y responde 503.
+const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, { clientesNativos: () => DB.crm.clientes }) : null;
 app.use(cors({
   origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
 }));
@@ -154,6 +159,8 @@ app.use(cors({
 // Límite subido a 50mb: el reporte de ventas histórico de una sucursal
 // (años de tickets) puede pesar varios MB en crudo, más al viajar en
 // base64 dentro del body JSON — misma filosofía que Migración de Datos.
+if (repoSicar) registrarAgenteSicar(app, { repo: repoSicar, mantenimiento });
+else app.use(["/api/integraciones/sicar", "/api/sicar"], (req, res) => res.status(503).json({ codigo: "SIN_PERSISTENCIA" }));
 app.use(express.json({ limit: "50mb" }));
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
@@ -332,6 +339,7 @@ const DB = {
   },
 };
 
+if (repoSicar) configurarSicar(DB, repoSicar, guardar);
 sembrarRolesIniciales(DB);
 
 // Restaurar estado guardado en SQLite (si existe)
@@ -673,6 +681,18 @@ const resolverAlcanceAutorizado = (req) => {
   return { verTodas: false, sucursalId: Number(req.usuarioToken.sucursal_id) };
 };
 
+// SICAR confirma sus propias tablas SQLite y no participa en la persistencia del JSON.
+if (repoSicar) app.get('/api/sicar/respaldo', requiereLogin,
+  requierePermiso('ver_sincronizacion_sicar', resolverPermisosDeRol), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(estadoCoberturaSicar(DB));
+  });
+if (repoSicar) registrarRutasSicar(app, {
+  repo: repoSicar, requiereLogin, requierePermiso, resolverPermisos: resolverPermisosDeRol,
+  resolverAlcanceAutorizado, tiendas: () => DB.pos.sucursales, mantenimiento,
+  esAdministrador: token => DB.admin.roles.find(r => Number(r.id) === Number(token.rol_id))?.nombre === "Administrador",
+});
+
 // Auto-persistencia: guarda el DB después de cada mutación exitosa
 app.use((req, res, next) => {
   if (!["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) return next();
@@ -761,11 +781,16 @@ app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de registrar la demanda." });
     }
     const registrar = req.body?.intencion_compra ? crearDemandaConCRM : crearDemandaRadar;
-    res.json(registrar(DB, req.body || {}, {
+    const resultado = crearNativoConVinculos(repoSicar, DB, guardar, () => registrar(DB, req.body || {}, {
       usuarioId: req.usuarioToken.id,
       sucursalId,
     }));
-  } catch (e) { responderErrorRadar(res, e); }
+    if (repoSicar) res.type("json").send(JSON.stringify(resultado));
+    else res.json(resultado);
+  } catch (e) {
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    responderErrorRadar(res, e);
+  }
 });
 
 app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
@@ -1228,6 +1253,16 @@ app.post("/api/compras/importar-ia", requiereLogin, requierePermiso("recibir_com
   }
 });
 
+// Q6: con el agente SICAR activo en la tienda, sus clientes llegan de SICAR y no por Excel.
+// Misma guarda para previsualizar y aplicar. Si la consulta falla, se bloquea (falla cerrando).
+function clientesExcelBloqueadosPorSicar(tipo, sucursalId) {
+  if (tipo !== "clientes" || !repoSicar) return null;
+  let activo = true;
+  try { activo = repoSicar.tieneAgenteActivo(sucursalId); } catch { activo = true; }
+  return activo ? "Esta tienda ya recibe sus clientes desde SICAR: no se importan clientes por Excel. " +
+    "Artículos, proveedores y la exportación siguen disponibles." : null;
+}
+
 app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_datos", resolverPermisosDeRol), (req, res) => {
   try {
     const { tipo, archivo_base64 } = req.body;
@@ -1248,6 +1283,8 @@ app.post("/api/migracion/previsualizar", requiereLogin, requierePermiso("migrar_
       sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     }
+    const bloqueoSicar = clientesExcelBloqueadosPorSicar(tipo, sucursal_id);
+    if (bloqueoSicar) return res.status(409).json({ error: bloqueoSicar });
     const { filas, columnas_reconocidas, columnas_no_reconocidas } = parsearExcel(archivo_base64, tipo);
     const previsualizacion = previsualizarImportacion(DB, tipo, filas, sucursal_id);
     res.json({ ...previsualizacion, columnas_reconocidas, columnas_no_reconocidas });
@@ -1265,6 +1302,8 @@ app.post("/api/migracion/aplicar", requiereLogin, requierePermiso("migrar_datos"
       sucursal_id = sucursalDelFormulario(permisos, req.usuarioToken, req.body.sucursal_id);
       if (!sucursal_id) return res.status(400).json({ error: "Selecciona la sucursal de origen del archivo" });
     }
+    const bloqueoSicar = clientesExcelBloqueadosPorSicar(tipo, sucursal_id);
+    if (bloqueoSicar) return res.status(409).json({ error: bloqueoSicar });
     const resumen = aplicarImportacion(DB, tipo, filas, sucursal_id, defaults, nombre_archivo);
     res.json(resumen);
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1583,8 +1622,13 @@ app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolv
       return res.status(400).json({ error: "Elige la sucursal del cliente (en el formulario) o una sucursal en el encabezado antes de darlo de alta." });
     }
     validarContactoCliente(DB, req.body, { modo: "alta", fueraDeAlcance: clienteFueraDeAlcance(req) });
-    res.json(crearCliente(DB, { ...req.body, sucursal_id }));
-  } catch (e) { responderErrorCliente(res, e); }
+    const resultado = crearNativoConVinculos(repoSicar, DB, guardar, () => crearCliente(DB, { ...req.body, sucursal_id }));
+    if (repoSicar) res.type("json").send(JSON.stringify(resultado));
+    else res.json(resultado);
+  } catch (e) {
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    responderErrorCliente(res, e);
+  }
 });
 app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", resolverPermisosDeRol), (req, res) => {
   try {
@@ -3020,6 +3064,8 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       ok: true,
       restaurado_a: `${resultado.copia.fecha} ${resultado.copia.hora_local}`,
       respaldo_previo: resultado.pre_restauracion.nombre_archivo,
+      sicar_restaurado: resultado.sicar_restaurado,
+      aviso_sicar: resultado.aviso_sicar || null,
       // Si la foto traia el catalogo de cajas torcido, restaurar lo repara en
       // vez de rechazarla. Se dice en pantalla: una reparacion invisible deja a
       // Victor creyendo que restauro tal cual, cuando el sistema cambio algo.
