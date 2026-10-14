@@ -227,7 +227,29 @@ function candidatosAPredecir(DB, vendedor) {
  *  - "empujar_producto": productos con demanda proyectada al alza, tomados del
  *    módulo de Predicciones que ya existe.
  */
-function generarTareas(DB, vendedorId, instante = ahora()) {
+// Última compra por cliente, en UN recorrido de las ventas del POS. Si la ruta inyecta
+// `ultimasCompras` (compras SICAR unidas al cliente), se toma la más reciente de ambas.
+// Solo decide qué cliente está en riesgo: NO toca progreso, meta ni sugerencia monetaria.
+function ultimaCompraPorCliente(DB, { ultimasCompras } = {}) {
+  const mapa = new Map();
+  for (const v of DB.pos.ventas) {
+    if (v.estatus !== "cerrada" || v.cliente_id == null) continue;
+    const fecha = String(v.fecha || "").slice(0, 10);
+    if (!fecha) continue;
+    const previa = mapa.get(v.cliente_id);
+    if (!previa || fecha > previa) mapa.set(v.cliente_id, fecha);
+  }
+  if (typeof ultimasCompras === "function") {
+    const ids = DB.crm.clientes.map((c) => c.id).filter((id) => id !== 0);
+    for (const [id, fecha] of ultimasCompras(ids)) {
+      const previa = mapa.get(id);
+      if (!previa || fecha > previa) mapa.set(id, fecha);
+    }
+  }
+  return mapa;
+}
+
+function generarTareas(DB, vendedorId, instante = ahora(), opciones = {}) {
   const vendedor = DB.pos.vendedores.find((v) => v.id === Number(vendedorId));
   if (!vendedor) throw new Error("Vendedor no encontrado");
 
@@ -245,20 +267,13 @@ function generarTareas(DB, vendedorId, instante = ahora()) {
   // El arreglo de rendimiento anterior solo cubrió la mitad de productos; esta
   // era la otra mitad, y la prueba no la veía porque el fixture tenía cero
   // clientes.
-  const ultimaCompraPorCliente = new Map();
-  for (const v of DB.pos.ventas) {
-    if (v.estatus !== "cerrada" || v.cliente_id == null) continue;
-    const fecha = String(v.fecha || "").slice(0, 10);
-    if (!fecha) continue;
-    const previa = ultimaCompraPorCliente.get(v.cliente_id);
-    if (!previa || fecha > previa) ultimaCompraPorCliente.set(v.cliente_id, fecha);
-  }
+  const ultimas = ultimaCompraPorCliente(DB, opciones);
 
   const clientes = DB.crm.clientes
     .filter((c) => c.id !== 0) // "Público en General" no se contacta
     .filter((c) => c.vendedor_asignado_id === Number(vendedorId))
     .map((c) => {
-      const ultima = ultimaCompraPorCliente.get(c.id) || null;
+      const ultima = ultimas.get(c.id) || null;
       return { cliente: c, segmento: segmentoPorUltimaCompra(ultima, instante), ultima };
     })
     .filter((x) => x.segmento === "en_riesgo" || x.segmento === "inactivo");
@@ -318,7 +333,7 @@ function generarTareas(DB, vendedorId, instante = ahora()) {
  *
  * Es el único punto de este módulo que escribe.
  */
-function sincronizarTareas(DB, vendedorId, instante = ahora()) {
+function sincronizarTareas(DB, vendedorId, instante = ahora(), opciones = {}) {
   if (!DB.pos.tareas_venta) DB.pos.tareas_venta = nuevoEstadoTareasVenta();
   let creadas = 0;
 
@@ -329,14 +344,7 @@ function sincronizarTareas(DB, vendedorId, instante = ahora()) {
   // María hubiera comprado ayer. Nada cerraba una tarea salvo un clic, y una
   // lista con trabajo ya resuelto se deja de mirar — que es perder la lista
   // entera.
-  const ultimaCompra = new Map();
-  for (const v of DB.pos.ventas) {
-    if (v.estatus !== "cerrada" || v.cliente_id == null) continue;
-    const f = String(v.fecha || "").slice(0, 10);
-    if (!f) continue;
-    const previa = ultimaCompra.get(v.cliente_id);
-    if (!previa || f > previa) ultimaCompra.set(v.cliente_id, f);
-  }
+  const ultimaCompra = ultimaCompraPorCliente(DB, opciones);
   for (const t of DB.pos.tareas_venta.tareas) {
     if (t.vendedor_id !== Number(vendedorId)) continue;
     if (t.estado !== "pendiente" || t.tipo !== "contactar_cliente") continue;
@@ -347,7 +355,7 @@ function sincronizarTareas(DB, vendedorId, instante = ahora()) {
     }
   }
 
-  for (const p of generarTareas(DB, vendedorId, instante)) {
+  for (const p of generarTareas(DB, vendedorId, instante, opciones)) {
     if (tareaYaCubierta(DB, vendedorId, p, instante)) continue;
     creadas++;
     DB.pos.tareas_venta.tareas.push({
@@ -599,9 +607,9 @@ function sugerirMeta(DB, vendedorId, instante = ahora()) {
 }
 
 /** El tablero completo del vendedor: progreso + tareas al día. */
-function tablero(DB, vendedorId, instante = ahora()) {
+function tablero(DB, vendedorId, instante = ahora(), opciones = {}) {
   const progreso = calcularProgreso(DB, vendedorId, instante);
-  const { tareas, creadas } = sincronizarTareas(DB, vendedorId, instante);
+  const { tareas, creadas } = sincronizarTareas(DB, vendedorId, instante, opciones);
   return { ...progreso, tareas, tareas_nuevas: creadas };
 }
 

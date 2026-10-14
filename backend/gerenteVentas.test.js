@@ -397,3 +397,29 @@ test("una venta CANCELADA no vuelve candidato a un producto", () => {
   DB.pos.venta_detalle.push({ id: 1, venta_id: 1, producto_id: 1, cantidad: 50 });
   assert.deepStrictEqual(candidatosAPredecir(DB, DB.pos.vendedores[0]), []);
 });
+
+// ---------- Compras SICAR unidas al cliente (CRM SICAR, T3a) ----------
+
+test("una compra SICAR reciente unida al cliente lo saca de riesgo, sin tocar el progreso de la meta", () => {
+  const DB = nuevoDB();
+  cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" }); // en riesgo por POS
+  venta(DB, { id: 1, vendedor_id: 1, total: 10000, fecha: "2026-08-03" });
+  const ultimasCompras = (ids) => new Map(ids.includes(2) ? [[2, "2026-08-14"]] : []);
+  const sin = generarTareas(DB, 1, AHORA).filter((t) => t.tipo === "contactar_cliente").map((t) => t.cliente_id);
+  const con = generarTareas(DB, 1, AHORA, { ultimasCompras }).filter((t) => t.tipo === "contactar_cliente").map((t) => t.cliente_id);
+  assert.ok(sin.includes(2));
+  assert.ok(!con.includes(2), "compró en SICAR ayer: no hay nada que recuperar");
+  const t = tablero(DB, 1, AHORA, { ultimasCompras });
+  assert.strictEqual(t.vendido_mes, 10000);
+  assert.strictEqual(t.vendido_mes, calcularProgreso(DB, 1, AHORA).vendido_mes);
+});
+
+test("una tarea pendiente se resuelve sola cuando el cliente compra en SICAR", () => {
+  const DB = nuevoDB();
+  cliente(DB, { id: 2, nombre: "María", vendedor_asignado_id: 1, ultimaCompra: "2026-07-01" });
+  sincronizarTareas(DB, 1, AHORA);
+  const ultimasCompras = () => new Map([[2, "2026-08-14"]]);
+  sincronizarTareas(DB, 1, AHORA, { ultimasCompras });
+  const tarea = DB.pos.tareas_venta.tareas.find((t) => t.cliente_id === 2);
+  assert.strictEqual(tarea.estado, "resuelta_sola");
+});
