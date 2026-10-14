@@ -118,7 +118,7 @@ function Sec({ title, action, children }) {
 // COMPONENTE PRINCIPAL
 // ============================================================
 export default function CRM({ onVolver, permisos }) {
-  const puedeSicar = permisos?.some(p => ['administrar_llaves_sicar', 'ver_sincronizacion_sicar'].includes(p));
+  const puedeSicar = permisos?.some(p => ['administrar_llaves_sicar', 'ver_sincronizacion_sicar', 'resolver_vinculos_sicar'].includes(p));
   const puede = (clave) => !permisos || permisos.includes(clave);
   // El cliente nace en UNA tienda (es la que decide quién puede verlo después).
   // A diferencia de Punto de Venta o Corte de Caja, aquí el encabezado en

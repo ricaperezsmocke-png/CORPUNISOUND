@@ -4,6 +4,7 @@ const {
 } = require('./sicarIngesta');
 
 const LIMITE = 1024 * 1024;
+const { listarVinculosSicar, resolverDecisionSicar } = require('./sicarVinculos');
 
 // Se monta ANTES del parser global y de la persistencia del JSON. Nunca recibe DB.
 function registrarAgenteSicar(app, { repo, mantenimiento }) {
@@ -112,7 +113,9 @@ function registrarAgenteSicar(app, { repo, mantenimiento }) {
   });
 }
 
-function registrarRutasSicar(app, { repo, requiereLogin, requierePermiso, resolverPermisos, resolverAlcanceAutorizado, tiendas, mantenimiento }) {
+function registrarRutasSicar(app, opciones) {
+  const { repo, requiereLogin, requierePermiso, resolverPermisos, resolverAlcanceAutorizado, tiendas, mantenimiento,
+    esAdministrador = () => false } = opciones;
   const permiso = clave => [requiereLogin, requierePermiso(clave, resolverPermisos)];
   const visible = (alcance, sucursalId) => alcance.verTodas || alcance.sucursalId === Number(sucursalId);
   const tiendasVisibles = alcance => tiendas().filter(t => visible(alcance, t.id)).map(t => ({ id: t.id, nombre: t.nombre }));
@@ -121,8 +124,18 @@ function registrarRutasSicar(app, { repo, requiereLogin, requierePermiso, resolv
     try {
       if (req.method === 'POST' && mantenimiento.estaActivo()) return res.status(503).json({ codigo: 'MANTENIMIENTO' });
       return fn(req, res, resolverAlcanceAutorizado(req));
-    } catch { return res.status(503).json({ error: 'No se pudo completar la operación SICAR.' }); }
+    } catch (e) {
+      return res.status(e.status || 503).json({ error: e.status ? e.message : 'No se pudo completar la operación SICAR.' });
+    }
   };
+  const actor = req => ({ id: req.usuarioToken.id, administrador: esAdministrador(req.usuarioToken) });
+  app.get('/api/sicar/vinculos', ...permiso('resolver_vinculos_sicar'), ejecutar((req, res, alcance) => {
+    res.json(listarVinculosSicar(repo, alcance, actor(req), Number(req.query.cursor ?? 0)));
+  }));
+  app.post('/api/sicar/vinculos/:sucursal/:cliId/resolver', ...permiso('resolver_vinculos_sicar'), ejecutar((req, res, alcance) => {
+    const identidad = { sucursal_id: req.params.sucursal, cli_id: req.params.cliId };
+    res.json(resolverDecisionSicar(repo, identidad, req.body, actor(req), alcance));
+  }));
   app.get('/api/sicar/llaves', ...permiso('administrar_llaves_sicar'), ejecutar((req, res, alcance) => {
     res.json({ tiendas: tiendasVisibles(alcance), llaves: repo.listarLlaves().filter(k => visible(alcance, k.sucursal_id)) });
   }));

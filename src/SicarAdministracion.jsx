@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from './api';
+import SicarVinculos from './SicarVinculos';
 
 const BOTON = 'rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50';
 const SECUNDARIO = 'rounded-md border border-slate-400 px-3 py-2 text-sm disabled:opacity-50';
@@ -16,6 +17,7 @@ async function consultar(ruta, opciones) {
 export default function SicarAdministracion({ permisos = [] }) {
   const administra = permisos.includes('administrar_llaves_sicar');
   const sincroniza = permisos.includes('ver_sincronizacion_sicar');
+  const resuelve = permisos.includes('resolver_vinculos_sicar');
   const [tiendas, setTiendas] = useState([]);
   const [llaves, setLlaves] = useState([]);
   const [envios, setEnvios] = useState([]);
@@ -67,7 +69,7 @@ export default function SicarAdministracion({ permisos = [] }) {
   }
 
   const nombre = id => tiendas.find(t => Number(t.id) === Number(id))?.nombre || `Tienda ${id}`;
-  if (!administra && !sincroniza) return null;
+  if (!administra && !sincroniza && !resuelve) return null;
   return <section className="space-y-5 rounded-xl border border-slate-300 bg-slate-100 p-5" aria-label="Administración SICAR">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -143,5 +145,6 @@ export default function SicarAdministracion({ permisos = [] }) {
         {!intentos.length && <p>No hay intentos registrados.</p>}
       </details>
     </>}
+    {resuelve && <SicarVinculos />}
   </section>;
 }

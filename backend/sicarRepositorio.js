@@ -141,7 +141,7 @@ function escribirVenta(sentencias, sucursalId, venta, revision, hash) {
   }
 }
 
-function crearRepositorioSicar(sqlite) {
+function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
   sqlite.pragma('foreign_keys = ON');
   if (sqlite.pragma('foreign_keys', { simple: true }) !== 1) {
     throw new ErrorSicar('FK_DESACTIVADAS', 'No se pudieron activar las claves foráneas.');
@@ -184,12 +184,21 @@ function crearRepositorioSicar(sqlite) {
       throw new ErrorSicar('SECUENCIA_INCORRECTA', 'La secuencia no es la siguiente esperada.', siguiente);
     }
     sentencias.tienda.run(sucursalId);
+    const identidades = [];
     for (const cliente of lote.clientes) {
+      const anterior = sqlite.prepare('SELECT telefono, celular FROM sicar_clientes WHERE sucursal_id=? AND cli_id=?')
+        .get(sucursalId, cliente.cli_id);
+      identidades.push({ sucursal_id: sucursalId, cli_id: cliente.cli_id,
+        telefonosCambiaron: !!anterior && (anterior.telefono !== (cliente.telefono ?? null) || anterior.celular !== (cliente.celular ?? null)) });
       sentencias.cliente.run({
         sucursal_id: sucursalId, cli_id: cliente.cli_id, nombre: cliente.nombre,
         telefono: cliente.telefono ?? null, celular: cliente.celular ?? null, email: cliente.email ?? null,
         rfc: cliente.rfc ?? null, status: cliente.status ?? null, clave: cliente.clave ?? null,
       });
+    }
+    if (clientesNativos) {
+      const { resolverVinculosSicar } = require('./sicarVinculos');
+      resolverVinculosSicar(repositorio, clientesNativos(), identidades);
     }
     for (const venta of lote.ventas) escribirVenta(sentencias, sucursalId, venta, lote.sequence, hash);
     const recibo = {
@@ -208,7 +217,9 @@ function crearRepositorioSicar(sqlite) {
     sqlite.prepare(`INSERT INTO sicar_llaves(key_id, sucursal_id, secreto_hash, creada, actor)
       VALUES (@key_id, @sucursal_id, @secreto_hash, @creada, @actor)`).run(llave);
   });
-  return {
+  const repositorio = {
+    conexionParaVinculos: () => sqlite,
+    clientesNativos: () => clientesNativos?.() ?? [],
     conexionParaRespaldo: () => sqlite,
     estado, reciboAnterior, aplicarLote: datos => aplicar.immediate(datos),
     guardarLlave: llave => guardarLlave.immediate(llave),
@@ -223,6 +234,7 @@ function crearRepositorioSicar(sqlite) {
       (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
       VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),
   };
+  return repositorio;
 }
 
 module.exports = { crearRepositorioSicar, ErrorSicar };

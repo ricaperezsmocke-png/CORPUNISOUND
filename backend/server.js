@@ -147,8 +147,9 @@ try {
 const app = express();
 const { crearRepositorioSicar } = require("./sicarRepositorio");
 const { registrarAgenteSicar, registrarRutasSicar } = require("./sicarRutas");
+const { crearNativoConVinculos } = require("./sicarVinculos");
 // Sin SQLite (solo tolerado en desarrollo) la integración SICAR queda apagada y responde 503.
-const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite) : null;
+const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, { clientesNativos: () => DB.crm.clientes }) : null;
 app.use(cors({
   origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
 }));
@@ -689,6 +690,7 @@ if (repoSicar) app.get('/api/sicar/respaldo', requiereLogin,
 if (repoSicar) registrarRutasSicar(app, {
   repo: repoSicar, requiereLogin, requierePermiso, resolverPermisos: resolverPermisosDeRol,
   resolverAlcanceAutorizado, tiendas: () => DB.pos.sucursales, mantenimiento,
+  esAdministrador: token => DB.admin.roles.find(r => Number(r.id) === Number(token.rol_id))?.nombre === "Administrador",
 });
 
 // Auto-persistencia: guarda el DB después de cada mutación exitosa
@@ -779,11 +781,16 @@ app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de registrar la demanda." });
     }
     const registrar = req.body?.intencion_compra ? crearDemandaConCRM : crearDemandaRadar;
-    res.json(registrar(DB, req.body || {}, {
+    const resultado = crearNativoConVinculos(repoSicar, DB, guardar, () => registrar(DB, req.body || {}, {
       usuarioId: req.usuarioToken.id,
       sucursalId,
     }));
-  } catch (e) { responderErrorRadar(res, e); }
+    if (repoSicar) res.type("json").send(JSON.stringify(resultado));
+    else res.json(resultado);
+  } catch (e) {
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    responderErrorRadar(res, e);
+  }
 });
 
 app.get("/api/radar-demanda/resumen", requiereLogin, requierePermiso("ver_resumen_demanda", resolverPermisosDeRol), (req, res) => {
@@ -1601,8 +1608,13 @@ app.post("/api/clientes", requiereLogin, requierePermiso("crear_cliente", resolv
       return res.status(400).json({ error: "Elige la sucursal del cliente (en el formulario) o una sucursal en el encabezado antes de darlo de alta." });
     }
     validarContactoCliente(DB, req.body, { modo: "alta", fueraDeAlcance: clienteFueraDeAlcance(req) });
-    res.json(crearCliente(DB, { ...req.body, sucursal_id }));
-  } catch (e) { responderErrorCliente(res, e); }
+    const resultado = crearNativoConVinculos(repoSicar, DB, guardar, () => crearCliente(DB, { ...req.body, sucursal_id }));
+    if (repoSicar) res.type("json").send(JSON.stringify(resultado));
+    else res.json(resultado);
+  } catch (e) {
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    responderErrorCliente(res, e);
+  }
 });
 app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", resolverPermisosDeRol), (req, res) => {
   try {
