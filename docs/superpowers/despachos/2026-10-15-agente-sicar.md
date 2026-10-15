@@ -176,3 +176,28 @@ detente.
 Orden: paso 0 con TDD (rojo primero) y suite completa del backend en verde (base 2890/0), commit propio
 `fix(crm-sicar): renglones repetidos del mismo articulo`; después el agente de las secciones 1 a 11, en commits
 aparte.
+
+---
+
+## 13. Adenda 2 (2026-10-15): columna de `historial` desconocida
+
+El paso 0 ya está commiteado (`f612c36`, revisado por Claude, suite 2889 pasan; las 5 fallas de `clavesSat` y
+`arranquePersistencia` son de entorno: pasan en la copia principal). **No lo rehagas.**
+
+Codex preguntó con razón qué columna de `historial` identifica la venta o el cliente del movimiento. Nadie lo sabe
+sin la base de Ocosingo. Decisión:
+
+- La columna (y, si hace falta, cómo se interpreta su valor) va en la configuración local del agente
+  (`historial.columna_referencia`), **sin valor por defecto**. Nada de adivinarla.
+- Si no está configurada: el agente funciona igual para la carga histórica, las ventas nuevas y la relectura de
+  48 horas (que ya detecta cancelaciones recientes). Solo se apaga la detección por `historial`, con una
+  advertencia clara en cada corrida: "cancelaciones antiguas sin vigilar: falta configurar historial". El cursor
+  de `his_id` NO avanza mientras esté apagada (para no saltarse movimientos cuando se encienda).
+- `--verificar` imprime **en la pantalla local, nunca al servidor**: `SHOW FULL COLUMNS FROM historial` y las
+  3 filas más recientes con `tabla='Venta' AND movimiento=2` (y 3 con `tabla='Cliente'`), para que quien instala
+  confirme la columna comparando contra una venta cancelada que conozca. Explica en el LEEME cómo hacerlo.
+- Si la columna configurada no existe en `INFORMATION_SCHEMA`, el agente no arranca (como el resto del mapeo).
+- Pruebas: sin configurar no avanza el cursor y avisa; configurada detecta la cancelación de un ticket viejo y lo
+  manda como `cancelada`; columna inexistente detiene.
+
+Sigue con el agente de las secciones 1 a 11 (el paso 0 está hecho).
