@@ -61,6 +61,17 @@ Mientras no esté puesto, todo funciona, pero cada corrida avisa
 el CRM no se entera. No se pierde nada: cuando se configure, el agente revisa el historial desde el principio
 (por partes, con pausas, a lo largo de varias corridas).
 
+### Carga completa de día (solo si Victor lo autoriza)
+
+Si la tienda está tranquila y Victor lo aprueba, la carga inicial se puede correr a mano a cualquier hora:
+
+```
+C:\UnisoundSICAR\agente-sicar\correr.cmd --historico-ahora
+```
+
+Solo vale para esa corrida; la tarea programada nunca la usa. Si la caja se alenta, ciérralo con Ctrl+C: retoma
+donde se quedó sin duplicar. Repite el comando hasta que el registro deje de mostrar `LOTE_CONFIRMADO` nuevos.
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
