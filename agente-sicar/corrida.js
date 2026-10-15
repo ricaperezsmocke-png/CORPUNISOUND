@@ -47,7 +47,7 @@ async function ejecutar(archivo, config, deps) {
     if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
     await fuente.validar();
     function permitido(mode) {
-      if (mode !== 'historico' || esHorarioHistorico(new Date(reloj()))) return true;
+      if (mode !== 'historico' || deps.historicoAhora || esHorarioHistorico(new Date(reloj()))) return true;
       log('FUERA_DE_HORARIO');
       return false;
     }
