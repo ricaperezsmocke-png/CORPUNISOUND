@@ -147,7 +147,7 @@ try {
 const app = express();
 const { crearRepositorioSicar } = require("./sicarRepositorio");
 const { registrarAgenteSicar, registrarRutasSicar } = require("./sicarRutas");
-const { crearNativoConVinculos } = require("./sicarVinculos");
+const { crearNativoConVinculos, editarNativoConVinculos } = require("./sicarVinculos");
 const { crearConsultasCRM } = require("./crmFuentes");
 // Sin SQLite (solo tolerado en desarrollo) la integración SICAR queda apagada y responde 503.
 const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, { clientesNativos: () => DB.crm.clientes }) : null;
@@ -1653,8 +1653,14 @@ app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", re
     validarContactoCliente(DB, req.body, {
       modo: "edicion", clienteId: existente.id, fueraDeAlcance: clienteFueraDeAlcance(req),
     });
-    res.json(actualizarCliente(DB, req.params.id, req.body));
-  } catch (e) { responderErrorCliente(res, e); }
+    const resultado = editarNativoConVinculos(repoSicar, DB, guardar, existente.id, req.usuarioToken.id,
+      () => actualizarCliente(DB, req.params.id, req.body));
+    if (repoSicar) res.type("json").send(JSON.stringify(resultado));
+    else res.json(resultado);
+  } catch (e) {
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    responderErrorCliente(res, e);
+  }
 });
 
 // ---------- Vendedores y Sucursales (catálogo compartido) ----------
@@ -2380,7 +2386,12 @@ app.get("/api/gerente-ventas/:vendedorId", requiereLogin, requierePermiso("usar_
     // 404 y no 403: no se confirma que el tablero de otra persona exista.
     if (vendedorId == null) return res.status(404).json({ error: "Tablero no encontrado" });
     // Las compras SICAR unidas al cliente solo deciden si sigue en riesgo; no tocan meta ni progreso.
-    const ultimasCompras = (ids) => consultasCRM.ultimasCompras({ alcance: { verTodas: true, sucursalId: null }, verSicar: true }, ids);
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    const contexto = {
+      alcance: { verTodas: permisos.includes("ver_todas_las_sucursales"), sucursalId: req.usuarioToken.sucursal_id },
+      verSicar: permisos.includes("ver_clientes_sicar"),
+    };
+    const ultimasCompras = (ids) => consultasCRM.ultimasCompras(contexto, ids);
     const t = tablero(DB, vendedorId, undefined, { ultimasCompras });
     // Este GET genera tareas, y la auto-persistencia solo cubre POST/PUT/DELETE.
     // Se guarda solo cuando de verdad hubo tareas nuevas, para no reescribir la
