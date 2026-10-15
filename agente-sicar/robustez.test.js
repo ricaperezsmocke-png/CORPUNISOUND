@@ -277,3 +277,76 @@ test('páginas sin nada que mandar también llevan pausa y cuentan para el tope 
   assert.equal((await cargar(archivo)).his_id, '1000', 'máximo 1000 páginas por corrida');
   assert.ok(pausas.filter(ms => ms >= 200).length >= 1000);
 });
+
+test('una venta con un dato raro se salta, se anota y la carga sigue; una cancelada ya enviada manda su cancelación', async t => {
+  const { ejecutar } = require('./corrida');
+  const { cargar } = require('./estado');
+  const c = { cli_id: '42', nombre: 'José' };
+  const fila = (ven_id, extra = {}) => ({ ven_id, cli_id: '42', fecha: '2026-10-10 10:00:00', status: 1, total: '10', ...extra });
+  const det = ven_id => ({ ven_id, art_id: '8', descripcion: 'Cuerda', clave: null, cantidad: '1',
+    precioCon: '10', precioSin: '8.6207', importeCon: '10', descTotal: '0' });
+  const filas = [fila('1'), fila('2', { total: '10.005' }), fila('3', { status: -1 }), fila('4', { status: 7 }), fila('5')];
+  const registro = [];
+  const { archivo, deps, lotes } = await ciclo(t, {
+    tope: async () => '5',
+    ventas: async desde => {
+      const ids = filas.filter(v => BigInt(v.ven_id) > BigInt(desde));
+      return { filas: ids, clientes: [c], detalles: ids.filter(v => v.ven_id !== '3').map(v => det(v.ven_id)) };
+    },
+  }, { fase: 'ventas', enviadas: { 3: true } });
+  deps.log = (evento, datos) => registro.push([evento, datos]);
+  await ejecutar(archivo, { llave: 'x' }, deps);
+  const ventas = lotes.flatMap(l => l.ventas);
+  assert.deepEqual(ventas.map(v => v.ven_id), ['1', '3', '5']);
+  assert.deepEqual(ventas[1], { ven_id: '3', estado: 'cancelada' }, 'cancelada sin renglones ya enviada: solo la cancelación');
+  const omitidas = registro.filter(([e]) => e === 'VENTA_OMITIDA').map(([, d]) => `${d.ven_id}:${d.codigo}`);
+  assert.deepEqual(omitidas, ['2:PRECISION_NO_PACTADA', '4:ESTADO_VENTA_DESCONOCIDO']);
+  assert.equal((await cargar(archivo)).ven_id, '5', 'el cursor pasa por encima de las omitidas');
+  assert.equal((await cargar(archivo)).detenido, null);
+});
+
+test('un cliente con datos imposibles se salta y se anota; los demás llegan', async t => {
+  const { ejecutar } = require('./corrida');
+  const registro = [];
+  const { archivo, deps, lotes } = await ciclo(t, {
+    clientes: async cursor => cursor === '0' ? [{ cli_id: '10', nombre: 'Ana' }, { cli_id: '11', nombre: 'x'.repeat(300) },
+      { cli_id: '12', nombre: 'Luis' }] : [],
+  });
+  deps.log = (evento, datos) => registro.push([evento, datos]);
+  await ejecutar(archivo, { llave: 'x' }, deps);
+  assert.deepEqual(lotes.flatMap(l => l.clientes.map(x => x.cli_id)), ['10', '12']);
+  assert.deepEqual(registro.filter(([e]) => e === 'CLIENTE_OMITIDO').map(([, d]) => `${d.cli_id}:${d.codigo}`), ['11:TEXTO_INVALIDO']);
+});
+
+test('el registro de omitidas muestra id y motivo, nunca otra cosa', () => {
+  const salida = [];
+  const log = registrar(linea => salida.push(linea));
+  log('VENTA_OMITIDA', { ven_id: '2', codigo: 'PRECISION_NO_PACTADA' });
+  log('VENTA_OMITIDA', { ven_id: '2', codigo: 'texto libre con secreto' });
+  assert.deepEqual(salida, ['VENTA_OMITIDA ven_id=2 codigo=PRECISION_NO_PACTADA', 'VENTA_OMITIDA ven_id=2']);
+});
+
+test('--verificar cuenta las ventas que se saltarían y muestra cuáles, sin mandar nada', async t => {
+  const { main } = require('./index');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'config.json');
+  await fs.writeFile(archivo, JSON.stringify({ mysql: { host: 'localhost', database: 'sicar', password: 'p' },
+    llave: 'k', estado: path.join(dir, 'estado.json') }));
+  const c = { cli_id: '42', nombre: 'José' };
+  const det = { ven_id: '9', art_id: '8', descripcion: 'Cuerda', clave: null, cantidad: '1',
+    precioCon: '10', precioSin: '8.6', importeCon: '10', descTotal: '0' };
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '9', clientes: async () => [],
+    verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [] }),
+    ventas: async cursor => cursor === '0' ? { filas: [
+      { ven_id: '8', cli_id: '42', fecha: '2026-10-10 10:00:00', status: 1, total: '-5' },
+      { ven_id: '9', cli_id: '42', fecha: '2026-10-10 10:00:00', status: 1, total: '10' }],
+    clientes: [c], detalles: [{ ...det, ven_id: '8' }, det] } : { filas: [], clientes: [], detalles: [] } };
+  const salida = [];
+  await main(['--verificar'], { configPath: archivo, eco: () => {}, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, imprimir: x => salida.push(x), esperar: async () => {},
+    fetch: async () => assert.fail('No debe enviar') });
+  const texto = salida.join('\n');
+  assert.match(texto, /Ventas con nombre: 2/);
+  assert.match(texto, /Ventas que se saltarían por datos raros: 1/);
+  assert.match(texto, /ven_id=8 codigo=DECIMAL_INVALIDO/);
+});

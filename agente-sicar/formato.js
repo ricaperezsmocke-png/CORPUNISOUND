@@ -79,4 +79,25 @@ function esHorarioHistorico(ahora) {
   const hora = Number(new Intl.DateTimeFormat('en-GB', { timeZone: ZONA, hour: '2-digit', hourCycle: 'h23' }).format(ahora));
   return hora >= 20 || hora < 7;
 }
-module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico };
+// Datos de SICAR que el agente no sabe leer. Decisión de Victor (2026-10-15): se salta esa venta o ese cliente,
+// queda en el registro con su id y el motivo, y la carga sigue. Cualquier otro error sí detiene la corrida.
+const DATOS_RAROS = new Set(['ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO',
+  'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE']);
+function clienteSeguro(c, avisar) {
+  try { return { cliente: cliente(c, avisar), omitido: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message) || !/^[1-9]\d*$/.test(String(c?.cli_id))) throw error;
+    return { cliente: null, omitido: { cli_id: String(c.cli_id), codigo: error.message } };
+  }
+}
+function ventaSegura(v, c, detalles, enviada, avisar) {
+  try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message) || !error.ven_id) throw error;
+    // Cancelada con datos raros (por ejemplo, sin renglones) que el CRM ya tiene: basta avisar que se canceló,
+    // para que no se siga contando como vigente.
+    if (String(v.status) === '-1' && enviada) return { venta: { ven_id: error.ven_id, estado: 'cancelada' }, omitida: null };
+    return { venta: null, omitida: { ven_id: error.ven_id, codigo: error.message } };
+  }
+}
+module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura };

@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const { DATOS_RAROS } = require('./formato');
 const { randomUUID } = require('node:crypto');
 function inicial() {
   return { version: 1, siguiente_secuencia: '1', fase: 'clientes', cli_id: '0', ven_id: '0', his_id: '0',
@@ -58,11 +59,11 @@ const EVENTOS = new Set([
   'RED_NO_DISPONIBLE', 'CONSULTAS_LENTAS_PAGINA_REDUCIDA', 'ERROR_NO_CLASIFICADO', 'LOTE_CONFIRMADO',
   'HTTP_400', 'HTTP_401', 'HTTP_409', 'HTTP_413', 'HTTP_422', 'HTTP_429', 'HTTP_503', 'HTTP_INESPERADO',
   'HISTORIAL_SIN_CONFIGURAR', 'FUERA_DE_HORARIO', 'OTRA_CORRIDA_ACTIVA', 'PRIVILEGIOS_AMPLIOS',
-  'ESTADO_INVALIDO', 'CONFIGURACION_INVALIDA', 'MYSQL_NO_DISPONIBLE', 'ESQUEMA_INVALIDO', 'CAMPO_OMITIDO', 'TOPE_DE_CORRIDA', 'SECUENCIA_RETROCEDIO', 'HTTP_5XX',
+  'ESTADO_INVALIDO', 'CONFIGURACION_INVALIDA', 'MYSQL_NO_DISPONIBLE', 'ESQUEMA_INVALIDO', 'CAMPO_OMITIDO', 'TOPE_DE_CORRIDA', 'SECUENCIA_RETROCEDIO', 'HTTP_5XX', 'VENTA_OMITIDA', 'CLIENTE_OMITIDO',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/,
-  campo: /^(telefono|celular|email|rfc)$/, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
+  campo: /^(telefono|celular|email|rfc)$/, codigo: { test: x => DATOS_RAROS.has(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
 function detalle(datos) {
   if (!datos || typeof datos !== 'object' || datos instanceof Error) return '';
   return Object.entries(DETALLES).filter(([k, patron]) => typeof datos[k] === 'string' && patron.test(datos[k]))

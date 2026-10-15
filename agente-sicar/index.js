@@ -6,7 +6,7 @@ const { conectar } = require('./conexion');
 const { crearLector } = require('./seguridad');
 const { crearFuente } = require('./mapeo');
 const { ejecutar } = require('./corrida');
-const { cliente } = require('./formato');
+const { cliente, ventaSegura } = require('./formato');
 async function verificar(fuente, imprimir, esperar, log) {
   await fuente.validar();
   const info = await fuente.verificar();
@@ -24,16 +24,26 @@ async function verificar(fuente, imprimir, esperar, log) {
   }
   cursor = '0';
   const tope = await fuente.tope();
+  const raras = [];
   while (true) {
     const pagina = await fuente.ventas(cursor, tope, fuente.tamano);
     if (!pagina.filas.length) break;
     const personas = new Set(pagina.clientes.filter(c => cliente(c)).map(c => String(c.cli_id)));
-    ventas += pagina.filas.filter(v => personas.has(String(v.cli_id))).length;
+    const conNombre = pagina.filas.filter(v => personas.has(String(v.cli_id)));
+    ventas += conNombre.length;
+    const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
+    for (const v of conNombre) {
+      const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
+      const { omitida } = ventaSegura(v, clientes.get(String(v.cli_id)), detalles, false);
+      if (omitida) raras.push(omitida);
+    }
     cursor = String(pagina.filas.at(-1).ven_id);
     await esperar(1000);
   }
   imprimir(`Clientes con nombre: ${clientes}`);
   imprimir(`Ventas con nombre: ${ventas}`);
+  imprimir(`Ventas que se saltarían por datos raros: ${raras.length}`);
+  for (const r of raras.slice(0, 20)) imprimir(`  ven_id=${r.ven_id} codigo=${r.codigo}`);
 }
 function rutaRegistro(configPath) {
   return typeof configPath === 'string' && path.isAbsolute(configPath) ? path.join(path.dirname(configPath), 'agente-sicar.log') : null;
