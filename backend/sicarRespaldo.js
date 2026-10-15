@@ -5,7 +5,9 @@ const { empaquetar, desempaquetar } = require('./respaldoCifrado');
 
 // Orden de dependencias: permite validar también las claves foráneas en preparación.
 const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes',
-  'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos']);
+  'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos',
+  'sicar_estados', 'sicar_estados_historial']);
+const TABLAS_ANTIGUAS = TABLAS.slice(0, -2);
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
 const MAX_FILAS_BYTES = MAX_TROZO - 65536;
@@ -47,12 +49,17 @@ function validarManifiesto(m) {
   }
   if (typeof m.snapshot_id !== 'string' || !/^[a-f0-9-]{36}$/.test(m.snapshot_id)
     || !Array.isArray(m.trozos) || m.trozos.length > MAX_TROZOS || !m.conteos
-    || Object.keys(m.conteos).length !== TABLAS.length) throw new Error('El manifiesto SICAR es inválido.');
+    || typeof m.conteos !== 'object' || Array.isArray(m.conteos)) throw new Error('El manifiesto SICAR es inválido.');
+  const antiguo = !Object.hasOwn(m.conteos, 'sicar_estados') && !Object.hasOwn(m.conteos, 'sicar_estados_historial');
+  const tablas = antiguo ? TABLAS_ANTIGUAS : TABLAS;
+  if (Object.keys(m.conteos).length !== tablas.length || Object.keys(m.conteos).some(t => !tablas.includes(t))) {
+    throw new Error('El manifiesto SICAR es inválido.');
+  }
   const conteos = Object.fromEntries(TABLAS.map(t => [t, 0]));
   let anterior = -1;
   const ids = new Set();
   for (const [i, c] of m.trozos.entries()) {
-    const orden = TABLAS.indexOf(c.tabla);
+    const orden = tablas.indexOf(c.tabla);
     if (orden < 0 || orden < anterior || c.orden !== i || !Number.isSafeInteger(c.filas) || c.filas <= 0
       || !Number.isSafeInteger(c.bytes) || c.bytes <= 0 || c.bytes > MAX_TROZO
       || !Number.isSafeInteger(c.bytes_json) || c.bytes_json <= 0 || c.bytes_json > MAX_TROZO
@@ -62,7 +69,7 @@ function validarManifiesto(m) {
     ids.add(c.drive_file_id);
     conteos[c.tabla] += c.filas;
   }
-  for (const tabla of TABLAS) {
+  for (const tabla of tablas) {
     if (!Number.isSafeInteger(m.conteos[tabla]) || m.conteos[tabla] < 0 || m.conteos[tabla] !== conteos[tabla]) {
       throw new Error(`El respaldo SICAR está incompleto: conteo de ${tabla}.`);
     }
@@ -212,7 +219,7 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
     sqlite.transaction(() => {
       for (const tabla of TABLAS) {
         const original = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(tabla).sql;
-        const preparado = original.replace(/\bsicar_[a-z]+\b/g, nombre => TABLAS.includes(nombre) ? PREFIJO + nombre : nombre);
+        const preparado = original.replace(/\bsicar_[a-z_]+\b/g, nombre => TABLAS.includes(nombre) ? PREFIJO + nombre : nombre);
         sqlite.exec(preparado);
       }
     })();

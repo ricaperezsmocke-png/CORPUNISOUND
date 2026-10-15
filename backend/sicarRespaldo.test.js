@@ -98,6 +98,45 @@ function api() {
   return require('./sicarRespaldo');
 }
 
+test('respaldo conserva estados SICAR e historial completo', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  sembrar(f);
+  const datos = { sucursal_id: 1, cli_id: '123', estado: 'contactado', usuario_id: 9, fecha_hora: '2026-10-15T20:00:00.000Z' };
+  f.repo.guardarEstadoCliente(datos);
+  f.repo.guardarEstadoCliente({ ...datos, estado: 'interesado' });
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(m.conteos.sicar_estados, 1);
+  assert.equal(m.conteos.sicar_estados_historial, 2);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  for (const tabla of ['sicar_estados', 'sicar_estados_historial']) {
+    assert.deepEqual(g.sqlite.prepare(`SELECT * FROM ${tabla}`).all(), f.sqlite.prepare(`SELECT * FROM ${tabla}`).all());
+  }
+});
+
+test('respaldo viejo sin seguimiento restaura vacio sobre estados posteriores', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  delete m.conteos.sicar_estados;
+  delete m.conteos.sicar_estados_historial;
+  f.repo.guardarEstadoCliente({ sucursal_id: 1, cli_id: '123', estado: 'contactado', usuario_id: 9, fecha_hora: '2026-10-15T20:00:00Z' });
+  const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_estados').get().n, 0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_estados_historial').get().n, 0);
+});
+
+test('manifiesto que omite solo una tabla de seguimiento se rechaza', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  m.conteos.sicar_estados = 0;
+  delete m.conteos.sicar_estados_historial;
+  await assert.rejects(s.prepararRestauracionSicar(f.repo, f.drive, m), /inválido|conteo/);
+});
+
 for (const antiguo of [true, false]) {
   test(`restaura renglones de respaldo ${antiguo ? 'viejo sin renglon' : 'nuevo con repetidos'}`, async t => {
     const f = preparar(t), g = preparar(t), s = api();
@@ -208,7 +247,7 @@ test('snapshot y restauración recuperan compra, detalle, enlace deshecho y reci
   const utilidad = reporteUtilidad(f.DB, {}, { verTodas: true, sucursalId: null });
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   assert.equal(m.version_esquema, 2);
-  assert.equal(Object.keys(m.conteos).length, 10);
+  assert.equal(Object.keys(m.conteos).length, 12);
   f.repo.aplicarLote({ sucursalId: 1, lote: lote('2'), hash: 'hash-2' });
   const preparado = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   assert.equal(f.repo.estado(1).siguiente_secuencia, '3');

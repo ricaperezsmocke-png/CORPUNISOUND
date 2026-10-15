@@ -102,14 +102,15 @@ test('una venta ya recibida que pasa a público se quita de la ficha del cliente
   assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
 });
 
-test('la migración es idempotente, activa FK y crea las diez tablas aisladas', t => {
+test('la migración es idempotente, activa FK y crea las doce tablas aisladas', t => {
   const { sqlite } = prepararDB(t);
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 10);
+  assert.equal(Object.keys(antes).length, 12);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
+  for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
   assert.equal(sqlite.pragma('foreign_keys', { simple: true }), 1);
   assert.deepEqual(sqlite.pragma('table_info(sicar_clientes)').map(c => c.name),
     ['sucursal_id', 'cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc', 'status', 'clave']);

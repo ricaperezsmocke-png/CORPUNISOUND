@@ -36,6 +36,17 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, cli_id),
     FOREIGN KEY (sucursal_id, cli_id) REFERENCES sicar_clientes(sucursal_id, cli_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_estados (
+    sucursal_id INTEGER NOT NULL, cli_id TEXT NOT NULL, estado TEXT NOT NULL,
+    usuario_id INTEGER NOT NULL, fecha_hora TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, cli_id),
+    FOREIGN KEY (sucursal_id, cli_id) REFERENCES sicar_clientes(sucursal_id, cli_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_estados_historial (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, cli_id TEXT NOT NULL,
+    anterior TEXT, nuevo TEXT NOT NULL, usuario_id INTEGER NOT NULL, fecha_hora TEXT NOT NULL,
+    FOREIGN KEY (sucursal_id, cli_id) REFERENCES sicar_clientes(sucursal_id, cli_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_decisiones (
     id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, cli_id TEXT NOT NULL,
     cliente_id INTEGER, accion TEXT NOT NULL, version INTEGER NOT NULL,
@@ -252,7 +263,18 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     sqlite.prepare(`INSERT INTO sicar_llaves(key_id, sucursal_id, secreto_hash, creada, actor)
       VALUES (@key_id, @sucursal_id, @secreto_hash, @creada, @actor)`).run(llave);
   });
+  const guardarEstadoCliente = sqlite.transaction(datos => {
+    const anterior = sqlite.prepare('SELECT estado FROM sicar_estados WHERE sucursal_id=? AND cli_id=?')
+      .get(datos.sucursal_id, datos.cli_id)?.estado ?? null;
+    sqlite.prepare(`INSERT INTO sicar_estados(sucursal_id, cli_id, estado, usuario_id, fecha_hora)
+      VALUES (@sucursal_id, @cli_id, @estado, @usuario_id, @fecha_hora)
+      ON CONFLICT(sucursal_id, cli_id) DO UPDATE SET estado=excluded.estado,
+        usuario_id=excluded.usuario_id, fecha_hora=excluded.fecha_hora`).run(datos);
+    sqlite.prepare(`INSERT INTO sicar_estados_historial(sucursal_id, cli_id, anterior, nuevo, usuario_id, fecha_hora)
+      VALUES (@sucursal_id, @cli_id, @anterior, @estado, @usuario_id, @fecha_hora)`).run({ ...datos, anterior });
+  });
   const repositorio = {
+    guardarEstadoCliente: datos => guardarEstadoCliente.immediate(datos),
     conexionParaVinculos: () => sqlite,
     clientesNativos: () => clientesNativos?.() ?? [],
     conexionParaRespaldo: () => sqlite,
