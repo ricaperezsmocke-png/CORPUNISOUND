@@ -11,7 +11,8 @@
   (solo para exportar/reusar `ESTADOS_MANUALES`), un módulo nuevo de rutas si lo necesitas (por ejemplo
   `backend/crmSeguimientoRutas.js`), `src/CRMListaClientes.jsx` y archivos nuevos de pantalla bajo `src/`, sus pruebas.
 - `backend/server.js`: **solo** las líneas mínimas para registrar la ruta nueva junto a las de `/api/crm/v2` (máximo 3
-  líneas). Nada más en ese archivo.
+  líneas), y **además** la función `filtrosCRM` (cerca de la línea 1881) para que transmita `orden`, `desde`, `hasta` y
+  `estado` (autorizado por Claude 2026-10-15 tras la parada de Codex). Nada más en ese archivo.
 - Prohibidos: los de la otra rama (lista de arriba), `src/CRM.jsx` (si necesitas los colores de `ESTADOS`, cópialos a un
   módulo compartido nuevo sin cambiar `CRM.jsx`), todo lo demás.
 
