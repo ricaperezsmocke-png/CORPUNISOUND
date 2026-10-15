@@ -73,7 +73,7 @@ function crearConsultasCRM(DB, repo) {
   }
 
   // Todas las personas que quien pregunta puede ver, con sus métricas ya combinadas.
-  function personas(ctx) {
+  function personas(ctx, filtroSucursal = null) {
     const hoyLocal = hoyDe(ctx);
     const nativos = nativosVisibles(ctx);
     const porId = new Map(nativos.map(c => [Number(c.id), {
@@ -84,12 +84,14 @@ function crearConsultasCRM(DB, repo) {
     for (const v of DB.pos?.ventas || []) {
       const p = porId.get(Number(v.cliente_id));
       if (!p || v.estatus !== 'cerrada') continue;
+      if (filtroSucursal != null && p.sucursal_id !== Number(filtroSucursal)) continue;
       p.monto_pos_centavos += centavosPos(v.total);
       p.compras += 1;
       p.ultima = masReciente(p.ultima, soloDia(v.fecha));
     }
     const externas = [];
     for (const f of identidadesSicar(ctx)) {
+      if (filtroSucursal != null && f.sucursal_id !== Number(filtroSucursal)) continue;
       const unida = UNION_ACTIVA.has(f.vinculo) && f.cliente_id != null;
       const nativo = unida ? porId.get(Number(f.cliente_id)) : null;
       if (nativo) {
@@ -127,8 +129,8 @@ function crearConsultasCRM(DB, repo) {
 
   function listar(ctx, filtros = {}) {
     const termino = normalizar(filtros.buscar).trim();
-    const lista = personas(ctx)
-      .filter(p => ctx.filtroSucursal == null || p.sucursal_id === Number(ctx.filtroSucursal))
+    const lista = personas(ctx, ctx.filtroSucursal)
+      .filter(p => ctx.filtroSucursal == null || p.sucursal_id === Number(ctx.filtroSucursal) || p.numero_compras > 0)
       .filter(p => !termino || normalizar(p.nombre).includes(termino) || String(p.telefono || '').includes(termino))
       .sort((a, b) => normalizar(a.nombre).localeCompare(normalizar(b.nombre)) || a.ref.localeCompare(b.ref));
     const totales = {
