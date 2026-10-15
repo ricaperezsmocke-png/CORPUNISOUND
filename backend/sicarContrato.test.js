@@ -155,3 +155,21 @@ test('9. una llave revocada ya no puede enviar', async () => {
   const r = await enviar(lote('6f1c2a90-0000-4000-8000-000000000007', '6', [], []));
   assert.equal(r.status, 401);
 });
+
+test('10. conserva artículos repetidos en orden de ticket y el reenvío no duplica', async () => {
+  llave = crearLlaveSicar(repo, 1, 961).llave;
+  const detalles = [linea('20', 'Primero', '20.00'), linea('10', 'Segundo', '10.00'), linea('20', 'Tercero', '30.00')];
+  const cuerpo = lote('6f1c2a90-0000-4000-8000-000000000010', '6', [], [venta('88020', '4502', '60.00', detalles)]);
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  const filas = sqlite.prepare("SELECT renglon, art_id, importe_centavos FROM sicar_detalles WHERE ven_id='88020' ORDER BY renglon").all();
+  assert.deepEqual(filas, [
+    { renglon: 0, art_id: '20', importe_centavos: 2000 },
+    { renglon: 1, art_id: '10', importe_centavos: 1000 },
+    { renglon: 2, art_id: '20', importe_centavos: 3000 },
+  ]);
+  assert.equal(sqlite.prepare("SELECT cuadra FROM sicar_ventas WHERE ven_id='88020'").get().cuadra, 1);
+  assert.deepEqual((await crm('compras/sicar%3A1%3A88020')).lineas.map(d => d.descripcion), ['Primero', 'Segundo', 'Tercero']);
+  assert.deepEqual(await enviar(cuerpo), r);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM sicar_detalles WHERE ven_id='88020'").get().n, 3);
+});

@@ -216,6 +216,7 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
         sqlite.exec(preparado);
       }
     })();
+    const renglonesAntiguos = new Map();
     for (const c of manifiesto.trozos) {
       comprobarDisco(sqlite);
       const filas = await leerTrozo(drive, contexto, manifiesto, c);
@@ -223,6 +224,12 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
       const sentencia = sqlite.prepare(`INSERT INTO ${PREFIJO}${c.tabla} (${campos.join(',')}) VALUES (${campos.map(() => '?').join(',')})`);
       sqlite.transaction(() => {
         for (const fila of filas) {
+          if (c.tabla === 'sicar_detalles' && fila && !Object.hasOwn(fila, 'renglon')) {
+            // El snapshot antiguo conserva el orden de rowid, incluso entre trozos.
+            const identidad = JSON.stringify([fila.sucursal_id, fila.ven_id]);
+            fila.renglon = renglonesAntiguos.get(identidad) ?? 0;
+            renglonesAntiguos.set(identidad, fila.renglon + 1);
+          }
           if (!fila || Object.keys(fila).length !== campos.length || campos.some(k => !Object.hasOwn(fila, k))) {
             throw new Error('Una fila del respaldo SICAR tiene columnas incompatibles.');
           }

@@ -189,7 +189,7 @@ function crearConsultasCRM(DB, repo) {
       ON c.sucursal_id=s.sucursal_id AND c.cli_id=s.cli_id WHERE s.sucursal_id=? AND s.ven_id=?`).get(Number(sicar[1]), sicar[2]);
     if (!s || s.estado === 'excluida' || esPublicoSicar(s)) throw noEncontrado();
     const lineas = sqlite.prepare(`SELECT descripcion, cantidad, importe_centavos, descuento_centavos FROM sicar_detalles
-      WHERE sucursal_id=? AND ven_id=? ORDER BY art_id`).all(s.sucursal_id, s.ven_id);
+      WHERE sucursal_id=? AND ven_id=? ORDER BY renglon`).all(s.sucursal_id, s.ven_id);
     return { ref, fuente: 'sicar', fecha: soloDia(s.fecha_local), sucursal_id: s.sucursal_id, monto_centavos: s.total_centavos,
       estado: s.estado, suma_al_total: s.estado === 'vigente', lineas };
   }

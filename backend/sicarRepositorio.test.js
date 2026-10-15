@@ -34,6 +34,24 @@ function foto(sqlite) {
   return Object.fromEntries(tablas.map(({ name }) => [name, sqlite.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()]));
 }
 
+test('migra detalles antiguos por rowid dentro de cada venta sin perder filas y es idempotente', t => {
+  const { sqlite, repo } = prepararDB(t);
+  aplicar(repo);
+  aplicar(repo, lote(), 2);
+  const campos = sqlite.pragma('table_info(sicar_detalles)').map(c => c.name).filter(c => c !== 'renglon').join(',');
+  sqlite.exec(`CREATE TABLE detalles_viejos AS SELECT ${campos} FROM sicar_detalles ORDER BY sucursal_id, art_id DESC;
+    DROP TABLE sicar_detalles; ALTER TABLE detalles_viejos RENAME TO sicar_detalles;`);
+  const antes = sqlite.prepare('SELECT * FROM sicar_detalles ORDER BY rowid').all();
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  const despues = sqlite.prepare('SELECT * FROM sicar_detalles ORDER BY sucursal_id, ven_id, renglon').all();
+  assert.deepEqual(despues.map(({ renglon, ...fila }) => fila), antes);
+  assert.deepEqual(despues.map(d => d.renglon), [0, 1, 0, 1]);
+  const estado = foto(sqlite);
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  assert.deepEqual(foto(sqlite), estado);
+  assert.deepEqual(sqlite.pragma('foreign_key_check'), []);
+});
+
 test('el esquema indexa las decisiones por identidad y bloqueo de unión', t => {
   const { sqlite } = prepararDB(t);
   const indices = sqlite.pragma('index_list(sicar_decisiones)');

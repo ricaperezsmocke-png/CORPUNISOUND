@@ -35,12 +35,12 @@ function fecha(valor, local = false) {
   if (!Number.isFinite(instante.getTime()) || instante.toISOString().slice(0, 19) !== base) fallar('FECHA_INVALIDA');
   if (!local && !Number.isFinite(Date.parse(valor))) fallar('FECHA_INVALIDA');
 }
-function arreglo(valor, maximo, id) {
+function arreglo(valor, maximo, id, unico = true) {
   if (!Array.isArray(valor) || valor.length > maximo) fallar('LIMITE_ENTIDADES');
   const vistos = new Set();
   for (const fila of valor) {
     if (!fila || !esId(fila[id])) fallar('ID_INVALIDO');
-    if (vistos.has(fila[id])) fallar('ID_DUPLICADO');
+    if (unico && vistos.has(fila[id])) fallar('ID_DUPLICADO');
     vistos.add(fila[id]);
   }
 }
@@ -69,7 +69,7 @@ function validarVenta(v, indice) {
   fecha(v.fecha_local, true);
   if (v.timezone !== 'America/Mexico_City' || v.moneda !== 'MXN') fallar('MONEDA_ZONA_INVALIDA');
   decimal(v.total, 2);
-  arreglo(v.detalle, 500, 'art_id');
+  arreglo(v.detalle, 500, 'art_id', false);
   if (!v.detalle.length) fallar('DETALLE_VACIO');
   v.detalle.forEach((d, i) => enReferencia(`ventas[${indice}].detalle[${i}]`, () => validarDetalle(d)));
   return v.detalle.length;

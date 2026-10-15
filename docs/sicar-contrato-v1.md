@@ -48,6 +48,8 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
 - Campos de cliente permitidos: `cli_id`, `nombre`, `telefono`, `celular`, `email`, `rfc`. **Nunca** `huella`,
   `muestra` ni `foto` (son biométricos; ni siquiera se leen).
 - `batch_id` es un UUID nuevo por lote. `sequence` empieza en `"1"` y sube de uno en uno por tienda.
+- Un mismo `art_id` puede repetirse en `detalle`: cada posición identifica un renglón independiente.
+  El orden del arreglo es el orden del ticket (por la PK de `detallev`); no se agrupan ni descartan renglones.
 
 ## 3. Qué venta mandar y con qué estado
 
