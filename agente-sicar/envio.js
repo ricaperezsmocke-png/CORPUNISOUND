@@ -9,7 +9,7 @@ async function enviarPendiente(archivo, estado, config, deps = {}) {
   for (let intento = 0; estado.pendiente && intento < intentos; intento++) {
     // También se conserva el ritmo entre procesos y entre reinicios.
     if (estado.ultimo_envio !== null) await esperar(Math.max(0, estado.ultimo_envio + 6000 - reloj()));
-    if (JSON.parse(estado.pendiente.bytes).mode === 'historico' && !esHorarioHistorico(new Date(reloj()))) {
+    if (JSON.parse(estado.pendiente.bytes).mode === 'historico' && !deps.historicoAhora && !esHorarioHistorico(new Date(reloj()))) {
       log('FUERA_DE_HORARIO');
       return false;
     }

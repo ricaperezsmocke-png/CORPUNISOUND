@@ -388,3 +388,29 @@ test('la guardia rechaza funciones entre comillas invertidas y literales hexadec
     assert.throws(() => validarSQL(sql), /SQL_NO_PERMITIDO/, sql);
   }
 });
+
+test('la carga histórica de día solo corre con --historico-ahora, y solo en esa corrida', async t => {
+  const { main } = require('./index');
+  const { cargar } = require('./estado');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'config.json');
+  const estadoRuta = path.join(dir, 'estado.json');
+  await fs.writeFile(archivo, JSON.stringify({ mysql: { host: 'localhost', database: 'sicar', password: 'p' },
+    llave: 'k', estado: estadoRuta }));
+  const lotes = [];
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0',
+    clientes: async cursor => cursor === '0' ? [{ cli_id: '42', nombre: 'José' }] : [],
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }), historial: async () => [],
+    porIds: async () => ({ filas: [], clientes: [], detalles: [] }) };
+  const deps = { configPath: archivo, eco: () => {}, conectar: async () => ({ end: async () => {} }), crearFuente: async () => fuente,
+    esperar: async () => {}, reloj: () => Date.parse('2026-10-15T19:00:00Z'), // 13:00 en la tienda
+    fetch: async (_, { body }) => { const l = JSON.parse(body); lotes.push(l);
+      return { status: 200, json: async () => ({ next_sequence: String(BigInt(l.sequence) + 1n) }) }; } };
+  await main([], deps);
+  assert.equal(lotes.length, 0, 'de día, sin la bandera, no manda');
+  await main(['--historico-ahora'], deps);
+  assert.equal(lotes.length, 1);
+  assert.equal(lotes[0].mode, 'historico');
+  assert.equal((await cargar(estadoRuta)).fase, 'incremental');
+  await assert.rejects(main(['--historico-ahora', '--verificar'], deps), 'no se combina con --verificar');
+});
