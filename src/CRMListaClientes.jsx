@@ -3,7 +3,7 @@ import { apiFetch } from './api';
 import { importe, fecha } from './CRMComprasSicar';
 import CRMFichaCliente from './CRMFichaCliente';
 import { EtiquetaEstado } from './CRMSeguimiento';
-import { ESTADOS } from './crmSeguimiento';
+import { ESTADOS } from './crmEstados';
 
 const BOTON = 'rounded border border-slate-400 bg-white px-3 py-1 text-sm disabled:opacity-50';
 const PRIMARIO = 'rounded bg-blue-700 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50';

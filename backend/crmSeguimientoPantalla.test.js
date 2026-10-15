@@ -15,14 +15,14 @@ function cargar(archivo, extras = {}) {
   new Function('module', 'exports', 'require', codigo)(mod, mod.exports, nombre => {
     if (nombre in extras) return extras[nombre];
     if (nombre === 'react') return React;
-    if (nombre === './crmSeguimiento') return cargar('crmSeguimiento.js');
+    if (nombre === './crmEstados') return cargar('crmEstados.js');
     throw new Error(`Importación inesperada: ${nombre}`);
   });
   return mod.exports;
 }
 
 test('WhatsApp normaliza solo numeros mexicanos admitidos', () => {
-  const { numeroWhatsApp } = cargar('crmSeguimiento.js');
+  const { numeroWhatsApp } = cargar('crmEstados.js');
   assert.equal(numeroWhatsApp('(919) 123-4567'), '529191234567');
   assert.equal(numeroWhatsApp('+52 919 123 4567'), '529191234567');
   for (const valor of ['', null, '123', '5219191234567', '119191234567']) assert.equal(numeroWhatsApp(valor), null);

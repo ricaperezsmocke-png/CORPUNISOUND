@@ -1,5 +1,5 @@
 import React from 'react';
-import { ESTADOS, numeroWhatsApp } from './crmSeguimiento';
+import { ESTADOS, numeroWhatsApp } from './crmEstados';
 
 const BOTON = 'rounded border border-slate-400 bg-white px-3 py-1 text-sm disabled:opacity-50';
 
