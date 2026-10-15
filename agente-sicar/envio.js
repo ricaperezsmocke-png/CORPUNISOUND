@@ -43,14 +43,23 @@ async function enviarPendiente(archivo, estado, config, deps = {}) {
     }
     if (res.status === 409 && datos.codigo === 'SECUENCIA_INCORRECTA') {
       const lote = JSON.parse(estado.pendiente.bytes);
+      // El servidor pide una secuencia MENOR: perdió lotes ya confirmados (por ejemplo, restauró un respaldo).
+      // Seguir como si nada dejaría huecos que nadie vuelve a mandar: se detiene y avisa.
+      if (BigInt(id(datos.siguiente_secuencia)) < BigInt(lote.sequence)) {
+        estado.detenido = 'SECUENCIA_RETROCEDIO';
+        await guardar(archivo, estado);
+        log(estado.detenido);
+        throw new Error(estado.detenido);
+      }
       lote.sequence = id(datos.siguiente_secuencia);
       lote.batch_id = randomUUID();
       estado.pendiente.bytes = JSON.stringify(lote);
       await guardar(archivo, estado);
       continue;
     }
-    if ([429, 503].includes(res.status)) {
-      log(`HTTP_${res.status}`);
+    // 5xx es pasajero (Render reiniciando, servidor caído): se reenvían los mismos bytes, nunca se detiene.
+    if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
+      log(res.status === 429 || res.status === 503 ? `HTTP_${res.status}` : 'HTTP_5XX');
       if (intento + 1 < intentos) await esperar(res.status === 429 ? 60000 : 15000);
       continue;
     }

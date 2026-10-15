@@ -1,8 +1,9 @@
 function validarSQL(sql) {
-  if (typeof sql !== 'string' || /\/\*[!+]|\/\*M!/i.test(sql)) throw new Error('SQL_NO_PERMITIDO');
-  const limpio = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*|#[^\n]*/g, ' ').trim();
-  const cuerpo = limpio.replace(/;$/, '');
-  const prohibido = /\b(INTO|OUTFILE|DUMPFILE|LOAD_FILE|UPDATE|LOCK|huella|muestra|foto)\b|;|@|:=/i;
+  // Las sentencias del agente no usan comillas ni comentarios (los valores van como ?): si aparecen no se intenta
+  // entenderlos, se rechaza. Quitar comentarios con expresiones regulares se brinca con una comilla o con 1--1.
+  if (typeof sql !== 'string' || /['"#\\]|--|\/\*/.test(sql)) throw new Error('SQL_NO_PERMITIDO');
+  const cuerpo = sql.trim().replace(/;$/, '');
+  const prohibido = /\b(INTO|OUTFILE|DUMPFILE|LOAD_FILE|UPDATE|LOCK|SHARE|huella|muestra|foto)\b|;|@|:=/i;
   if (!/^(SELECT|SHOW)\b/i.test(cuerpo) || prohibido.test(cuerpo)) throw new Error('SQL_NO_PERMITIDO');
   if (/\*/.test(cuerpo.replace(/COUNT\(\*\)/gi, ''))) throw new Error('SQL_NO_PERMITIDO');
   const funciones = cuerpo.matchAll(/\b([a-z_][a-z_0-9]*)\s*\(/gi);

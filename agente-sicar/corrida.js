@@ -3,6 +3,9 @@ const { cargar, guardar, bloquear } = require('./estado');
 const { cliente, venta, sobre, cabe, esHorarioHistorico, id } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
+const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
+// Ventas bajo el cursor que se releen por si otra caja las confirmó tarde (ids asignados antes, guardadas después).
+const MARGEN_VENTAS = 200;
 function elementos(pagina, estado, avisar) {
   const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
   return pagina.filas.map(v => {
@@ -46,14 +49,16 @@ async function ejecutar(archivo, config, deps) {
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
     if (!permitido(mode)) return;
-    let enviados = 0;
+    let enviados = 0, paginas = 0;
     async function transmitir(items, cambios, modo = mode) {
+      if (++paginas > MAXIMO_PAGINAS_POR_CORRIDA) { log('TOPE_DE_CORRIDA'); return false; }
       // Nada que mandar (página de puro público, historial sin cancelaciones, fin de fase): avanza sin gastar envío.
       const vacio = sobre(estado.siguiente_secuencia, modo, new Date(reloj()));
       for (const item of items) agregar(vacio, item);
       if (!vacio.clientes.length && !vacio.ventas.length) {
         Object.assign(estado, cambios);
         await guardar(archivo, estado);
+        await esperar(200);
         return true;
       }
       const grupos = [];
@@ -109,6 +114,15 @@ async function ejecutar(archivo, config, deps) {
         ven_id: id(pagina.filas.at(-1).ven_id), ventana: cache(pagina, estado),
       })) return;
     }
+    let desdeMargen = BigInt(estado.ven_id) > BigInt(MARGEN_VENTAS) ? String(BigInt(estado.ven_id) - BigInt(MARGEN_VENTAS)) : '0';
+    while (BigInt(desdeMargen) < BigInt(estado.ven_id)) {
+      const pagina = await fuente.ventas(desdeMargen, estado.ven_id, fuente.tamano);
+      if (!pagina.filas.length) break;
+      desdeMargen = id(pagina.filas.at(-1).ven_id);
+      const nuevas = { ...pagina, filas: pagina.filas.filter(v => !estado.ventana[id(v.ven_id)]) };
+      if (!nuevas.filas.length) continue;
+      if (!await transmitir(elementos(nuevas, estado, avisar), { ventana: cache(nuevas, estado) })) return;
+    }
     if (config.historial?.columna_referencia) {
       while (true) {
         const movimientos = await fuente.historial(estado.his_id, fuente.tamano);
@@ -116,7 +130,11 @@ async function ejecutar(archivo, config, deps) {
         const ventasIds = [...new Set(movimientos.filter(m => m.tabla === 'Venta' && String(m.movimiento) === '2').map(m => id(m.referencia)))];
         const clientesIds = [...new Set(movimientos.filter(m => m.tabla === 'Cliente'
           && ['0', '1', '2'].includes(String(m.movimiento))).map(m => id(m.referencia)))];
-        const pagina = await fuente.porIds(ventasIds);
+        const pagina = { filas: [], clientes: [], detalles: [] };
+        for (let i = 0; i < ventasIds.length; i += fuente.tamano) {
+          const parte = await fuente.porIds(ventasIds.slice(i, i + fuente.tamano));
+          for (const k of Object.keys(pagina)) pagina[k].push(...parte[k]);
+        }
         const clientes = clientesIds.length ? await fuente.clientesIds(clientesIds) : [];
         const items = clientes.map(c => ({ cliente: cliente(c, avisar) })).concat(elementos(pagina, estado, avisar));
         if (!await transmitir(items, { his_id: id(movimientos.at(-1).his_id), ventana: cache(pagina, estado) })) return;

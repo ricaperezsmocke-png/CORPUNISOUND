@@ -38,7 +38,7 @@ C:\UnisoundSICAR\agente-sicar\correr.cmd --verificar
 ```
 
 Esto se conecta, revisa que existan todas las columnas que usa, y cuenta los clientes y las ventas con nombre.
-**No manda nada.** Tarda varios minutos porque lee por páginas; mejor después del cierre.
+**No manda nada.** Lee todas las ventas por páginas y tarda varios minutos: córrelo **después del cierre**, no en horario de cobro.
 
 - Debe decir algo cercano a **5,097 clientes** y **10,918 ventas** en Ocosingo.
 - `PRIVILEGIOS_AMPLIOS` es esperado mientras `consultas` tenga permiso FILE (ver sección 6).
@@ -56,7 +56,8 @@ ponlo en `config.json`:
 
 Mientras no esté puesto, todo funciona, pero cada corrida avisa
 `cancelaciones antiguas sin vigilar: falta configurar historial`: si alguien cancela hoy un ticket de hace meses,
-el CRM no se entera. No se pierde nada: cuando se configure, el agente revisa el historial desde el principio.
+el CRM no se entera. No se pierde nada: cuando se configure, el agente revisa el historial desde el principio
+(por partes, con pausas, a lo largo de varias corridas).
 
 ## 4. Programar la tarea
 
@@ -80,12 +81,13 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `FUERA_DE_HORARIO` | La carga inicial espera a las 20:00. | Nada. |
 | `TOPE_DE_CORRIDA` | Ya mandó 300 paquetes en esta corrida. | Nada: la siguiente sigue donde se quedó. |
 | `OTRA_CORRIDA_ACTIVA` | La anterior no ha terminado. | Nada. Si dura más de 6 horas, el agente la da por muerta solo. |
-| `RED_NO_DISPONIBLE`, `HTTP_429`, `HTTP_503` | Internet o el servidor. | Nada: reenvía lo mismo sin duplicar. |
+| `RED_NO_DISPONIBLE`, `HTTP_429`, `HTTP_503`, `HTTP_5XX` | Internet o el servidor (por ejemplo, Render reiniciando). | Nada: reenvía lo mismo sin duplicar. Si dura más de un día, avisar. |
 | `CAMPO_OMITIDO cli_id=… campo=…` | Un teléfono, correo o RFC mal capturado en SICAR. Se mandó el cliente sin ese dato. | Corregirlo en SICAR si importa. |
 | `HISTORIAL_SIN_CONFIGURAR` / `cancelaciones antiguas sin vigilar` | Falta la sección 3. | Configurar `historial`. |
 | `HTTP_401` | Llave incorrecta o revocada. **El agente se detiene.** | Pedir llave nueva y avisar a quien mantiene el sistema. |
 | `HTTP_400`, `HTTP_409`, `HTTP_413`, `HTTP_422` | El servidor rechazó un paquete. **El agente se detiene.** | Avisar con la línea del registro. |
-| `FALLO ... ven_id=…` | Una venta de SICAR trae un dato que el agente no sabe leer. **Se detiene.** | Avisar con la línea completa. |
+| `SECUENCIA_RETROCEDIO` | El servidor perdió paquetes que ya había confirmado (por ejemplo, se restauró un respaldo). **El agente se detiene** para no dejar huecos. | Avisar: hay que decidir si se reenvía todo. |
+| `FALLO ... ven_id=…` | Una venta de SICAR trae un dato que el agente no sabe leer. Cada corrida vuelve a chocar con esa misma venta y **no avanza**. | Avisar con la línea completa. |
 | `FALLO MYSQL_ACCESO_DENEGADO` / `MYSQL_NO_DISPONIBLE` | Contraseña de MySQL o MySQL apagado. | Revisar `config.json` y que SICAR esté abierto. |
 
 Cuando el agente se detiene por un error, **no vuelve a intentar solo**: así no manda datos malos. Quien mantiene el

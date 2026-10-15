@@ -11,9 +11,10 @@ for (const sql of [
 ]) {
   test(`rechaza SQL inseguro: ${sql}`, () => assert.throws(() => validarSQL(sql)));
 }
-test('acepta lectura con comentarios ordinarios y punto y coma final', () => {
-  assert.equal(validarSQL(' /* lectura */ SELECT cli_id FROM cliente;'), ' /* lectura */ SELECT cli_id FROM cliente;');
-  assert.equal(validarSQL('-- lectura\nSHOW GRANTS'), '-- lectura\nSHOW GRANTS');
+test('acepta punto y coma final; rechaza cualquier comentario (no se intenta entenderlos)', () => {
+  assert.equal(validarSQL(' SELECT cli_id FROM cliente;'), ' SELECT cli_id FROM cliente;');
+  assert.throws(() => validarSQL(' /* lectura */ SELECT cli_id FROM cliente;'), /SQL_NO_PERMITIDO/);
+  assert.throws(() => validarSQL('-- lectura\nSHOW GRANTS'), /SQL_NO_PERMITIDO/);
 });
 test('solo acepta localhost y fija opciones seguras pese a opciones externas', () => {
   for (const host of ['192.168.1.1', 'localhost.evil', '::1', '']) {

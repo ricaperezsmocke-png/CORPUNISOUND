@@ -82,6 +82,8 @@ test('candado de una corrida que murió (luz, reinicio) se recupera; uno vivo y 
   assert.ok(otra, 'un candado de más de 6 horas se considera abandonado');
   await otra();
   await fs.writeFile(`${archivo}.lock`, 'basura');
+  const hace = new Date(Date.now() - 10 * 60000);
+  await fs.utimes(`${archivo}.lock`, hace, hace);
   const ilegible = await bloquear(archivo);
   assert.ok(ilegible, 'un candado ilegible se recupera');
   await ilegible();
@@ -164,4 +166,114 @@ test('una corrida manda como máximo 300 paquetes y la siguiente continúa donde
   await ejecutar(archivo, { llave: 'x' }, deps);
   assert.equal(lotes.length, 310);
   assert.deepEqual(lotes.map(l => l.sequence), lotes.map((_, i) => String(i + 1)));
+});
+
+async function conPendiente(t, secuencia = '80') {
+  const { inicial, guardar } = require('./estado');
+  const { sobre } = require('./formato');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'estado.json');
+  const estado = { ...inicial(), siguiente_secuencia: secuencia };
+  estado.pendiente = { bytes: JSON.stringify(sobre(secuencia, 'incremental', new Date('2026-10-15T03:00:00Z'))), cambios: { ven_id: '9' } };
+  await guardar(archivo, estado);
+  return { archivo, estado };
+}
+
+test('500, 502 y 504 del servidor se reintentan con los mismos bytes; no detienen al agente', async t => {
+  const { enviarPendiente } = require('./envio');
+  for (const status of [500, 502, 504]) {
+    const { archivo, estado } = await conPendiente(t);
+    const cuerpos = [];
+    let llamadas = 0;
+    const fetch = async (_, { body }) => {
+      cuerpos.push(body);
+      return ++llamadas === 1 ? { status, json: async () => { throw new Error('html'); } }
+        : { status: 200, json: async () => ({ next_sequence: '81' }) };
+    };
+    assert.equal(await enviarPendiente(archivo, estado, { llave: 'x' }, { fetch, esperar: async () => {}, reloj: () => 0 }), true);
+    assert.equal(estado.detenido, null);
+    assert.equal(cuerpos[0], cuerpos[1]);
+    assert.equal(estado.siguiente_secuencia, '81');
+  }
+});
+
+test('si el servidor pide una secuencia MENOR (restauró un respaldo), el agente se detiene y avisa', async t => {
+  const { enviarPendiente } = require('./envio');
+  const { cargar } = require('./estado');
+  const { archivo, estado } = await conPendiente(t, '80');
+  const fetch = async () => ({ status: 409, json: async () => ({ codigo: 'SECUENCIA_INCORRECTA', siguiente_secuencia: '50' }) });
+  const avisos = [];
+  await assert.rejects(enviarPendiente(archivo, estado, { llave: 'x' }, { fetch, esperar: async () => {}, reloj: () => 0,
+    log: m => avisos.push(m) }), /SECUENCIA_RETROCEDIO/);
+  assert.equal((await cargar(archivo)).detenido, 'SECUENCIA_RETROCEDIO');
+  assert.ok(avisos.includes('SECUENCIA_RETROCEDIO'));
+});
+
+test('cada corrida relee las ventas recientes bajo el cursor y manda las que se confirmaron tarde', async t => {
+  const { ejecutar } = require('./corrida');
+  const c = { cli_id: '42', nombre: 'José' };
+  const fila = ven_id => ({ ven_id, cli_id: '42', fecha: '2026-10-15 10:00:00', status: 1, total: '10' });
+  const det = ven_id => ({ ven_id, art_id: '8', descripcion: 'Cuerda', clave: null, cantidad: '1',
+    precioCon: '10', precioSin: '8.6207', importeCon: '10', descTotal: '0' });
+  const visibles = new Set(['1002']);
+  const { archivo, deps, lotes } = await ciclo(t, {
+    tope: async () => '1002',
+    ventas: async (desde, hasta) => {
+      const ids = [...visibles].filter(x => BigInt(x) > BigInt(desde) && BigInt(x) <= BigInt(hasta)).sort();
+      return { filas: ids.map(fila), clientes: [c], detalles: ids.map(det) };
+    },
+  }, { fase: 'incremental', ven_id: '1000' });
+  await ejecutar(archivo, { llave: 'x' }, deps);
+  assert.deepEqual(lotes.flatMap(l => l.ventas.map(v => v.ven_id)), ['1002']);
+  visibles.add('1001');
+  await ejecutar(archivo, { llave: 'x' }, deps);
+  assert.deepEqual(lotes.flatMap(l => l.ventas.map(v => v.ven_id)), ['1002', '1001'], 'la 1001 llegó tarde y aun así se manda');
+  await ejecutar(archivo, { llave: 'x' }, deps);
+  assert.equal(lotes.length, 2, 'lo ya visto no se vuelve a mandar en cada corrida');
+});
+
+test('la guardia de SQL rechaza comillas, comentarios y bloqueos compartidos', () => {
+  const { validarSQL } = require('./seguridad');
+  for (const sql of ["SELECT '#' INTO OUTFILE 'C:/x.txt'", "SELECT '/*', 1 INTO OUTFILE 'C:/x.txt' -- */'",
+    "SELECT 1--1 INTO OUTFILE 'C:/x.txt'", "SELECT nombre FROM cliente WHERE '--' = '' UNION SELECT LOAD_FILE('C:/x')",
+    'SELECT nombre FROM cliente FOR SHARE', 'SELECT `nombre` FROM cliente # huella', 'SELECT "a"', '/* x */ SELECT 1']) {
+    assert.throws(() => validarSQL(sql), /SQL_NO_PERMITIDO/, sql);
+  }
+  assert.equal(validarSQL('SELECT `cli_id` FROM `cliente` WHERE `cli_id` > ? LIMIT ?'), 'SELECT `cli_id` FROM `cliente` WHERE `cli_id` > ? LIMIT ?');
+});
+
+test('un candado vacío recién creado (otra corrida arrancando) no se da por abandonado', async t => {
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'estado.json');
+  await fs.writeFile(`${archivo}.lock`, '');
+  assert.equal(await bloquear(archivo), null);
+  const hace = new Date(Date.now() - 10 * 60000);
+  await fs.utimes(`${archivo}.lock`, hace, hace);
+  const liberar = await bloquear(archivo);
+  assert.ok(liberar, 'vacío y viejo sí está abandonado');
+  await liberar();
+});
+
+test('historial con muchas cancelaciones se lee por páginas del tamaño permitido', async t => {
+  const { ejecutar } = require('./corrida');
+  const pedidas = [];
+  const movimientos = Array.from({ length: 100 }, (_, i) => ({ his_id: String(i + 1), tabla: 'Venta', movimiento: 2, referencia: String(i + 1) }));
+  const fuente = { tamano: 50, historial: async cursor => movimientos.filter(m => BigInt(m.his_id) > BigInt(cursor)).slice(0, 100),
+    porIds: async ids => { if (ids.length > 50) throw new Error('PAGINA_EXCESIVA'); pedidas.push(ids.length); return { filas: [], clientes: [], detalles: [] }; } };
+  const { archivo, deps } = await ciclo(t, fuente, { fase: 'incremental' });
+  await ejecutar(archivo, { llave: 'x', historial: { columna_referencia: 'ref' } }, deps);
+  assert.deepEqual(pedidas, [50, 50]);
+});
+
+test('páginas sin nada que mandar también llevan pausa y cuentan para el tope de la corrida', async t => {
+  const { ejecutar } = require('./corrida');
+  const { cargar } = require('./estado');
+  const movimientos = Array.from({ length: 2500 }, (_, i) => ({ his_id: String(i + 1), tabla: 'Articulo', movimiento: 1, referencia: '5' }));
+  const pausas = [];
+  const { archivo, deps } = await ciclo(t, { tamano: 1,
+    historial: async cursor => movimientos.filter(m => BigInt(m.his_id) > BigInt(cursor)).slice(0, 1) }, { fase: 'incremental' });
+  deps.esperar = async ms => pausas.push(ms);
+  await ejecutar(archivo, { llave: 'x', historial: { columna_referencia: 'ref' } }, deps);
+  assert.equal((await cargar(archivo)).his_id, '1000', 'máximo 1000 páginas por corrida');
+  assert.ok(pausas.filter(ms => ms >= 200).length >= 1000);
 });

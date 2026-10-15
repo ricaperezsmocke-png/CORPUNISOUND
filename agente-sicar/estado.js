@@ -31,7 +31,12 @@ function vivo(pid) {
 // Un apagón o un reinicio deja el candado puesto: si su proceso ya no existe o lleva más de 6 horas, se recupera.
 async function abandonado(candado) {
   let datos;
-  try { datos = JSON.parse(await fs.readFile(candado, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return false; return true; }
+  try { datos = JSON.parse(await fs.readFile(candado, 'utf8')); }
+  catch (e) {
+    if (e.code === 'ENOENT') return false;
+    // Vacío o a medias puede ser otra corrida que lo acaba de crear: solo es basura si ya tiene minutos.
+    try { return Date.now() - (await fs.stat(candado)).mtimeMs > 5 * 60000; } catch { return false; }
+  }
   const inicio = Date.parse(datos?.inicio);
   if (!Number.isSafeInteger(datos?.pid) || !Number.isFinite(inicio)) return true;
   return !vivo(datos.pid) || Date.now() - inicio > CANDADO_ABANDONADO_MS;
@@ -53,7 +58,7 @@ const EVENTOS = new Set([
   'RED_NO_DISPONIBLE', 'CONSULTAS_LENTAS_PAGINA_REDUCIDA', 'ERROR_NO_CLASIFICADO', 'LOTE_CONFIRMADO',
   'HTTP_400', 'HTTP_401', 'HTTP_409', 'HTTP_413', 'HTTP_422', 'HTTP_429', 'HTTP_503', 'HTTP_INESPERADO',
   'HISTORIAL_SIN_CONFIGURAR', 'FUERA_DE_HORARIO', 'OTRA_CORRIDA_ACTIVA', 'PRIVILEGIOS_AMPLIOS',
-  'ESTADO_INVALIDO', 'CONFIGURACION_INVALIDA', 'MYSQL_NO_DISPONIBLE', 'ESQUEMA_INVALIDO', 'CAMPO_OMITIDO', 'TOPE_DE_CORRIDA',
+  'ESTADO_INVALIDO', 'CONFIGURACION_INVALIDA', 'MYSQL_NO_DISPONIBLE', 'ESQUEMA_INVALIDO', 'CAMPO_OMITIDO', 'TOPE_DE_CORRIDA', 'SECUENCIA_RETROCEDIO', 'HTTP_5XX',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/,
