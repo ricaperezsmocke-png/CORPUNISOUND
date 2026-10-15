@@ -141,3 +141,38 @@ cada columna que supusiste sin confirmar.
 
 Reporte con: archivos creados, lista de columnas supuestas sin confirmar, salida de las pruebas (agente y
 backend), `git status` y `git log` finales, y cualquier cosa que no pudiste hacer.
+
+---
+
+## 12. Adenda (2026-10-15): renglones repetidos del mismo artículo — PASO 0, antes del agente
+
+Codex se detuvo con razón: el servidor rechaza (`422 ID_DUPLICADO`) una venta con dos renglones del mismo
+`art_id` (`backend/sicarIngesta.js:72`, `arreglo(v.detalle, 500, 'art_id')`) y la tabla lo impide
+(`PRIMARY KEY (sucursal_id, ven_id, art_id)` en `backend/sicarRepositorio.js:62`). En SICAR una venta puede
+traer el mismo artículo en dos renglones (escaneado dos veces, dos precios). **Decisión (Claude, regla obvia de
+negocio): se conserva cada renglón tal como está en el ticket.** No se agrupan, no se descartan.
+
+Diseño fijado:
+- El renglón se identifica por su **posición en el arreglo `detalle`** (0, 1, 2...). El contrato v1 NO cambia de
+  forma: el agente sigue mandando los mismos campos, en el orden del ticket (orden por la PK de `detallev`).
+- `sicarIngesta.js`: el detalle deja de exigir `art_id` único por venta. `ven_id` y `cli_id` siguen únicos por lote.
+- `sicar_detalles`: nueva columna `renglon INTEGER NOT NULL` y `PRIMARY KEY (sucursal_id, ven_id, renglon)`.
+  `escribirVenta` ya borra y reinserta todo el detalle de la venta: inserta `renglon = índice`.
+- **Migración al arrancar** (la tabla ya existe en producción, se cree que vacía, no lo asumas): si la tabla no
+  tiene `renglon`, reconstruirla en una transacción conservando TODAS las filas, asignando `renglon` por orden
+  de `rowid` dentro de cada venta. Prueba con filas precargadas: mismas filas antes y después, idempotente.
+- **Respaldo SICAR** (`backend/sicarRespaldo.js`): un respaldo viejo sin `renglon` debe poder restaurarse
+  (asignar por orden). Prueba de restauración con respaldo viejo y con nuevo.
+- `backend/crmFuentes.js:192`: ordenar renglones por `renglon` (orden del ticket), no por `art_id`.
+- `docs/sicar-contrato-v1.md`: decir que un mismo artículo puede repetirse y que el orden del arreglo es el
+  orden del ticket. `backend/sicarContrato.test.js`: agregar el caso de dos renglones del mismo artículo
+  (aceptado, ambos guardados, total cuadra) y el reenvío idéntico (no duplica).
+
+Archivos autorizados para el paso 0 (además de los de la sección 7): `backend/sicarIngesta.js`,
+`backend/sicarRepositorio.js`, `backend/sicarRespaldo.js`, `backend/crmFuentes.js` (solo esa consulta) y sus
+`*.test.js`, `backend/sicarContrato.test.js`. Sigue prohibido `backend/server.js` y todo lo demás; si hace falta,
+detente.
+
+Orden: paso 0 con TDD (rojo primero) y suite completa del backend en verde (base 2890/0), commit propio
+`fix(crm-sicar): renglones repetidos del mismo articulo`; después el agente de las secciones 1 a 11, en commits
+aparte.
