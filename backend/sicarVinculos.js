@@ -47,6 +47,13 @@ function candidatosPara(fuente, indice) {
   return { ambiguo, candidatos: [...candidatos.values()] };
 }
 
+function coincideTelefono(fuente, cliente) {
+  if (!cliente) return false;
+  const origen = telefonos(fuente);
+  const destino = telefonos(cliente);
+  return !origen.ambiguo && !destino.ambiguo && [...origen.numeros].some(n => destino.numeros.has(n));
+}
+
 function errorVinculo(status, mensaje) {
   const error = new Error(mensaje);
   error.status = status;
@@ -68,7 +75,7 @@ function escribirVinculo(sqlite, vinculo) {
       version=excluded.version, motivo=excluded.motivo, actor=excluded.actor, actualizada=excluded.actualizada`).run(vinculo);
 }
 
-function resolverVinculosSicar(repo, clientesNativos, identidades) {
+function resolverVinculosSicar(repo, clientesNativos, identidades, actor = 'automatico') {
   const sqlite = repo.conexionParaVinculos();
   const indice = indicePorTelefono(clientesNativos);
   return sqlite.transaction(() => {
@@ -100,7 +107,7 @@ function resolverVinculosSicar(repo, clientesNativos, identidades) {
           : candidatos.length > 1 ? 'Varios candidatos por teléfono; sin unión automática.' : 'Sin coincidencia por teléfono.';
       if (anterior?.cliente_id === clienteId && anterior.estado === estado && anterior.motivo === motivo) continue;
       const nuevo = { sucursal_id: fuente.sucursal_id, cli_id: fuente.cli_id, cliente_id: clienteId, estado,
-        version: (anterior?.version ?? 0) + 1, motivo, actor: 'automatico', creada: anterior?.creada ?? ahora, actualizada: ahora };
+        version: (anterior?.version ?? 0) + 1, motivo, actor: String(actor), creada: anterior?.creada ?? ahora, actualizada: ahora };
       escribirVinculo(sqlite, nuevo);
       registrarDecision(sqlite, nuevo, 'propuesta');
     }
@@ -135,6 +142,12 @@ function resolverDecisionSicar(repo, identidad, datos, actor, alcance) {
     if (vinculo.version !== Number(datos.expected_version)) throw errorVinculo(409, 'Otro revisor cambió el vínculo. Actualiza la cola.');
     if (!['pendiente', 'confirmado'].includes(vinculo.estado) || vinculo.cliente_id == null) {
       throw errorVinculo(409, 'Esta identidad no tiene una unión que se pueda resolver.');
+    }
+    if (datos.accion === 'confirmar') {
+      const fuente = sqlite.prepare('SELECT telefono, celular FROM sicar_clientes WHERE sucursal_id=? AND cli_id=?')
+        .get(vinculo.sucursal_id, vinculo.cli_id);
+      const cliente = repo.clientesNativos().find(c => Number(c.id) === vinculo.cliente_id);
+      if (!coincideTelefono(fuente, cliente)) throw errorVinculo(409, 'El telefono del cliente cambio; actualiza la cola.');
     }
     const nuevo = { ...vinculo, cliente_id: datos.accion === 'deshacer' ? null : vinculo.cliente_id,
       estado: datos.accion === 'deshacer' ? 'separado' : 'confirmado', version: vinculo.version + 1,
@@ -207,4 +220,49 @@ function crearNativoConVinculos(repo, DB, guardar, crear) {
   }
 }
 
-module.exports = { resolverVinculosSicar, resolverDecisionSicar, listarVinculosSicar, crearNativoConVinculos, esPublicoSicar };
+// La edición y sus decisiones comparten transacción; ante fallo también se restaura la memoria.
+function editarNativoConVinculos(repo, DB, guardar, clienteId, actor, editar) {
+  if (!repo) return editar();
+  const previo = structuredClone(DB.crm);
+  const sqlite = repo.conexionParaVinculos();
+  let editado = false;
+  try {
+    return sqlite.transaction(() => {
+      const resultado = editar();
+      editado = true;
+      const anterior = previo.clientes.find(c => Number(c.id) === Number(clienteId));
+      const cliente = DB.crm.clientes.find(c => Number(c.id) === Number(clienteId));
+      if (anterior.telefono !== cliente.telefono || anterior.celular !== cliente.celular) {
+        const numeros = telefonos(cliente).numeros;
+        const fuentes = sqlite.prepare(`SELECT c.*, v.cliente_id, v.estado FROM sicar_clientes c
+          LEFT JOIN sicar_vinculos v USING(sucursal_id, cli_id)`).all();
+        const reevaluar = [];
+        for (const fuente of fuentes) {
+          const vinculada = fuente.cliente_id === Number(clienteId);
+          if (!vinculada && ![...telefonos(fuente).numeros].some(n => numeros.has(n))) continue;
+          if (vinculada && fuente.estado === 'confirmado') {
+            if (!coincideTelefono(fuente, cliente)) {
+              const vinculo = sqlite.prepare('SELECT * FROM sicar_vinculos WHERE sucursal_id=? AND cli_id=?')
+                .get(fuente.sucursal_id, fuente.cli_id);
+              const aviso = { ...vinculo, estado: 'pendiente', version: vinculo.version + 1, actor: String(actor),
+                motivo: 'Teléfono del cliente cambiado; revisar la unión confirmada.', actualizada: new Date().toISOString() };
+              escribirVinculo(sqlite, aviso);
+              registrarDecision(sqlite, aviso, 'aviso');
+            }
+          } else reevaluar.push(fuente);
+        }
+        resolverVinculosSicar(repo, DB.crm.clientes, reevaluar, actor);
+      }
+      guardar(DB);
+      return resultado;
+    }).immediate();
+  } catch (error) {
+    DB.crm = previo;
+    if (editado && !error.status) throw errorVinculo(503, 'No se pudo guardar el cliente y sus vínculos.');
+    throw error;
+  }
+}
+
+module.exports = {
+  resolverVinculosSicar, resolverDecisionSicar, listarVinculosSicar, crearNativoConVinculos, editarNativoConVinculos, esPublicoSicar,
+};

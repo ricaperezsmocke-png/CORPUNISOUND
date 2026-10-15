@@ -80,3 +80,25 @@ test('sin sesión no responde datos', async () => {
   const res = await fetch(`${base}/api/crm/v2/clientes`);
   assert.equal(res.status, 401);
 });
+
+for (const [caso, tokenDe, tienda, esperaTarea] of [
+  ['local no ve Yajalón', () => ocosingo, 2, true],
+  ['global sí ve Yajalón', () => global, 2, false],
+  ['sin permiso SICAR no ve ni Ocosingo', () => vecino, 1, true],
+]) test(`Gerencia: ${caso}`, async () => {
+  for (const id of [971, 972, 973]) {
+    const rol = app.DB.admin.roles.find(r => r.id === id);
+    if (!rol.permisos.includes('usar_gerente_ventas')) rol.permisos.push('usar_gerente_ventas');
+    app.DB.admin.usuarios.find(u => u.id === id).vendedor_id = 981;
+  }
+  app.DB.pos.vendedores = [{ id: 981, nombre: 'Vendedora', sucursal_id: 1, meta_mensual: 0 }];
+  app.DB.pos.tareas_venta = require('./gerenteVentas').nuevoEstadoTareasVenta();
+  app.DB.crm.clientes[0].vendedor_asignado_id = 981;
+  sqlite.prepare(`INSERT INTO sicar_vinculos(sucursal_id, cli_id, cliente_id, estado, creada, actualizada)
+    VALUES (?, ?, 10, 'pendiente', '2026-10-01', '2026-10-01')`).run(tienda, tienda === 1 ? '500' : '700');
+  const r = await pedir('/api/gerente-ventas/981?sucursal_id=2', tokenDe());
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  const tarea = r.datos.tareas.find(t => t.cliente_id === 10);
+  assert.equal(!!tarea, esperaTarea);
+  if (esperaTarea) assert.match(tarea.descripcion, /nunca ha comprado/);
+});

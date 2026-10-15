@@ -18,7 +18,7 @@ const nativo = (id = 10, telefono = '9191234567', sucursal_id = 1) => ({ id, nom
 const vinculo = (sucursal = 1, id = '100') => sqlite.prepare('SELECT * FROM sicar_vinculos WHERE sucursal_id=? AND cli_id=?').get(sucursal, id);
 
 before(async () => {
-  const propios = ['resolver_vinculos_sicar', 'crear_cliente', 'registrar_demanda'];
+  const propios = ['resolver_vinculos_sicar', 'crear_cliente', 'editar_cliente', 'registrar_demanda'];
   for (const [id, permisos] of [[991, [...propios, 'ver_todas_las_sucursales']], [992, propios],
     [993, ['ver_clientes_sicar', 'ver_sincronizacion_sicar']]]) {
     app.DB.admin.roles.push({ id, nombre: id === 991 ? 'Administrador' : `Prueba ${id}`, permisos, modulos: ['sicar', 'crm', 'radar_demanda'] });
@@ -41,9 +41,9 @@ after(async () => {
   if (servidor) await new Promise(resolve => servidor.close(resolve));
   sqlite.close();
 });
-async function pedir(ruta, token = admin, body) {
+async function pedir(ruta, token = admin, body, method) {
   const res = await fetch(base + ruta, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: method || (body === undefined ? 'GET' : 'POST'),
     headers: { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -284,4 +284,64 @@ test('decisión inválida, sin motivo o con versión mal formada no cambia nada'
     assert.equal((await pedir('/api/sicar/vinculos/1/100/resolver', admin, datos)).status, 400);
     assert.deepEqual(vinculo(), antes);
   }
+});
+
+const editar = (id, telefono) => pedir(`/api/clientes/${id}`, local, { telefono }, 'PUT');
+
+test('confirmar revalida el teléfono actual aunque la versión no haya cambiado', async () => {
+  await importar();
+  app.DB.crm.clientes[0].telefono = '9199999999';
+  const antes = vinculo();
+  const r = await decidir('confirmar', 1);
+  assert.equal(r.status, 409);
+  assert.equal(r.datos.error, 'El telefono del cliente cambio; actualiza la cola.');
+  assert.deepEqual(vinculo(), antes);
+});
+
+test('Ana cambia teléfono y Beto toma el anterior: cola actualizada y versión vieja rechazada', async () => {
+  await importar();
+  app.DB.crm.clientes.push({ ...nativo(11, '9198888888'), nombre: 'Beto' });
+  assert.equal((await editar(10, '9199999999')).status, 200);
+  assert.equal(vinculo().cliente_id, null);
+  assert.equal((await editar(11, '9191234567')).status, 200);
+  assert.equal(vinculo().cliente_id, 11);
+  assert.equal((await decidir('confirmar', 1)).status, 409);
+  const cola = await pedir('/api/sicar/vinculos');
+  assert.equal(cola.datos.items[0].cliente_nombre, 'Beto');
+  assert.equal(cola.datos.items[0].cliente_ref, 'crm:11');
+});
+
+test('editar teléfono confirmado conserva cliente, pasa a pendiente y registra quién editó', async () => {
+  await importar();
+  assert.equal((await decidir('confirmar', 1)).status, 200);
+  assert.equal((await editar(10, '9199999999')).status, 200);
+  assert.equal(vinculo().cliente_id, 10);
+  assert.equal(vinculo().estado, 'pendiente');
+  assert.equal(vinculo().version, 3);
+  const decision = sqlite.prepare('SELECT * FROM sicar_decisiones ORDER BY id DESC LIMIT 1').get();
+  assert.equal(decision.actor, '992');
+  assert.match(decision.motivo, /teléfono/i);
+  assert.equal((await decidir('confirmar', 3)).status, 409);
+});
+
+test('edición usa +52 y celular para reevaluar coincidencias y conserva confirmación válida', async () => {
+  await importar([{ ...fuente('100', ''), celular: '+52 (919) 123-4567' }]);
+  assert.equal((await decidir('confirmar', 1)).status, 200);
+  assert.equal((await editar(10, '919 123 4567')).status, 200);
+  assert.equal(vinculo().estado, 'confirmado');
+  assert.equal(vinculo().version, 2);
+});
+
+test('fallo al registrar revisión revierte teléfono, vínculos y persistencia de la edición', async () => {
+  await importar();
+  const antes = structuredClone(app.DB);
+  const json = sqlite.prepare('SELECT * FROM estado').all();
+  const union = vinculo();
+  sqlite.exec(`CREATE TEMP TRIGGER fallar_edicion BEFORE INSERT ON sicar_decisiones BEGIN SELECT RAISE(ABORT, 'fallo'); END`);
+  try {
+    assert.equal((await editar(10, '9199999999')).status, 503);
+    assert.deepEqual(app.DB, antes);
+    assert.deepEqual(sqlite.prepare('SELECT * FROM estado').all(), json);
+    assert.deepEqual(vinculo(), union);
+  } finally { sqlite.exec('DROP TRIGGER fallar_edicion'); }
 });

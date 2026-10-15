@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from './api';
 import SicarVinculos from './SicarVinculos';
+import ModalConfirmar from './ModalConfirmar';
 
 const BOTON = 'rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50';
 const SECUNDARIO = 'rounded-md border border-slate-400 px-3 py-2 text-sm disabled:opacity-50';
@@ -28,6 +29,7 @@ export default function SicarAdministracion({ permisos = [] }) {
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState('');
   const [copiado, setCopiado] = useState(false);
+  const [porRevocar, setPorRevocar] = useState(null);
 
   const cargar = useCallback(async () => {
     const [acceso, actividad, cobertura] = await Promise.all([
@@ -114,11 +116,7 @@ export default function SicarAdministracion({ permisos = [] }) {
             <td className={CELDA}>{k.key_id}</td>
             <td className={CELDA}>{fecha(k.creada)}</td>
             <td className={CELDA}>{k.revocada ? 'Revocada' : 'Activa'}</td>
-            <td className={CELDA}>{!k.revocada && <button className={SECUNDARIO} disabled={ocupado} onClick={() => actuar(async () => {
-              await consultar(`/sicar/llaves/${encodeURIComponent(k.key_id)}/revocar`, { method: 'POST', body: '{}' });
-              setSecreto('');
-              await cargar();
-            })}>Revocar</button>}</td>
+            <td className={CELDA}>{!k.revocada && <button className={SECUNDARIO} disabled={ocupado} onClick={() => setPorRevocar(k)}>Revocar</button>}</td>
           </tr>)}</tbody>
         </table>
         {!llaves.length && <p className="py-3">No hay llaves registradas.</p>}
@@ -146,5 +144,21 @@ export default function SicarAdministracion({ permisos = [] }) {
       </details>
     </>}
     {resuelve && <SicarVinculos />}
+    {porRevocar && <ModalConfirmar
+      titulo="Revocar llave"
+      mensaje={`El agente de ${nombre(porRevocar.sucursal_id)} dejará de enviar clientes y compras de SICAR hasta que se le instale una llave nueva. Esto no se puede deshacer.`}
+      textoConfirmar="Sí, revocar"
+      peligro
+      onCancelar={() => setPorRevocar(null)}
+      onConfirmar={() => {
+        const k = porRevocar;
+        setPorRevocar(null);
+        actuar(async () => {
+          await consultar(`/sicar/llaves/${encodeURIComponent(k.key_id)}/revocar`, { method: 'POST', body: '{}' });
+          setSecreto('');
+          await cargar();
+        });
+      }}
+    />}
   </section>;
 }

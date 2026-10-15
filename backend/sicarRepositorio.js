@@ -1,3 +1,5 @@
+const { esPublicoSicar } = require('./sicarVinculos');
+
 class ErrorSicar extends Error {
   constructor(codigo, mensaje, siguienteSecuencia) {
     super(mensaje);
@@ -76,6 +78,7 @@ const ESQUEMA = `
   );
   CREATE INDEX IF NOT EXISTS sicar_ventas_cliente ON sicar_ventas(sucursal_id, cli_id, estado, fecha_local, ven_id);
   CREATE INDEX IF NOT EXISTS sicar_vinculos_cliente ON sicar_vinculos(cliente_id);
+  CREATE INDEX IF NOT EXISTS sicar_decisiones_identidad ON sicar_decisiones(sucursal_id, cli_id, bloquear_union);
   CREATE INDEX IF NOT EXISTS sicar_intentos_hora ON sicar_intentos(hora);
   INSERT OR IGNORE INTO sicar_esquema(version, aplicada) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 `;
@@ -185,7 +188,15 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     }
     sentencias.tienda.run(sucursalId);
     const identidades = [];
+    const descartados = { clientes: 0, ventas: 0, renglones: 0 };
+    const publicos = new Set(sqlite.prepare('SELECT sucursal_id, cli_id, nombre FROM sicar_clientes WHERE sucursal_id=?')
+      .all(sucursalId).filter(esPublicoSicar).map(c => c.cli_id));
     for (const cliente of lote.clientes) {
+      if (esPublicoSicar({ ...cliente, sucursal_id: sucursalId })) {
+        publicos.add(cliente.cli_id);
+        descartados.clientes++;
+        continue;
+      }
       const anterior = sqlite.prepare('SELECT telefono, celular FROM sicar_clientes WHERE sucursal_id=? AND cli_id=?')
         .get(sucursalId, cliente.cli_id);
       identidades.push({ sucursal_id: sucursalId, cli_id: cliente.cli_id,
@@ -200,10 +211,20 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
       const { resolverVinculosSicar } = require('./sicarVinculos');
       resolverVinculosSicar(repositorio, clientesNativos(), identidades);
     }
-    for (const venta of lote.ventas) escribirVenta(sentencias, sucursalId, venta, lote.sequence, hash);
+    for (const venta of lote.ventas) {
+      if (venta.cli_id != null && (publicos.has(venta.cli_id) || esPublicoSicar({ sucursal_id: sucursalId, cli_id: venta.cli_id }))) {
+        descartados.ventas++;
+        descartados.renglones += venta.detalle?.length || 0;
+        // Si ya se había recibido a nombre de alguien, se quita de su ficha; si es nueva, no se guarda nada.
+        escribirVenta(sentencias, sucursalId, { ven_id: venta.ven_id, estado: 'excluida' }, lote.sequence, hash);
+        continue;
+      }
+      escribirVenta(sentencias, sucursalId, venta, lote.sequence, hash);
+    }
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
-      aceptados: { clientes: lote.clientes.length, ventas: lote.ventas.length }, rechazados: 0,
+      aceptados: { clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas }, rechazados: 0,
+      ...(descartados.clientes || descartados.ventas ? { descartados } : {}),
       next_sequence: (BigInt(lote.sequence) + 1n).toString(), received_at: new Date().toISOString(),
     };
     sentencias.envio.run(sucursalId, lote.batch_id, lote.sequence, hash, JSON.stringify(recibo),

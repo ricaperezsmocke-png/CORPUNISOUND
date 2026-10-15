@@ -41,6 +41,29 @@ const global = { alcance: { verTodas: true, sucursalId: null }, verSicar: true, 
 const ocosingo = { alcance: { verTodas: false, sucursalId: 1 }, verSicar: true, hoyLocal: HOY };
 const consultas = () => crearConsultasCRM(DB, repo);
 
+test('lista y tarjetas atribuyen SICAR a tienda de compra y POS a cartera del cliente', () => {
+  cliente(2, '700', 'Ana SICAR');
+  venta(2, '900', '700', HOY, 200000);
+  vincular(2, '700', 10);
+  const o = consultas().listar({ ...global, filtroSucursal: 1 });
+  const anaO = o.items.find(p => p.ref === 'crm:10');
+  assert.equal(anaO.monto_sicar_centavos, 0);
+  assert.equal(anaO.monto_pos_centavos, 10000);
+  assert.equal(anaO.numero_compras, 1);
+  assert.equal(o.totales.monto_sicar_centavos, 0);
+  const y = consultas().listar({ ...global, filtroSucursal: 2 });
+  const anaY = y.items.find(p => p.ref === 'crm:10');
+  assert.ok(anaY, 'Ana aparece donde compró aunque su cartera sea Ocosingo');
+  assert.equal(anaY.monto_sicar_centavos, 200000);
+  assert.equal(anaY.monto_pos_centavos, 0);
+  assert.equal(anaY.numero_compras, 1);
+  assert.equal(y.totales.monto_sicar_centavos, 200000);
+  assert.equal(y.totales.monto_pos_centavos, 0);
+  assert.equal(consultas().ficha({ ...global, filtroSucursal: 1 }, 'crm:10').monto_centavos, 210000);
+  assert.equal(consultas().listar(ocosingo).totales.monto_sicar_centavos, 0);
+  assert.equal(consultas().listar({ ...ocosingo, filtroSucursal: 2 }).totales.monto_sicar_centavos, 0);
+});
+
 beforeEach(() => {
   sqlite = new Database(':memory:');
   repo = crearRepositorioSicar(sqlite);

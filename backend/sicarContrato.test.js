@@ -65,7 +65,11 @@ test('1. el lote válido devuelve el recibo previsto y el CRM ve a José sin el 
   assert.equal(r.status, 200, JSON.stringify(r.datos));
   assert.equal(r.datos.sequence, '1');
   assert.equal(r.datos.next_sequence, '2');
-  assert.deepEqual(r.datos.aceptados, { clientes: 3, ventas: 2 });
+  assert.deepEqual(r.datos.aceptados, { clientes: 2, ventas: 1 });
+  assert.deepEqual(r.datos.descartados, { clientes: 1, ventas: 1, renglones: 1 });
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM sicar_clientes WHERE cli_id='1'").get().n, 0);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM sicar_ventas WHERE ven_id='88002'").get().n, 0);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM sicar_detalles WHERE ven_id='88002'").get().n, 0);
   const jose = await crm('clientes/sicar%3A1%3A4501');
   assert.equal(jose.monto_centavos, 150000);
   assert.equal((await crm('compras/sicar%3A1%3A88001')).lineas.length, 2);

@@ -34,6 +34,56 @@ function foto(sqlite) {
   return Object.fromEntries(tablas.map(({ name }) => [name, sqlite.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()]));
 }
 
+test('el esquema indexa las decisiones por identidad y bloqueo de unión', t => {
+  const { sqlite } = prepararDB(t);
+  const indices = sqlite.pragma('index_list(sicar_decisiones)');
+  assert.ok(indices.some(i => {
+    const columnas = sqlite.pragma(`index_info(${i.name})`).map(c => c.name);
+    return JSON.stringify(columnas) === JSON.stringify(['sucursal_id', 'cli_id', 'bloquear_union']);
+  }));
+});
+
+test('descarta público por nombre, id y tienda incluso en ventas sin cliente en el lote', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const datos = lote();
+  datos.clientes.push({ cli_id: '800', nombre: 'PÚBLICO EN GENERAL MOSTRADOR' });
+  datos.ventas.push({ ...datos.ventas[0], ven_id: 'publica', cli_id: '800' });
+  const r = aplicar(repo, datos);
+  assert.deepEqual(r.descartados, { clientes: 1, ventas: 1, renglones: 2 });
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM sicar_clientes WHERE cli_id='800'").get().n, 0);
+  const siguiente = { ...lote('2'), clientes: [], ventas: [{ ...datos.ventas[0], cli_id: '2' }] };
+  assert.equal(aplicar(repo, siguiente).descartados.ventas, 1);
+  const otra = lote();
+  otra.clientes[0].cli_id = '2';
+  otra.ventas[0].cli_id = '2';
+  assert.equal(aplicar(repo, otra, 2).aceptados.ventas, 1, 'id 2 solo es público medido en Ocosingo');
+});
+
+test('descarta nuevas compras de público histórico sin borrar filas anteriores', t => {
+  const { sqlite, repo } = prepararDB(t);
+  aplicar(repo);
+  sqlite.prepare("UPDATE sicar_clientes SET nombre='PUBLICO EN GENERAL ANTIGUO'").run();
+  const antes = sqlite.prepare('SELECT * FROM sicar_ventas').all();
+  const datos = lote('2');
+  datos.clientes = [];
+  datos.ventas[0].ven_id = 'otra';
+  assert.equal(aplicar(repo, datos).descartados.ventas, 1);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM sicar_ventas').all(), antes);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_clientes').get().n, 1);
+});
+
+test('una venta ya recibida que pasa a público se quita de la ficha del cliente anterior', t => {
+  const { sqlite, repo } = prepararDB(t);
+  aplicar(repo);
+  const datos = lote('2');
+  datos.clientes = [];
+  datos.ventas[0].cli_id = '1';
+  assert.equal(aplicar(repo, datos).descartados.ventas, 1);
+  const venta = sqlite.prepare('SELECT estado, cli_id FROM sicar_ventas WHERE ven_id=?').get('9007199254740995');
+  assert.deepEqual({ ...venta }, { estado: 'excluida', cli_id: null });
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
+});
+
 test('la migración es idempotente, activa FK y crea las diez tablas aisladas', t => {
   const { sqlite } = prepararDB(t);
   const antes = foto(sqlite);

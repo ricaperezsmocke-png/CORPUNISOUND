@@ -20,12 +20,14 @@ async function consultar(ruta, opciones) {
   return datos;
 }
 
-function Identidad({ item, ocupado, resolver }) {
+function Identidad({ item, ocupado, resolver, tiendas }) {
   const [motivo, setMotivo] = useState('');
   const tieneUnion = ['pendiente', 'confirmado'].includes(item.estado);
   return <article className={TARJETA}>
     <div>
-      <h4 className="font-semibold">{item.nombre} · Tienda {item.sucursal_id}</h4>
+      <h4 className="font-semibold">
+        {item.nombre} · {tiendas.find(t => Number(t.id) === Number(item.sucursal_id))?.nombre || `Tienda ${item.sucursal_id}`}
+      </h4>
       <p className="text-sm">SICAR {item.cli_id} · {item.telefono || item.celular || 'Sin teléfono'}</p>
       <p className="font-semibold">{ESTADOS[item.estado] || item.estado}</p>
       <p>{item.motivo}</p>
@@ -58,6 +60,13 @@ export default function SicarVinculos() {
   const [ocupado, setOcupado] = useState(true);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
+  const [tiendas, setTiendas] = useState([]);
+  useEffect(() => {
+    let activo = true;
+    consultar('/sucursales').then(resultado => { if (activo) setTiendas(resultado); })
+      .catch(() => { if (activo) setError('No se pudieron cargar los nombres de las tiendas.'); });
+    return () => { activo = false; };
+  }, []);
   const cargar = useCallback(async () => {
     const resultado = await consultar(`/sicar/vinculos?cursor=${pagina}`);
     setDatos(resultado);
@@ -99,7 +108,7 @@ export default function SicarVinculos() {
     {ocupado && <p role="status">Cargando…</p>}
     {!ocupado && !error && !datos.items.length && <p>No hay identidades SICAR en esta página.</p>}
     {datos.items.map(item => <Identidad key={`${item.sucursal_id}:${item.cli_id}:${item.version}`}
-      item={item} ocupado={ocupado} resolver={resolver} />)}
+      item={item} ocupado={ocupado} resolver={resolver} tiendas={tiendas} />)}
     <div className="flex flex-wrap gap-2">
       <button className={BOTON} disabled={ocupado || pagina === 0} onClick={() => setPagina(Math.max(0, pagina - 50))}>Anterior</button>
       <button className={BOTON} disabled={ocupado || datos.siguiente === null} onClick={() => setPagina(datos.siguiente)}>Siguiente</button>
