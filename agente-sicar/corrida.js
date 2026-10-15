@@ -2,12 +2,13 @@ const { setTimeout: pausa } = require('node:timers/promises');
 const { cargar, guardar, bloquear } = require('./estado');
 const { cliente, venta, sobre, cabe, esHorarioHistorico, id } = require('./formato');
 const { enviarPendiente } = require('./envio');
-function elementos(pagina, estado) {
+const MAXIMO_LOTES_POR_CORRIDA = 300;
+function elementos(pagina, estado, avisar) {
   const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
   return pagina.filas.map(v => {
     const c = clientes.get(String(v.cli_id));
     const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
-    const salida = venta(v, c, detalles, !!estado.enviadas[String(v.ven_id)]);
+    const salida = venta(v, c, detalles, !!estado.enviadas[String(v.ven_id)], avisar);
     return { venta: salida, cliente: salida?.estado !== 'excluida' && salida ? cliente(c) : null };
   });
 }
@@ -26,6 +27,7 @@ function horaLocal(ms) {
 }
 async function ejecutar(archivo, config, deps) {
   const { fuente, reloj = Date.now, esperar = pausa, log = () => {} } = deps;
+  const avisar = aviso => log('CAMPO_OMITIDO', aviso);
   const liberar = deps.bloqueado ? async () => {} : await bloquear(archivo);
   if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
   try {
@@ -44,7 +46,16 @@ async function ejecutar(archivo, config, deps) {
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
     if (!permitido(mode)) return;
+    let enviados = 0;
     async function transmitir(items, cambios, modo = mode) {
+      // Nada que mandar (página de puro público, historial sin cancelaciones, fin de fase): avanza sin gastar envío.
+      const vacio = sobre(estado.siguiente_secuencia, modo, new Date(reloj()));
+      for (const item of items) agregar(vacio, item);
+      if (!vacio.clientes.length && !vacio.ventas.length) {
+        Object.assign(estado, cambios);
+        await guardar(archivo, estado);
+        return true;
+      }
       const grupos = [];
       let lote = sobre(estado.siguiente_secuencia, modo, new Date(reloj()));
       for (const item of items) {
@@ -60,6 +71,9 @@ async function ejecutar(archivo, config, deps) {
       grupos.push(lote);
       for (let i = 0; i < grupos.length; i++) {
         if (!permitido(modo)) return false;
+        // Tope por corrida: ninguna corrida legítima se acerca a las 6 horas en que su candado se daría por abandonado.
+        if (enviados >= MAXIMO_LOTES_POR_CORRIDA) { log('TOPE_DE_CORRIDA'); return false; }
+        enviados++;
         const actual = grupos[i];
         actual.sequence = estado.siguiente_secuencia;
         const enviadas = { ...estado.enviadas };
@@ -77,13 +91,13 @@ async function ejecutar(archivo, config, deps) {
       while (estado.fase === 'clientes' && permitido(mode)) {
         const filas = await fuente.clientes(estado.cli_id, fuente.tamano);
         const cambios = filas.length ? { cli_id: id(filas.at(-1).cli_id) } : { fase: 'ventas' };
-        if (!await transmitir(filas.map(c => ({ cliente: cliente(c) })), cambios)) return;
+        if (!await transmitir(filas.map(c => ({ cliente: cliente(c, avisar) })), cambios)) return;
       }
       while (estado.fase === 'ventas' && permitido(mode)) {
         const pagina = await fuente.ventas(estado.ven_id, estado.tope, fuente.tamano);
         const cambios = pagina.filas.length ? { ven_id: id(pagina.filas.at(-1).ven_id), ventana: cache(pagina, estado) }
           : { fase: 'incremental' };
-        if (!await transmitir(elementos(pagina, estado), cambios)) return;
+        if (!await transmitir(elementos(pagina, estado, avisar), cambios)) return;
       }
       return;
     }
@@ -91,7 +105,7 @@ async function ejecutar(archivo, config, deps) {
     while (BigInt(estado.ven_id) < BigInt(tope)) {
       const pagina = await fuente.ventas(estado.ven_id, tope, fuente.tamano);
       if (!pagina.filas.length) break;
-      if (!await transmitir(elementos(pagina, estado), {
+      if (!await transmitir(elementos(pagina, estado, avisar), {
         ven_id: id(pagina.filas.at(-1).ven_id), ventana: cache(pagina, estado),
       })) return;
     }
@@ -104,7 +118,7 @@ async function ejecutar(archivo, config, deps) {
           && ['0', '1', '2'].includes(String(m.movimiento))).map(m => id(m.referencia)))];
         const pagina = await fuente.porIds(ventasIds);
         const clientes = clientesIds.length ? await fuente.clientesIds(clientesIds) : [];
-        const items = clientes.map(c => ({ cliente: cliente(c) })).concat(elementos(pagina, estado));
+        const items = clientes.map(c => ({ cliente: cliente(c, avisar) })).concat(elementos(pagina, estado, avisar));
         if (!await transmitir(items, { his_id: id(movimientos.at(-1).his_id), ventana: cache(pagina, estado) })) return;
       }
     }
@@ -113,7 +127,7 @@ async function ejecutar(archivo, config, deps) {
     for (let i = 0; i < ids.length;) {
       const paginaIds = ids.slice(i, i + fuente.tamano);
       const pagina = await fuente.porIds(paginaIds);
-      if (!await transmitir(elementos(pagina, estado), { ventana: cache(pagina, estado) })) return;
+      if (!await transmitir(elementos(pagina, estado, avisar), { ventana: cache(pagina, estado) })) return;
       i += paginaIds.length;
     }
   } finally { await liberar(); }

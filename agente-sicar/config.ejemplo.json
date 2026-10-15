@@ -1,0 +1,11 @@
+{
+  "mysql": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "database": "NOMBRE_DE_LA_BASE_DE_SICAR",
+    "password": "CONTRASENA_DEL_USUARIO_consultas"
+  },
+  "llave": "LLAVE_DE_LA_TIENDA_QUE_DA_CORPUNISOUND",
+  "estado": "C:\\UnisoundSICAR\\estado.json",
+  "historial": {}
+}

@@ -99,11 +99,17 @@ retoma desde lo último confirmado.
 
 ## 6. Seguridad en la PC de la tienda (obligatorio antes del piloto)
 
-- Usuario MySQL exclusivo para el agente, **solo `SELECT`** sobre las tablas necesarias, limitado a
-  `localhost`, sin `FILE`, `GRANT OPTION`, DDL ni escritura. `SHOW GRANTS` lo debe demostrar.
-- Hoy el usuario `consultas@'%'` tiene `FILE ... WITH GRANT OPTION` y MySQL escucha en todas las
-  interfaces (`bind_address=*`): **no conectar el agente real hasta corregirlo**. Lo hace el responsable de
-  la tienda con root.
+- Lo ideal es un usuario MySQL exclusivo, **solo `SELECT`**, limitado a `localhost`, sin `FILE`, `GRANT OPTION`,
+  DDL ni escritura.
+- **Decisión de Victor (2026-10-15):** SICAR no entrega la contraseña root, así que en Ocosingo se usa el usuario
+  `consultas`, que tiene `FILE ... WITH GRANT OPTION` y con MySQL escuchando en todas las interfaces. Ese riesgo ya
+  existía antes del agente; el agente no lo agrega, pero tampoco lo corrige.
+- Por eso la protección vive en el agente (`agente-sicar/seguridad.js`): solo acepta `SELECT`/`SHOW` sin `INTO`,
+  `OUTFILE`, `DUMPFILE`, `LOAD_FILE`, `UPDATE`, `LOCK`, variables ni sentencias múltiples; cada sesión es
+  `READ ONLY` y cada página va en `START TRANSACTION READ ONLY`; solo se conecta a `localhost`/`127.0.0.1`; nunca
+  nombra `huella`, `muestra` ni `foto`. `--verificar` registra `PRIVILEGIOS_AMPLIOS` mientras siga así.
+- Pendiente cuando haya root: crear el usuario de solo lectura, quitar `FILE`/`GRANT OPTION` a `consultas` y
+  limitar MySQL a `127.0.0.1`.
 - No abrir el puerto 3306 hacia afuera. No usar la cuenta root en el agente.
 
 ## 7. Piloto en Ocosingo

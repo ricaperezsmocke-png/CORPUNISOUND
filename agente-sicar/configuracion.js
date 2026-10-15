@@ -21,7 +21,8 @@ async function fueraDelRepo(archivo, existe) {
 }
 async function leerConfiguracion(archivo) {
   const ruta = await fueraDelRepo(archivo, true);
-  const config = JSON.parse(await fs.readFile(ruta, 'utf8'));
+  let config;
+  try { config = JSON.parse(await fs.readFile(ruta, 'utf8')); } catch { throw new Error('CONFIGURACION_INVALIDA'); }
   if (!config.mysql || typeof config.mysql.password !== 'string' || !config.mysql.password
     || typeof config.mysql.database !== 'string' || !config.mysql.database
     || typeof config.llave !== 'string' || !config.llave.trim()) throw new Error('CONFIGURACION_INVALIDA');

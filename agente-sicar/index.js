@@ -1,6 +1,7 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { leerConfiguracion } = require('./configuracion');
-const { registrar, bloquear } = require('./estado');
+const path = require('node:path');
+const { registrar, bloquear, describirFallo, crearEscritor } = require('./estado');
 const { conectar } = require('./conexion');
 const { crearLector } = require('./seguridad');
 const { crearFuente } = require('./mapeo');
@@ -34,16 +35,22 @@ async function verificar(fuente, imprimir, esperar, log) {
   imprimir(`Clientes con nombre: ${clientes}`);
   imprimir(`Ventas con nombre: ${ventas}`);
 }
+function rutaRegistro(configPath) {
+  return typeof configPath === 'string' && path.isAbsolute(configPath) ? path.join(path.dirname(configPath), 'agente-sicar.log') : null;
+}
 async function main(args = process.argv.slice(2), deps = {}) {
-  const log = deps.log || registrar();
+  const configPath = deps.configPath || process.env.SICAR_CONFIG;
+  const ruta = rutaRegistro(configPath);
+  const escribir = ruta ? crearEscritor(ruta, Date.now, deps.eco || console.log) : (deps.eco || console.log);
+  const log = deps.log || registrar(escribir);
   const imprimir = deps.imprimir || console.log;
   const esperar = deps.esperar || pausa;
-  if (args.some(a => a !== '--verificar')) throw new Error('CONFIGURACION_INVALIDA');
-  const config = await leerConfiguracion(deps.configPath || process.env.SICAR_CONFIG);
-  const liberar = await bloquear(config.estado);
-  if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
-  let conexion;
+  let liberar = null, conexion;
   try {
+    if (args.some(a => a !== '--verificar')) throw new Error('CONFIGURACION_INVALIDA');
+    const config = await leerConfiguracion(configPath);
+    liberar = await bloquear(config.estado);
+    if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
     conexion = await (deps.conectar || conectar)(config.mysql);
     const fuente = deps.crearFuente ? await deps.crearFuente(conexion, config)
       : crearFuente(await crearLector(conexion, { avisar: log }), config);
@@ -52,15 +59,18 @@ async function main(args = process.argv.slice(2), deps = {}) {
       await verificar(fuente, imprimir, esperar, log);
     } else await ejecutar(config.estado, config, { ...deps, fuente, esperar, log, bloqueado: true });
   } catch (e) {
-    // Solo se muestra la columna, nunca el error MySQL (puede incluir credenciales o datos).
-    if (e.columna) imprimir('Falta columna: ' + e.columna);
+    // Solo códigos conocidos, ids y nombres de columna: nunca el mensaje de MySQL (puede traer usuario o datos).
+    escribir(describirFallo(e));
     throw e;
   } finally {
     try { if (conexion) await conexion.end(); }
-    finally { await liberar(); }
+    finally {
+      if (liberar) await liberar();
+      if (escribir.terminar) await escribir.terminar();
+    }
   }
 }
 if (require.main === module) {
-  main().catch(() => { registrar()('ERROR_NO_CLASIFICADO'); process.exitCode = 1; });
+  main().catch(() => { process.exitCode = 1; });
 }
 module.exports = { main };
