@@ -1,0 +1,110 @@
+// Único diccionario del esquema SICAR. Los nombres no confirmados se verifican al arrancar.
+const COLUMNAS = {
+  cliente: ['cli_id', 'nombre', 'telefono', 'celular', 'mail', 'rfc', 'status', 'clave'],
+  venta: ['ven_id', 'fecha', 'status', 'total', 'tic_id', 'not_id', 'rem_id'],
+  ticket: ['tic_id', 'cli_id'], nota: ['not_id', 'cli_id'], remision: ['rem_id', 'cli_id'],
+  detallev: ['ven_id', 'art_id', 'clave', 'descripcion', 'cantidad', 'precioCon', 'precioSin', 'importeCon', 'descTotal'],
+  historial: ['his_id', 'tabla', 'movimiento'],
+};
+function identificador(nombre) {
+  if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
+  return '`' + nombre + '`';
+}
+const lista = campos => campos.map(identificador).join(', ');
+const huecos = ids => ids.map(() => '?').join(', ');
+function crearFuente(lector, config = {}) {
+  const referencia = config.historial?.columna_referencia;
+  if (referencia) identificador(referencia);
+  let pkDetalle = [];
+  let columnasHistorial = [];
+  let validado = false;
+  const desdeVenta = 'FROM `venta` v LEFT JOIN `ticket` t ON t.`tic_id` = v.`tic_id` '
+    + 'LEFT JOIN `nota` n ON n.`not_id` = v.`not_id` LEFT JOIN `remision` r ON r.`rem_id` = v.`rem_id`';
+  const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
+    + ', COALESCE(t.`cli_id`, n.`cli_id`, r.`cli_id`) AS cli_id ' + desdeVenta;
+  function comprobar() { if (!validado) throw new Error('ESQUEMA_NO_VALIDADO'); }
+  async function clientesIds(leer, ids) {
+    if (!ids.length) return [];
+    return leer(`SELECT ${lista(COLUMNAS.cliente)} FROM \`cliente\` WHERE \`cli_id\` IN (${huecos(ids)})`, ids);
+  }
+  async function completar(leer, filas) {
+    const ids = filas.map(v => String(v.ven_id));
+    const clientes = await clientesIds(leer, [...new Set(filas.filter(v => v.cli_id != null).map(v => String(v.cli_id)))]);
+    const detalles = ids.length ? await leer(`SELECT ${lista(COLUMNAS.detallev)} FROM \`detallev\` `
+      + `WHERE \`ven_id\` IN (${huecos(ids)}) ORDER BY ${lista(pkDetalle)}`, ids) : [];
+    return { filas, clientes, detalles };
+  }
+  return {
+    get tamano() { return lector.tamano; },
+    async validar() {
+      await lector.pagina(async leer => {
+        const columnas = await leer('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE()');
+        const presentes = new Set(columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`));
+        const requeridas = { ...COLUMNAS, historial: [...COLUMNAS.historial, ...(referencia ? [referencia] : [])] };
+        for (const [tabla, campos] of Object.entries(requeridas)) {
+          for (const campo of campos) {
+            if (!presentes.has(`${tabla}.${campo}`)) {
+              const error = new Error(`Falta columna ${tabla}.${campo}`);
+              error.columna = `${tabla}.${campo}`;
+              throw error;
+            }
+          }
+        }
+        columnasHistorial = columnas.filter(c => c.TABLE_NAME === 'historial').map(c => c.COLUMN_NAME)
+          .filter(c => !/^(huella|muestra|foto)$/i.test(c));
+        const indices = await leer('SHOW INDEX FROM `detallev`');
+        pkDetalle = indices.filter(i => i.Key_name === 'PRIMARY').sort((a, b) => a.Seq_in_index - b.Seq_in_index).map(i => i.Column_name);
+        if (!pkDetalle.length) throw new Error('DETALLE_SIN_PK');
+        for (const campo of pkDetalle) {
+          identificador(campo);
+          if (!presentes.has(`detallev.${campo}`)) throw new Error('PK_DETALLE_INVALIDA');
+        }
+        validado = true;
+      });
+    },
+    async tope() {
+      comprobar();
+      return lector.pagina(async leer => String((await leer('SELECT MAX(`ven_id`) AS tope FROM `venta`'))[0].tope || '0'));
+    },
+    async clientes(cursor, limite) {
+      comprobar();
+      return lector.pagina(leer => leer(`SELECT ${lista(COLUMNAS.cliente)} FROM \`cliente\` WHERE \`cli_id\` > ? ORDER BY \`cli_id\` LIMIT ?`,
+        [cursor, Math.min(limite, lector.tamano)]));
+    },
+    async ventas(cursor, tope, limite) {
+      comprobar();
+      return lector.pagina(async leer => completar(leer,
+        await leer(seleccionarVenta + ' WHERE v.`ven_id` > ? AND v.`ven_id` <= ? ORDER BY v.`ven_id` LIMIT ?',
+          [cursor, tope, Math.min(limite, lector.tamano)])));
+    },
+    async porIds(ids) {
+      comprobar();
+      if (!ids.length) return { filas: [], clientes: [], detalles: [] };
+      if (ids.length > lector.tamano) throw new Error('PAGINA_EXCESIVA');
+      return lector.pagina(async leer => completar(leer,
+        await leer(seleccionarVenta + ` WHERE v.\`ven_id\` IN (${huecos(ids)}) ORDER BY v.\`ven_id\``, ids)));
+    },
+    async clientesIds(ids) {
+      comprobar();
+      return lector.pagina(leer => clientesIds(leer, ids));
+    },
+    async historial(cursor, limite) {
+      comprobar();
+      if (!referencia) return [];
+      return lector.pagina(leer => leer(`SELECT ${lista(COLUMNAS.historial)}, ${identificador(referencia)} AS referencia FROM \`historial\` `
+        + 'WHERE `his_id` > ? ORDER BY `his_id` LIMIT ?', [cursor, Math.min(limite, lector.tamano)]));
+    },
+    async verificar() {
+      comprobar();
+      return lector.pagina(async leer => ({
+        grants: await leer('SHOW GRANTS'),
+        columnas: await leer('SHOW FULL COLUMNS FROM historial'),
+        ventas: await leer(`SELECT ${lista(columnasHistorial)} FROM \`historial\` `
+          + 'WHERE `tabla` = ? AND `movimiento` = ? ORDER BY `his_id` DESC LIMIT 3', ['Venta', 2]),
+        clientes: await leer(`SELECT ${lista(columnasHistorial)} FROM \`historial\` `
+          + 'WHERE `tabla` = ? ORDER BY `his_id` DESC LIMIT 3', ['Cliente']),
+      }));
+    },
+  };
+}
+module.exports = { crearFuente };

@@ -1,0 +1,39 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { opcionesConexion } = require('./seguridad');
+async function fueraDelRepo(archivo, existe) {
+  if (typeof archivo !== 'string' || !path.isAbsolute(archivo)) throw new Error('CONFIGURACION_INVALIDA');
+  const real = existe ? await fs.realpath(archivo) : path.join(await fs.realpath(path.dirname(archivo)), path.basename(archivo));
+  for (let dir = path.resolve(__dirname);;) {
+    let repo = false;
+    try { await fs.stat(path.join(dir, '.git')); repo = true; } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    if (repo) {
+      const relativo = path.relative(await fs.realpath(dir), real);
+      if (!relativo || (!relativo.startsWith('..' + path.sep) && relativo !== '..' && !path.isAbsolute(relativo))) {
+        throw new Error('CONFIGURACION_DENTRO_DEL_REPO');
+      }
+    }
+    const padre = path.dirname(dir);
+    if (padre === dir) break;
+    dir = padre;
+  }
+  return real;
+}
+async function leerConfiguracion(archivo) {
+  const ruta = await fueraDelRepo(archivo, true);
+  const config = JSON.parse(await fs.readFile(ruta, 'utf8'));
+  if (!config.mysql || typeof config.mysql.password !== 'string' || !config.mysql.password
+    || typeof config.mysql.database !== 'string' || !config.mysql.database
+    || typeof config.llave !== 'string' || !config.llave.trim()) throw new Error('CONFIGURACION_INVALIDA');
+  opcionesConexion(config.mysql);
+  let existe = true;
+  try { await fs.lstat(config.estado); } catch (e) { if (e.code === 'ENOENT') existe = false; else throw e; }
+  config.estado = await fueraDelRepo(config.estado, existe);
+  if (config.estado === ruta) throw new Error('CONFIGURACION_INVALIDA');
+  const referencia = config.historial?.columna_referencia;
+  if (referencia !== undefined && (typeof referencia !== 'string' || !/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(referencia))) {
+    throw new Error('CONFIGURACION_INVALIDA');
+  }
+  return config;
+}
+module.exports = { leerConfiguracion };
