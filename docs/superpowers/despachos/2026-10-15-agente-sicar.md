@@ -26,7 +26,7 @@ Hoy en producción no hay ni un cliente de SICAR. Victor quiere ver **toda** la 
    las interfaces. Victor acepta conectarse con él. **La protección contra escribir tiene que estar en
    el agente** (sección 5). Actualiza la sección 6 de `docs/sicar-contrato-v1.md` para que diga eso
    en vez de "no conectar".
-2. **Dependencia autorizada: `mysql2`, versión exacta `3.15.3`**, solo dentro de `agente-sicar/`.
+2. **Dependencia autorizada: `mysql2`, versión exacta `3.24.5` (subida desde 3.15.3 el 2026-10-15 por dos avisos de seguridad)**, solo dentro de `agente-sicar/`.
    Ninguna otra dependencia, en ningún lado. HTTP con el `fetch` integrado de Node (Node >= 20).
 3. Se construye en este repo, carpeta nueva `agente-sicar/`, con su propio `package.json`.
 4. Público en general **no se manda** (cli_id 1, 2, 3, 13, 21, 33, 4566, 4567, 4572 en Ocosingo, o nombre
