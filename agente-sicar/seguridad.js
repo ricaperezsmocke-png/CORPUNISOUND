@@ -2,6 +2,8 @@ function validarSQL(sql) {
   // Las sentencias del agente no usan comillas ni comentarios (los valores van como ?): si aparecen no se intenta
   // entenderlos, se rechaza. Quitar comentarios con expresiones regulares se brinca con una comilla o con 1--1.
   if (typeof sql !== 'string' || /['"#\\]|--|\/\*/.test(sql)) throw new Error('SQL_NO_PERMITIDO');
+  // Una función entre comillas invertidas se brinca la lista de funciones; un literal 0x no lo usa ninguna consulta.
+  if (/`\s*\(|\b0x/i.test(sql)) throw new Error('SQL_NO_PERMITIDO');
   const cuerpo = sql.trim().replace(/;$/, '');
   const prohibido = /\b(INTO|OUTFILE|DUMPFILE|LOAD_FILE|UPDATE|LOCK|SHARE|huella|muestra|foto)\b|;|@|:=/i;
   if (!/^(SELECT|SHOW)\b/i.test(cuerpo) || prohibido.test(cuerpo)) throw new Error('SQL_NO_PERMITIDO');

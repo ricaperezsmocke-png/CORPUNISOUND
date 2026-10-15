@@ -89,7 +89,7 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `HTTP_401` | Llave incorrecta o revocada. **El agente se detiene.** | Pedir llave nueva y avisar a quien mantiene el sistema. |
 | `HTTP_400`, `HTTP_409`, `HTTP_413`, `HTTP_422` | El servidor rechazó un paquete. **El agente se detiene.** | Avisar con la línea del registro. |
 | `SECUENCIA_RETROCEDIO` | El servidor perdió paquetes que ya había confirmado (por ejemplo, se restauró un respaldo). **El agente se detiene** para no dejar huecos. | Avisar: hay que decidir si se reenvía todo. |
-| `VENTA_OMITIDA ven_id=… codigo=…` | Una venta de SICAR trae un dato que el agente no sabe leer (importe con 3 decimales, negativo, sin artículos…). **Se salta**, la carga sigue y esa venta no aparece en el CRM. | Revisar esa venta en SICAR. `--verificar` dice cuántas hay antes de la carga. |
+| `VENTA_OMITIDA ven_id=… codigo=…` | Una venta de SICAR trae un dato que el agente no sabe leer (importe con 3 decimales, negativo, sin artículos…). **Se salta**, la carga sigue y esa venta no aparece en el CRM (si ya estaba, se quita). | Revisar esa venta en SICAR. `--verificar` dice cuántas hay antes de la carga. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
 | `FALLO ...` | Algo que no es un dato raro (configuración, MySQL, servidor). La corrida termina sin avanzar. | Avisar con la línea completa. |
 | `FALLO MYSQL_ACCESO_DENEGADO` / `MYSQL_NO_DISPONIBLE` | Contraseña de MySQL o MySQL apagado. | Revisar `config.json` y que SICAR esté abierto. |

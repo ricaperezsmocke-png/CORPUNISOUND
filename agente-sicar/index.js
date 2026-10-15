@@ -6,7 +6,7 @@ const { conectar } = require('./conexion');
 const { crearLector } = require('./seguridad');
 const { crearFuente } = require('./mapeo');
 const { ejecutar } = require('./corrida');
-const { cliente, ventaSegura } = require('./formato');
+const { clienteSeguro, ventaSegura } = require('./formato');
 async function verificar(fuente, imprimir, esperar, log) {
   await fuente.validar();
   const info = await fuente.verificar();
@@ -15,10 +15,15 @@ async function verificar(fuente, imprimir, esperar, log) {
   imprimir('Tres cancelaciones recientes (solo pantalla local): ' + JSON.stringify(info.ventas));
   imprimir('Tres movimientos de cliente (solo pantalla local): ' + JSON.stringify(info.clientes));
   let cursor = '0', clientes = 0, ventas = 0;
+  const clientesRaros = [];
   while (true) {
     const filas = await fuente.clientes(cursor, fuente.tamano);
     if (!filas.length) break;
-    clientes += filas.filter(c => cliente(c)).length;
+    for (const c of filas) {
+      const { cliente, omitido } = clienteSeguro(c);
+      if (cliente) clientes++;
+      if (omitido) clientesRaros.push(omitido);
+    }
     cursor = String(filas.at(-1).cli_id);
     await esperar(1000);
   }
@@ -28,7 +33,7 @@ async function verificar(fuente, imprimir, esperar, log) {
   while (true) {
     const pagina = await fuente.ventas(cursor, tope, fuente.tamano);
     if (!pagina.filas.length) break;
-    const personas = new Set(pagina.clientes.filter(c => cliente(c)).map(c => String(c.cli_id)));
+    const personas = new Set(pagina.clientes.filter(c => clienteSeguro(c).cliente).map(c => String(c.cli_id)));
     const conNombre = pagina.filas.filter(v => personas.has(String(v.cli_id)));
     ventas += conNombre.length;
     const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
@@ -41,6 +46,8 @@ async function verificar(fuente, imprimir, esperar, log) {
     await esperar(1000);
   }
   imprimir(`Clientes con nombre: ${clientes}`);
+  imprimir(`Clientes que se saltarían por datos raros: ${clientesRaros.length}`);
+  for (const r of clientesRaros.slice(0, 20)) imprimir(`  cli_id=${r.cli_id} codigo=${r.codigo}`);
   imprimir(`Ventas con nombre: ${ventas}`);
   imprimir(`Ventas que se saltarían por datos raros: ${raras.length}`);
   for (const r of raras.slice(0, 20)) imprimir(`  ven_id=${r.ven_id} codigo=${r.codigo}`);

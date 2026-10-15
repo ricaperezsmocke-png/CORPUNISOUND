@@ -350,3 +350,41 @@ test('--verificar cuenta las ventas que se saltarían y muestra cuáles, sin man
   assert.match(texto, /Ventas que se saltarían por datos raros: 1/);
   assert.match(texto, /ven_id=8 codigo=DECIMAL_INVALIDO/);
 });
+
+test('--verificar no se cae con un cliente raro: lo cuenta como cliente que se saltaría', async t => {
+  const { main } = require('./index');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'config.json');
+  await fs.writeFile(archivo, JSON.stringify({ mysql: { host: 'localhost', database: 'sicar', password: 'p' },
+    llave: 'k', estado: path.join(dir, 'estado.json') }));
+  const raro = { cli_id: '500', nombre: 'x'.repeat(251) };
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '9',
+    clientes: async cursor => cursor === '0' ? [{ cli_id: '42', nombre: 'José' }, raro] : [],
+    verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [] }),
+    ventas: async cursor => cursor === '0' ? { filas: [{ ven_id: '9', cli_id: '500', fecha: '2026-10-10 10:00:00', status: 1, total: '1' }],
+      clientes: [raro], detalles: [] } : { filas: [], clientes: [], detalles: [] } };
+  const salida = [];
+  await main(['--verificar'], { configPath: archivo, eco: () => {}, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, imprimir: x => salida.push(x), esperar: async () => {} });
+  const texto = salida.join('\n');
+  assert.match(texto, /Clientes con nombre: 1/);
+  assert.match(texto, /Clientes que se saltarían por datos raros: 1/);
+  assert.match(texto, /cli_id=500 codigo=TEXTO_INVALIDO/);
+});
+
+test('una venta vigente ya enviada que se vuelve rara se saca del CRM (excluida) y se anota', () => {
+  const { ventaSegura } = require('./formato');
+  const v = { ven_id: '9', cli_id: '42', fecha: '2026-10-10 10:00:00', status: 1, total: '10.005' };
+  const d = { ven_id: '9', art_id: '8', descripcion: 'Cuerda', clave: null, cantidad: '1',
+    precioCon: '10', precioSin: '8.6', importeCon: '10', descTotal: '0' };
+  assert.deepEqual(ventaSegura(v, c, [d], true), { venta: { ven_id: '9', estado: 'excluida' },
+    omitida: { ven_id: '9', codigo: 'PRECISION_NO_PACTADA' } });
+  assert.deepEqual(ventaSegura(v, c, [d], false).venta, null, 'si nunca se mandó, no hay nada que sacar');
+});
+
+test('la guardia rechaza funciones entre comillas invertidas y literales hexadecimales', () => {
+  const { validarSQL } = require('./seguridad');
+  for (const sql of ['SELECT `sleep`(5) FROM venta', 'SELECT 0x41', 'SELECT `COUNT` (1)', 'SELECT X\'41\'']) {
+    assert.throws(() => validarSQL(sql), /SQL_NO_PERMITIDO/, sql);
+  }
+});

@@ -97,7 +97,9 @@ function ventaSegura(v, c, detalles, enviada, avisar) {
     // Cancelada con datos raros (por ejemplo, sin renglones) que el CRM ya tiene: basta avisar que se canceló,
     // para que no se siga contando como vigente.
     if (String(v.status) === '-1' && enviada) return { venta: { ven_id: error.ven_id, estado: 'cancelada' }, omitida: null };
-    return { venta: null, omitida: { ven_id: error.ven_id, codigo: error.message } };
+    // Vigente ya enviada que ahora no se puede leer: se saca del CRM en vez de dejar la versión vieja.
+    const omitida = { ven_id: error.ven_id, codigo: error.message };
+    return { venta: enviada ? { ven_id: error.ven_id, estado: 'excluida' } : null, omitida };
   }
 }
 module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura };
