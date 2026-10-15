@@ -58,8 +58,11 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   `his_id > cursor` en cada ciclo, y además se releen las últimas 48 h.
 - `excluida`: una venta que ya habías mandado y ahora es de público en general o ya no debe verse. Solo
   `{ "ven_id": "88003", "estado": "excluida" }`. Borra su detalle y su referencia personal.
-- **Público en general** (`cli_id` 1 y en Ocosingo 2, 3, 13, 21, 33, 4566, 4567, 4572): mejor no mandarlo.
-  Si llega, el CRM nunca lo muestra ni lo une a nadie.
+- **Público en general** (`cli_id` 1 y en Ocosingo 2, 3, 13, 21, 33, 4566, 4567, 4572, o nombre
+  que coincida con `^P.BLICO EN GENERAL`): el agente NO debe mandar público en general; si llega, el servidor lo descarta.
+  No guarda esos clientes, sus ventas ni sus renglones. Acepta el lote y avanza la secuencia; el recibo incluye
+  `descartados: { clientes, ventas, renglones }` cuando hubo descartes. `aceptados` cuenta solo los registros
+  admitidos y `rechazados` sigue en cero. No se borran filas históricas mediante esta regla.
 - Si una venta cambia de cliente, mándala otra vez con el `cli_id` nuevo: se mueve una sola vez.
 
 ## 4. Límites
