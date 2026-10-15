@@ -44,6 +44,19 @@ Objetivos, CRM, Inventario, Traspasos, Reportes, MercadoLibre y Estado de Cuenta
 7. Las funciones internas (por ejemplo, `crearVenta` usada por otros módulos o pruebas) no se bloquean: el bloqueo vive
    en las rutas HTTP de la tabla. Si alguna otra ruta crea movimientos de caja por otro camino, se incluye y se reporta.
 
+## 3b. MercadoLibre (decisión de Victor, 2026-10-15, tras la parada de Codex)
+
+`POST /api/ml/ordenes/:ordenId/importar` crea ventas que entran al corte de la caja de MercadoLibre como
+transferencia. Decisión: **el corte de MercadoLibre sigue funcionando siempre**.
+- `corte_caja` apagado aplica solo a las tiendas que no son la de MercadoLibre. La tienda de MercadoLibre se identifica
+  como lo hace hoy el código de ML (no por un número fijo nuevo); si no hay forma inequívoca, detente y reporta.
+- La importación de órdenes de ML no se bloquea con ningún interruptor.
+- Con `corte_caja` apagado, `POST /api/cortes` sigue aceptando la caja de MercadoLibre y rechaza (409
+  `PANTALLA_APAGADA`) las demás. La pantalla Corte de Caja sigue en el menú solo para quien ve la tienda de
+  MercadoLibre, y ahí solo deja elegir esa caja.
+- La regla 2 (dinero sin cortar) no cuenta la caja de MercadoLibre.
+- Pruebas: con corte apagado, importar orden ML funciona y su corte se puede cerrar; corte de otra tienda da 409.
+
 ## 4. Guardado
 
 En la configuración existente (`backend/configuracion.js`, persistida como hoy): `pantallas: { punto_venta: true, ... }`

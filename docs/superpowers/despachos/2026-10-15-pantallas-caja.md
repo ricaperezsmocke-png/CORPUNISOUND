@@ -17,6 +17,11 @@
   `backend/gastos.js`, `backend/depositos.js` y `backend/garantias*.js` (el bloqueo va en las rutas, no en las funciones),
   todo lo demás.
 
+## Parada anterior resuelta
+
+Un intento anterior se detuvo por la importación de MercadoLibre. Victor ya decidió: sección 3b del spec. El plan a
+medio hacer quedó en `docs/superpowers/plans/2026-10-15-pantallas-caja.md` (sin commitear); complétalo con esa decisión.
+
 ## Antes de codificar
 
 Enumera en el plan **cada** ruta de escritura que crea o cambia un movimiento que un corte cobra (búscalas por uso de
