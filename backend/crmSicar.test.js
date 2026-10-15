@@ -31,7 +31,7 @@ function venta(sucursal, ven, cli, fecha, centavos, estado = 'vigente', descripc
   sqlite.prepare(`INSERT INTO sicar_ventas(sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
     VALUES (?,?,?,?,?,?, '1', 'h')`).run(sucursal, ven, cli, `${fecha}T12:00:00`, estado, centavos);
   sqlite.prepare(`INSERT INTO sicar_detalles(sucursal_id, ven_id, art_id, descripcion, cantidad, precio_con, precio_sin,
-    importe_centavos, descuento_centavos) VALUES (?,?, '1', ?, '1.0000', '0', '0', ?, 0)`).run(sucursal, ven, descripcion, centavos);
+    importe_centavos, descuento_centavos, renglon) VALUES (?,?, '1', ?, '1.0000', '0', '0', ?, 0, 0)`).run(sucursal, ven, descripcion, centavos);
 }
 function vincular(sucursal, cli, clienteId, estado = 'pendiente') {
   sqlite.prepare(`INSERT INTO sicar_vinculos(sucursal_id, cli_id, cliente_id, estado, creada, actualizada)

@@ -98,6 +98,30 @@ function api() {
   return require('./sicarRespaldo');
 }
 
+for (const antiguo of [true, false]) {
+  test(`restaura renglones de respaldo ${antiguo ? 'viejo sin renglon' : 'nuevo con repetidos'}`, async t => {
+    const f = preparar(t), g = preparar(t), s = api();
+    const datos = lote();
+    datos.ventas[0].total = '400.00';
+    datos.ventas[0].detalle.push({ ...datos.ventas[0].detalle[0], art_id: antiguo ? '8' : '9', descripcion: 'Segundo' });
+    f.repo.aplicarLote({ sucursalId: 1, lote: datos, hash: 'h' });
+    if (antiguo) {
+      const campos = f.sqlite.pragma('table_info(sicar_detalles)').map(c => c.name).filter(c => c !== 'renglon').join(',');
+      f.sqlite.exec(`CREATE TABLE detalles_viejos AS SELECT ${campos} FROM sicar_detalles ORDER BY rowid;
+        DROP TABLE sicar_detalles; ALTER TABLE detalles_viejos RENAME TO sicar_detalles;`);
+    }
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+    const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+    p.aplicar(); p.liberar();
+    const filas = g.sqlite.prepare('SELECT renglon, descripcion, importe_centavos FROM sicar_detalles ORDER BY renglon').all();
+    assert.deepEqual(filas, [
+      { renglon: 0, descripcion: 'Guitarrón', importe_centavos: 20000 },
+      { renglon: 1, descripcion: 'Segundo', importe_centavos: 20000 },
+    ]);
+  });
+}
+
 const opciones = copiaId => ({ copiaId, llave: LLAVE, clave: 'local', confirmacion: 'RESTAURAR',
   env: { CLAVE_RESTAURACION: 'local' }, usuario: { id: 1 }, permisos: ['ver_todas_las_sucursales'] });
 

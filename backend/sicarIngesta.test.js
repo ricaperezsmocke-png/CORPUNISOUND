@@ -40,7 +40,7 @@ const casos = [
   ['detalle vacío vigente', b => { b.ventas[0].detalle = []; }, 422],
   ['detalle vacío cancelada', b => { b.ventas[0].estado = 'cancelada'; b.ventas[0].detalle = []; }, 422],
   ['cliente duplicado', b => { b.clientes.push(b.clientes[0]); }, 422],
-  ['artículo duplicado', b => { b.ventas[0].detalle.push(b.ventas[0].detalle[0]); }, 422],
+  ['venta duplicada', b => { b.ventas.push(b.ventas[0]); }, 422],
   ['fecha imposible', b => { b.ventas[0].fecha_local = '2026-02-30T16:30:00'; }, 422],
   ['zona incorrecta', b => { b.ventas[0].timezone = 'UTC'; }, 422],
   ['moneda incorrecta', b => { b.ventas[0].moneda = 'USD'; }, 422],

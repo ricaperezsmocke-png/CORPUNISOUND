@@ -55,11 +55,12 @@ const ESQUEMA = `
   );
   CREATE TABLE IF NOT EXISTS sicar_detalles (
     sucursal_id INTEGER NOT NULL, ven_id TEXT NOT NULL, art_id TEXT NOT NULL,
+    renglon INTEGER NOT NULL,
     clave TEXT, descripcion TEXT NOT NULL, cantidad TEXT NOT NULL,
     precio_con TEXT NOT NULL, precio_sin TEXT NOT NULL,
     importe_centavos INTEGER NOT NULL CHECK (typeof(importe_centavos) = 'integer' AND importe_centavos BETWEEN 0 AND 9007199254740991),
     descuento_centavos INTEGER NOT NULL CHECK (typeof(descuento_centavos) = 'integer' AND descuento_centavos BETWEEN 0 AND 9007199254740991),
-    PRIMARY KEY (sucursal_id, ven_id, art_id),
+    PRIMARY KEY (sucursal_id, ven_id, renglon),
     FOREIGN KEY (sucursal_id, ven_id) REFERENCES sicar_ventas(sucursal_id, ven_id)
   );
   CREATE TABLE IF NOT EXISTS sicar_envios (
@@ -113,8 +114,9 @@ function prepararEscrituras(sqlite) {
       cli_id=CASE WHEN @estado='excluida' THEN NULL ELSE cli_id END WHERE sucursal_id=@sucursal_id AND ven_id=@ven_id`),
     borrarDetalle: sqlite.prepare('DELETE FROM sicar_detalles WHERE sucursal_id=? AND ven_id=?'),
     detalle: sqlite.prepare(`INSERT INTO sicar_detalles
-      (sucursal_id, ven_id, art_id, clave, descripcion, cantidad, precio_con, precio_sin, importe_centavos, descuento_centavos)
-      VALUES (@sucursal_id, @ven_id, @art_id, @clave, @descripcion, @cantidad, @precio_con, @precio_sin, @importe_centavos, @descuento_centavos)`),
+      (sucursal_id, ven_id, renglon, art_id, clave, descripcion, cantidad, precio_con, precio_sin, importe_centavos, descuento_centavos)
+      VALUES (@sucursal_id, @ven_id, @renglon, @art_id, @clave, @descripcion, @cantidad,
+        @precio_con, @precio_sin, @importe_centavos, @descuento_centavos)`),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -135,9 +137,9 @@ function escribirVenta(sentencias, sucursalId, venta, revision, hash) {
   sentencias.venta.run({ ...identidad, cli_id: venta.cli_id, fecha_local: venta.fecha_local,
     total_centavos: total, cuadra: suma === BigInt(total) ? 1 : 0 });
   sentencias.borrarDetalle.run(sucursalId, venta.ven_id);
-  for (const detalle of venta.detalle) {
+  for (const [renglon, detalle] of venta.detalle.entries()) {
     sentencias.detalle.run({
-      sucursal_id: sucursalId, ven_id: venta.ven_id, art_id: detalle.art_id, clave: detalle.clave ?? null,
+      sucursal_id: sucursalId, ven_id: venta.ven_id, renglon, art_id: detalle.art_id, clave: detalle.clave ?? null,
       descripcion: detalle.descripcion, cantidad: detalle.cantidad, precio_con: detalle.precio_con, precio_sin: detalle.precio_sin,
       importe_centavos: centavos(detalle.importe_con), descuento_centavos: centavos(detalle.descuento_total),
     });
@@ -151,6 +153,18 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    if (!sqlite.pragma('table_info(sicar_detalles)').some(c => c.name === 'renglon')) {
+      sqlite.exec('ALTER TABLE sicar_detalles RENAME TO sicar_detalles_anteriores');
+      sqlite.exec(ESQUEMA);
+      sqlite.exec(`INSERT INTO sicar_detalles
+        (sucursal_id, ven_id, art_id, clave, descripcion, cantidad, precio_con, precio_sin,
+          importe_centavos, descuento_centavos, renglon)
+        SELECT sucursal_id, ven_id, art_id, clave, descripcion, cantidad, precio_con, precio_sin,
+          importe_centavos, descuento_centavos,
+          ROW_NUMBER() OVER (PARTITION BY sucursal_id, ven_id ORDER BY rowid) - 1
+        FROM sicar_detalles_anteriores;
+        DROP TABLE sicar_detalles_anteriores;`);
+    }
     if (!sqlite.prepare('SELECT 1 FROM sicar_esquema WHERE version=2').get()) {
       sqlite.exec('ALTER TABLE sicar_ventas ADD COLUMN cuadra INTEGER NOT NULL DEFAULT 0 CHECK (cuadra IN (0, 1))');
       // BigInt evita desbordar al conciliar detalles históricos; el total fuente nunca se ajusta.
