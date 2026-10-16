@@ -16,7 +16,7 @@ export const CATEGORIAS = [
     nombre: "OPERACIÓN",
     modulos: [
       {
-        id: "pos", nombre: "Punto de Venta", modulo: "pos",
+        id: "pos", nombre: "Punto de Venta", modulo: "pos", pantalla: "punto_venta",
         // Estas dos pantallas ya existen dentro de PuntoDeVenta.jsx. Se muestran
         // para que se vean en el mapa del sistema, pero navegan al padre: entrar
         // directo exigiría tocar PuntoDeVenta.jsx, que está fuera de alcance.
@@ -25,8 +25,8 @@ export const CATEGORIAS = [
           { id: "apartados", nombre: "Apartados" },
         ],
       },
-      { id: "corte", nombre: "Corte de Caja", modulo: "corte", permiso: "realizar_corte_caja" },
-      { id: "gastos", nombre: "Gastos", modulo: "gastos", permiso: "ver_gastos" },
+      { id: "corte", nombre: "Corte de Caja", modulo: "corte", permiso: "realizar_corte_caja", pantalla: "corte_caja" },
+      { id: "gastos", nombre: "Gastos", modulo: "gastos", permiso: "ver_gastos", pantalla: "gastos_caja" },
       {
         id: "inventario", nombre: "Inventario y Productos", modulo: "inventario",
         hijos: [{ id: "recepcion", nombre: "Recepción de Compras" }],
@@ -59,7 +59,7 @@ export const CATEGORIAS = [
       { id: "garantias", nombre: "Garantías", modulo: "inventario", permiso: "gestionar_garantias" },
       { id: "roles", nombre: "Roles y Personal", modulo: "admin" },
       { id: "respaldos", nombre: "Respaldos", modulo: "respaldos", permiso: "ver_respaldos" },
-      { id: "configuracion", nombre: "Configuración", modulo: "pos", permiso: "editar_configuracion_pos" },
+      { id: "configuracion", nombre: "Configuración", modulo: "pos", permiso: ["editar_configuracion_pos", "activar_pantallas_caja"] },
     ],
   },
 ];
@@ -96,8 +96,23 @@ export function moduloVisible(m, usuario) {
  * Devuelve copias. CATEGORIAS no se muta nunca: esto se llama en cada dibujado
  * y una mutación iría vaciando el menú solo.
  */
-export function categoriasVisibles(usuario) {
+export function categoriasVisibles(usuario, pantallas) {
   return CATEGORIAS
-    .map((c) => ({ ...c, modulos: c.modulos.filter((m) => moduloVisible(m, usuario)) }))
+    .map((c) => ({ ...c, modulos: c.modulos.filter((m) => moduloVisible(m, usuario) && !vistaApagada(m.id, pantallas, usuario)) }))
     .filter((c) => c.modulos.length > 0);
+}
+
+// Tienda de MercadoLibre: su corte sigue aunque Corte de Caja esté apagado (spec pantallas-caja 3b).
+const SUCURSAL_ML = 5;
+
+/**
+ * Si la pantalla `vista` está apagada por el administrador, el aviso a mostrar; si no, null.
+ * Solo esconde: el freno de verdad está en el servidor (responde 409 aunque alguien llegue aquí).
+ * `pantallas` ausente o una clave ausente = encendida, igual que el servidor.
+ */
+export function vistaApagada(vista, pantallas, usuario) {
+  const modulo = CATEGORIAS.flatMap((c) => c.modulos).find((m) => m.id === vista);
+  if (!modulo?.pantalla || !pantallas || pantallas[modulo.pantalla] !== false) return null;
+  if (modulo.pantalla === "corte_caja" && (usuario?.ver_todas || Number(usuario?.sucursal_id) === SUCURSAL_ML)) return null;
+  return `${modulo.nombre} está desactivada por el administrador.`;
 }

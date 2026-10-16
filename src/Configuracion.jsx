@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import PantallasCaja from "./PantallasCaja.jsx";
 import {
   LayoutGrid, Search, Settings, FileBarChart, PieChart, Wrench,
   RefreshCw, Save, Banknote, CreditCard, Landmark, Ticket, ArrowLeftRight,
@@ -40,6 +41,7 @@ function Tab({ activo, onClick, children }) {
 
 export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos }) {
   const puedeEditar = !permisos || permisos.includes("editar_configuracion_pos");
+  const puedePantallas = !permisos || permisos.includes("activar_pantallas_caja");
 
   const [tab, setTab] = useState("ventas");
   const [config, setConfig] = useState(null);
@@ -112,9 +114,11 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
       <div className="neu rounded-none flex overflow-x-auto shrink-0">
         <Tab activo={tab === "ventas"} onClick={() => setTab("ventas")}>Ventas</Tab>
         <Tab activo={tab === "formas_pago"} onClick={() => setTab("formas_pago")}>Formas de Pago</Tab>
+        {puedePantallas && <Tab activo={tab === "pantallas"} onClick={() => setTab("pantallas")}>Pantallas de caja</Tab>}
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
+        {tab === "pantallas" && puedePantallas && <PantallasCaja />}
         {tab === "ventas" && (
           <div className="max-w-3xl">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">General</h3>

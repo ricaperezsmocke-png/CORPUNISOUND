@@ -74,7 +74,7 @@ test("Configuración es módulo de primer nivel en administración", () => {
   const config = admin.modulos.find((m) => m.id === "configuracion");
   assert.ok(config, "Configuración debe estar en ADMINISTRACIÓN");
   assert.equal(config.modulo, "pos");
-  assert.equal(config.permiso, "editar_configuracion_pos");
+  assert.deepEqual(config.permiso, ["editar_configuracion_pos", "activar_pantallas_caja"]);
 });
 
 test("las subcategorías cuelgan de Punto de Venta y de Inventario", () => {
@@ -116,7 +116,7 @@ const PARES_CONGELADOS = {
   garantias:       { modulo: "inventario",    permiso: "gestionar_garantias" },
   roles:           { modulo: "admin",         permiso: undefined },
   respaldos:       { modulo: "respaldos",     permiso: "ver_respaldos" },
-  configuracion:   { modulo: "pos",           permiso: "editar_configuracion_pos" },
+  configuracion:   { modulo: "pos",           permiso: ["editar_configuracion_pos", "activar_pantallas_caja"] }, // 2026-10-15: interruptores de caja
 };
 
 test("ningún módulo cambió de módulo ni de permiso", () => {
@@ -146,4 +146,44 @@ test("Objetivos reúne los cinco permisos y sustituye las entradas de metas y ci
     assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: [permiso] }), true, permiso);
   }
   assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: ["realizar_corte_caja"] }), false);
+});
+
+// ── Interruptores de pantallas de caja (spec 2026-10-15-pantallas-caja) ──
+import { vistaApagada } from "./menuCategorias.js";
+const ids = (cats) => cats.flatMap((c) => c.modulos.map((m) => m.id));
+const APAGADAS = { punto_venta: false, corte_caja: false, gastos_caja: false, dinero_garantias_caja: false, depositos: false };
+
+test("sin interruptores (o todos encendidos) el menú queda igual que hoy", () => {
+  assert.deepEqual(ids(categoriasVisibles(ADMIN, undefined)), ids(categoriasVisibles(ADMIN)));
+  assert.deepEqual(ids(categoriasVisibles(ADMIN, { punto_venta: true, corte_caja: true })), ids(categoriasVisibles(ADMIN)));
+});
+
+test("una pantalla apagada desaparece del menú para todos; las demás siguen", () => {
+  const tienda = { ...ADMIN, sucursal_id: 1, ver_todas: false };
+  const vistas = ids(categoriasVisibles(tienda, APAGADAS));
+  for (const fuera of ["pos", "corte", "gastos"]) assert.ok(!vistas.includes(fuera), fuera);
+  for (const sigue of ["inventario", "crm", "ml", "gerencia_ventas", "garantias", "estado_cuenta", "reportes"]) {
+    assert.ok(vistas.includes(sigue), sigue);
+  }
+});
+
+test("con Corte apagado lo sigue viendo quien ve la tienda de MercadoLibre", () => {
+  assert.ok(ids(categoriasVisibles({ ...ADMIN, ver_todas: true }, APAGADAS)).includes("corte"));
+  assert.ok(ids(categoriasVisibles({ ...ADMIN, ver_todas: false, sucursal_id: 5 }, APAGADAS)).includes("corte"));
+  assert.ok(!ids(categoriasVisibles({ ...ADMIN, ver_todas: false, sucursal_id: 1 }, APAGADAS)).includes("corte"));
+});
+
+test("entrar directo a una pantalla apagada da su aviso; corte con ML no", () => {
+  const tienda = { ...ADMIN, ver_todas: false, sucursal_id: 1 };
+  assert.match(vistaApagada("pos", APAGADAS, tienda), /desactivada por el administrador/);
+  assert.match(vistaApagada("gastos", APAGADAS, tienda), /desactivada/);
+  assert.match(vistaApagada("corte", APAGADAS, tienda), /desactivada/);
+  assert.equal(vistaApagada("corte", APAGADAS, { ...ADMIN, ver_todas: true }), null);
+  assert.equal(vistaApagada("crm", APAGADAS, tienda), null);
+  assert.equal(vistaApagada("pos", {}, tienda), null);
+});
+
+test("Configuración también la ve quien solo tiene el permiso de interruptores", () => {
+  const soloInterruptores = { modulos: ["pos", "admin"], permisos: ["activar_pantallas_caja"] };
+  assert.ok(ids(categoriasVisibles(soloInterruptores)).includes("configuracion"));
 });

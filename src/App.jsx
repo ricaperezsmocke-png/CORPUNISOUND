@@ -19,6 +19,7 @@ import RadarDemanda from "./radar-demanda/RadarDemanda.jsx";
 import BarraLateral from "./BarraLateral.jsx";
 import Configuracion from "./Configuracion.jsx";
 import { apiFetch } from "./api";
+import { vistaApagada } from "./menuCategorias.js";
 
 const MODULOS = [
   "pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta",
@@ -44,6 +45,16 @@ function App() {
   // Menú deslizable en celular. En PC no se usa: la barra queda fija con
   // lg:translate-x-0 pase lo que pase aquí.
   const [menuAbierto, setMenuAbierto] = useState(false);
+  // Interruptores de pantallas de caja. Si no se pueden leer, se dejan como están (encendidas): el
+  // servidor es quien de verdad bloquea, esto solo esconde del menú.
+  const [pantallas, setPantallas] = useState(null);
+  useEffect(() => {
+    if (!usuario) return;
+    apiFetch("/configuracion/pantallas")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.pantallas) setPantallas(d.pantallas); })
+      .catch(() => {});
+  }, [usuario, vista]);
 
   useEffect(() => {
     const guardado = localStorage.getItem("usuario");
@@ -91,6 +102,7 @@ function App() {
     <div className="w-full h-pantalla flex bg-background">
       <BarraLateral
         usuario={usuario}
+        pantallas={pantallas}
         vista={vista}
         onEntrarModulo={(id) => setVista(id)}
         abierta={menuAbierto}
@@ -120,6 +132,11 @@ function App() {
         />
 
         <div className="flex-1 min-h-0 overflow-auto">
+        {vistaApagada(vista, pantallas, usuario) ? (
+          <p role="status" className="m-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            {vistaApagada(vista, pantallas, usuario)}
+          </p>
+        ) : <>
         {vista === "pos" && (
           <PuntoDeVenta onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
         )}
@@ -130,13 +147,13 @@ function App() {
           <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "garantias" && (
-          <Garantias onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
+          <Garantias onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} pantallas={pantallas} />
         )}
         {vista === "gastos" && (
           <Gastos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "estado_cuenta" && (
-          <EstadoCuenta onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
+          <EstadoCuenta onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} pantallas={pantallas} />
         )}
         {vista === "roles" && (
           <AdminRoles onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
@@ -176,6 +193,7 @@ function App() {
         {esDashboard && (
           <Dashboard usuario={usuario} />
         )}
+        </>}
         </div>
       </div>
     </div>
