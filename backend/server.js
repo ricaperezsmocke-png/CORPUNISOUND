@@ -228,6 +228,9 @@ const DB = {
     cajas: [],
     cortes_caja: [],
     corte_epoca: null,
+    // Interruptores de pantallas de caja. Tiene que estar en la semilla: al arrancar solo se restauran
+    // las claves que existen aquí, y sin esta línea todo volvía a encenderse en cada reinicio de Render.
+    pantallas_caja: null,
     apartado_abonos: [],
   },
   crm: {

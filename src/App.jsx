@@ -161,6 +161,11 @@ function App() {
         {vista === "crm" && (
           <CRM onVolver={() => setVista("dashboard")} permisos={usuario.permisos} />
         )}
+        {vista === "corte" && pantallas?.corte_caja === false && (
+          <p role="status" className="mx-6 mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            Corte de Caja está apagado para las tiendas. Aquí solo se puede cortar MercadoLibre: elígela en el encabezado.
+          </p>
+        )}
         {vista === "corte" && (
           <CorteCaja
             onVolverInicio={() => setVista("dashboard")}

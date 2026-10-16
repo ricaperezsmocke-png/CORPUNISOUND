@@ -49,6 +49,7 @@ export function sugerirCajaGarantia(cajas, encabezado) {
 }
 
 const AVISO_APAGADO = "rounded bg-amber-50 px-2 py-1.5 text-sm text-amber-900";
+const BOTON_ELIMINAR_GASTO = "text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed";
 
 export function PagoGarantia({ form, setForm, cajas, sucursalNombre, cobro = false }) {
   const nombreCaja = cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "predeterminada";
@@ -729,7 +730,12 @@ export default function Garantias({ onVolver, permisos, usuario, pantallas }) {
                     </div>
                     {x.drive_link ? <a href={x.drive_link} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline ml-2 inline-flex items-center gap-1"><FileText size={11} /> Ver</a> : null}
                   </div>
-                  {x.corte_id == null && !dineroApagado && <button aria-label={`Eliminar gasto de $${Number(x.monto).toFixed(2)}`} onClick={() => eliminarGastoUI(x.id)} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={14} /></button>}
+                  {x.corte_id == null && !dineroApagado && (
+                    <button aria-label={`Eliminar gasto de $${Number(x.monto).toFixed(2)}`} onClick={() => eliminarGastoUI(x.id)}
+                      disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className={BOTON_ELIMINAR_GASTO}>
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
