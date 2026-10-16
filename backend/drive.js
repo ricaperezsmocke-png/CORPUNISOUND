@@ -146,109 +146,117 @@ async function crearCarpeta(DB, nombre, carpetaPadreId) {
   return data.id;
 }
 
-async function asegurarCarpetaRaiz(DB) {
-  if (DB.drive.carpeta_raiz_id) return DB.drive.carpeta_raiz_id;
-  let id = await buscarCarpeta(DB, CARPETA_RAIZ_NOMBRE, null);
-  if (!id) id = await crearCarpeta(DB, CARPETA_RAIZ_NOMBRE, null);
-  DB.drive.carpeta_raiz_id = id;
+/** ¿La carpeta guardada todavía sirve? Si alguien la mandó a la papelera, subir ahí NO da error: el
+ *  comprobante se va a la papelera y Google lo borra a los 30 días. Si Victor reconecta Drive con otra
+ *  cuenta, la cuenta nueva no la ve y Drive responde 404. En los dos casos hay que buscarla de nuevo.
+ *  Cualquier otra falla se lanza: sin saber si existe no se crea otra, para no duplicar carpetas. */
+async function carpetaSigueViva(DB, id) {
+  const token = await tokenActivo(DB);
+  const r = await fetch(`${DRIVE_API}/${encodeURIComponent(id)}?fields=id,trashed`, { headers: driveHeaders(token) });
+  if (r.status === 404) return false;
+  if (!r.ok) throw new Error("Error al revisar carpeta en Google Drive: " + (await r.text()));
+  const data = await r.json();
+  return data.trashed !== true;
+}
+
+/** Devuelve la carpeta guardada si sigue viva; si no, la busca por nombre dentro de su padre o la crea,
+ *  y guarda el id nuevo. `padre` es una función para revisar la carpeta padre solo cuando hace falta. */
+async function asegurarCarpeta(DB, { guardada, nombre, padre = async () => null, guardar }) {
+  if (guardada && await carpetaSigueViva(DB, guardada)) return guardada;
+  const padreId = await padre();
+  let id = await buscarCarpeta(DB, nombre, padreId);
+  if (!id) id = await crearCarpeta(DB, nombre, padreId);
+  guardar(id);
   return id;
+}
+
+async function asegurarCarpetaRaiz(DB) {
+  return asegurarCarpeta(DB, {
+    guardada: DB.drive.carpeta_raiz_id, nombre: CARPETA_RAIZ_NOMBRE,
+    guardar: (id) => { DB.drive.carpeta_raiz_id = id; },
+  });
 }
 
 async function asegurarCarpetaEmpleado(DB, usuarioObj) {
-  if (usuarioObj.drive_folder_id) return usuarioObj.drive_folder_id;
-  const raizId = await asegurarCarpetaRaiz(DB);
-  const nombreCarpeta = `${usuarioObj.nombre} (${usuarioObj.usuario})`;
-  let id = await buscarCarpeta(DB, nombreCarpeta, raizId);
-  if (!id) id = await crearCarpeta(DB, nombreCarpeta, raizId);
-  usuarioObj.drive_folder_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: usuarioObj.drive_folder_id, nombre: `${usuarioObj.nombre} (${usuarioObj.usuario})`,
+    padre: () => asegurarCarpetaRaiz(DB),
+    guardar: (id) => { usuarioObj.drive_folder_id = id; },
+  });
 }
 
 async function asegurarCarpetaGarantiasRaiz(DB) {
-  if (DB.drive.carpeta_garantias_id) return DB.drive.carpeta_garantias_id;
-  let id = await buscarCarpeta(DB, CARPETA_GARANTIAS_NOMBRE, null);
-  if (!id) id = await crearCarpeta(DB, CARPETA_GARANTIAS_NOMBRE, null);
-  DB.drive.carpeta_garantias_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: DB.drive.carpeta_garantias_id, nombre: CARPETA_GARANTIAS_NOMBRE,
+    guardar: (id) => { DB.drive.carpeta_garantias_id = id; },
+  });
 }
 
 async function asegurarCarpetaGarantia(DB, garantia) {
-  if (garantia.drive_folder_id) return garantia.drive_folder_id;
-  const raizId = await asegurarCarpetaGarantiasRaiz(DB);
-  let id = await buscarCarpeta(DB, garantia.folio, raizId);
-  if (!id) id = await crearCarpeta(DB, garantia.folio, raizId);
-  garantia.drive_folder_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: garantia.drive_folder_id, nombre: garantia.folio,
+    padre: () => asegurarCarpetaGarantiasRaiz(DB),
+    guardar: (id) => { garantia.drive_folder_id = id; },
+  });
 }
 
 async function asegurarCarpetaGastosRaiz(DB) {
-  if (DB.drive.carpeta_gastos_id) return DB.drive.carpeta_gastos_id;
-  let id = await buscarCarpeta(DB, CARPETA_GASTOS_NOMBRE, null);
-  if (!id) id = await crearCarpeta(DB, CARPETA_GASTOS_NOMBRE, null);
-  DB.drive.carpeta_gastos_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: DB.drive.carpeta_gastos_id, nombre: CARPETA_GASTOS_NOMBRE,
+    guardar: (id) => { DB.drive.carpeta_gastos_id = id; },
+  });
 }
 
 /** Subcarpeta por sucursal dentro de "Comprobantes de Gastos". Se agrupa por
  *  tienda (y no por mes o por gasto) porque es como Victor va a buscar un
  *  comprobante cuando lo necesite. */
 async function asegurarCarpetaGastosSucursal(DB, sucursal) {
-  if (sucursal.drive_folder_gastos_id) return sucursal.drive_folder_gastos_id;
-  const raizId = await asegurarCarpetaGastosRaiz(DB);
-  const nombre = sucursal.nombre || `Sucursal ${sucursal.id}`;
-  let id = await buscarCarpeta(DB, nombre, raizId);
-  if (!id) id = await crearCarpeta(DB, nombre, raizId);
-  sucursal.drive_folder_gastos_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: sucursal.drive_folder_gastos_id, nombre: sucursal.nombre || `Sucursal ${sucursal.id}`,
+    padre: () => asegurarCarpetaGastosRaiz(DB),
+    guardar: (id) => { sucursal.drive_folder_gastos_id = id; },
+  });
 }
 
 async function asegurarCarpetaDepositosRaiz(DB) {
-  if (DB.drive.carpeta_depositos_id) return DB.drive.carpeta_depositos_id;
-  let id = await buscarCarpeta(DB, CARPETA_DEPOSITOS_NOMBRE, null);
-  if (!id) id = await crearCarpeta(DB, CARPETA_DEPOSITOS_NOMBRE, null);
-  DB.drive.carpeta_depositos_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: DB.drive.carpeta_depositos_id, nombre: CARPETA_DEPOSITOS_NOMBRE,
+    guardar: (id) => { DB.drive.carpeta_depositos_id = id; },
+  });
 }
 
 /** Subcarpeta por sucursal dentro de "Comprobantes de Depósitos". Mismo
  *  criterio que asegurarCarpetaGastosSucursal: se agrupa por tienda. */
 async function asegurarCarpetaDepositosSucursal(DB, sucursal) {
-  if (sucursal.drive_folder_depositos_id) return sucursal.drive_folder_depositos_id;
-  const raizId = await asegurarCarpetaDepositosRaiz(DB);
-  const nombre = sucursal.nombre || `Sucursal ${sucursal.id}`;
-  let id = await buscarCarpeta(DB, nombre, raizId);
-  if (!id) id = await crearCarpeta(DB, nombre, raizId);
-  sucursal.drive_folder_depositos_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: sucursal.drive_folder_depositos_id, nombre: sucursal.nombre || `Sucursal ${sucursal.id}`,
+    padre: () => asegurarCarpetaDepositosRaiz(DB),
+    guardar: (id) => { sucursal.drive_folder_depositos_id = id; },
+  });
 }
 
 async function asegurarCarpetaActividadesRaiz(DB) {
-  if (DB.drive.carpeta_actividades_id) return DB.drive.carpeta_actividades_id;
-  const nombre = "Evidencias de Actividades";
-  let id = await buscarCarpeta(DB, nombre, null);
-  if (!id) id = await crearCarpeta(DB, nombre, null);
-  DB.drive.carpeta_actividades_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: DB.drive.carpeta_actividades_id, nombre: "Evidencias de Actividades",
+    guardar: (id) => { DB.drive.carpeta_actividades_id = id; },
+  });
 }
 
 async function asegurarCarpetaActividadesSucursal(DB, sucursal) {
-  if (sucursal.drive_folder_actividades_id) return sucursal.drive_folder_actividades_id;
-  const raizId = await asegurarCarpetaActividadesRaiz(DB);
-  const nombre = sucursal.nombre || `Sucursal ${sucursal.id}`;
-  let id = await buscarCarpeta(DB, nombre, raizId);
-  if (!id) id = await crearCarpeta(DB, nombre, raizId);
-  sucursal.drive_folder_actividades_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: sucursal.drive_folder_actividades_id, nombre: sucursal.nombre || `Sucursal ${sucursal.id}`,
+    padre: () => asegurarCarpetaActividadesRaiz(DB),
+    guardar: (id) => { sucursal.drive_folder_actividades_id = id; },
+  });
 }
 
 /** Carpeta raíz de los respaldos automáticos. Aparte de los comprobantes a
  *  propósito: son cosas distintas y Victor las va a mirar por separado. */
 async function asegurarCarpetaRespaldos(DB) {
-  if (DB.respaldos?.carpeta_drive_id) return DB.respaldos.carpeta_drive_id;
-  let id = await buscarCarpeta(DB, CARPETA_RESPALDOS_NOMBRE, null);
-  if (!id) id = await crearCarpeta(DB, CARPETA_RESPALDOS_NOMBRE, null);
-  if (DB.respaldos) DB.respaldos.carpeta_drive_id = id;
-  return id;
+  return asegurarCarpeta(DB, {
+    guardada: DB.respaldos?.carpeta_drive_id, nombre: CARPETA_RESPALDOS_NOMBRE,
+    guardar: (id) => { if (DB.respaldos) DB.respaldos.carpeta_drive_id = id; },
+  });
 }
 
 async function subirArchivoADrive(DB, { nombre, mimeType, contenidoBuffer, carpetaId }) {
