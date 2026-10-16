@@ -581,7 +581,8 @@ test("Drive crea y cachea raíz y sucursal de actividades sin mezclar carpetas d
   assert.equal(sucursal.drive_folder_actividades_id, "carpeta-2");
   assert.equal(await driveReal.asegurarCarpetaActividadesRaiz(DB), "carpeta-1");
   assert.equal(await driveReal.asegurarCarpetaActividadesSucursal(DB, sucursal), "carpeta-2");
-  assert.equal(fetch.mock.calls.length, 4);
+  // 2 búsquedas + 2 creaciones, y luego una revisión por cada carpeta guardada que se reusa.
+  assert.equal(fetch.mock.calls.length, 6);
 });
 
 test("Drive reutiliza carpetas existentes y usa el id de sucursal cuando no tiene nombre", async (t) => {

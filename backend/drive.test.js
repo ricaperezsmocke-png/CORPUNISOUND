@@ -71,6 +71,10 @@ test("asegurarCarpetaRaiz crea la carpeta si no existe y cachea el id", async (t
       // Búsqueda: no la encuentra
       return { ok: true, json: async () => ({ files: [] }) };
     }
+    if (String(url).includes("/files/carpeta-raiz-123")) {
+      // Revisión de la carpeta guardada: sigue viva
+      return { ok: true, status: 200, json: async () => ({ id: "carpeta-raiz-123", trashed: false }) };
+    }
     // Creación
     return { ok: true, json: async () => ({ id: "carpeta-raiz-123" }) };
   });
@@ -83,7 +87,7 @@ test("asegurarCarpetaRaiz crea la carpeta si no existe y cachea el id", async (t
 
   const id2 = await asegurarCarpetaRaiz(DB);
   assert.strictEqual(id2, "carpeta-raiz-123");
-  assert.strictEqual(llamada, 2, "la segunda llamada debe reusar el id cacheado, sin llamar a fetch de nuevo");
+  assert.strictEqual(llamada, 3, "la segunda llamada reusa el id guardado tras una sola revisión, sin buscar ni crear");
 });
 
 test("asegurarCarpetaRaiz reusa la carpeta si ya existe en Drive", async (t) => {
@@ -113,14 +117,15 @@ test("asegurarCarpetaEmpleado crea la subcarpeta 'Nombre (usuario)' y la cachea 
 });
 
 test("asegurarCarpetaEmpleado reusa drive_folder_id si ya está en el usuario", async (t) => {
-  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+  const fetchMock = t.mock.method(globalThis, "fetch",
+    async () => ({ ok: true, status: 200, json: async () => ({ id: "folder-ya-cacheado", trashed: false }) }));
   const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
   const usuarioObj = { id: 10, nombre: "Juan Pérez", usuario: "juanp", drive_folder_id: "folder-ya-cacheado" };
 
   const id = await asegurarCarpetaEmpleado(DB, usuarioObj);
 
   assert.strictEqual(id, "folder-ya-cacheado");
-  assert.strictEqual(fetchMock.mock.calls.length, 0);
+  assert.strictEqual(fetchMock.mock.calls.length, 1, "solo revisa que la carpeta siga viva");
 });
 
 test("subirArchivoADrive sube el archivo con multipart y regresa id + webViewLink", async (t) => {
@@ -198,14 +203,15 @@ test("asegurarCarpetaGarantia crea la subcarpeta con el folio y la cachea en la 
 });
 
 test("asegurarCarpetaGarantia reusa drive_folder_id si ya está en la garantía", async (t) => {
-  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+  const fetchMock = t.mock.method(globalThis, "fetch",
+    async () => ({ ok: true, status: 200, json: async () => ({ id: "folder-cacheado", trashed: false }) }));
   const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
   const garantia = { id: 1, folio: "G-0001", drive_folder_id: "folder-cacheado" };
 
   const id = await asegurarCarpetaGarantia(DB, garantia);
 
   assert.strictEqual(id, "folder-cacheado");
-  assert.strictEqual(fetchMock.mock.calls.length, 0);
+  assert.strictEqual(fetchMock.mock.calls.length, 1, "solo revisa que la carpeta siga viva");
 });
 
 test("asegurarCarpetaGastosSucursal crea la subcarpeta de la sucursal y la cachea", async (t) => {
@@ -226,14 +232,16 @@ test("asegurarCarpetaGastosSucursal crea la subcarpeta de la sucursal y la cache
   assert.ok(DB.drive.carpeta_gastos_id, "cachea también la carpeta raíz");
 });
 
-test("asegurarCarpetaGastosSucursal reusa el id cacheado sin llamar a Drive", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => { throw new Error("no debería llamarse"); });
+test("asegurarCarpetaGastosSucursal reusa el id cacheado con una sola revisión a Drive", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch",
+    async () => ({ ok: true, status: 200, json: async () => ({ id: "folder-cacheado", trashed: false }) }));
   const DB = { drive: { cuenta: { access_token: "AT1", refresh_token: "RT1", expires_at: Date.now() + 3_600_000 } } };
   const sucursal = { id: 1, nombre: "Ocosingo", drive_folder_gastos_id: "folder-cacheado" };
 
   const id = await asegurarCarpetaGastosSucursal(DB, sucursal);
 
   assert.strictEqual(id, "folder-cacheado");
+  assert.strictEqual(fetchMock.mock.calls.length, 1, "solo revisa la subcarpeta, no la raíz");
 });
 
 test("asegurarCarpetaDepositosSucursal crea la subcarpeta de la sucursal y la cachea", async (t) => {
