@@ -188,6 +188,7 @@ function App() {
             onVolverAVenta={() => setVista("pos")}
             onVolverInicio={() => setVista("dashboard")}
             permisos={usuario.permisos}
+            onPantallas={setPantallas}
           />
         )}
         {esDashboard && (

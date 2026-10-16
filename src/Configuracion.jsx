@@ -39,7 +39,7 @@ function Tab({ activo, onClick, children }) {
   );
 }
 
-export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos }) {
+export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos, onPantallas }) {
   const puedeEditar = !permisos || permisos.includes("editar_configuracion_pos");
   const puedePantallas = !permisos || permisos.includes("activar_pantallas_caja");
 
@@ -118,7 +118,7 @@ export default function Configuracion({ onVolverAVenta, onVolverInicio, permisos
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {tab === "pantallas" && puedePantallas && <PantallasCaja />}
+        {tab === "pantallas" && puedePantallas && <PantallasCaja onCambio={onPantallas} />}
         {tab === "ventas" && (
           <div className="max-w-3xl">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">General</h3>

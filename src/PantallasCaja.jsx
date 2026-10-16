@@ -12,7 +12,7 @@ const FILA = "flex items-center justify-between gap-3 px-4 py-3";
 const BOTON = "rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50";
 const fechaHora = (iso) => new Date(iso).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
 
-export default function PantallasCaja() {
+export default function PantallasCaja({ onCambio }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [ocupada, setOcupada] = useState(null);
@@ -36,6 +36,7 @@ export default function PantallasCaja() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "No se pudo cambiar la pantalla.");
       setDatos(d);
+      onCambio?.(d.pantallas); // el menú se actualiza en el momento, sin esperar a cambiar de pantalla
     } catch (e) { setError(e.message); }
     finally { setOcupada(null); }
   }
