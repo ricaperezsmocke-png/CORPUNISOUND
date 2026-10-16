@@ -41,6 +41,16 @@ test("una clave guardada como undefined deja el valor de la semilla, igual que a
   assert.deepEqual(r.pos.ventas, [{ id: 1 }]);
 });
 
+test("un módulo o clave llamado __proto__, constructor o prototype no contamina los objetos del proceso", () => {
+  const guardado = JSON.parse('{"__proto__":{"contaminado":1},"constructor":{"x":1},"prototype":{"y":1},'
+    + '"pos":{"__proto__":{"contaminado":2}}}');
+  const r = restaurarEstado(semilla(), guardado);
+  assert.equal({}.contaminado, undefined);
+  assert.equal(r.pos.contaminado, undefined);
+  assert.equal(Object.hasOwn(r, "constructor"), false);
+  assert.equal(Object.hasOwn(r, "prototype"), false);
+});
+
 test("la semilla no se modifica: un segundo uso parte de la misma semilla", () => {
   const s = semilla();
   restaurarEstado(s, { pos: { extra: 1, ventas: [] }, nuevo: { a: 1 } });
