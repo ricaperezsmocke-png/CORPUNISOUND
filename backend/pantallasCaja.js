@@ -113,5 +113,20 @@ function requierePantalla(DB, pantalla) {
   };
 }
 
+/**
+ * Cancelar una venta con Punto de Venta apagado: solo si es de MercadoLibre (decisión de Victor, 2026-10-15),
+ * igual que su corte. Falla cerrando: id que no es un número limpio, venta inexistente u otra tienda = 409.
+ */
+function requierePuntoVentaSalvoML(DB) {
+  const bloquear = requierePantalla(DB, "punto_venta");
+  return (req, res, next) => {
+    if (estaActiva(DB, "punto_venta")) return next();
+    const id = String(req.params.id);
+    const venta = /^[1-9]\d*$/.test(id) ? (DB.pos.ventas || []).find((v) => Number(v.id) === Number(id)) : null;
+    if (venta && esMercadoLibre(venta.sucursal_id)) return next();
+    return bloquear(req, res, next);
+  };
+}
+
 module.exports = { PANTALLAS, NOMBRES, estaActiva, esMercadoLibre, dineroSinCortar, cambiarPantalla, estadoPantallas,
-  requierePantalla };
+  requierePantalla, requierePuntoVentaSalvoML };

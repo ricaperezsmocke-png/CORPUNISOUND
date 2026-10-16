@@ -1925,7 +1925,7 @@ app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso(
     res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/ventas/:id/cancelar", requiereLogin, pantalla("punto_venta"), requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {
+app.put("/api/ventas/:id/cancelar", requiereLogin, pantallasCaja.requierePuntoVentaSalvoML(DB), requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {
   try {
     const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
     const alcance = venta?.tipo_documento === "Apartado" ? resolverAlcance(req) : resolverAlcanceAutorizado(req);

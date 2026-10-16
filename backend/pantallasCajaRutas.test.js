@@ -128,3 +128,21 @@ test("la configuración general no permite mover interruptores por la puerta de 
   const normal = await pedir("PUT", "/api/configuracion", ADMIN, { dias_alerta_garantias: 20 });
   assert.equal(normal.status, 200);
 });
+
+test("con Punto de Venta apagado se puede cancelar una venta de MercadoLibre, pero no una de tienda", async () => {
+  const ventas = app.DB.pos.ventas;
+  ventas.push({ id: 90001, folio: "ML-PRUEBA", fecha: "2026-10-15", fecha_hora: "2026-10-15T12:00:00.000Z", sucursal_id: 5,
+    total: 300, metodo_pago: "MERCADOLIBRE", estatus: "cerrada", lineas: [] });
+  ventas.push({ id: 90002, folio: "TIENDA-PRUEBA", fecha: "2026-10-15", fecha_hora: "2026-10-15T12:00:00.000Z", sucursal_id: 1,
+    total: 300, metodo_pago: "efectivo", estatus: "cerrada", lineas: [] });
+  poner({ punto_venta: false });
+  const ml = await pedir("PUT", "/api/ventas/90001/cancelar", ADMIN, { motivo: "Devolución" });
+  assert.notEqual(ml.datos?.codigo, "PANTALLA_APAGADA", "la venta de MercadoLibre se puede cancelar");
+  const mlTexto = await pedir("PUT", "/api/ventas/%2090001/cancelar", ADMIN, { motivo: "x" });
+  assert.equal(mlTexto.status, 409, "un id raro no se cuela como venta de MercadoLibre");
+  const tienda = await pedir("PUT", "/api/ventas/90002/cancelar", ADMIN, { motivo: "x" });
+  assert.equal(tienda.status, 409);
+  assert.equal(tienda.datos.codigo, "PANTALLA_APAGADA");
+  const noExiste = await pedir("PUT", "/api/ventas/99999/cancelar", ADMIN, { motivo: "x" });
+  assert.equal(noExiste.datos.codigo, "PANTALLA_APAGADA", "si no se sabe de quién es, falla cerrando");
+});
