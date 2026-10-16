@@ -1,3 +1,55 @@
+# Reanudacion 2026-10-15 — parada de alcance antes de implementar
+
+Estado comprobado: rama `feature/pantallas-caja`, HEAD `33fe15f`, arbol inicialmente limpio.
+La seccion 3b resuelve la decision de negocio anterior: importar ML sigue permitido y su corte
+siempre funciona. No se reabre esa decision. El documento anterior se conserva debajo como historial;
+sus prohibiciones de suite completa y su politica ML pendiente ya no son vigentes.
+
+## Impedimento tecnico dentro de los archivos autorizados
+
+- `backend/mercadolibre.js:20` declara `const SUCURSAL_ML = 5`, privada al modulo.
+- La importacion usa ademas literales: `cajaPredeterminadaDeSucursal(DB, 5)` en linea 494 y
+  `sucursal_id: 5` en linea 505.
+- `backend/mercadolibre.js:567-571` no exporta la constante ni un resolver de sucursal.
+- El spec exige identificar ML como lo hace ese modulo, sin introducir otro numero fijo.
+- El despacho autoriza una lista cerrada de archivos y prohibe todo lo demas: `mercadolibre.js`
+  no esta autorizado. No se copiara el 5, no se inferira por nombre ni por ventas previas, y no se
+  analizara el texto del fuente desde el producto para extraer una constante.
+
+Para desbloquear: ampliar expresamente el alcance para exponer la identidad existente desde
+`backend/mercadolibre.js`, y usarla tambien en la importacion donde hoy hay literales. No requiere
+cambiar la decision de negocio ni dependencias. Esta modificacion NO se ha hecho.
+
+Condicion aplicable del despacho: detenerse si hace falta un archivo prohibido. Por eso no se
+presenta este documento como plan ejecutable completo ni se inicia TDD de producto.
+
+## Inventario comprobado en 33fe15f
+
+Las rutas y lineas de la tabla historica inferior siguen vigentes. La fila 3351 ahora tiene la
+excepcion expresa de la seccion 3b, sin interruptor. Ademas se reviso:
+
+- `POST /api/ml/pendientes-vinculo/:id/vincular`, `backend/server.js:3362`: llama a
+  `resolverPendienteVinculo` (`backend/mercadolibre.js:381-422`); cambia producto del detalle e
+  inventario, no importe, caja, estado ni sello del movimiento monetario. No se bloquea.
+- `POST /api/cortes`, linea 2142: corte_caja con excepcion ML; alcance y caja deben ser los mismos
+  que usa crearCorte, normalizando ids de texto y sin confiar en el cuerpo para el usuario.
+- No se encontraron rutas HTTP de apertura, cotizaciones ni tickets en espera.
+- La configuracion general (PUT, linea 2116) acepta un merge arbitrario: la implementacion debe
+  proteger pantallas e historial para evitar saltarse el permiso nuevo.
+
+## Verificacion de esta reanudacion
+
+- Pruebas existentes focalizadas: cajas.test.js y mercadolibreCorteCaja.test.js, 22 pasan / 0 fallan,
+  ejecutadas con ambas banderas de symlinks.
+- Suite completa: iniciada desde backend con ambas banderas por instruccion expresa de Victor.
+- ESLint ejecutado con Node y ambas banderas sobre src backend: 0 errores, 743 advertencias. npx fallo por EPERM.
+- Staging rechazado: Permission denied al crear .git/worktrees/pantallas-caja/index.lock. Sin commits nuevos; no se intento rodearlo.
+- Sin pruebas nuevas, sin ciclo TDD iniciado, sin modificaciones de producto.
+- Navegador y revision independiente quedan a Claude segun el despacho.
+
+---
+
+## Registro historico del intento anterior (no ejecutable)
 # Pantallas de caja — plan detenido durante el inventario
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans para implementar tarea por tarea cuando se resuelva la condición de parada. Este documento todavía no es un plan ejecutable completo.

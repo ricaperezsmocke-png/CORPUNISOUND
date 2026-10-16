@@ -22,6 +22,15 @@
 Un intento anterior se detuvo por la importación de MercadoLibre. Victor ya decidió: sección 3b del spec. El plan a
 medio hacer quedó en `docs/superpowers/plans/2026-10-15-pantallas-caja.md` (sin commitear); complétalo con esa decisión.
 
+## Segunda parada resuelta (Claude, 2026-10-15)
+
+- **Autorizado `backend/mercadolibre.js`**, solo para: exportar la identidad que ya existe (`SUCURSAL_ML`) o una
+  función que la resuelva, y usarla en vez de los literales `5` de la importación (líneas ~494 y ~505). Sin cambiar
+  ningún otro comportamiento de MercadoLibre; sus pruebas deben seguir igual.
+- **Obligatorio**: `PUT /api/configuracion` (server.js ~2116) hace un merge arbitrario. Debe ignorar o rechazar (400)
+  `pantallas` y `pantallas_historial`, para que nadie cambie interruptores sin `activar_pantallas_caja` ni sin dejar
+  historial. Con su prueba.
+
 ## Antes de codificar
 
 Enumera en el plan **cada** ruta de escritura que crea o cambia un movimiento que un corte cobra (búscalas por uso de
