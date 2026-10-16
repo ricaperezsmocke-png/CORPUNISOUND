@@ -38,8 +38,8 @@ const ICONOS = {
   configuracion: Settings,
 };
 
-export default function BarraLateral({ usuario, vista, onEntrarModulo, abierta, onCerrar }) {
-  const categorias = categoriasVisibles(usuario);
+export default function BarraLateral({ usuario, pantallas, vista, onEntrarModulo, abierta, onCerrar }) {
+  const categorias = categoriasVisibles(usuario, pantallas);
   const [desplegado, setDesplegado] = useState({});
 
   /** Encogida = solo iconos. NO se recuerda entre sesiones a propósito: Victor

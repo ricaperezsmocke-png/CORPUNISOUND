@@ -48,6 +48,9 @@ export function sugerirCajaGarantia(cajas, encabezado) {
   return caja ? String(caja.id) : "";
 }
 
+const AVISO_APAGADO = "rounded bg-amber-50 px-2 py-1.5 text-sm text-amber-900";
+const BOTON_ELIMINAR_GASTO = "text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed";
+
 export function PagoGarantia({ form, setForm, cajas, sucursalNombre, cobro = false }) {
   const nombreCaja = cajas.find((c) => String(c.id) === String(form.caja_id))?.nombre || "predeterminada";
   return (
@@ -118,7 +121,9 @@ const FORM_ENVIAR = { destino_tipo: "proveedor", destino_nombre: "", proveedor_i
 const FORM_UBICACION = { ubicacion_actual: "", notas: "" };
 const FORM_RESOLUCION = { tipo_resolucion: "reparado", notas: "" };
 
-export default function Garantias({ onVolver, permisos, usuario }) {
+export default function Garantias({ onVolver, permisos, usuario, pantallas }) {
+  // Con "Dinero de garantías en caja" apagado no se cobra ni se paga desde aquí (el servidor también lo bloquea).
+  const dineroApagado = pantallas?.dinero_garantias_caja === false;
   const puede = (clave) => !permisos || permisos.includes(clave);
 
   const [garantias, setGarantias] = useState([]);
@@ -689,6 +694,8 @@ export default function Garantias({ onVolver, permisos, usuario }) {
 
             <div className="border border-emerald-200 rounded-lg p-3 flex flex-col gap-2">
               <h4 className="font-semibold text-emerald-800">Cobro al cliente — dinero que entra</h4>
+              {dineroApagado && <p className={AVISO_APAGADO}>Cobros y pagos en caja desactivados por el administrador.</p>}
+              {!dineroApagado && <>
               <Campo label="Monto del cobro">
                 <input aria-label="Monto del cobro" type="number" min="0.01" step="0.01" className={inputCls} value={formCobro.monto} onChange={(e) => setFormCobro({ ...formCobro, monto: e.target.value })} placeholder="0.00" />
               </Campo>
@@ -697,6 +704,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                 <input aria-label="Descripción del cobro" className={inputCls} value={formCobro.descripcion} onChange={(e) => setFormCobro({ ...formCobro, descripcion: e.target.value })} placeholder="ej: cliente paga el flete" />
               </Campo>
               <button onClick={agregarCobroUI} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="bg-emerald-700 hover:bg-emerald-800 text-white py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "cobro" ? "Registrando…" : "Registrar cobro al cliente"}</button>
+              </>}
               {!cargandoDinero && !errorGastos && cobros.length === 0 && <p className="text-sm text-slate-500">Sin cobros registrados</p>}
               {cobros.map((x) => (
                 <div key={x.id} className="text-sm border-t border-emerald-100 pt-2">
@@ -722,12 +730,17 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                     </div>
                     {x.drive_link ? <a href={x.drive_link} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline ml-2 inline-flex items-center gap-1"><FileText size={11} /> Ver</a> : null}
                   </div>
-                  {x.corte_id == null && <button aria-label={`Eliminar gasto de $${Number(x.monto).toFixed(2)}`} onClick={() => eliminarGastoUI(x.id)} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={14} /></button>}
+                  {x.corte_id == null && !dineroApagado && (
+                    <button aria-label={`Eliminar gasto de $${Number(x.monto).toFixed(2)}`} onClick={() => eliminarGastoUI(x.id)}
+                      disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className={BOTON_ELIMINAR_GASTO}>
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
 
-            <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+            {!dineroApagado && <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Campo label="Tipo">
                   <select className={inputCls} value={formGasto.tipo} onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}>
@@ -749,7 +762,7 @@ export default function Garantias({ onVolver, permisos, usuario }) {
                 </label>
               </Campo>
               <button onClick={agregarGastoUI} disabled={procesandoMovimiento !== null || cargandoDinero || !!errorGastos} className="bg-amber-700 hover:bg-amber-800 text-white py-2 rounded font-semibold mt-1 disabled:opacity-50 disabled:cursor-not-allowed">{procesandoMovimiento === "gasto" ? "Registrando…" : "Registrar pago de la tienda"}</button>
-            </div>
+            </div>}
           </div>
         </Modal>
       )}

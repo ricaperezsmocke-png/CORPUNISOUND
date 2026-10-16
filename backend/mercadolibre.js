@@ -163,7 +163,7 @@ async function publicarProducto(DB, productoId, datos) {
   );
   if (exML) exML.cantidad_actual = item.available_quantity;
   else DB.inventario.existencias.push({
-    producto_id: prod.id, sucursal_id: 5,
+    producto_id: prod.id, sucursal_id: SUCURSAL_ML,
     cantidad_actual: item.available_quantity, cantidad_minima: 0, cantidad_maxima: 9999,
   });
 
@@ -463,7 +463,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
         sujeto_credito: false, precio_lista: 1, dias_credito: 0, limite_credito: 0,
         monedero: 0, saldo: 0, saldo_vencido: 0, fecha_vencimiento: null,
         fecha_alta: fechaLocal(),
-        vendedor_asignado_id: null, sucursal_id: 5,
+        vendedor_asignado_id: null, sucursal_id: SUCURSAL_ML,
         estado: "compro",
         // No usamos orden.date_created?.slice(0, 10): eso asume que ML siempre manda
         // el ISO con el desfase local incrustado (...-06:00). Ese contrato no está
@@ -491,7 +491,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
   // Crear venta en sucursal ML (id=5)
   const sigId = DB.pos.ventas.length
     ? Math.max(...DB.pos.ventas.map((v) => v.id)) + 1 : 1;
-  const caja = cajaPredeterminadaDeSucursal(DB, 5);
+  const caja = cajaPredeterminadaDeSucursal(DB, SUCURSAL_ML);
   const venta = {
     id:          sigId,
     // Mismo razonamiento que en ultimo_contacto (ver comentario arriba): fechaLocal()
@@ -502,7 +502,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
     // no cuando ML creó la orden. Usar date_created permitiría que una orden
     // antigua importada hoy quedara antes de la época y del último corte.
     fecha_hora:  new Date().toISOString(),
-    sucursal_id: 5,
+    sucursal_id: SUCURSAL_ML,
     caja_id:     caja?.id ?? null,
     vendedor_id: null,
     cliente_id:  clienteId,
@@ -547,7 +547,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
         ajustarExistencia(DB, l.producto_id, {
           cantidad: -l.cantidad,
           motivo: `Venta MercadoLibre — orden ${ordenId}`,
-          sucursal_id: 5,
+          sucursal_id: SUCURSAL_ML,
           usuario: { nombre: "MercadoLibre" },
         });
       } catch (e) {
@@ -565,6 +565,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
 }
 
 module.exports = {
+  SUCURSAL_ML,
   intercambiarCodigo, urlAutorizacion, tokenActivo,
   listarPublicaciones, publicarProducto, actualizarStockML, actualizarPublicacion,
   listarOrdenes, importarOrdenComoVenta, validarOrdenImportable, mapearLineasDeOrden, validarExistenciaDeOrden, registrarPendientesDeVinculo, resolverPendienteVinculo,

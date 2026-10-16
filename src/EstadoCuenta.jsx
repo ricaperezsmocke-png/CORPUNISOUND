@@ -34,8 +34,11 @@ function leerArchivoComoBase64(archivo) {
   });
 }
 
-export default function EstadoCuenta({ onVolver, permisos, usuario }) {
-  const puede = (clave) => !permisos || permisos.includes(clave);
+export default function EstadoCuenta({ onVolver, permisos, usuario, pantallas }) {
+  // Con "Depósitos" apagado nadie registra, adjunta ni cancela depósitos (el servidor también lo bloquea).
+  const depositosApagados = pantallas?.depositos === false;
+  const puede = (clave) => (!permisos || permisos.includes(clave))
+    && !(depositosApagados && ["registrar_depositos", "cancelar_depositos"].includes(clave));
   const veTodas = !!usuario?.ver_todas;
 
   const [tab, setTab] = useState("resumen");

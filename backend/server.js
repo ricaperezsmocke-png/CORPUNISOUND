@@ -47,6 +47,8 @@ const {
 } = require("./garantias");
 const { agregarGasto, listarGastos, eliminarGasto, crearCobroGarantia, listarCobros } = require("./garantiasGastos");
 const { obtenerConfiguracion, actualizarConfiguracion, reconciliarPedirVendedor } = require("./configuracion");
+const pantallasCaja = require("./pantallasCaja");
+const pantalla = (clave) => pantallasCaja.requierePantalla(DB, clave);
 const { calcularCorteEnCurso, crearCorte, listarCortes, filtrarCorteEnCursoPorPermiso } = require("./cortes");
 const { listarCondiciones, actualizarCondicion } = require("./condicionesPago");
 const { listarPermisos, listarModulosSistema } = require("./permisosCatalogo");
@@ -226,6 +228,9 @@ const DB = {
     cajas: [],
     cortes_caja: [],
     corte_epoca: null,
+    // Interruptores de pantallas de caja. Tiene que estar en la semilla: al arrancar solo se restauran
+    // las claves que existen aquí, y sin esta línea todo volvía a encenderse en cada reinicio de Render.
+    pantallas_caja: null,
     apartado_abonos: [],
   },
   crm: {
@@ -1909,7 +1914,7 @@ app.get("/api/ventas/:id", requiereLogin, requierePermiso("mostrar_detalle_venta
     res.json(venta);
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
-app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
+app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     // Amarrado: su sucursal del token, sin importar el body. Global: la del encabezado.
@@ -1925,7 +1930,7 @@ app.post("/api/ventas", requiereLogin, requierePermiso("cerrar_venta", resolverP
     res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos, usuario: req.usuarioToken }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {
+app.put("/api/ventas/:id/cancelar", requiereLogin, pantallasCaja.requierePuntoVentaSalvoML(DB), requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {
   try {
     const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
     const alcance = venta?.tipo_documento === "Apartado" ? resolverAlcance(req) : resolverAlcanceAutorizado(req);
@@ -1962,7 +1967,7 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, requierePermiso("cancelar_ven
     }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/ventas/:id/caja", requiereLogin, requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {
+app.put("/api/ventas/:id/caja", requiereLogin, pantalla("punto_venta"), requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {
   try {
     const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
     const alcance = resolverAlcance(req);
@@ -1979,7 +1984,7 @@ app.get("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados", 
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
   res.json(listarApartados(DB, alcance));
 });
-app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+app.post("/api/apartados", requiereLogin, pantalla("punto_venta"), requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     const sucursal_id = sucursalDeEscritura(alcance, req.body.sucursal_id);
@@ -1990,7 +1995,7 @@ app.post("/api/apartados", requiereLogin, requierePermiso("gestionar_apartados",
     res.json(crearApartado(DB, req.body, sucursal_id, usuario, req.query.caja_id, { permisos: resolverPermisosDeRol(req.usuarioToken.rol_id) }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+app.post("/api/apartados/:id/abonos", requiereLogin, pantalla("punto_venta"), requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
   try {
     const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
     const alcance = resolverAlcance(req);
@@ -2001,7 +2006,7 @@ app.post("/api/apartados/:id/abonos", requiereLogin, requierePermiso("gestionar_
     res.json(registrarAbono(DB, req.params.id, req.body, usuario, req.query.caja_id));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.put("/api/apartados/:id/cancelar", requiereLogin, requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
+app.put("/api/apartados/:id/cancelar", requiereLogin, pantalla("punto_venta"), requierePermiso("gestionar_apartados", resolverPermisosDeRol), (req, res) => {
   try {
     const venta = DB.pos.ventas.find((v) => v.id === Number(req.params.id));
     const alcance = resolverAlcance(req);
@@ -2084,7 +2089,7 @@ app.get("/api/garantias/:id/gastos", requiereLogin, requierePermiso("gestionar_g
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.post("/api/garantias/:id/gastos", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), async (req, res) => {
+app.post("/api/garantias/:id/gastos", requiereLogin, pantalla("dinero_garantias_caja"), requierePermiso("gestionar_garantias", resolverPermisosDeRol), async (req, res) => {
   try {
     const alcance = alcanceDineroGarantia(req);
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
@@ -2094,7 +2099,7 @@ app.post("/api/garantias/:id/gastos", requiereLogin, requierePermiso("gestionar_
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.delete("/api/garantias/:id/gastos/:gastoId", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), async (req, res) => {
+app.delete("/api/garantias/:id/gastos/:gastoId", requiereLogin, pantalla("dinero_garantias_caja"), requierePermiso("gestionar_garantias", resolverPermisosDeRol), async (req, res) => {
   try {
     const alcance = alcanceDineroGarantia(req);
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
@@ -2108,7 +2113,7 @@ app.get("/api/garantias/:id/cobros", requiereLogin, requierePermiso("gestionar_g
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.post("/api/garantias/:id/cobros", requiereLogin, requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
+app.post("/api/garantias/:id/cobros", requiereLogin, pantalla("dinero_garantias_caja"), requierePermiso("gestionar_garantias", resolverPermisosDeRol), (req, res) => {
   try {
     const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
     const { monto, descripcion, forma_pago, caja_id } = req.body;
@@ -2119,8 +2124,23 @@ app.post("/api/garantias/:id/cobros", requiereLogin, requierePermiso("gestionar_
 // ---------- Configuración general del POS ----------
 app.get("/api/configuracion", requiereLogin, (req, res) => res.json(obtenerConfiguracion(DB)));
 app.put("/api/configuracion", requiereLogin, requierePermiso("editar_configuracion_pos", resolverPermisosDeRol), (req, res) => {
+  // Los interruptores de pantallas de caja tienen su propio permiso e historial: por aquí no se cambian.
+  if (["pantallas", "pantallas_historial", "pantallas_caja"].some((k) => Object.hasOwn(req.body || {}, k))) {
+    return res.status(400).json({ error: "Las pantallas de caja se cambian en su propio panel." });
+  }
   try { res.json(actualizarConfiguracion(DB, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get("/api/configuracion/pantallas", requiereLogin, (req, res) => {
+  const estado = pantallasCaja.estadoPantallas(DB);
+  const puede = resolverPermisosDeRol(req.usuarioToken.rol_id).includes("activar_pantallas_caja");
+  res.json(puede ? estado : { pantallas: estado.pantallas, nombres: estado.nombres });
+});
+app.put("/api/configuracion/pantallas", requiereLogin, requierePermiso("activar_pantallas_caja", resolverPermisosDeRol), (req, res) => {
+  try {
+    const usuario = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(pantallasCaja.cambiarPantalla(DB, req.body, usuario));
+  } catch (e) { res.status(e.status || 400).json({ error: e.message }); }
 });
 
 // ---------- Corte de Caja ----------
@@ -2151,6 +2171,11 @@ app.post("/api/cortes", requiereLogin, requierePermiso("realizar_corte_caja", re
     if (!sucursal_id) {
       return res.status(400).json({ error: "Elige una sucursal en el encabezado antes de guardar el corte — el corte cierra el turno de una sola tienda." });
     }
+    // Con Corte de Caja apagado, MercadoLibre conserva su corte (spec pantallas-caja, sección 3b).
+    if (!pantallasCaja.estaActiva(DB, "corte_caja") && !pantallasCaja.esMercadoLibre(sucursal_id)) {
+      return res.status(409).json({ codigo: "PANTALLA_APAGADA", pantalla: "corte_caja",
+        error: "Corte de Caja está desactivada por el administrador." });
+    }
     res.json(crearCorte(DB, {
       ...req.body,
       sucursal_id,
@@ -2169,7 +2194,7 @@ app.get("/api/gastos", requiereLogin, requierePermiso("ver_gastos", resolverPerm
   res.json(listarGastosGasto(DB, { fecha_inicio, fecha_fin, categoria_id, forma_pago, estatus }, alcance));
 });
 
-app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resolverPermisosDeRol), async (req, res) => {
+app.post("/api/gastos", requiereLogin, pantalla("gastos_caja"), requierePermiso("registrar_gastos", resolverPermisosDeRol), async (req, res) => {
   try {
     // Marcar un gasto como pagado desde la CAJA FUERTE baja el dinero
     // resguardado SIN descuadrar el corte de nadie —justo porque no le resta a
@@ -2211,7 +2236,7 @@ app.post("/api/gastos", requiereLogin, requierePermiso("registrar_gastos", resol
  * la caja fuerte: quien puede declarar que un gasto salio del resguardo es quien
  * puede corregirlo. La ruta rechaza si el gasto ya entro en un corte cerrado.
  */
-app.put("/api/gastos/:id/origen", requiereLogin, requierePermiso("registrar_gasto_caja_fuerte", resolverPermisosDeRol), (req, res) => {
+app.put("/api/gastos/:id/origen", requiereLogin, pantalla("gastos_caja"), requierePermiso("registrar_gasto_caja_fuerte", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(corregirOrigenGasto(DB, req.params.id, req.body, req.usuarioToken, alcance));
@@ -2220,7 +2245,7 @@ app.put("/api/gastos/:id/origen", requiereLogin, requierePermiso("registrar_gast
   }
 });
 
-app.put("/api/gastos/:id/cancelar", requiereLogin, requierePermiso("cancelar_gastos", resolverPermisosDeRol), (req, res) => {
+app.put("/api/gastos/:id/cancelar", requiereLogin, pantalla("gastos_caja"), requierePermiso("cancelar_gastos", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(cancelarGasto(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
@@ -2243,12 +2268,12 @@ app.get("/api/gastos/categorias", requiereLogin, (req, res, next) => {
   res.json(listarCategoriasGasto(DB, { soloActivas: req.query.solo_activas === "1" }));
 });
 
-app.post("/api/gastos/categorias", requiereLogin, requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
+app.post("/api/gastos/categorias", requiereLogin, pantalla("gastos_caja"), requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
   try { res.json(crearCategoriaGasto(DB, req.body)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.put("/api/gastos/categorias/:id", requiereLogin, requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
+app.put("/api/gastos/categorias/:id", requiereLogin, pantalla("gastos_caja"), requierePermiso("administrar_categorias_gastos", resolverPermisosDeRol), (req, res) => {
   try {
     if (req.body.activa === false) return res.json(desactivarCategoriaGasto(DB, req.params.id));
     res.json(renombrarCategoriaGasto(DB, req.params.id, req.body.nombre));
@@ -2274,7 +2299,7 @@ app.get("/api/depositos", requiereLogin, requierePermiso("ver_estado_cuenta", re
   res.json(listarDepositos(DB, req.query, alcance));
 });
 
-app.post("/api/depositos", requiereLogin, requierePermiso("registrar_depositos", resolverPermisosDeRol), async (req, res) => {
+app.post("/api/depositos", requiereLogin, pantalla("depositos"), requierePermiso("registrar_depositos", resolverPermisosDeRol), async (req, res) => {
   try {
     // La sucursal sale del TOKEN, nunca del body.
     const d = await crearDeposito(DB, req.body, req.usuarioToken.sucursal_id, req.usuarioToken, drive);
@@ -2285,14 +2310,14 @@ app.post("/api/depositos", requiereLogin, requierePermiso("registrar_depositos",
 // Adjuntar la ficha a un depósito ya capturado que no la trae. Es la MISMA
 // acción de capturar (por eso "registrar_depositos", no un permiso nuevo):
 // antes había que cancelar y recapturar solo para agregar el comprobante.
-app.post("/api/depositos/:id/comprobante", requiereLogin, requierePermiso("registrar_depositos", resolverPermisosDeRol), async (req, res) => {
+app.post("/api/depositos/:id/comprobante", requiereLogin, pantalla("depositos"), requierePermiso("registrar_depositos", resolverPermisosDeRol), async (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(await adjuntarComprobante(DB, req.params.id, req.body.archivo, req.usuarioToken, alcance, drive));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.put("/api/depositos/:id/cancelar", requiereLogin, requierePermiso("cancelar_depositos", resolverPermisosDeRol), (req, res) => {
+app.put("/api/depositos/:id/cancelar", requiereLogin, pantalla("depositos"), requierePermiso("cancelar_depositos", resolverPermisosDeRol), (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     res.json(cancelarDeposito(DB, req.params.id, req.body.motivo, req.usuarioToken, alcance));
