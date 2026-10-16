@@ -1878,13 +1878,18 @@ function rutaCRM(fn) {
     catch (e) { res.status(e.status || 503).json({ error: e.status ? e.message : "No se pudo consultar el CRM." }); }
   };
 }
-const filtrosCRM = (req) => ({ cursor: req.query.cursor ?? 0, limit: req.query.limit ?? 50, buscar: req.query.buscar });
+const filtrosCRM = (req) => ({
+  cursor: req.query.cursor ?? 0, limit: req.query.limit ?? 50, buscar: req.query.buscar,
+  orden: req.query.orden, desde: req.query.desde, hasta: req.query.hasta, estado: req.query.estado,
+});
 app.get("/api/crm/v2/clientes", requiereLogin, rutaCRM((ctx, req) => consultasCRM.listar(ctx, filtrosCRM(req))));
 app.get("/api/crm/v2/clientes/:ref", requiereLogin, rutaCRM((ctx, req) => consultasCRM.ficha(ctx, req.params.ref)));
 app.get("/api/crm/v2/clientes/:ref/compras", requiereLogin,
   rutaCRM((ctx, req) => consultasCRM.compras(ctx, req.params.ref, filtrosCRM(req))));
 app.get("/api/crm/v2/compras/:ref", requiereLogin, rutaCRM((ctx, req) => consultasCRM.detalle(ctx, req.params.ref)));
 app.get("/api/crm/v2/resumen", requiereLogin, rutaCRM((ctx) => consultasCRM.resumen(ctx)));
+require('./crmSeguimientoRutas').registrarRutasCRMSeguimiento(app,
+  { DB, repoSicar, consultasCRM, contextoCRM, requiereLogin, requierePermiso, resolverPermisosDeRol });
 
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
 app.get("/api/ventas", requiereLogin, requierePermiso("ver_lista_ventas", resolverPermisosDeRol), (req, res) => {

@@ -8,7 +8,7 @@
  * calculan montos. Un vínculo con un cliente de otra tienda no abre esa ficha ni suma esas compras.
  * El filtro del encabezado (`filtroSucursal`) solo recorta listas y resumen, nunca una ficha por ref.
  */
-const { segmentoPorUltimaCompra } = require('./crm');
+const { segmentoPorUltimaCompra, ESTADOS_MANUALES } = require('./crm');
 const { esPublicoSicar } = require('./sicarVinculos');
 
 const UNION_ACTIVA = new Set(['pendiente', 'confirmado']);
@@ -47,6 +47,31 @@ function paginar(lista, { cursor = 0, limit = 50 } = {}) {
 
 const normalizar = texto => String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+function validarFiltros({ orden = 'reciente', desde, hasta, estado }) {
+  if (!['reciente', 'nombre', 'monto'].includes(orden)) throw errorConsulta(400, 'Orden inválido.');
+  if (estado !== undefined && ![...ESTADOS_MANUALES, 'compro', 'sin_estado'].includes(estado)) {
+    throw errorConsulta(400, 'Estado inválido.');
+  }
+  for (const fecha of [desde, hasta]) {
+    if (fecha === undefined) continue;
+    if (typeof fecha !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)
+      || !Number.isFinite(Date.parse(fecha)) || new Date(fecha).toISOString().slice(0, 10) !== fecha) {
+      throw errorConsulta(400, 'Fecha inválida.');
+    }
+  }
+  if (desde && hasta && desde > hasta) throw errorConsulta(400, 'Desde no puede ser posterior a hasta.');
+  return orden;
+}
+
+function compararPersonas(orden, a, b) {
+  let diferencia = 0;
+  if (orden === 'monto') diferencia = b.monto_centavos - a.monto_centavos;
+  else if (orden === 'nombre' || (!a.ultima_compra && !b.ultima_compra)) {
+    diferencia = normalizar(a.nombre).localeCompare(normalizar(b.nombre));
+  } else diferencia = (b.ultima_compra || '').localeCompare(a.ultima_compra || '');
+  return diferencia || a.ref.localeCompare(b.ref);
+}
+
 function crearConsultasCRM(DB, repo) {
   const sqlite = repo?.conexionParaVinculos?.() || null;
   const ve = (ctx, sucursalId) => ctx.alcance.verTodas || Number(sucursalId) === Number(ctx.alcance.sucursalId);
@@ -61,12 +86,13 @@ function crearConsultasCRM(DB, repo) {
     if (!ctx.verSicar || !sqlite) return [];
     const tienda = ctx.alcance.verTodas ? null : Number(ctx.alcance.sucursalId);
     return sqlite.prepare(`SELECT c.sucursal_id, c.cli_id, c.nombre, c.telefono, c.celular,
-        v.cliente_id, v.estado AS vinculo,
+        v.cliente_id, v.estado AS vinculo, e.estado AS estado_seguimiento, e.fecha_hora AS estado_fecha,
         COALESCE(SUM(CASE WHEN s.estado='vigente' THEN s.total_centavos END), 0) AS monto,
         COALESCE(SUM(CASE WHEN s.estado='vigente' THEN 1 END), 0) AS compras,
         MAX(CASE WHEN s.estado='vigente' THEN s.fecha_local END) AS ultima
       FROM sicar_clientes c
       LEFT JOIN sicar_vinculos v ON v.sucursal_id=c.sucursal_id AND v.cli_id=c.cli_id
+      LEFT JOIN sicar_estados e ON e.sucursal_id=c.sucursal_id AND e.cli_id=c.cli_id
       LEFT JOIN sicar_ventas s ON s.sucursal_id=c.sucursal_id AND s.cli_id=c.cli_id
       WHERE (? IS NULL OR c.sucursal_id=?)
       GROUP BY c.sucursal_id, c.cli_id`).all(tienda, tienda).filter(f => !esPublicoSicar(f));
@@ -90,11 +116,16 @@ function crearConsultasCRM(DB, repo) {
       p.ultima = masReciente(p.ultima, soloDia(v.fecha));
     }
     const externas = [];
+    const estadosSicar = new Map();
     for (const f of identidadesSicar(ctx)) {
       if (filtroSucursal != null && f.sucursal_id !== Number(filtroSucursal)) continue;
       const unida = UNION_ACTIVA.has(f.vinculo) && f.cliente_id != null;
       const nativo = unida ? porId.get(Number(f.cliente_id)) : null;
       if (nativo) {
+        const anterior = estadosSicar.get(nativo.ref);
+        if (f.estado_seguimiento && (!anterior || f.estado_fecha > anterior.fecha)) {
+          estadosSicar.set(nativo.ref, { estado: f.estado_seguimiento, fecha: f.estado_fecha });
+        }
         nativo.monto_sicar_centavos += f.monto;
         nativo.compras += f.compras;
         nativo.ultima = masReciente(nativo.ultima, soloDia(f.ultima));
@@ -105,7 +136,7 @@ function crearConsultasCRM(DB, repo) {
       // Si quien pregunta ve todas las tiendas, una unión activa siempre cae en su nativo (arriba).
       externas.push({
         ref: `sicar:${f.sucursal_id}:${f.cli_id}`, fuente: 'sicar', cliente_id: null, nombre: f.nombre,
-        telefono: f.telefono || f.celular || null, sucursal_id: f.sucursal_id, vendedor_asignado_id: null, estado: null,
+        telefono: f.telefono || f.celular || null, sucursal_id: f.sucursal_id, vendedor_asignado_id: null, estado: f.estado_seguimiento || null,
         monto_pos_centavos: 0, monto_sicar_centavos: f.monto, compras: f.compras, ultima: soloDia(f.ultima),
         identidades: [{ sucursal_id: f.sucursal_id, cli_id: f.cli_id }],
         aviso_vinculo: unida ? 'Vinculado con un cliente de otra tienda.' : null,
@@ -113,7 +144,8 @@ function crearConsultasCRM(DB, repo) {
     }
     return [...porId.values(), ...externas].map(p => {
       const monto = p.monto_pos_centavos + p.monto_sicar_centavos;
-      return { ...p, monto_centavos: monto, numero_compras: p.compras, ultima_compra: p.ultima, ya_compro: p.compras > 0,
+      return { ...p, estado: p.estado || estadosSicar.get(p.ref)?.estado || null,
+        monto_centavos: monto, numero_compras: p.compras, ultima_compra: p.ultima, ya_compro: p.compras > 0,
         score: scoreDe(monto, p.compras, p.ultima, hoyLocal), segmento: segmentoPorUltimaCompra(p.ultima, hoyLocal) };
     });
   }
@@ -128,11 +160,15 @@ function crearConsultasCRM(DB, repo) {
   }
 
   function listar(ctx, filtros = {}) {
+    const orden = validarFiltros(filtros);
     const termino = normalizar(filtros.buscar).trim();
     const lista = personas(ctx, ctx.filtroSucursal)
       .filter(p => ctx.filtroSucursal == null || p.sucursal_id === Number(ctx.filtroSucursal) || p.numero_compras > 0)
       .filter(p => !termino || normalizar(p.nombre).includes(termino) || String(p.telefono || '').includes(termino))
-      .sort((a, b) => normalizar(a.nombre).localeCompare(normalizar(b.nombre)) || a.ref.localeCompare(b.ref));
+      .filter(p => !filtros.desde || (p.ultima_compra && p.ultima_compra >= filtros.desde))
+      .filter(p => !filtros.hasta || (p.ultima_compra && p.ultima_compra <= filtros.hasta))
+      .filter(p => !filtros.estado || (filtros.estado === 'sin_estado' ? !p.estado : p.estado === filtros.estado))
+      .sort((a, b) => compararPersonas(orden, a, b));
     const totales = {
       clientes: lista.length, compradores: lista.filter(p => p.ya_compro).length,
       monto_centavos: lista.reduce((s, p) => s + p.monto_centavos, 0),
