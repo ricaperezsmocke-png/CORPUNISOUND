@@ -6,8 +6,8 @@ const { empaquetar, desempaquetar } = require('./respaldoCifrado');
 // Orden de dependencias: permite validar también las claves foráneas en preparación.
 const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes',
   'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos',
-  'sicar_estados', 'sicar_estados_historial']);
-const TABLAS_ANTIGUAS = TABLAS.slice(0, -2);
+  'sicar_estados', 'sicar_estados_historial', 'sicar_internas', 'sicar_internas_historial']);
+const GENERACIONES = [TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS];
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
 const MAX_FILAS_BYTES = MAX_TROZO - 65536;
@@ -50,9 +50,9 @@ function validarManifiesto(m) {
   if (typeof m.snapshot_id !== 'string' || !/^[a-f0-9-]{36}$/.test(m.snapshot_id)
     || !Array.isArray(m.trozos) || m.trozos.length > MAX_TROZOS || !m.conteos
     || typeof m.conteos !== 'object' || Array.isArray(m.conteos)) throw new Error('El manifiesto SICAR es inválido.');
-  const antiguo = !Object.hasOwn(m.conteos, 'sicar_estados') && !Object.hasOwn(m.conteos, 'sicar_estados_historial');
-  const tablas = antiguo ? TABLAS_ANTIGUAS : TABLAS;
-  if (Object.keys(m.conteos).length !== tablas.length || Object.keys(m.conteos).some(t => !tablas.includes(t))) {
+  const tablas = GENERACIONES.find(tablas => Object.keys(m.conteos).length === tablas.length
+    && Object.keys(m.conteos).every(t => tablas.includes(t)));
+  if (!tablas) {
     throw new Error('El manifiesto SICAR es inválido.');
   }
   const conteos = Object.fromEntries(TABLAS.map(t => [t, 0]));

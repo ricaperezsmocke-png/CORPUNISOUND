@@ -121,6 +121,8 @@ test('respaldo viejo sin seguimiento restaura vacio sobre estados posteriores', 
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   delete m.conteos.sicar_estados;
   delete m.conteos.sicar_estados_historial;
+  delete m.conteos.sicar_internas;
+  delete m.conteos.sicar_internas_historial;
   f.repo.guardarEstadoCliente({ sucursal_id: 1, cli_id: '123', estado: 'contactado', usuario_id: 9, fecha_hora: '2026-10-15T20:00:00Z' });
   const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   p.aplicar(); p.liberar();
@@ -247,7 +249,7 @@ test('snapshot y restauración recuperan compra, detalle, enlace deshecho y reci
   const utilidad = reporteUtilidad(f.DB, {}, { verTodas: true, sucursalId: null });
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   assert.equal(m.version_esquema, 2);
-  assert.equal(Object.keys(m.conteos).length, 12);
+  assert.equal(Object.keys(m.conteos).length, 14);
   f.repo.aplicarLote({ sucursalId: 1, lote: lote('2'), hash: 'hash-2' });
   const preparado = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   assert.equal(f.repo.estado(1).siguiente_secuencia, '3');
