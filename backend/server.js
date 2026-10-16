@@ -128,6 +128,7 @@ const {
 // arranquePersistencia.js — resumido: `guardar` quedaba como función vacía y
 // cada venta del día se escribía en el vacío, con un console.warn que nadie lee.
 const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
+const { restaurarEstado } = require("./restaurarEstado");
 
 let cargar = () => null, guardar = () => {}, conexionSqlite = null;
 try {
@@ -351,14 +352,11 @@ sembrarRolesIniciales(DB);
 // Restaurar estado guardado en SQLite (si existe)
 const estadoGuardado = cargar();
 if (estadoGuardado) {
-  for (const modulo of Object.keys(DB)) {
-    if (estadoGuardado[modulo]) {
-      for (const tabla of Object.keys(DB[modulo])) {
-        if (estadoGuardado[modulo][tabla] !== undefined) {
-          DB[modulo][tabla] = estadoGuardado[modulo][tabla];
-        }
-      }
-    }
+  // Se aplica sobre el mismo objeto DB: configurarSicar ya lo registró por referencia.
+  const restaurado = restaurarEstado(DB, estadoGuardado);
+  for (const modulo of Object.keys(restaurado)) {
+    if (DB[modulo]) Object.assign(DB[modulo], restaurado[modulo]);
+    else DB[modulo] = restaurado[modulo];
   }
   console.log("✅ Datos restaurados desde almacenamiento persistente");
 }
