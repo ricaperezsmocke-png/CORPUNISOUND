@@ -47,6 +47,18 @@ const ESQUEMA = `
     anterior TEXT, nuevo TEXT NOT NULL, usuario_id INTEGER NOT NULL, fecha_hora TEXT NOT NULL,
     FOREIGN KEY (sucursal_id, cli_id) REFERENCES sicar_clientes(sucursal_id, cli_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_internas (
+    sucursal_id INTEGER NOT NULL, cli_id TEXT NOT NULL, motivo TEXT NOT NULL,
+    usuario_id INTEGER NOT NULL, fecha_hora TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, cli_id),
+    FOREIGN KEY (sucursal_id, cli_id) REFERENCES sicar_clientes(sucursal_id, cli_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_internas_historial (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, cli_id TEXT NOT NULL,
+    accion TEXT NOT NULL CHECK (accion IN ('marcar','desmarcar')), motivo TEXT NOT NULL,
+    usuario_id INTEGER NOT NULL, fecha_hora TEXT NOT NULL,
+    FOREIGN KEY (sucursal_id, cli_id) REFERENCES sicar_clientes(sucursal_id, cli_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_decisiones (
     id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, cli_id TEXT NOT NULL,
     cliente_id INTEGER, accion TEXT NOT NULL, version INTEGER NOT NULL,
@@ -273,7 +285,24 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     sqlite.prepare(`INSERT INTO sicar_estados_historial(sucursal_id, cli_id, anterior, nuevo, usuario_id, fecha_hora)
       VALUES (@sucursal_id, @cli_id, @anterior, @estado, @usuario_id, @fecha_hora)`).run({ ...datos, anterior });
   });
+  const guardarCuentaInterna = sqlite.transaction(datos => {
+    const anterior = !!sqlite.prepare('SELECT 1 FROM sicar_internas WHERE sucursal_id=? AND cli_id=?')
+      .get(datos.sucursal_id, datos.cli_id);
+    if (anterior === datos.interna) {
+      throw Object.assign(new Error('La cuenta ya tiene esa marca.'), { status: 409 });
+    }
+    if (datos.interna) {
+      sqlite.prepare(`INSERT INTO sicar_internas(sucursal_id, cli_id, motivo, usuario_id, fecha_hora)
+        VALUES (@sucursal_id, @cli_id, @motivo, @usuario_id, @fecha_hora)`).run(datos);
+    } else {
+      sqlite.prepare('DELETE FROM sicar_internas WHERE sucursal_id=? AND cli_id=?').run(datos.sucursal_id, datos.cli_id);
+    }
+    sqlite.prepare(`INSERT INTO sicar_internas_historial(sucursal_id, cli_id, accion, motivo, usuario_id, fecha_hora)
+      VALUES (@sucursal_id, @cli_id, @accion, @motivo, @usuario_id, @fecha_hora)`)
+      .run({ ...datos, accion: datos.interna ? 'marcar' : 'desmarcar' });
+  });
   const repositorio = {
+    guardarCuentaInterna: datos => guardarCuentaInterna.immediate(datos),
     guardarEstadoCliente: datos => guardarEstadoCliente.immediate(datos),
     conexionParaVinculos: () => sqlite,
     clientesNativos: () => clientesNativos?.() ?? [],

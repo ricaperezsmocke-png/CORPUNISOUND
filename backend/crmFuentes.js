@@ -10,9 +10,13 @@
  */
 const { segmentoPorUltimaCompra, ESTADOS_MANUALES } = require('./crm');
 const { esPublicoSicar } = require('./sicarVinculos');
+const { consultarQueCompra } = require('./crmQueCompra');
+const { datosCuentaInterna } = require('./crmCuentasInternas');
 
 const UNION_ACTIVA = new Set(['pendiente', 'confirmado']);
 const LIMITE_MAXIMO = 100;
+const VIP_MINIMO_CENTAVOS = 2_000_000;
+const inicioVentana = hoy => new Date(Date.parse(hoy) - 365 * 86400000).toISOString().slice(0, 10);
 
 function errorConsulta(status, mensaje) {
   const error = new Error(mensaje);
@@ -47,7 +51,8 @@ function paginar(lista, { cursor = 0, limit = 50 } = {}) {
 
 const normalizar = texto => String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-function validarFiltros({ orden = 'reciente', desde, hasta, estado }) {
+function validarFiltros({ orden = 'reciente', desde, hasta, estado, vip }) {
+  if (vip !== undefined && vip !== '1') throw errorConsulta(400, 'Filtro VIP inválido.');
   if (!['reciente', 'nombre', 'monto'].includes(orden)) throw errorConsulta(400, 'Orden inválido.');
   if (estado !== undefined && ![...ESTADOS_MANUALES, 'compro', 'sin_estado'].includes(estado)) {
     throw errorConsulta(400, 'Estado inválido.');
@@ -87,31 +92,37 @@ function crearConsultasCRM(DB, repo) {
     const tienda = ctx.alcance.verTodas ? null : Number(ctx.alcance.sucursalId);
     return sqlite.prepare(`SELECT c.sucursal_id, c.cli_id, c.nombre, c.telefono, c.celular,
         v.cliente_id, v.estado AS vinculo, e.estado AS estado_seguimiento, e.fecha_hora AS estado_fecha,
+        i.motivo AS interna_motivo, i.usuario_id AS interna_usuario, i.fecha_hora AS interna_fecha,
+        COALESCE(SUM(CASE WHEN s.estado='vigente' AND s.fecha_local >= ? THEN s.total_centavos END), 0) AS monto_12m,
         COALESCE(SUM(CASE WHEN s.estado='vigente' THEN s.total_centavos END), 0) AS monto,
         COALESCE(SUM(CASE WHEN s.estado='vigente' THEN 1 END), 0) AS compras,
         MAX(CASE WHEN s.estado='vigente' THEN s.fecha_local END) AS ultima
       FROM sicar_clientes c
       LEFT JOIN sicar_vinculos v ON v.sucursal_id=c.sucursal_id AND v.cli_id=c.cli_id
       LEFT JOIN sicar_estados e ON e.sucursal_id=c.sucursal_id AND e.cli_id=c.cli_id
+      LEFT JOIN sicar_internas i ON i.sucursal_id=c.sucursal_id AND i.cli_id=c.cli_id
       LEFT JOIN sicar_ventas s ON s.sucursal_id=c.sucursal_id AND s.cli_id=c.cli_id
       WHERE (? IS NULL OR c.sucursal_id=?)
-      GROUP BY c.sucursal_id, c.cli_id`).all(tienda, tienda).filter(f => !esPublicoSicar(f));
+      GROUP BY c.sucursal_id, c.cli_id`).all(inicioVentana(hoyDe(ctx)), tienda, tienda).filter(f => !esPublicoSicar(f));
   }
 
   // Todas las personas que quien pregunta puede ver, con sus métricas ya combinadas.
   function personas(ctx, filtroSucursal = null) {
     const hoyLocal = hoyDe(ctx);
+    const desde = inicioVentana(hoyLocal);
     const nativos = nativosVisibles(ctx);
     const porId = new Map(nativos.map(c => [Number(c.id), {
       ref: `crm:${c.id}`, fuente: 'crm', cliente_id: Number(c.id), nombre: c.nombre, telefono: c.telefono || null,
       sucursal_id: Number(c.sucursal_id), vendedor_asignado_id: c.vendedor_asignado_id ?? null, estado: c.estado || null,
       monto_pos_centavos: 0, monto_sicar_centavos: 0, compras: 0, ultima: null, identidades: [], aviso_vinculo: null,
+      monto_12m_centavos: 0, cuenta_interna: c.cuenta_interna || null,
     }]));
     for (const v of DB.pos?.ventas || []) {
       const p = porId.get(Number(v.cliente_id));
       if (!p || v.estatus !== 'cerrada') continue;
       if (filtroSucursal != null && p.sucursal_id !== Number(filtroSucursal)) continue;
       p.monto_pos_centavos += centavosPos(v.total);
+      if (soloDia(v.fecha) >= desde) p.monto_12m_centavos += centavosPos(v.total);
       p.compras += 1;
       p.ultima = masReciente(p.ultima, soloDia(v.fecha));
     }
@@ -127,6 +138,7 @@ function crearConsultasCRM(DB, repo) {
           estadosSicar.set(nativo.ref, { estado: f.estado_seguimiento, fecha: f.estado_fecha });
         }
         nativo.monto_sicar_centavos += f.monto;
+        nativo.monto_12m_centavos += f.monto_12m;
         nativo.compras += f.compras;
         nativo.ultima = masReciente(nativo.ultima, soloDia(f.ultima));
         nativo.identidades.push({ sucursal_id: f.sucursal_id, cli_id: f.cli_id });
@@ -138,6 +150,10 @@ function crearConsultasCRM(DB, repo) {
         ref: `sicar:${f.sucursal_id}:${f.cli_id}`, fuente: 'sicar', cliente_id: null, nombre: f.nombre,
         telefono: f.telefono || f.celular || null, sucursal_id: f.sucursal_id, vendedor_asignado_id: null, estado: f.estado_seguimiento || null,
         monto_pos_centavos: 0, monto_sicar_centavos: f.monto, compras: f.compras, ultima: soloDia(f.ultima),
+        monto_12m_centavos: f.monto_12m,
+        cuenta_interna: unida
+          ? (DB.crm?.clientes || []).find(c => Number(c.id) === Number(f.cliente_id))?.cuenta_interna || null
+          : f.interna_motivo ? { motivo: f.interna_motivo, usuario_id: f.interna_usuario, fecha_hora: f.interna_fecha } : null,
         identidades: [{ sucursal_id: f.sucursal_id, cli_id: f.cli_id }],
         aviso_vinculo: unida ? 'Vinculado con un cliente de otra tienda.' : null,
       });
@@ -145,6 +161,7 @@ function crearConsultasCRM(DB, repo) {
     return [...porId.values(), ...externas].map(p => {
       const monto = p.monto_pos_centavos + p.monto_sicar_centavos;
       return { ...p, estado: p.estado || estadosSicar.get(p.ref)?.estado || null,
+        vip: !p.cuenta_interna && p.monto_12m_centavos >= VIP_MINIMO_CENTAVOS,
         monto_centavos: monto, numero_compras: p.compras, ultima_compra: p.ultima, ya_compro: p.compras > 0,
         score: scoreDe(monto, p.compras, p.ultima, hoyLocal), segmento: segmentoPorUltimaCompra(p.ultima, hoyLocal) };
     });
@@ -168,18 +185,23 @@ function crearConsultasCRM(DB, repo) {
       .filter(p => !filtros.desde || (p.ultima_compra && p.ultima_compra >= filtros.desde))
       .filter(p => !filtros.hasta || (p.ultima_compra && p.ultima_compra <= filtros.hasta))
       .filter(p => !filtros.estado || (filtros.estado === 'sin_estado' ? !p.estado : p.estado === filtros.estado))
+      .filter(p => filtros.vip !== '1' || p.vip)
       .sort((a, b) => compararPersonas(orden, a, b));
+    const contables = lista.filter(p => !p.cuenta_interna);
     const totales = {
-      clientes: lista.length, compradores: lista.filter(p => p.ya_compro).length,
-      monto_centavos: lista.reduce((s, p) => s + p.monto_centavos, 0),
-      monto_pos_centavos: lista.reduce((s, p) => s + p.monto_pos_centavos, 0),
-      monto_sicar_centavos: lista.reduce((s, p) => s + p.monto_sicar_centavos, 0),
+      clientes: contables.length, compradores: contables.filter(p => p.ya_compro).length,
+      monto_centavos: contables.reduce((s, p) => s + p.monto_centavos, 0),
+      monto_pos_centavos: contables.reduce((s, p) => s + p.monto_pos_centavos, 0),
+      monto_sicar_centavos: contables.reduce((s, p) => s + p.monto_sicar_centavos, 0),
     };
     const pagina = paginar(lista, filtros);
     return { items: pagina.items.map(publica), siguiente: pagina.siguiente, totales };
   }
 
-  const ficha = (ctx, ref) => publica(buscarPersona(ctx, ref));
+  function ficha(ctx, ref) {
+    const persona = buscarPersona(ctx, ref);
+    return { ...publica(persona), ...datosCuentaInterna(DB, sqlite, persona) };
+  }
 
   function compras(ctx, ref, filtros = {}) {
     const persona = buscarPersona(ctx, ref);
@@ -232,7 +254,7 @@ function crearConsultasCRM(DB, repo) {
 
   // SICAR se reparte por la tienda donde se compró (Q3); POS conserva la regla de crm.js (tienda del cliente).
   function resumen(ctx) {
-    const lista = personas(ctx);
+    const lista = personas(ctx).filter(p => !p.cuenta_interna);
     const sucursales = (DB.pos?.sucursales || []).filter(s => ve(ctx, s.id)
       && (ctx.filtroSucursal == null || Number(s.id) === Number(ctx.filtroSucursal)));
     const sicarPorTienda = new Map();
@@ -266,7 +288,8 @@ function crearConsultasCRM(DB, repo) {
     return resultado;
   }
 
-  return { listar, ficha, compras, detalle, resumen, ultimasCompras };
+  const queCompra = (ctx, ref) => consultarQueCompra(DB, sqlite, buscarPersona(ctx, ref));
+  return { listar, ficha, compras, detalle, resumen, ultimasCompras, queCompra };
 }
 
-module.exports = { crearConsultasCRM };
+module.exports = { crearConsultasCRM, VIP_MINIMO_CENTAVOS };

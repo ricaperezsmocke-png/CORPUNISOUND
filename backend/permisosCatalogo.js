@@ -85,6 +85,7 @@ const PERMISOS = [
   { clave: "crear_cliente", etiqueta: "Agregar Cliente", modulo: "crm", implementado: true },
   { clave: "editar_cliente", etiqueta: "Editar Cliente", modulo: "crm", implementado: false },
   { clave: "cambiar_estado_cliente", etiqueta: "Cambiar Estado de Pipeline", modulo: "crm", implementado: true },
+  { clave: "marcar_cuenta_interna", etiqueta: "Marcar cuenta interna", modulo: "crm", implementado: true },
   { clave: "registrar_contacto_cliente", etiqueta: "Registrar Contacto con Cliente", modulo: "crm", implementado: true },
   { clave: "enviar_campana_masiva", etiqueta: "Enviar Campaña Masiva", modulo: "crm", implementado: true },
 

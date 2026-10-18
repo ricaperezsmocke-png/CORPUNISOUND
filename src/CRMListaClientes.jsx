@@ -40,11 +40,15 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
   const [cargando, setCargando] = useState(true);
   const [filtros, setFiltros] = useState({ orden: 'reciente', desde: '', hasta: '', estado: '' });
   const [puedeCambiar, setPuedeCambiar] = useState(false);
+  const [puedeMarcarInterna, setPuedeMarcarInterna] = useState(false);
   const peticion = useRef(0);
   useEffect(() => {
     let activo = true;
     leer('/auth/yo').then(sesion => {
-      if (activo) setPuedeCambiar(sesion.permisos?.includes('cambiar_estado_cliente') === true);
+      if (activo) {
+        setPuedeCambiar(sesion.permisos?.includes('cambiar_estado_cliente') === true);
+        setPuedeMarcarInterna(sesion.permisos?.includes('marcar_cuenta_interna') === true);
+      }
     }).catch(e => { if (activo) setError(e.message); });
     return () => { activo = false; };
   }, []);
@@ -87,6 +91,8 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
         <button className={PRIMARIO} type="submit" disabled={cargando}>Buscar</button>
       </form>
       <div className="flex flex-wrap gap-2">
+        <label className="flex items-center gap-1 text-sm"><input type="checkbox" aria-label="Solo VIP"
+          checked={filtros.vip === '1'} onChange={e => filtrar('vip', e.target.checked ? '1' : '')} />Solo VIP</label>
         <label>Orden <select className={CAMPO} aria-label="Orden" value={filtros.orden} onChange={e => filtrar('orden', e.target.value)}>
           <option value="reciente">Última compra</option><option value="nombre">Nombre</option><option value="monto">Mayor monto</option>
         </select></label>
@@ -102,7 +108,8 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
         {datos.items.map(p => <button key={p.ref} className={`${FILA} ${seleccion === p.ref ? 'bg-blue-50' : ''}`}
           onClick={() => setSeleccion(p.ref)}>
           <span className="flex flex-col">
-            <span className="font-semibold">{p.nombre}</span>
+            <span className="font-semibold">{p.nombre} {p.vip && <span className={MARCA_CRM}>VIP</span>}
+              {p.cuenta_interna && <span className={MARCA_SICAR}>Cuenta interna</span>}</span>
             <span className="text-xs">{p.telefono || 'Sin teléfono'} · <Marca persona={p} nombreSucursal={nombreSucursal} /></span>
           </span>
           <span className="text-right text-xs">
@@ -123,7 +130,7 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
     <aside className="rounded-lg border border-slate-200 bg-white p-4">
       {seleccion
         ? <CRMFichaCliente key={seleccion} clienteRef={seleccion} nombreSucursal={nombreSucursal} onAbrirNativo={onAbrirNativo}
-          puedeCambiar={puedeCambiar} onActualizado={cargar} />
+          puedeCambiar={puedeCambiar} puedeMarcarInterna={puedeMarcarInterna} onActualizado={cargar} />
         : <p className="text-sm">Elige un cliente para ver su ficha y sus compras.</p>}
     </aside>
   </section>;
