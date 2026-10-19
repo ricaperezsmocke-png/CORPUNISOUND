@@ -152,4 +152,6 @@ SICAR.
 1. Actualizar el agente en la PC de Ocosingo.
 2. `--verificar`: confirmar columnas de `articulo`/`categoria`/`departamento`. Si los nombres difieren, se corrige
    `COLUMNAS_ARTICULOS` antes de seguir.
-3. `--articulos-ahora`; Claude mide en producción cuánto queda "Sin departamento".
+3. Poner `"articulos": true` en `config.json` (interruptor agregado tras la revisión independiente: un servidor viejo
+   rechaza la colección y detendría el agente). Solo con el servidor nuevo ya en producción.
+4. `--articulos-ahora`; Claude mide en producción cuánto queda "Sin departamento".

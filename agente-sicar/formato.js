@@ -93,12 +93,12 @@ function clienteSeguro(c, avisar) {
 // Mismos límites que el servidor (sicarIngesta.js). Vacío → null; la descripción es obligatoria.
 function articulo(a) {
   const art_id = id(a.art_id);
+  // Se recorta antes de medir: SICAR rellena con espacios y eso no debe dejar fuera al artículo.
   const opcional = (valor, maximo) => {
     if (valor == null) return null;
-    const limpio = texto(String(valor), maximo).trim();
-    return limpio || null;
+    return texto(String(valor).trim(), maximo) || null;
   };
-  return { art_id, clave: opcional(a.clave, 100), descripcion: texto(String(a.descripcion ?? ''), 500, false).trim(),
+  return { art_id, clave: opcional(a.clave, 100), descripcion: texto(String(a.descripcion ?? '').trim(), 500, false),
     categoria: opcional(a.categoria, 100), departamento: opcional(a.departamento, 100) };
 }
 // Un artículo que el contrato no acepta no detiene la carga: se salta con su id, como ventas y clientes.

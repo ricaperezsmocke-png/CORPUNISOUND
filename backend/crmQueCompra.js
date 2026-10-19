@@ -1,4 +1,4 @@
-const normalizar = valor => String(valor || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+const normalizar = valor => String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
 const claveDe = valor => String(valor || '').trim() || null;
 const nombreDe = valor => String(valor || '').trim().replace(/\s+/g, ' ') || null;
 const centavos = valor => Math.round(Number(valor || 0) * 100);

@@ -160,12 +160,14 @@ async function ejecutar(archivo, config, deps) {
       i += paginaIds.length;
     }
     // Lista de artículos (departamento y categoría): completa una vez al día, de noche o a mano, después de las ventas.
+    // Apagada mientras config.articulos no sea true: un servidor viejo rechaza la colección y detendría las ventas.
+    if (config.articulos !== true) return;
     const hoy = horaLocal(reloj()).slice(0, 10);
     const toca = () => estado.articulos_dia !== hoy && (deps.articulosAhora || esHorarioHistorico(new Date(reloj())));
     if (!toca()) return;
     if (!fuente.articulosDisponibles) { log('ARTICULOS_NO_DISPONIBLES'); return; }
     while (toca()) {
-      const filas = await fuente.articulos(estado.articulos_cursor, fuente.tamano);
+      const filas = await fuente.articulos(estado.articulos_cursor, 500);
       const cambios = filas.length ? { articulos_cursor: id(filas.at(-1).art_id) } : { articulos_cursor: '0', articulos_dia: hoy };
       const items = filas.map(a => {
         const { articulo, omitido } = articuloSeguro(a);

@@ -414,3 +414,31 @@ test('la carga histórica de día solo corre con --historico-ahora, y solo en es
   assert.equal((await cargar(estadoRuta)).fase, 'incremental');
   await assert.rejects(main(['--historico-ahora', '--verificar'], deps), 'no se combina con --verificar');
 });
+test('--articulos-ahora manda la lista de dia solo con el interruptor articulos: true en config', async t => {
+  const { main } = require('./index');
+  const { inicial, guardar } = require('./estado');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'config.json');
+  const estadoRuta = path.join(dir, 'estado.json');
+  await guardar(estadoRuta, { ...inicial(), fase: 'incremental' });
+  const config = { mysql: { host: 'localhost', database: 'sicar', password: 'p' }, llave: 'k', estado: estadoRuta };
+  const lotes = [];
+  const vacia = async () => ({ filas: [], clientes: [], detalles: [] });
+  const fuente = { tamano: 100, articulosDisponibles: true, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: vacia, historial: async () => [], porIds: vacia,
+    articulos: async cursor => cursor === '0' ? [{ art_id: '5', clave: 'X', descripcion: 'Bafle', categoria: 'Bafles', departamento: 'Audio' }] : [] };
+  const deps = { configPath: archivo, eco: () => {}, conectar: async () => ({ end: async () => {} }), crearFuente: async () => fuente,
+    esperar: async () => {}, reloj: () => Date.parse('2026-10-15T19:00:00Z'), // 13:00 en la tienda
+    fetch: async (_, { body }) => { const l = JSON.parse(body); lotes.push(l);
+      return { status: 200, json: async () => ({ next_sequence: String(BigInt(l.sequence) + 1n) }) }; } };
+  await fs.writeFile(archivo, JSON.stringify({ ...config, articulos: 'si' }));
+  await assert.rejects(main(['--articulos-ahora'], deps), /CONFIGURACION_INVALIDA/);
+  await fs.writeFile(archivo, JSON.stringify(config));
+  await main(['--articulos-ahora'], deps);
+  assert.equal(lotes.length, 0, 'sin interruptor no manda');
+  await fs.writeFile(archivo, JSON.stringify({ ...config, articulos: true }));
+  await main([], deps);
+  assert.equal(lotes.length, 0, 'de dia, sin la bandera, no manda');
+  await main(['--articulos-ahora'], deps);
+  assert.deepEqual(lotes.map(l => l.articulos?.map(a => a.art_id)), [['5']]);
+});

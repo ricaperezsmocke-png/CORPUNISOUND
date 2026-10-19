@@ -70,3 +70,8 @@ test('articulo seguro recorta vacios a null y omite los que no cumplen el contra
   }
   assert.throws(() => articuloSeguro({ art_id: 'x', descripcion: 'Bafle' }), /ID_INVALIDO/);
 });
+test('articulo con relleno de espacios de SICAR cabe una vez recortado', () => {
+  const { articuloSeguro } = require('./formato');
+  const r = articuloSeguro({ art_id: '9', clave: 'A' + ' '.repeat(150), descripcion: 'Bafle' + ' '.repeat(600), categoria: 'Bafles' + ' '.repeat(200) });
+  assert.deepEqual(r.articulo, { art_id: '9', clave: 'A', descripcion: 'Bafle', categoria: 'Bafles', departamento: null });
+});

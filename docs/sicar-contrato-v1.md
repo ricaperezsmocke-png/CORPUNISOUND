@@ -83,7 +83,6 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
 | Ventas por lote | 100 | 422 `LIMITE_ENTIDADES` |
 | Artículos por lote | 500 | 422 `LIMITE_ENTIDADES` |
 | Renglones de detalle por lote | 1,000 (500 por venta) | 422 `LIMITE_ENTIDADES` |
-| Artículos por lote | 500 | 422 `LIMITE_ENTIDADES` |
 | Tamaño del cuerpo | 1 MiB | 413 `CUERPO_EXCESIVO` |
 | Envíos por minuto con la misma llave | 12 | 429 `RITMO_EXCEDIDO` |
 | Lotes simultáneos por tienda | 1 | esperar la respuesta antes de mandar el siguiente |

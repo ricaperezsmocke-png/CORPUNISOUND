@@ -49,7 +49,8 @@ function crearFuente(lector, config = {}) {
       if (articulosFaltantes.length) throw new Error('ARTICULOS_NO_DISPONIBLES');
       return lector.pagina(leer => leer('SELECT a.`art_id`, a.`clave`, a.`descripcion`, c.`nombre` AS categoria, d.`nombre` AS departamento '
         + 'FROM `articulo` a LEFT JOIN `categoria` c ON c.`cat_id` = a.`cat_id` LEFT JOIN `departamento` d ON d.`dep_id` = c.`dep_id` '
-        + 'WHERE a.`art_id` > ? ORDER BY a.`art_id` LIMIT ?', [cursor, Math.min(limite, lector.tamano)]));
+        // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
+        + 'WHERE a.`art_id` > ? ORDER BY a.`art_id` LIMIT ?', [cursor, Math.min(limite, lector.tamano * 5)]));
     },
     async validar() {
       await lector.pagina(async leer => {

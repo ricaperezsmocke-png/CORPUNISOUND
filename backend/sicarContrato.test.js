@@ -173,3 +173,19 @@ test('10. conserva artículos repetidos en orden de ticket y el reenvío no dupl
   assert.deepEqual(await enviar(cuerpo), r);
   assert.equal(sqlite.prepare("SELECT count(*) n FROM sicar_detalles WHERE ven_id='88020'").get().n, 3);
 });
+
+test('11. un lote solo de articulos avanza la secuencia y clasifica por departamento las compras ya guardadas', async () => {
+  const articulos = [{ art_id: '20', clave: 'JLX215P', descripcion: 'BAFLE JLX', categoria: 'Bafles', departamento: 'Audio' },
+    { art_id: '10', clave: null, descripcion: 'Funda', categoria: null, departamento: 'Accesorios' }];
+  const cuerpo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000011', sequence: '7', clientes: [], ventas: [], articulos });
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  assert.deepEqual(r.datos.aceptados, { clientes: 0, ventas: 0, articulos: 2 });
+  assert.equal(r.datos.next_sequence, '8');
+  assert.deepEqual(await enviar(cuerpo), r);
+  const q = await crm('clientes/sicar%3A1%3A4502/que-compra');
+  const audio = q.departamentos.find(d => d.nombre === 'Audio');
+  assert.deepEqual(audio.categorias, [{ nombre: 'Bafles', monto_centavos: 5000, piezas: 2 }]);
+  assert.deepEqual(q.departamentos.find(d => d.nombre === 'Accesorios').categorias.map(c => c.nombre), ['Sin categoría']);
+  assert.equal(q.departamentos.reduce((n, d) => n + d.monto_centavos, q.ajustes_centavos), q.total_centavos);
+});

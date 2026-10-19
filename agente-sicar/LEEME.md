@@ -78,6 +78,9 @@ Ya terminada la carga inicial, el agente manda **una vez al día, de noche (20:0
 artículos de SICAR con su departamento y su categoría; el CRM la usa para agrupar lo que compra cada cliente. Va en
 lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente sigue donde se quedó.
 
+- **Viene apagada.** Se prende poniendo `"articulos": true` en `config.json`, y solo después de dos cosas: que el
+  servidor de CORPUNISOUND ya tenga esta versión (uno viejo rechaza la lista y el agente se detendría, ventas
+  incluidas) y que `--verificar` confirme las columnas.
 - `--verificar` muestra qué columnas encontró en `articulo`, `categoria` y `departamento` y cuántos artículos hay.
   Si dice `Artículos APAGADOS, faltan columnas`, el agente sigue mandando clientes y ventas, pero no artículos:
   hay que ajustar `COLUMNAS_ARTICULOS` en `mapeo.js` con los nombres reales.
