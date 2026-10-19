@@ -7,8 +7,9 @@ const { CANALES } = require("./bandeja/mensajes");
  * Las operaciones ya guardan dentro de su transacción: se responde con send para no disparar otro guardado.
  */
 function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado }) {
-  const responsables = crearResponsables(bandeja);
-  const consultas = crearConsultasBandeja(bandeja);
+  // Sin base para la bandeja, las rutas existen pero responden 503: nunca impiden que el resto del sistema arranque.
+  const responsables = bandeja ? crearResponsables(bandeja) : null;
+  const consultas = bandeja ? crearConsultasBandeja(bandeja) : null;
   const permiso = clave => requierePermiso(clave, resolverPermisosDeRol);
 
   function quien(req) {
@@ -29,7 +30,7 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
     return cliente;
   }
   const ruta = fn => (req, res) => {
-    if (!disponible()) return res.status(503).json({ error: "La bandeja no está disponible." });
+    if (!bandeja || !disponible()) return res.status(503).json({ error: "La bandeja no está disponible." });
     try { res.type("json").send(JSON.stringify(fn(req))); }
     catch (e) { res.status(e.status || 503).json({ error: e.status ? e.message : "No se pudo completar la operación de la bandeja." }); }
   };

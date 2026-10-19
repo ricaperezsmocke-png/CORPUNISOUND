@@ -174,6 +174,7 @@ test('ficha guarda estado, actualiza lista y descarta respuesta al desmontar', a
   const { default: Ficha } = cargar('CRMFichaCliente.jsx', { react: h.react, './api': api,
     './CRMPerfilCompras': { __esModule: true, default: () => null },
     './CRMPerfilInterna': { __esModule: true, default: () => null },
+    './CRMPerfilBandeja': { __esModule: true, default: () => null },
     './CRMSeguimiento': { __esModule: true, default: Seguimiento },
     './CRMComprasSicar': { __esModule: true, default: () => null, importe: String, fecha: String } });
   const props = { clienteRef: ficha.ref, nombreSucursal: String, puedeCambiar: true, onActualizado() { actualizaciones++; } };
