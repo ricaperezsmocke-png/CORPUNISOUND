@@ -264,5 +264,5 @@ function editarNativoConVinculos(repo, DB, guardar, clienteId, actor, editar) {
 }
 
 module.exports = {
-  resolverVinculosSicar, resolverDecisionSicar, listarVinculosSicar, crearNativoConVinculos, editarNativoConVinculos, esPublicoSicar,
+  resolverVinculosSicar, resolverDecisionSicar, listarVinculosSicar, crearNativoConVinculos, editarNativoConVinculos, esPublicoSicar, telefonos,
 };

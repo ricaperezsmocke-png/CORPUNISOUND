@@ -4,11 +4,12 @@ import CRMComprasSicar, { importe, fecha } from './CRMComprasSicar';
 import CRMSeguimiento from './CRMSeguimiento';
 import CRMPerfilCompras from './CRMPerfilCompras';
 import CRMPerfilInterna from './CRMPerfilInterna';
+import CRMPerfilBandeja from './CRMPerfilBandeja';
 
 const PRIMARIO = 'rounded bg-blue-700 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50';
 const SEGMENTOS = { activo: 'Activo', en_riesgo: 'En riesgo', inactivo: 'Inactivo' };
 
-export default function CRMFichaCliente({ clienteRef, nombreSucursal, onAbrirNativo, puedeCambiar, puedeMarcarInterna, onActualizado }) {
+export default function CRMFichaCliente({ clienteRef, nombreSucursal, onAbrirNativo, puedeCambiar, puedeMarcarInterna, puedeVerBandeja, onActualizado }) {
   const [ficha, setFicha] = useState(null);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -77,6 +78,7 @@ export default function CRMFichaCliente({ clienteRef, nombreSucursal, onAbrirNat
     {ficha.fuente === 'crm'
       ? <button className={PRIMARIO} onClick={() => onAbrirNativo(ficha.cliente_id)}>Abrir ficha completa en Clientes</button>
       : <p className="text-sm text-slate-600">Los datos y las compras vienen de SICAR. Aquí puedes actualizar su seguimiento.</p>}
+    {puedeVerBandeja && ficha.fuente === 'crm' && <CRMPerfilBandeja clienteId={ficha.cliente_id} />}
     <CRMPerfilCompras clienteRef={ficha.ref} />
     <CRMComprasSicar clienteRef={ficha.ref} nombreSucursal={nombreSucursal} />
   </article>;

@@ -1,4 +1,5 @@
 const { ESTADOS_MANUALES, cambiarEstadoCliente } = require('./crm');
+const { anotarEstado } = require('./bandeja/estados');
 
 function registrarRutasCRMSeguimiento(app, {
   DB, repoSicar, consultasCRM, contextoCRM, requiereLogin, requierePermiso, resolverPermisosDeRol,
@@ -15,7 +16,13 @@ function registrarRutasCRMSeguimiento(app, {
             : 'El estado no es válido';
           return res.status(400).json({ error });
         }
-        if (persona.fuente === 'crm') cambiarEstadoCliente(DB, persona.cliente_id, estado);
+        if (persona.fuente === 'crm') {
+          const anterior = DB.crm.clientes.find(c => Number(c.id) === Number(persona.cliente_id))?.estado || null;
+          cambiarEstadoCliente(DB, persona.cliente_id, estado);
+          // Mismo historial que los cambios automáticos de la bandeja, con el usuario que lo hizo.
+          anotarEstado(DB, { cliente_id: persona.cliente_id, anterior, nuevo: estado, usuario_id: Number(req.usuarioToken.id) || null,
+            motivo: 'Cambio manual', fecha_hora: new Date().toISOString() });
+        }
         else {
           const [, sucursal, cli_id] = persona.ref.split(':');
           repoSicar.guardarEstadoCliente({ sucursal_id: Number(sucursal), cli_id, estado,

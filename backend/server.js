@@ -130,10 +130,10 @@ const {
 const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
 const { restaurarEstado } = require("./restaurarEstado");
 
-let cargar = () => null, guardar = () => {}, conexionSqlite = null;
+let cargar = () => null, guardar = () => {}, conexionSqlite = null, estadoCentroLeads = { disponible: false };
 try {
   const p = require("./persistencia");
-  cargar = p.cargar; guardar = p.guardar; conexionSqlite = p.obtenerConexionSqlite();
+  cargar = p.cargar; guardar = p.guardar; conexionSqlite = p.obtenerConexionSqlite(); estadoCentroLeads = p.estadoCentroLeads;
   console.log("✅ Módulo de persistencia SQLite cargado");
 } catch (e) {
   const abortar = debeAbortarSinPersistencia();
@@ -236,6 +236,7 @@ const DB = {
   },
   crm: {
     cuentas_internas_historial: [],
+    estados_historial: [],
     clientes: [
       {
         id: 0, clave: "", representante: "Público en General", nombre: "Público en General",
@@ -1657,8 +1658,13 @@ app.put("/api/clientes/:id", requiereLogin, requierePermiso("editar_cliente", re
     validarContactoCliente(DB, req.body, {
       modo: "edicion", clienteId: existente.id, fueraDeAlcance: clienteFueraDeAlcance(req),
     });
-    const resultado = editarNativoConVinculos(repoSicar, DB, guardar, existente.id, req.usuarioToken.id,
-      () => actualizarCliente(DB, req.params.id, req.body));
+    const antes = { estado: existente.estado || null, vendedor_asignado_id: existente.vendedor_asignado_id ?? null };
+    const resultado = editarNativoConVinculos(repoSicar, DB, guardar, existente.id, req.usuarioToken.id, () => {
+      const editado = actualizarCliente(DB, req.params.id, req.body);
+      // Estado y responsable cambiados en la ficha dejan el mismo rastro que en la bandeja (misma transacción).
+      anotarCambiosDeFicha(editado, antes, req.usuarioToken.id);
+      return editado;
+    });
     if (repoSicar) res.type("json").send(JSON.stringify(resultado));
     else res.json(resultado);
   } catch (e) {
@@ -1826,7 +1832,10 @@ app.put("/api/crm/clientes/:id/estado", requiereLogin, requierePermiso("cambiar_
     if (cliente && cliente.id !== 0 && !dentroDeAlcance(cliente.sucursal_id, alcance)) {
       return res.status(404).json({ error: "Cliente no encontrado" });
     }
-    res.json(cambiarEstadoCliente(DB, req.params.id, req.body.estado));
+    const anterior = cliente?.estado || null;
+    const cambiado = cambiarEstadoCliente(DB, req.params.id, req.body.estado);
+    anotarCambiosDeFicha(cambiado, { estado: anterior, vendedor_asignado_id: cambiado.vendedor_asignado_id ?? null }, req.usuarioToken.id);
+    res.json(cambiado);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get("/api/crm/clientes/:id/contactos", requiereLogin, (req, res) => {
@@ -1897,6 +1906,51 @@ require('./crmSeguimientoRutas').registrarRutasCRMSeguimiento(app,
   { DB, repoSicar, consultasCRM, contextoCRM, requiereLogin, requierePermiso, resolverPermisosDeRol });
 require('./crmComprasPerfilRutas').registrarRutasCRMPerfil(app,
   { DB, repoSicar, consultasCRM, contextoCRM, rutaCRM, requiereLogin, requierePermiso, resolverPermisosDeRol, guardar });
+
+// ---------- Bandeja de clientes (spec 2026-10-18): mensajes ligados al cliente y estados automáticos ----------
+const { crearContextoBandeja } = require('./bandeja/mensajes');
+const { revisarEstadosAutomaticos, anotarEstado } = require('./bandeja/estados');
+const bandejaDisponible = () => !!(conexionSqlite && estadoCentroLeads.disponible);
+const bandeja = bandejaDisponible() ? crearContextoBandeja({ sqlite: conexionSqlite, DB, repo: repoSicar, guardar }) : null;
+const responsablesBandeja = bandeja ? require('./bandeja/responsable').crearResponsables(bandeja) : null;
+// Cambios hechos desde la pantalla Clientes (ficha y estado): quedan en el historial con quién los hizo.
+function anotarCambiosDeFicha(cliente, antes, usuarioId) {
+  if (!cliente || Number(cliente.id) === 0) return;
+  if ((cliente.estado || null) !== antes.estado) {
+    anotarEstado(DB, { cliente_id: cliente.id, anterior: antes.estado, nuevo: cliente.estado || null,
+      usuario_id: Number(usuarioId) || null, motivo: 'Cambio manual', fecha_hora: new Date().toISOString() });
+  }
+  if (responsablesBandeja) {
+    responsablesBandeja.registrarCambioExterno(cliente, antes.vendedor_asignado_id, 'Cambio en la ficha del cliente', usuarioId);
+  }
+}
+require('./bandejaRutas').registrarRutasBandeja(app, { DB, bandeja, disponible: bandejaDisponible,
+  requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado });
+// Cada hora (y al arrancar) los estados del CRM se mueven solos: compras, apartados, Radar y 30 días sin actividad.
+function cicloEstadosCRM() {
+  // Durante una restauración nadie escribe: el estado se está reemplazando entero.
+  if (!bandejaDisponible() || mantenimiento.estaActivo()) return;
+  try {
+    // Dos consultas agrupadas, no una por cliente: better-sqlite3 es síncrono y aquí no se puede frenar la caja.
+    const mapa = sql => new Map(conexionSqlite.prepare(sql).all().map(f => [Number(f.id), f.m]));
+    const entradas = mapa(`SELECT i.cliente_id AS id, max(x.ocurrida_en) AS m FROM lead_interacciones x
+      JOIN lead_identidades_externas i ON i.id = x.identidad_externa_id
+      WHERE x.direccion = 'entrante' AND i.cliente_id IS NOT NULL GROUP BY i.cliente_id`);
+    const comprasSicar = mapa(`SELECT l.cliente_id AS id, max(v.fecha_local) AS m FROM sicar_ventas v JOIN sicar_vinculos l
+      ON l.sucursal_id = v.sucursal_id AND l.cli_id = v.cli_id
+      WHERE l.cliente_id IS NOT NULL AND l.estado IN ('pendiente', 'confirmado') AND v.estado = 'vigente' GROUP BY l.cliente_id`);
+    const primeraVez = !DB.crm.estados_automaticos;
+    const cambios = revisarEstadosAutomaticos({ DB, ultimaEntrada: id => entradas.get(id) || null,
+      ultimaCompraSicar: id => comprasSicar.get(id) || null });
+    if (cambios.length || primeraVez) guardar(DB);
+  } catch (e) {
+    console.error('⚠️  Falló la revisión de estados del CRM:', e.message);
+  }
+}
+if (require.main === module) {
+  setInterval(cicloEstadosCRM, 3600000).unref();
+  setTimeout(cicloEstadosCRM, 30_000).unref();
+}
 
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
 app.get("/api/ventas", requiereLogin, requierePermiso("ver_lista_ventas", resolverPermisosDeRol), (req, res) => {
