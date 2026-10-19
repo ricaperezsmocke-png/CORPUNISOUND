@@ -123,12 +123,33 @@ test('respaldo viejo sin seguimiento restaura vacio sobre estados posteriores', 
   delete m.conteos.sicar_estados_historial;
   delete m.conteos.sicar_internas;
   delete m.conteos.sicar_internas_historial;
+  delete m.conteos.sicar_articulos;
   f.repo.guardarEstadoCliente({ sucursal_id: 1, cli_id: '123', estado: 'contactado', usuario_id: 9, fecha_hora: '2026-10-15T20:00:00Z' });
   const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   p.aplicar(); p.liberar();
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_estados').get().n, 0);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_estados_historial').get().n, 0);
 });
+
+for (const generacion of [12, 14]) {
+  test(`respaldo de ${generacion} tablas deja articulos vacios al restaurar`, async t => {
+    const f = preparar(t), s = api();
+    sembrar(f);
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    for (const tabla of ['sicar_internas', 'sicar_internas_historial', 'sicar_articulos'].slice(generacion === 12 ? 0 : 2)) {
+      delete m.conteos[tabla];
+    }
+    f.sqlite.prepare(`INSERT INTO sicar_articulos
+      (sucursal_id, art_id, clave, descripcion, categoria, departamento, actualizado_en)
+      VALUES (1, '9', 'SKU-9', 'Artículo pendiente', 'Cuerdas', 'Accesorios', 'hoy')`).run();
+
+    const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+    p.aplicar();
+    p.liberar();
+
+    assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_articulos').get().n, 0);
+  });
+}
 
 test('manifiesto que omite solo una tabla de seguimiento se rechaza', async t => {
   const f = preparar(t), s = api();
@@ -249,7 +270,7 @@ test('snapshot y restauración recuperan compra, detalle, enlace deshecho y reci
   const utilidad = reporteUtilidad(f.DB, {}, { verTodas: true, sucursalId: null });
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   assert.equal(m.version_esquema, 2);
-  assert.equal(Object.keys(m.conteos).length, 14);
+  assert.equal(Object.keys(m.conteos).length, 15);
   f.repo.aplicarLote({ sucursalId: 1, lote: lote('2'), hash: 'hash-2' });
   const preparado = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   assert.equal(f.repo.estado(1).siguiente_secuencia, '3');

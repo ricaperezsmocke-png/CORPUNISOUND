@@ -22,9 +22,12 @@ export default function CRMPerfilCompras({ clienteRef }) {
   if (!datos) return <p className="text-sm">Cargando qué compra…</p>;
   return <section className="space-y-2" aria-label="Qué compra">
     <h4 className="font-semibold">Qué compra · toda su historia</h4>
-    <h5 className="text-sm font-semibold">Categorías</h5>
-    <ul>{datos.categorias.map(c => <li key={c.categoria_id ?? 'sin-categoria'} className={FILA}>
-      <span>{c.nombre} · {c.piezas} piezas</span><span>{importe(c.monto_centavos)}</span>
+    <h5 className="text-sm font-semibold">Departamentos y categorías</h5>
+    <ul>{datos.departamentos.map(d => <li key={d.nombre}>
+      <p className={`${FILA} font-semibold`}><span>{d.nombre} · {d.piezas} piezas</span><span>{importe(d.monto_centavos)}</span></p>
+      <ul className="pl-4">{d.categorias.map(c => <li key={c.nombre} className={`${FILA} text-slate-700`}>
+        <span>{c.nombre} · {c.piezas} piezas</span><span>{importe(c.monto_centavos)}</span>
+      </li>)}</ul>
     </li>)}</ul>
     {datos.ajustes_centavos !== 0 && <p className={FILA}>
       <span>Ajustes y descuentos de la venta</span><span>{importe(datos.ajustes_centavos)}</span>

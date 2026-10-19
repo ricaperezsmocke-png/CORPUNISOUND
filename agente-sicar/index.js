@@ -14,6 +14,12 @@ async function verificar(fuente, imprimir, esperar, log) {
   imprimir('Columnas de historial (solo pantalla local): ' + JSON.stringify(info.columnas));
   imprimir('Tres cancelaciones recientes (solo pantalla local): ' + JSON.stringify(info.ventas));
   imprimir('Tres movimientos de cliente (solo pantalla local): ' + JSON.stringify(info.clientes));
+  const articulos = info.articulos || { columnas: [], faltantes: ['articulo'], total: null };
+  imprimir('Columnas de artículo, categoría y departamento: ' + JSON.stringify(articulos.columnas));
+  if (articulos.faltantes.length) {
+    imprimir('Artículos APAGADOS, faltan columnas: ' + JSON.stringify(articulos.faltantes));
+    log('ARTICULOS_NO_DISPONIBLES');
+  } else imprimir(`Artículos en SICAR: ${articulos.total}`);
   let cursor = '0', clientes = 0, ventas = 0;
   const clientesRaros = [];
   while (true) {
@@ -64,11 +70,14 @@ async function main(args = process.argv.slice(2), deps = {}) {
   const esperar = deps.esperar || pausa;
   let liberar = null, conexion;
   try {
-    const conocidos = ['--verificar', '--historico-ahora'];
+    const conocidos = ['--verificar', '--historico-ahora', '--articulos-ahora'];
     if (args.some(a => !conocidos.includes(a)) || args.length > 1) throw new Error('CONFIGURACION_INVALIDA');
     // Carga histórica fuera de 20:00-07:00: solo a mano y solo esta corrida (Victor, 2026-10-15). La tarea programada no la usa.
     const historicoAhora = args.includes('--historico-ahora');
     if (historicoAhora) log('HISTORICO_AUTORIZADO_DE_DIA');
+    // Igual para la lista de artículos: la primera carga se puede hacer de día, a mano.
+    const articulosAhora = args.includes('--articulos-ahora');
+    if (articulosAhora) log('ARTICULOS_AUTORIZADOS_DE_DIA');
     const config = await leerConfiguracion(configPath);
     liberar = await bloquear(config.estado);
     if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
@@ -78,7 +87,7 @@ async function main(args = process.argv.slice(2), deps = {}) {
     if (args.includes('--verificar')) {
       if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
       await verificar(fuente, imprimir, esperar, log);
-    } else await ejecutar(config.estado, config, { ...deps, fuente, esperar, log, bloqueado: true, historicoAhora });
+    } else await ejecutar(config.estado, config, { ...deps, fuente, esperar, log, bloqueado: true, historicoAhora, articulosAhora });
   } catch (e) {
     // Solo códigos conocidos, ids y nombres de columna: nunca el mensaje de MySQL (puede traer usuario o datos).
     escribir(describirFallo(e));

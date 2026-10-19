@@ -92,9 +92,10 @@ test('lista etiqueta VIP e interna; Solo VIP envía 1 y reinicia paginación; pr
   nodos(arbol, 'button').find(n => n.key === 'crm:10').props.onClick();
   assert.equal(nodos(h.render(Lista, props), Ficha)[0].props.puedeMarcarInterna, true);
 });
-test('qué compra muestra categorías, piezas, artículos y ajuste solo distinto de cero', async () => {
+test('qué compra muestra departamentos con sus categorías, piezas, artículos y ajuste solo distinto de cero', async () => {
   const h = hooks();
-  const datos = { categorias: [{ categoria_id: 1, nombre: 'Cuerdas', monto_centavos: 10000, piezas: 2 }],
+  const datos = { departamentos: [{ nombre: 'Instrumentos', monto_centavos: 10000, piezas: 2,
+    categorias: [{ nombre: 'Cuerdas', monto_centavos: 7000, piezas: 1 }, { nombre: 'Sin categoría', monto_centavos: 3000, piezas: 1 }] }],
     articulos: [{ clave: 'G-1', descripcion: 'Guitarra', monto_centavos: 10000, piezas: 2, ultima_fecha: '2026-10-15' }],
     ajustes_centavos: -1000, total_centavos: 9000 };
   const rutas = [];
@@ -102,7 +103,9 @@ test('qué compra muestra categorías, piezas, artículos y ajuste solo distinto
     './api': { apiFetch: async ruta => { rutas.push(ruta); return ok(datos); } } }).default;
   h.render(Componente, { clienteRef: 'crm:10' }); await h.efectos();
   let html = renderToStaticMarkup(h.render(Componente, { clienteRef: 'crm:10' }));
-  for (const texto of ['Cuerdas', 'Guitarra', '2', 'Ajustes y descuentos de la venta', '$-10', '$90']) assert.ok(html.includes(texto), texto);
+  for (const texto of ['Departamentos', 'Instrumentos', 'Cuerdas', 'Sin categoría', '$70', '$30', 'Guitarra', '2',
+    'Ajustes y descuentos de la venta', '$-10', '$90']) assert.ok(html.includes(texto), texto);
+  assert.ok(html.indexOf('Instrumentos') < html.indexOf('Cuerdas'), 'categoría debajo de su departamento');
   assert.deepEqual(rutas, ['/crm/v2/clientes/crm%3A10/que-compra']);
   datos.ajustes_centavos = 0;
   html = renderToStaticMarkup(h.render(Componente, { clienteRef: 'crm:10' }));
@@ -115,7 +118,7 @@ test('qué compra descarta respuesta anterior al cambiar persona y muestra error
     ? new Promise(resolve => { tardia = resolve; }) : Promise.resolve({ ok: false, json: async () => ({ error: 'Sin acceso' }) }) } }).default;
   h.render(Componente, { clienteRef: 'crm:10' }); await h.efectos();
   h.render(Componente, { clienteRef: 'crm:20' }); await h.efectos();
-  tardia(ok({ categorias: [], articulos: [], total_centavos: 999 }));
+  tardia(ok({ departamentos: [], articulos: [], total_centavos: 999 }));
   await h.efectos();
   const html = renderToStaticMarkup(h.render(Componente, { clienteRef: 'crm:20' }));
   assert.match(html, /Sin acceso/);

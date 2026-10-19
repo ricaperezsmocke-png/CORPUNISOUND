@@ -6,6 +6,11 @@ const COLUMNAS = {
   detallev: ['ven_id', 'art_id', 'clave', 'descripcion', 'cantidad', 'precioCon', 'precioSin', 'importeCon', 'descTotal'],
   historial: ['his_id', 'tabla', 'movimiento'],
 };
+// Departamento y categoría de cada artículo. Esquema supuesto (spec 2026-10-18): se confirma con --verificar.
+// Son opcionales: si falta alguna columna, el agente sigue con clientes y ventas y no manda artículos.
+const COLUMNAS_ARTICULOS = {
+  articulo: ['art_id', 'clave', 'descripcion', 'cat_id'], categoria: ['cat_id', 'nombre', 'dep_id'], departamento: ['dep_id', 'nombre'],
+};
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -18,6 +23,8 @@ function crearFuente(lector, config = {}) {
   let pkDetalle = [];
   let columnasHistorial = [];
   let validado = false;
+  let articulosFaltantes = null;
+  let columnasArticulos = [];
   const desdeVenta = 'FROM `venta` v LEFT JOIN `ticket` t ON t.`tic_id` = v.`tic_id` '
     + 'LEFT JOIN `nota` n ON n.`not_id` = v.`not_id` LEFT JOIN `remision` r ON r.`rem_id` = v.`rem_id`';
   const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
@@ -36,6 +43,15 @@ function crearFuente(lector, config = {}) {
   }
   return {
     get tamano() { return lector.tamano; },
+    get articulosDisponibles() { return Array.isArray(articulosFaltantes) && !articulosFaltantes.length; },
+    async articulos(cursor, limite) {
+      comprobar();
+      if (articulosFaltantes.length) throw new Error('ARTICULOS_NO_DISPONIBLES');
+      return lector.pagina(leer => leer('SELECT a.`art_id`, a.`clave`, a.`descripcion`, c.`nombre` AS categoria, d.`nombre` AS departamento '
+        + 'FROM `articulo` a LEFT JOIN `categoria` c ON c.`cat_id` = a.`cat_id` LEFT JOIN `departamento` d ON d.`dep_id` = c.`dep_id` '
+        // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
+        + 'WHERE a.`art_id` > ? ORDER BY a.`art_id` LIMIT ?', [cursor, Math.min(limite, lector.tamano * 5)]));
+    },
     async validar() {
       await lector.pagina(async leer => {
         const columnas = await leer('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE()');
@@ -59,6 +75,10 @@ function crearFuente(lector, config = {}) {
           identificador(campo);
           if (!presentes.has(`detallev.${campo}`)) throw new Error('PK_DETALLE_INVALIDA');
         }
+        columnasArticulos = columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`)
+          .filter(c => Object.keys(COLUMNAS_ARTICULOS).includes(c.split('.')[0]) && !/\.(huella|muestra|foto)$/i.test(c));
+        articulosFaltantes = Object.entries(COLUMNAS_ARTICULOS).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`))
+          .filter(c => !presentes.has(c));
         validado = true;
       });
     },
@@ -103,6 +123,8 @@ function crearFuente(lector, config = {}) {
           + 'WHERE `tabla` = ? AND `movimiento` = ? ORDER BY `his_id` DESC LIMIT 3', ['Venta', 2]),
         clientes: await leer(`SELECT ${lista(columnasHistorial)} FROM \`historial\` `
           + 'WHERE `tabla` = ? ORDER BY `his_id` DESC LIMIT 3', ['Cliente']),
+        articulos: { columnas: columnasArticulos, faltantes: articulosFaltantes,
+          total: articulosFaltantes.length ? null : String((await leer('SELECT COUNT(*) AS total FROM `articulo`'))[0].total) },
       }));
     },
   };

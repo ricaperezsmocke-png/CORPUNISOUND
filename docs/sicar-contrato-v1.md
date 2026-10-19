@@ -50,6 +50,14 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
 - `batch_id` es un UUID nuevo por lote. `sequence` empieza en `"1"` y sube de uno en uno por tienda.
 - Un mismo `art_id` puede repetirse en `detalle`: cada posición identifica un renglón independiente.
   El orden del arreglo es el orden del ticket (por la PK de `detallev`); no se agrupan ni descartan renglones.
+- `articulos` es una colección opcional independiente: puede ser el único contenido del lote y no cambia
+  `schema_version`. Cada fila es `{ "art_id": "10", "clave": "JLX215P", "descripcion": "BAFLE JLX ...",
+  "categoria": "Bafles", "departamento": "Audio" }`. `descripcion` es texto; `clave`, `categoria` y
+  `departamento` pueden ser texto o `null`. El servidor recorta los textos y convierte los opcionales vacíos en
+  `null`; rechaza U+FFFD y valores mayores a 100, 500, 100 y 100 caracteres respectivamente (clave y descripción
+  con los mismos máximos que los renglones de venta).
+- El mismo `art_id` no puede aparecer dos veces en `articulos`. La tienda no va en la fila: el servidor la toma
+  exclusivamente de la llave autenticada. El recibo incluye `aceptados.articulos` cuando el lote trae esta colección.
 
 ## 3. Qué venta mandar y con qué estado
 
@@ -73,6 +81,7 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
 |---|---|---|
 | Clientes por lote | 100 | 422 `LIMITE_ENTIDADES` |
 | Ventas por lote | 100 | 422 `LIMITE_ENTIDADES` |
+| Artículos por lote | 500 | 422 `LIMITE_ENTIDADES` |
 | Renglones de detalle por lote | 1,000 (500 por venta) | 422 `LIMITE_ENTIDADES` |
 | Tamaño del cuerpo | 1 MiB | 413 `CUERPO_EXCESIVO` |
 | Envíos por minuto con la misma llave | 12 | 429 `RITMO_EXCEDIDO` |

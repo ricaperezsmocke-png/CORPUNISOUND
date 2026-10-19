@@ -107,7 +107,7 @@ test('la migración es idempotente, activa FK y crea las catorce tablas aisladas
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 14);
+  assert.equal(Object.keys(antes).length, 15);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -294,4 +294,22 @@ test('la conexión explícita conserva cargar/guardar y el JSON durante la inges
     cwd: __dirname, env: { ...process.env, DB_PATH: ':memory:' }, encoding: 'utf8',
   });
   assert.equal(r.status, 0, `${r.error || ''}\n${r.stdout}\n${r.stderr}`);
+});
+
+test('guarda articulos por tienda, recorta texto y los reemplaza sin romper el reenvio', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const datos = { ...lote(), clientes: [], ventas: [], articulos: [{ art_id: '81', clave: ' CABLE ',
+    descripcion: ' Cable acustico ', categoria: ' Cables ', departamento: ' Audio ' }] };
+  const recibo = aplicar(repo, datos);
+  assert.equal(recibo.aceptados.articulos, 1);
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, art_id, clave, descripcion, categoria, departamento FROM sicar_articulos').all(), [{
+    sucursal_id: 1, art_id: '81', clave: 'CABLE', descripcion: 'Cable acustico', categoria: 'Cables', departamento: 'Audio',
+  }]);
+  assert.deepEqual(aplicar(repo, datos), recibo);
+  const reemplazo = { ...datos, batch_id: 'lote-2', sequence: '2', articulos: [{ ...datos.articulos[0], categoria: 'Bafles' }] };
+  aplicar(repo, reemplazo);
+  assert.equal(sqlite.prepare("SELECT categoria FROM sicar_articulos WHERE sucursal_id=1 AND art_id='81'").get().categoria, 'Bafles');
+  const otraTienda = { ...reemplazo, batch_id: 'lote-1', sequence: '1' };
+  aplicar(repo, otraTienda, 2);
+  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM sicar_articulos WHERE art_id='81'").get().n, 2);
 });

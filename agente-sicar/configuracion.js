@@ -35,6 +35,8 @@ async function leerConfiguracion(archivo) {
   if (referencia !== undefined && (typeof referencia !== 'string' || !/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(referencia))) {
     throw new Error('CONFIGURACION_INVALIDA');
   }
+  // Interruptor de la lista de artículos: solo true la prende, y se prende después de --verificar (spec 2026-10-18).
+  if (config.articulos !== undefined && typeof config.articulos !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   return config;
 }
 module.exports = { leerConfiguracion };

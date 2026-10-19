@@ -1,6 +1,6 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { cargar, guardar, bloquear } = require('./estado');
-const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura } = require('./formato');
+const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
@@ -20,7 +20,10 @@ function elementos(pagina, estado, avisar, omitir) {
 function agregar(lote, elemento) {
   if (elemento.cliente && !lote.clientes.some(c => c.cli_id === elemento.cliente.cli_id)) lote.clientes.push(elemento.cliente);
   if (elemento.venta) lote.ventas.push(elemento.venta);
+  // La colección solo aparece cuando hay artículos: un lote sin ellos queda idéntico al de antes.
+  if (elemento.articulo) (lote.articulos ??= []).push(elemento.articulo);
 }
+const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -61,9 +64,9 @@ async function ejecutar(archivo, config, deps) {
     async function transmitir(items, cambios, modo = mode) {
       if (++paginas > MAXIMO_PAGINAS_POR_CORRIDA) { log('TOPE_DE_CORRIDA'); return false; }
       // Nada que mandar (página de puro público, historial sin cancelaciones, fin de fase): avanza sin gastar envío.
-      const vacio = sobre(estado.siguiente_secuencia, modo, new Date(reloj()));
-      for (const item of items) agregar(vacio, item);
-      if (!vacio.clientes.length && !vacio.ventas.length) {
+      const prueba = sobre(estado.siguiente_secuencia, modo, new Date(reloj()));
+      for (const item of items) agregar(prueba, item);
+      if (vacio(prueba)) {
         Object.assign(estado, cambios);
         await guardar(archivo, estado);
         await esperar(200);
@@ -75,7 +78,7 @@ async function ejecutar(archivo, config, deps) {
         const candidato = structuredClone(lote);
         agregar(candidato, item);
         if (cabe(candidato)) { lote = candidato; continue; }
-        if (!lote.clientes.length && !lote.ventas.length) throw new Error('ENTIDAD_EXCEDE_LOTE');
+        if (vacio(lote)) throw new Error('ENTIDAD_EXCEDE_LOTE');
         grupos.push(lote);
         lote = sobre(estado.siguiente_secuencia, modo, new Date(reloj()));
         agregar(lote, item);
@@ -155,6 +158,23 @@ async function ejecutar(archivo, config, deps) {
       const pagina = await fuente.porIds(paginaIds);
       if (!await transmitir(elementos(pagina, estado, avisar, omitir), { ventana: cache(pagina, estado) })) return;
       i += paginaIds.length;
+    }
+    // Lista de artículos (departamento y categoría): completa una vez al día, de noche o a mano, después de las ventas.
+    // Apagada mientras config.articulos no sea true: un servidor viejo rechaza la colección y detendría las ventas.
+    if (config.articulos !== true) return;
+    const hoy = horaLocal(reloj()).slice(0, 10);
+    const toca = () => estado.articulos_dia !== hoy && (deps.articulosAhora || esHorarioHistorico(new Date(reloj())));
+    if (!toca()) return;
+    if (!fuente.articulosDisponibles) { log('ARTICULOS_NO_DISPONIBLES'); return; }
+    while (toca()) {
+      const filas = await fuente.articulos(estado.articulos_cursor, 500);
+      const cambios = filas.length ? { articulos_cursor: id(filas.at(-1).art_id) } : { articulos_cursor: '0', articulos_dia: hoy };
+      const items = filas.map(a => {
+        const { articulo, omitido } = articuloSeguro(a);
+        if (omitido) omitir('ARTICULO_OMITIDO', omitido);
+        return { articulo };
+      });
+      if (!await transmitir(items, cambios, 'incremental')) return;
     }
   } finally { await liberar(); }
 }

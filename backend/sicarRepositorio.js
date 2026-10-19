@@ -86,6 +86,12 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, ven_id, renglon),
     FOREIGN KEY (sucursal_id, ven_id) REFERENCES sicar_ventas(sucursal_id, ven_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_articulos (
+    sucursal_id INTEGER NOT NULL, art_id TEXT NOT NULL, clave TEXT, descripcion TEXT NOT NULL,
+    categoria TEXT, departamento TEXT, actualizado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, art_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -140,6 +146,11 @@ function prepararEscrituras(sqlite) {
       (sucursal_id, ven_id, renglon, art_id, clave, descripcion, cantidad, precio_con, precio_sin, importe_centavos, descuento_centavos)
       VALUES (@sucursal_id, @ven_id, @renglon, @art_id, @clave, @descripcion, @cantidad,
         @precio_con, @precio_sin, @importe_centavos, @descuento_centavos)`),
+    articulo: sqlite.prepare(`INSERT INTO sicar_articulos
+      (sucursal_id, art_id, clave, descripcion, categoria, departamento, actualizado_en)
+      VALUES (@sucursal_id, @art_id, @clave, @descripcion, @categoria, @departamento, @actualizado_en)
+      ON CONFLICT(sucursal_id, art_id) DO UPDATE SET clave=excluded.clave, descripcion=excluded.descripcion,
+        categoria=excluded.categoria, departamento=excluded.departamento, actualizado_en=excluded.actualizado_en`),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -167,6 +178,12 @@ function escribirVenta(sentencias, sucursalId, venta, revision, hash) {
       importe_centavos: centavos(detalle.importe_con), descuento_centavos: centavos(detalle.descuento_total),
     });
   }
+}
+
+function limpiarTexto(valor) {
+  if (valor === null || valor === undefined) return null;
+  const limpio = valor.trim();
+  return limpio || null;
 }
 
 function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
@@ -258,9 +275,16 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
       }
       escribirVenta(sentencias, sucursalId, venta, lote.sequence, hash);
     }
+    const actualizado_en = new Date().toISOString();
+    for (const articulo of lote.articulos || []) {
+      sentencias.articulo.run({ sucursal_id: sucursalId, art_id: articulo.art_id,
+        clave: limpiarTexto(articulo.clave), descripcion: limpiarTexto(articulo.descripcion),
+        categoria: limpiarTexto(articulo.categoria), departamento: limpiarTexto(articulo.departamento), actualizado_en });
+    }
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
-      aceptados: { clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas }, rechazados: 0,
+      aceptados: { clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas,
+        ...(lote.articulos !== undefined ? { articulos: lote.articulos.length } : {}) }, rechazados: 0,
       ...(descartados.clientes || descartados.ventas ? { descartados } : {}),
       next_sequence: (BigInt(lote.sequence) + 1n).toString(), received_at: new Date().toISOString(),
     };
