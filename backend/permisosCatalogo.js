@@ -88,6 +88,14 @@ const PERMISOS = [
   { clave: "marcar_cuenta_interna", etiqueta: "Marcar cuenta interna", modulo: "crm", implementado: true },
   { clave: "registrar_contacto_cliente", etiqueta: "Registrar Contacto con Cliente", modulo: "crm", implementado: true },
   { clave: "enviar_campana_masiva", etiqueta: "Enviar Campaña Masiva", modulo: "crm", implementado: true },
+  // ---- Bandeja de clientes (WhatsApp, Messenger, Instagram): spec 2026-10-18 ----
+  { clave: "ver_bandeja", etiqueta: "Ver bandeja de mensajes", modulo: "crm", implementado: true },
+  { clave: "responder_mensajes", etiqueta: "Responder y tomar conversaciones", modulo: "crm", implementado: true },
+  { clave: "ver_todas_conversaciones", etiqueta: "Ver conversaciones de todos los vendedores", modulo: "crm", implementado: true },
+  { clave: "reasignar_conversaciones", etiqueta: "Cambiar el responsable de un cliente", modulo: "crm", implementado: true },
+  { clave: "traspasar_cartera", etiqueta: "Traspasar la cartera de un vendedor", modulo: "crm", implementado: true },
+  { clave: "ligar_identidades", etiqueta: "Identificar contactos de la bandeja", modulo: "crm", implementado: true },
+  { clave: "conectar_canales_mensajes", etiqueta: "Conectar canales de mensajes", modulo: "crm", implementado: true },
 
   // ---- Gerencia de Ventas (objetivos y tareas del vendedor) ----
   // Van en el módulo `pos` a propósito: es la misma pantalla de trabajo de la

@@ -130,10 +130,10 @@ const {
 const { debeAbortarSinPersistencia, mensajeSinPersistencia } = require("./arranquePersistencia");
 const { restaurarEstado } = require("./restaurarEstado");
 
-let cargar = () => null, guardar = () => {}, conexionSqlite = null;
+let cargar = () => null, guardar = () => {}, conexionSqlite = null, estadoCentroLeads = { disponible: false };
 try {
   const p = require("./persistencia");
-  cargar = p.cargar; guardar = p.guardar; conexionSqlite = p.obtenerConexionSqlite();
+  cargar = p.cargar; guardar = p.guardar; conexionSqlite = p.obtenerConexionSqlite(); estadoCentroLeads = p.estadoCentroLeads;
   console.log("✅ Módulo de persistencia SQLite cargado");
 } catch (e) {
   const abortar = debeAbortarSinPersistencia();
@@ -236,6 +236,7 @@ const DB = {
   },
   crm: {
     cuentas_internas_historial: [],
+    estados_historial: [],
     clientes: [
       {
         id: 0, clave: "", representante: "Público en General", nombre: "Público en General",
@@ -1897,6 +1898,34 @@ require('./crmSeguimientoRutas').registrarRutasCRMSeguimiento(app,
   { DB, repoSicar, consultasCRM, contextoCRM, requiereLogin, requierePermiso, resolverPermisosDeRol });
 require('./crmComprasPerfilRutas').registrarRutasCRMPerfil(app,
   { DB, repoSicar, consultasCRM, contextoCRM, rutaCRM, requiereLogin, requierePermiso, resolverPermisosDeRol, guardar });
+
+// ---------- Bandeja de clientes (spec 2026-10-18): mensajes ligados al cliente y estados automáticos ----------
+const { crearContextoBandeja } = require('./bandeja/mensajes');
+const { revisarEstadosAutomaticos } = require('./bandeja/estados');
+const bandejaDisponible = () => !!(conexionSqlite && estadoCentroLeads.disponible);
+const bandeja = bandejaDisponible() ? crearContextoBandeja({ sqlite: conexionSqlite, DB, repo: repoSicar, guardar }) : null;
+require('./bandejaRutas').registrarRutasBandeja(app, { DB, bandeja, disponible: bandejaDisponible,
+  requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado });
+// Cada hora (y al arrancar) los estados del CRM se mueven solos: compras, apartados, Radar y 30 días sin actividad.
+function cicloEstadosCRM() {
+  if (!bandejaDisponible()) return;
+  try {
+    const ultimaEntrada = conexionSqlite.prepare(`SELECT max(x.ocurrida_en) m FROM lead_interacciones x
+      JOIN lead_identidades_externas i ON i.id = x.identidad_externa_id WHERE x.direccion = 'entrante' AND i.cliente_id = ?`);
+    const ultimaCompraSicar = conexionSqlite.prepare(`SELECT max(v.fecha_local) m FROM sicar_ventas v JOIN sicar_vinculos l
+      ON l.sucursal_id = v.sucursal_id AND l.cli_id = v.cli_id
+      WHERE l.cliente_id = ? AND l.estado IN ('pendiente', 'confirmado') AND v.estado = 'vigente'`);
+    const cambios = revisarEstadosAutomaticos({ DB, ultimaEntrada: id => ultimaEntrada.get(id)?.m || null,
+      ultimaCompraSicar: id => ultimaCompraSicar.get(id)?.m || null });
+    if (cambios.length || DB.crm.estados_automaticos) guardar(DB);
+  } catch (e) {
+    console.error('⚠️  Falló la revisión de estados del CRM:', e.message);
+  }
+}
+if (require.main === module) {
+  setInterval(cicloEstadosCRM, 3600000).unref();
+  setTimeout(cicloEstadosCRM, 30_000).unref();
+}
 
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
 app.get("/api/ventas", requiereLogin, requierePermiso("ver_lista_ventas", resolverPermisosDeRol), (req, res) => {

@@ -22,15 +22,20 @@ function clienteDe(DB, clienteId) {
   return cliente;
 }
 
-// Única forma de cambiar el estado de un cliente nativo con rastro. usuario_id null = el sistema.
-function cambiarEstadoNativo(DB, clienteId, nuevo, { usuario_id = null, motivo = null, fecha_hora = new Date().toISOString() } = {}) {
-  const cliente = clienteDe(DB, clienteId);
-  const anterior = cliente.estado || null;
+// Renglón del historial de estados de un cliente nativo. usuario_id null = el sistema.
+function anotarEstado(DB, { cliente_id, anterior, nuevo, usuario_id = null, motivo = null, fecha_hora }) {
   DB.crm.estados_historial ??= [];
   const historial = DB.crm.estados_historial;
   const id = historial.reduce((n, h) => Math.max(n, Number(h.id) || 0), 0) + 1;
-  const cambio = { id, cliente_id: Number(cliente.id), anterior, nuevo, usuario_id, motivo, fecha_hora };
+  const cambio = { id, cliente_id: Number(cliente_id), anterior, nuevo, usuario_id, motivo, fecha_hora };
   historial.push(cambio);
+  return cambio;
+}
+
+// Única forma de cambiar el estado de un cliente nativo con rastro.
+function cambiarEstadoNativo(DB, clienteId, nuevo, { usuario_id = null, motivo = null, fecha_hora = new Date().toISOString() } = {}) {
+  const cliente = clienteDe(DB, clienteId);
+  const cambio = anotarEstado(DB, { cliente_id: cliente.id, anterior: cliente.estado || null, nuevo, usuario_id, motivo, fecha_hora });
   cliente.estado = nuevo;
   return cambio;
 }
@@ -108,4 +113,4 @@ function revisarEstadosAutomaticos({ DB, ahora = new Date().toISOString(), ultim
   return cambios;
 }
 
-module.exports = { DIAS_PARA_PERDIDO, cambiarEstadoNativo, aplicarHechoNativo, revisarEstadosAutomaticos };
+module.exports = { DIAS_PARA_PERDIDO, anotarEstado, cambiarEstadoNativo, aplicarHechoNativo, revisarEstadosAutomaticos };
