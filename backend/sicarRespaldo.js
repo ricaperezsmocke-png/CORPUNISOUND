@@ -6,8 +6,8 @@ const { empaquetar, desempaquetar } = require('./respaldoCifrado');
 // Orden de dependencias: permite validar también las claves foráneas en preparación.
 const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes',
   'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos',
-  'sicar_estados', 'sicar_estados_historial', 'sicar_internas', 'sicar_internas_historial']);
-const GENERACIONES = [TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS];
+  'sicar_estados', 'sicar_estados_historial', 'sicar_internas', 'sicar_internas_historial', 'sicar_articulos']);
+const GENERACIONES = [TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS.slice(0, 14), TABLAS];
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
 const MAX_FILAS_BYTES = MAX_TROZO - 65536;

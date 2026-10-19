@@ -58,6 +58,22 @@ function validarDetalle(d) {
   for (const campo of ['importe_con', 'descuento_total']) decimal(d[campo], 2);
 }
 
+function validarArticulo(a, indice) {
+  objeto(a, ['art_id', 'clave', 'descripcion', 'categoria', 'departamento']);
+  if (!esId(a.art_id)) fallar('ID_INVALIDO');
+  const textoArticulo = (valor, maximo, opcional = false) => {
+    try { texto(valor, maximo, opcional); }
+    catch (e) {
+      if (e instanceof ErrorIngestaSicar && e.codigo === 'DATOS_INVALIDOS') fallar('TEXTO_INVALIDO');
+      throw e;
+    }
+  };
+  textoArticulo(a.descripcion, 300);
+  for (const [campo, maximo] of [['clave', 60], ['categoria', 100], ['departamento', 100]]) {
+    enReferencia(`articulos[${indice}].${campo}`, () => textoArticulo(a[campo], maximo, true));
+  }
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -76,7 +92,7 @@ function validarVenta(v, indice) {
 }
 
 function validarSobreSicar(body) {
-  objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas']);
+  objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -93,6 +109,10 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
   if (Date.parse(body.window.from) > Date.parse(body.window.to)) fallar('VENTANA_INVALIDA');
   arreglo(body.clientes, 100, 'cli_id');
   arreglo(body.ventas, 100, 'ven_id');
+  if (body.articulos !== undefined) {
+    arreglo(body.articulos, 500, 'art_id');
+    body.articulos.forEach((a, i) => enReferencia(`articulos[${i}]`, () => validarArticulo(a, i)));
+  }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);
     texto(c.nombre, 250);

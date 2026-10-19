@@ -146,3 +146,20 @@ test('migrar una base v1 con datos calcula cuadra sin alterar clientes, importes
   crearRepositorioSicar(sqlite);
   assert.deepEqual(sqlite.prepare('SELECT version FROM sicar_esquema ORDER BY version').all(), [{ version: 1 }, { version: 2 }]);
 });
+
+test('articulos opcionales aceptan lote exclusivo y rechazan limites, duplicados y texto invalido', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const articulo = { art_id: '81', clave: ' CABLE ', descripcion: ' Cable acustico ', categoria: ' Cables ', departamento: ' Audio ' };
+  const soloArticulos = { ...lote(), clientes: [], ventas: [], articulos: [articulo] };
+  assert.deepEqual(validarLoteSicar(soloArticulos), soloArticulos);
+  for (const [nombre, cambiar, codigo] of [
+    ['limite', b => { b.articulos = Array.from({ length: 501 }, (_, i) => ({ ...articulo, art_id: String(i + 1) })); }, 'LIMITE_ENTIDADES'],
+    ['duplicado', b => { b.articulos.push({ ...articulo }); }, 'ID_DUPLICADO'],
+    ['texto largo', b => { b.articulos[0].departamento = 'a'.repeat(101); }, 'TEXTO_INVALIDO'],
+    ['utf8 invalido', b => { b.articulos[0].categoria = '\ufffd'; }, 'TEXTO_INVALIDO'],
+  ]) {
+    const entrada = structuredClone(soloArticulos);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+});
