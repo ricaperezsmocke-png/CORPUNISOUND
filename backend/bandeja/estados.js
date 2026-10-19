@@ -93,8 +93,10 @@ function revisarEstadosAutomaticos({ DB, ahora = new Date().toISOString(), ultim
   const radar = porCliente(DB.radar_demanda?.registros, r => r.fecha_registro, () => true);
   const contactos = porCliente(DB.crm?.contactos_cliente, c => c.fecha, () => true);
   // Quien está pagando un apartado vigente no está perdido.
-  const conApartadoVigente = new Set((DB.pos?.ventas || []).filter(v => v.estatus === "apartado" && v.cliente_id != null)
-    .map(v => Number(v.cliente_id)));
+  // Vigente = sin liquidar ni cancelar y sin pasar su fecha límite (un vencido que nadie canceló ya no protege).
+  const hoyLocal = fechaLocal(new Date(ahora));
+  const conApartadoVigente = new Set((DB.pos?.ventas || []).filter(v => v.estatus === "apartado" && v.cliente_id != null
+    && (!v.fecha_limite || String(v.fecha_limite) >= hoyLocal)).map(v => Number(v.cliente_id)));
   const cambios = [];
   for (const cliente of DB.crm.clientes || []) {
     const id = Number(cliente.id);

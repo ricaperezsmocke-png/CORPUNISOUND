@@ -132,3 +132,13 @@ test("un registro del Radar en la mañana del mismo día del último cambio sí 
   revisarEstadosAutomaticos({ DB, ahora: "2026-10-18T22:00:00.000Z" });
   assert.equal(cliente(DB).estado, "visito_tienda");
 });
+
+test("un apartado vencido que nadie canceló ya no frena el perdido", () => {
+  const DB = base("visito_tienda");
+  DB.crm.estados_automaticos = { desde: "2026-08-01T00:00:00.000Z" };
+  DB.pos.ventas.push({ id: 1, cliente_id: 5, estatus: "apartado", fecha: "2026-08-02", fecha_limite: "2026-10-01" });
+  revisarEstadosAutomaticos({ DB, ahora: "2026-09-20T20:00:00.000Z" });
+  assert.equal(cliente(DB).estado, "visito_tienda", "vigente");
+  revisarEstadosAutomaticos({ DB, ahora: "2026-10-05T20:00:00.000Z" });
+  assert.equal(cliente(DB).estado, "perdido", "vencido");
+});
