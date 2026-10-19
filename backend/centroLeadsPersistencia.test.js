@@ -86,6 +86,7 @@ const INDICES_ESPERADOS = [
   "idx_lead_historial_lead_fecha",
   "idx_lead_identidades_cliente",
   "idx_lead_interacciones_conversacion_fecha",
+  "idx_lead_interacciones_identidad",
   "idx_lead_posibles_duplicados_estado",
   "idx_lead_seguimientos_fecha_estado",
   "idx_leads_estado_fecha",

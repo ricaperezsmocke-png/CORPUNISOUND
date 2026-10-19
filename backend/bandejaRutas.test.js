@@ -128,3 +128,17 @@ test("el estado manual también queda en el historial con el usuario", async () 
   const ultimo = app.DB.crm.estados_historial.at(-1);
   assert.deepEqual([ultimo.cliente_id, ultimo.nuevo, ultimo.usuario_id, ultimo.motivo], [11, "visito_tienda", 983, "Cambio manual"]);
 });
+
+test("la pantalla Clientes deja rastro: estado viejo y edición de responsable", async () => {
+  const rol = app.DB.admin.roles.find(r => r.id === 983);
+  rol.permisos.push("cambiar_estado_cliente", "editar_cliente");
+  const h = { "Content-Type": "application/json", Authorization: `Bearer ${tokens[983]}` };
+  let res = await fetch(`${base}/api/crm/clientes/11/estado`, { method: "PUT", headers: h, body: JSON.stringify({ estado: "interesado" }) });
+  assert.equal(res.status, 200);
+  assert.deepEqual(app.DB.crm.estados_historial.map(e => [e.cliente_id, e.nuevo, e.usuario_id]), [[11, "interesado", 983]]);
+  res = await fetch(`${base}/api/clientes/11`, { method: "PUT", headers: h, body: JSON.stringify({ vendedor_asignado_id: 2 }) });
+  assert.equal(res.status, 200);
+  const historial = (await pedir("GET", "clientes/11/historial", 983)).datos;
+  assert.equal(historial.responsables[0].vendedor_nombre, "Luis");
+  assert.equal(historial.responsables[0].motivo, "Cambio en la ficha del cliente");
+});

@@ -111,3 +111,22 @@ test("si el cliente ligado ya no existe, el mensaje entra igual sin cliente", t 
   assert.equal(r.cliente_id, null);
   assert.equal(ctx.hilo(r.conversacion_id).length, 2);
 });
+
+test("el mismo número con 521, 52 o +52 es una sola persona y una sola conversación", t => {
+  const { ctx, DB, sqlite } = prepararBandeja(t);
+  const canal = canalWhatsApp(ctx);
+  const ids = ["5219197776655", "529197776655", "+52 919 777 6655"].map(n => ctx.recibirEntrante(entrante(canal, { id_externo: n })));
+  assert.equal(new Set(ids.map(r => r.conversacion_id)).size, 1);
+  assert.equal(new Set(ids.map(r => r.cliente_id)).size, 1);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM lead_identidades_externas").get().n, 1);
+  assert.equal(DB.crm.clientes.length, 2);
+});
+
+test("un cliente con el teléfono capturado en otro formato no se duplica: queda por identificar", t => {
+  for (const celular of ["52 919 777 6655", "+52 1 919 777 6655", "919-777-6655 casa"]) {
+    const { ctx, DB } = prepararBandeja(t, { clientes: [{ id: 9, nombre: "Rosa", celular, sucursal_id: 1 }] });
+    const r = ctx.recibirEntrante(entrante(canalWhatsApp(ctx), { id_externo: "529197776655" }));
+    assert.equal(r.cliente_id, null, celular);
+    assert.equal(DB.crm.clientes.length, 2, celular);
+  }
+});

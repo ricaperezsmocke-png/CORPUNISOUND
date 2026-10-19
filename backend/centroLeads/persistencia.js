@@ -403,6 +403,7 @@ function aplicarVersion4(sqlite) {
     CREATE INDEX idx_lead_identidades_cliente ON lead_identidades_externas (cliente_id);
     CREATE INDEX idx_lead_conversaciones_identidad ON lead_conversaciones (identidad_externa_id);
     CREATE INDEX idx_lead_conversaciones_ultima ON lead_conversaciones (ultima_interaccion_en);
+    CREATE INDEX idx_lead_interacciones_identidad ON lead_interacciones (identidad_externa_id, direccion, ocurrida_en);
   `);
 }
 

@@ -2,16 +2,19 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { registrarRutasBandeja } = require("./bandejaRutas");
 
-test("en producción el canal simulado no existe", () => {
+test("el canal simulado solo existe con NODE_ENV development o test explícito", () => {
   const rutas = [];
   const app = { get: r => rutas.push(`GET ${r}`), post: r => rutas.push(`POST ${r}`), put: r => rutas.push(`PUT ${r}`) };
   const deps = { DB: {}, bandeja: {}, disponible: () => true, requiereLogin: () => {}, requierePermiso: () => () => {},
     resolverPermisosDeRol: () => [], resolverAlcanceAutorizado: () => ({}) };
   const anterior = process.env.NODE_ENV;
   try {
-    process.env.NODE_ENV = "production";
-    registrarRutasBandeja(app, deps);
-    assert.equal(rutas.some(r => r.includes("simulado")), false);
+    for (const entorno of ["production", undefined, "", "staging"]) {
+      if (entorno === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = entorno;
+      rutas.length = 0;
+      registrarRutasBandeja(app, deps);
+      assert.equal(rutas.some(r => r.includes("simulado")), false, String(entorno));
+    }
     rutas.length = 0;
     process.env.NODE_ENV = "test";
     registrarRutasBandeja(app, deps);

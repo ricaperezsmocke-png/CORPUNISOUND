@@ -32,7 +32,10 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
   const ruta = fn => (req, res) => {
     if (!bandeja || !disponible()) return res.status(503).json({ error: "La bandeja no está disponible." });
     try { res.type("json").send(JSON.stringify(fn(req))); }
-    catch (e) { res.status(e.status || 503).json({ error: e.status ? e.message : "No se pudo completar la operación de la bandeja." }); }
+    catch (e) {
+      if (!e.status) console.error("⚠️  Bandeja:", e.message);
+      res.status(e.status || 503).json({ error: e.status ? e.message : "No se pudo completar la operación de la bandeja." });
+    }
   };
 
   app.get("/api/mensajes/conversaciones", requiereLogin, permiso("ver_bandeja"),
@@ -82,7 +85,9 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
     ruta(req => consultas.historialCliente(clienteEnAlcance(req, req.params.id).id)));
 
   // Canal de prueba: solo fuera de producción. En producción la ruta ni existe.
-  if (process.env.NODE_ENV !== "production") {
+  // Falla cerrando: Render no declara NODE_ENV (ver arranquePersistencia.js), así que solo se abre si dice
+  // explícitamente development o test.
+  if (["development", "test"].includes(process.env.NODE_ENV)) {
     app.post("/api/mensajes/simulado/entrante", requiereLogin, permiso("conectar_canales_mensajes"), ruta(req => {
       const { sucursal_id, canal = "whatsapp", remitente, texto } = req.body || {};
       if (!CANALES.includes(canal)) throw Object.assign(new Error("Canal no válido."), { status: 400 });

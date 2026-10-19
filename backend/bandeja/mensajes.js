@@ -74,21 +74,30 @@ function crearContextoBandeja({ sqlite, DB, repo = null, guardar = () => {} }) {
   function candidatos(telefono) {
     return (DB.crm.clientes || []).filter(c => Number(c.id) > 0 && telefonos(c).numeros.has(telefono));
   }
+  // Un teléfono capturado en otro formato ("52 919…", "919-… casa") que contiene el número no se liga solo,
+  // pero tampoco se crea otro cliente: va a Por identificar.
+  function posibles(telefono) {
+    return (DB.crm.clientes || []).filter(c => Number(c.id) > 0 && telefonos(c).ambiguo
+      && [c.telefono, c.celular].some(v => String(v ?? "").replace(/\D/g, "").includes(telefono)));
+  }
 
   function resolverCliente(canal, remitente) {
     const telefono = canal.canal === "whatsapp" ? telefonoWhatsApp(remitente.id_externo) : null;
     if (!telefono) return null;
     const encontrados = candidatos(telefono);
     if (encontrados.length === 1) return encontrados[0];
-    if (encontrados.length > 1) return null;
+    if (encontrados.length > 1 || posibles(telefono).length) return null;
     const nombre = String(remitente.nombre ?? "").trim().slice(0, 120) || `WhatsApp ${telefono.slice(-4)}`;
     const crear = () => crearCliente(DB, { nombre, celular: telefono, sucursal_id: canal.sucursal_id, origen: "whatsapp" });
     return repo ? crearNativoConVinculos(repo, DB, () => {}, crear) : crear();
   }
 
   function identidadPara(canal, remitente) {
-    const idExterno = String(remitente?.id_externo ?? "").trim();
-    if (!idExterno || idExterno.length > 200) throw error(400, "Remitente no válido.");
+    const crudo = String(remitente?.id_externo ?? "").trim();
+    if (!crudo || crudo.length > 200) throw error(400, "Remitente no válido.");
+    // WhatsApp manda el mismo número de México con 521 o con 52: una sola persona, una sola conversación.
+    const nacional = canal.canal === "whatsapp" ? telefonoWhatsApp(crudo) : null;
+    const idExterno = nacional ? `52${nacional}` : crudo;
     let fila = sqlite.prepare("SELECT * FROM lead_identidades_externas WHERE proveedor = ? AND identificador_externo = ?")
       .get(canal.proveedor, idExterno);
     if (!fila) {

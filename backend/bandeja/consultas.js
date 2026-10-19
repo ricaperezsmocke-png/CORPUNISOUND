@@ -22,7 +22,10 @@ function crearConsultasBandeja(ctx) {
 
   function enriquecer(fila) {
     const cliente = fila.cliente_id ? (DB.crm.clientes || []).find(c => Number(c.id) === Number(fila.cliente_id)) : null;
-    const responsable = cliente?.vendedor_asignado_id ?? null;
+    // Un responsable dado de baja no cuenta: sus clientes quedan visibles y se pueden tomar en su tienda.
+    const asignado = cliente?.vendedor_asignado_id ?? null;
+    const activo = asignado !== null && (DB.pos.vendedores || []).some(v => Number(v.id) === Number(asignado) && v.activo !== false);
+    const responsable = activo ? asignado : null;
     return { ...fila, cliente_id: cliente ? Number(cliente.id) : null, cliente_nombre: cliente?.nombre || fila.nombre_mostrado || null,
       cliente_sucursal_id: cliente ? Number(cliente.sucursal_id) : null, estado: cliente?.estado || null,
       responsable_id: responsable, responsable_nombre: responsable ? nombreVendedor(responsable) : null };

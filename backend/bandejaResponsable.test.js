@@ -61,3 +61,30 @@ test("no se puede desactivar un vendedor que todavía tiene clientes", t => {
   DB.crm.clientes.forEach(c => { if (c.vendedor_asignado_id === 1) c.vendedor_asignado_id = 2; });
   assert.equal(desactivarVendedor(DB, 1, { verTodas: true }).activo, false);
 });
+
+test("la baja por edición del vendedor también exige traspasar su cartera", t => {
+  const { DB } = prepararBandeja(t, { clientes: [cliente(5, { vendedor_asignado_id: 1 })] });
+  const { actualizarVendedor } = require("./vendedores");
+  assert.throws(() => actualizarVendedor(DB, 1, { activo: false }, { verTodas: true }), /1 clientes/);
+  assert.equal(DB.pos.vendedores.find(v => v.id === 1).activo, true);
+});
+
+test("los clientes de un vendedor ya dado de baja se pueden tomar", t => {
+  const { resp, DB, sqlite } = preparar(t, [cliente(5, { vendedor_asignado_id: 1 })]);
+  DB.pos.vendedores.find(v => v.id === 1).activo = false;
+  resp.tomar(5, { vendedor_id: 2, usuario_id: 9 });
+  assert.equal(DB.crm.clientes.find(c => c.id === 5).vendedor_asignado_id, 2);
+  assert.deepEqual(asignaciones(sqlite, 5).map(a => a.vendedor_asignado_id), [1, 2]);
+});
+
+test("un cambio de responsable hecho por la ficha queda en las asignaciones", t => {
+  const { resp, DB, sqlite } = preparar(t, [cliente(5, { vendedor_asignado_id: 1 })]);
+  const c = DB.crm.clientes.find(x => x.id === 5);
+  c.vendedor_asignado_id = 2;
+  resp.registrarCambioExterno(c, 1, "Cambio en la ficha del cliente", 9);
+  c.vendedor_asignado_id = null;
+  resp.registrarCambioExterno(c, 2, "Cambio en la ficha del cliente", 9);
+  assert.deepEqual(asignaciones(sqlite, 5).map(a => [a.vendedor_asignado_id, a.motivo]),
+    [[1, "Asignación previa"], [2, "Cambio en la ficha del cliente"], [null, "Cambio en la ficha del cliente"]]);
+  assert.equal(c.vendedor_asignado_id, null);
+});

@@ -111,3 +111,24 @@ test("cambio manual queda en el historial con su usuario", () => {
   assert.equal(cliente(DB).estado, "interesado");
   assert.equal(DB.crm.estados_historial[0].usuario_id, 3);
 });
+
+test("apartado vigente frena el perdido; al liquidarse cuenta como compra en su fecha de liquidación", () => {
+  const DB = base("interesado");
+  DB.crm.estados_automaticos = { desde: "2026-10-01T00:00:00.000Z" };
+  DB.pos.ventas.push({ id: 1, cliente_id: 5, estatus: "apartado", fecha: "2026-10-02" });
+  revisarEstadosAutomaticos({ DB, ahora: "2026-10-02T20:00:00.000Z" });
+  assert.equal(cliente(DB).estado, "visito_tienda");
+  revisarEstadosAutomaticos({ DB, ahora: "2026-11-05T20:00:00.000Z" });
+  assert.equal(cliente(DB).estado, "visito_tienda", "pagando su apartado no está perdido");
+  Object.assign(DB.pos.ventas[0], { estatus: "cerrada", fecha_liquidacion: "2026-11-10" });
+  revisarEstadosAutomaticos({ DB, ahora: "2026-11-10T20:00:00.000Z" });
+  assert.equal(cliente(DB).estado, "compro");
+});
+
+test("un registro del Radar en la mañana del mismo día del último cambio sí cuenta", () => {
+  const DB = base("interesado");
+  DB.crm.estados_automaticos = { desde: "2026-10-18T14:00:00.000Z" };
+  DB.radar_demanda.registros.push({ id: 1, cliente_id: 5, fecha_registro: "2026-10-18T16:00:00.000Z" });
+  revisarEstadosAutomaticos({ DB, ahora: "2026-10-18T22:00:00.000Z" });
+  assert.equal(cliente(DB).estado, "visito_tienda");
+});

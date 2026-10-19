@@ -26,6 +26,10 @@ function crearResponsables(ctx) {
     return motivo;
   }
 
+  // Destino de una asignación: el vendedor, o la tienda del cliente cuando se queda sin responsable.
+  const destinoDe = (vendedorId, cliente) => (vendedorId === null
+    ? { vendedor_id: null, sucursal_id: Number(cliente.sucursal_id) } : { vendedor_id: vendedorId });
+
   // Dentro de una operación: escribe la asignación y mueve el cliente. Una asignación vieja sin registro se anota primero.
   function mover(cliente, vendedorId, motivo, usuarioId) {
     const leadId = ctx.expediente(cliente);
@@ -33,23 +37,35 @@ function crearResponsables(ctx) {
     const actual = obtenerAsignacionActual(sqlite, leadId);
     const anterior = cliente.vendedor_asignado_id ?? null;
     if (!actual || actual.id === null) {
+      if (actual) sqlite.prepare("UPDATE leads SET vendedor_asignado_id = NULL, sucursal_asignada_id = NULL WHERE id = ?").run(leadId);
       if (anterior !== null) {
-        if (actual) sqlite.prepare("UPDATE leads SET vendedor_asignado_id = NULL, sucursal_asignada_id = NULL WHERE id = ?").run(leadId);
         asignarLead(sqlite, leadId, { vendedor_id: anterior, regla: "previa", motivo: "Asignación previa" }, contexto);
-        reasignarLead(sqlite, leadId, { vendedor_id: vendedorId, regla: "manual", motivo }, contexto);
+        reasignarLead(sqlite, leadId, { ...destinoDe(vendedorId, cliente), regla: "manual", motivo }, contexto);
       } else {
-        if (actual) sqlite.prepare("UPDATE leads SET vendedor_asignado_id = NULL, sucursal_asignada_id = NULL WHERE id = ?").run(leadId);
-        asignarLead(sqlite, leadId, { vendedor_id: vendedorId, regla: "manual", motivo }, contexto);
+        asignarLead(sqlite, leadId, { ...destinoDe(vendedorId, cliente), regla: "manual", motivo }, contexto);
       }
     } else {
-      reasignarLead(sqlite, leadId, { vendedor_id: vendedorId, regla: "manual", motivo }, contexto);
+      reasignarLead(sqlite, leadId, { ...destinoDe(vendedorId, cliente), regla: "manual", motivo }, contexto);
     }
     cliente.vendedor_asignado_id = vendedorId;
   }
 
+  /**
+   * Un cambio de responsable hecho por otra vía (la edición de la ficha) también deja asignación. Se llama dentro
+   * de la misma transacción de la edición, con el cliente ya cambiado.
+   */
+  function registrarCambioExterno(cliente, anteriorId, motivo, usuarioId) {
+    const nuevo = cliente.vendedor_asignado_id ?? null;
+    const anterior = anteriorId ?? null;
+    if (Number(nuevo) === Number(anterior) && (nuevo === null) === (anterior === null)) return;
+    cliente.vendedor_asignado_id = anterior;
+    mover(cliente, nuevo === null ? null : Number(nuevo), motivo, usuarioId);
+  }
+
   function tomar(clienteId, { vendedor_id, usuario_id }) {
     const cliente = ctx.clienteActivo(clienteId);
-    if (cliente.vendedor_asignado_id != null) throw error(409, "Este cliente ya tiene responsable.");
+    const actual = (DB.pos.vendedores || []).find(v => Number(v.id) === Number(cliente.vendedor_asignado_id));
+    if (cliente.vendedor_asignado_id != null && actual && actual.activo !== false) throw error(409, "Este cliente ya tiene responsable.");
     const vendedorId = vendedorValido(vendedor_id, cliente);
     return ctx.operacion(() => {
       mover(cliente, vendedorId, "Tomó la conversación", usuario_id);
@@ -82,7 +98,7 @@ function crearResponsables(ctx) {
     });
   }
 
-  return { tomar, reasignar, traspasarCartera };
+  return { tomar, reasignar, traspasarCartera, registrarCambioExterno };
 }
 
 module.exports = { crearResponsables };

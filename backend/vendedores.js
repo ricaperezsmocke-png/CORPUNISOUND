@@ -185,11 +185,20 @@ function actualizarVendedor(DB, id, datos, alcance) {
           "Desligala primero en Roles y Personal."
         );
       }
+      exigirCarteraVacia(DB, vendedor);
     }
     vendedor.activo = !!datos.activo;
   }
 
   return { ...vendedor, activo: estaActivo(vendedor), cuenta_ligada: cuentaLigada(DB, vendedor.id)?.usuario || null };
+}
+
+// Nadie se va dejando clientes huérfanos: primero se traspasa su cartera (bandeja de clientes, spec 2026-10-18).
+function exigirCarteraVacia(DB, vendedor) {
+  const cartera = (DB.crm?.clientes || []).filter((c) => Number(c.id) > 0 && Number(c.vendedor_asignado_id) === Number(vendedor.id)).length;
+  if (cartera) {
+    throw new Error(`Este vendedor todavía tiene ${cartera} clientes. Traspasa su cartera en CRM → Bandeja antes de darlo de baja.`);
+  }
 }
 
 /**
@@ -208,11 +217,7 @@ function desactivarVendedor(DB, id, alcance) {
       "Desligala primero en Roles y Personal."
     );
   }
-  // Nadie se va dejando clientes huérfanos: primero se traspasa su cartera (bandeja de clientes, spec 2026-10-18).
-  const cartera = (DB.crm?.clientes || []).filter((c) => Number(c.id) > 0 && Number(c.vendedor_asignado_id) === Number(vendedor.id)).length;
-  if (cartera) {
-    throw new Error(`Este vendedor todavía tiene ${cartera} clientes. Traspasa su cartera a otro vendedor antes de darlo de baja.`);
-  }
+  exigirCarteraVacia(DB, vendedor);
   vendedor.activo = false;
   return { ...vendedor, activo: false, cuenta_ligada: null };
 }

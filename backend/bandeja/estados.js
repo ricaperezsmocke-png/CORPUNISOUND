@@ -55,6 +55,11 @@ const instante = valor => {
   const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(valor) ? `${valor}T18:00:00.000Z` : valor);
   return Number.isFinite(ms) ? ms : null;
 };
+// Los hechos se comparan por día de la tienda: un registro de las 10 am cuenta el mismo día que un cambio de las 8 am.
+const dia = valor => {
+  const ms = instante(valor);
+  return ms === null ? null : instante(fechaLocal(new Date(ms)));
+};
 const maximo = valores => valores.reduce((m, v) => (v !== null && (m === null || v > m) ? v : m), null);
 
 /**
@@ -72,20 +77,24 @@ function revisarEstadosAutomaticos({ DB, ahora = new Date().toISOString(), ultim
     const ms = instante(h.fecha_hora);
     if (ms !== null && ms > (ultimoCambio.get(Number(h.cliente_id)) ?? -Infinity)) ultimoCambio.set(Number(h.cliente_id), ms);
   }
-  const porCliente = (lista, campoFecha, filtro) => {
+  const porCliente = (lista, fechaDe, filtro) => {
     const mapa = new Map();
     for (const item of lista || []) {
       if (item.cliente_id == null || !filtro(item)) continue;
-      const ms = instante(item[campoFecha]);
+      const ms = dia(fechaDe(item));
       const id = Number(item.cliente_id);
       if (ms !== null && ms > (mapa.get(id) ?? -Infinity)) mapa.set(id, ms);
     }
     return mapa;
   };
-  const compras = porCliente(DB.pos?.ventas, "fecha", v => v.estatus === "cerrada");
-  const apartados = porCliente(DB.pos?.ventas, "fecha", v => v.estatus === "apartado");
-  const radar = porCliente(DB.radar_demanda?.registros, "fecha_registro", () => true);
-  const contactos = porCliente(DB.crm?.contactos_cliente, "fecha", () => true);
+  // Un apartado liquidado es compra el día que se liquidó, no el día que se apartó.
+  const compras = porCliente(DB.pos?.ventas, v => v.fecha_liquidacion || v.fecha, v => v.estatus === "cerrada");
+  const apartados = porCliente(DB.pos?.ventas, v => v.fecha, v => v.estatus === "apartado");
+  const radar = porCliente(DB.radar_demanda?.registros, r => r.fecha_registro, () => true);
+  const contactos = porCliente(DB.crm?.contactos_cliente, c => c.fecha, () => true);
+  // Quien está pagando un apartado vigente no está perdido.
+  const conApartadoVigente = new Set((DB.pos?.ventas || []).filter(v => v.estatus === "apartado" && v.cliente_id != null)
+    .map(v => Number(v.cliente_id)));
   const cambios = [];
   for (const cliente of DB.crm.clientes || []) {
     const id = Number(cliente.id);
@@ -94,7 +103,7 @@ function revisarEstadosAutomaticos({ DB, ahora = new Date().toISOString(), ultim
     const corte = Math.max(desde, ultimoCambio.get(id) ?? -Infinity);
     const diaCorte = instante(fechaLocal(new Date(corte)));
     const despues = ms => ms !== null && ms !== undefined && ms >= diaCorte;
-    const sicar = instante(ultimaCompraSicar(id));
+    const sicar = dia(ultimaCompraSicar(id));
     const hechos = [["compra", compras.get(id)], ["compra_sicar", sicar], ["apartado", apartados.get(id)], ["radar", radar.get(id)]];
     let cambio = null;
     for (const [hecho, ms] of hechos) {
@@ -102,7 +111,7 @@ function revisarEstadosAutomaticos({ DB, ahora = new Date().toISOString(), ultim
       cambio = aplicarHechoNativo(DB, id, hecho, ahora);
       if (cambio) break;
     }
-    if (!cambio && PERDIBLES.has(cliente.estado)) {
+    if (!cambio && PERDIBLES.has(cliente.estado) && !conApartadoVigente.has(id)) {
       const actividad = maximo([corte, contactos.get(id) ?? null, instante(ultimaEntrada(id)), compras.get(id) ?? null, sicar]);
       if (ahoraMs - actividad >= DIAS_PARA_PERDIDO * DIA_MS) {
         cambio = cambiarEstadoNativo(DB, id, "perdido", { motivo: `${DIAS_PARA_PERDIDO} días sin respuesta ni compra`, fecha_hora: ahora });
