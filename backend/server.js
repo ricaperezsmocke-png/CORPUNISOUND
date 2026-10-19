@@ -1928,7 +1928,8 @@ require('./bandejaRutas').registrarRutasBandeja(app, { DB, bandeja, disponible: 
   requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado });
 // Cada hora (y al arrancar) los estados del CRM se mueven solos: compras, apartados, Radar y 30 días sin actividad.
 function cicloEstadosCRM() {
-  if (!bandejaDisponible()) return;
+  // Durante una restauración nadie escribe: el estado se está reemplazando entero.
+  if (!bandejaDisponible() || mantenimiento.estaActivo()) return;
   try {
     // Dos consultas agrupadas, no una por cliente: better-sqlite3 es síncrono y aquí no se puede frenar la caja.
     const mapa = sql => new Map(conexionSqlite.prepare(sql).all().map(f => [Number(f.id), f.m]));
