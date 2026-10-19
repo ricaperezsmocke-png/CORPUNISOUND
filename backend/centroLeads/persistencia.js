@@ -9,7 +9,7 @@
  * claves foráneas SQLite.
  */
 
-const VERSION_ESQUEMA = 3;
+const VERSION_ESQUEMA = 4;
 
 function aplicarVersion1(sqlite) {
   sqlite.exec(`
@@ -392,10 +392,24 @@ function aplicarVersion3(sqlite) {
   `);
 }
 
+// V4 (bandeja de clientes, spec 2026-10-18): la conversación sabe de quién es, y cada cliente del CRM tiene un solo
+// expediente (lead) que guarda su historial de responsables.
+function aplicarVersion4(sqlite) {
+  sqlite.exec(`
+    ALTER TABLE lead_conversaciones ADD COLUMN identidad_externa_id INTEGER
+      REFERENCES lead_identidades_externas(id) ON DELETE RESTRICT;
+    CREATE UNIQUE INDEX ux_leads_cliente ON leads (cliente_id) WHERE cliente_id IS NOT NULL;
+    CREATE INDEX idx_lead_identidades_cliente ON lead_identidades_externas (cliente_id);
+    CREATE INDEX idx_lead_conversaciones_identidad ON lead_conversaciones (identidad_externa_id);
+    CREATE INDEX idx_lead_conversaciones_ultima ON lead_conversaciones (ultima_interaccion_en);
+  `);
+}
+
 const MIGRACIONES = Object.freeze([
   Object.freeze({ version: 1, aplicar: aplicarVersion1 }),
   Object.freeze({ version: 2, aplicar: aplicarVersion2 }),
   Object.freeze({ version: 3, aplicar: aplicarVersion3 }),
+  Object.freeze({ version: 4, aplicar: aplicarVersion4 }),
 ]);
 
 function inicializarPersistenciaCentroLeads(sqlite, { migraciones = MIGRACIONES } = {}) {

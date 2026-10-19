@@ -77,11 +77,14 @@ const INDICES_ESPERADOS = [
   "idx_lead_contenidos_producto_activa",
   "idx_lead_contenidos_vendedor_fecha",
   "idx_lead_conversaciones_externa",
+  "idx_lead_conversaciones_identidad",
+  "idx_lead_conversaciones_ultima",
   "idx_lead_enlaces_contenido_activa",
   "idx_lead_eventos_fecha",
   "idx_lead_fuentes_canal",
   "idx_lead_fuentes_plataforma_activa",
   "idx_lead_historial_lead_fecha",
+  "idx_lead_identidades_cliente",
   "idx_lead_interacciones_conversacion_fecha",
   "idx_lead_posibles_duplicados_estado",
   "idx_lead_seguimientos_fecha_estado",
@@ -92,6 +95,7 @@ const INDICES_ESPERADOS = [
   "ux_lead_atribucion_origen_activa",
   "ux_lead_atribuciones_clave_idempotencia",
   "ux_lead_interaccion_evento_externo",
+  "ux_leads_cliente",
 ].sort();
 
 test("una base nueva obtiene la versión y las tablas estructurales de Centro de Leads", () => {
@@ -315,4 +319,16 @@ test("el proyecto usa la migración real declarada y no agrega dependencias", ()
   assert.strictEqual(dependencias.sequelize, undefined);
   assert.strictEqual(dependencias.typeorm, undefined);
   assert.strictEqual(dependencias.prisma, undefined);
+});
+
+test("V4: la conversación sabe su identidad y un cliente tiene un solo expediente", () => {
+  conBase((sqlite) => {
+    inicializarPersistenciaCentroLeads(sqlite);
+    assert.ok(sqlite.prepare("PRAGMA table_info(lead_conversaciones)").all().some((c) => c.name === "identidad_externa_id"));
+    const insertar = sqlite.prepare(`INSERT INTO leads (cliente_id, estado, creado_en, actualizado_en) VALUES (?, 'NUEVO', 'x', 'x')`);
+    insertar.run(7);
+    insertar.run(null);
+    insertar.run(null);
+    assert.throws(() => insertar.run(7), /UNIQUE/);
+  });
 });

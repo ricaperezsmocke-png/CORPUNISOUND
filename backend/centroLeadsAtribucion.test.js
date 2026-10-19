@@ -117,8 +117,8 @@ test("migración V3 actualiza una base V2 sin reconstruir V1/V2 y es idempotente
     inicializarPersistenciaCentroLeads(sqlite);
     inicializarPersistenciaCentroLeads(sqlite);
 
-    assert.strictEqual(VERSION_ESQUEMA, 3);
-    assert.strictEqual(sqlite.prepare("SELECT version FROM centro_leads_schema_version WHERE id = 1").pluck().get(), 3);
+    assert.strictEqual(VERSION_ESQUEMA, 4);
+    assert.strictEqual(sqlite.prepare("SELECT version FROM centro_leads_schema_version WHERE id = 1").pluck().get(), VERSION_ESQUEMA);
     assert.strictEqual(sqlite.prepare("SELECT estado FROM leads WHERE id = 1").pluck().get(), "NUEVO");
     assert.ok(sqlite.prepare("PRAGMA table_info(leads)").all().some((c) => c.name === "atribucion_origen_id"));
     assert.ok(sqlite.prepare("PRAGMA table_info(lead_atribuciones)").all().some((c) => c.name === "clave_idempotencia"));

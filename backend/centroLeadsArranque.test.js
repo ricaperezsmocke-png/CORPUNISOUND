@@ -21,7 +21,7 @@ test("con la migración real queda disponible con su versión", () => {
   const sqlite = new Database(":memory:");
   const estado = iniciarCentroLeadsSeguro(sqlite, { avisar: () => assert.fail("no debe avisar") });
   assert.equal(estado.disponible, true);
-  assert.equal(estado.version, 3);
+  assert.equal(estado.version, 4);
   assert.equal(estado.error, null);
   sqlite.close();
 });
