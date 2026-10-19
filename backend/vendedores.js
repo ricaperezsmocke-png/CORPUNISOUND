@@ -208,6 +208,11 @@ function desactivarVendedor(DB, id, alcance) {
       "Desligala primero en Roles y Personal."
     );
   }
+  // Nadie se va dejando clientes huérfanos: primero se traspasa su cartera (bandeja de clientes, spec 2026-10-18).
+  const cartera = (DB.crm?.clientes || []).filter((c) => Number(c.id) > 0 && Number(c.vendedor_asignado_id) === Number(vendedor.id)).length;
+  if (cartera) {
+    throw new Error(`Este vendedor todavía tiene ${cartera} clientes. Traspasa su cartera a otro vendedor antes de darlo de baja.`);
+  }
   vendedor.activo = false;
   return { ...vendedor, activo: false, cuenta_ligada: null };
 }

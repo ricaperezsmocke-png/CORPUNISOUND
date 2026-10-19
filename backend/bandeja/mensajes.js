@@ -65,8 +65,8 @@ function crearContextoBandeja({ sqlite, DB, repo = null, guardar = () => {} }) {
   function expediente(cliente) {
     const fila = sqlite.prepare("SELECT id FROM leads WHERE cliente_id = ?").get(Number(cliente.id));
     if (fila) return fila.id;
-    return crearLead(sqlite, { cliente_id: Number(cliente.id), sucursal_asignada_id: Number(cliente.sucursal_id) || null,
-      vendedor_asignado_id: cliente.vendedor_asignado_id ?? null, nombre: cliente.nombre, origen: "bandeja" },
+    // Sin responsable copiado: el responsable vive en el cliente y sus cambios en lead_asignaciones (bandeja/responsable.js).
+    return crearLead(sqlite, { cliente_id: Number(cliente.id), nombre: cliente.nombre, origen: "bandeja" },
     { ocurrido_en: ahora() }).id;
   }
 
