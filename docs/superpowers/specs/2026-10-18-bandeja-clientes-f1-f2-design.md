@@ -135,14 +135,14 @@ Respaldos actuales (sin tablas de leads) siguen restaurando.
 - **El vendedor ya no es dueño del canal**: los números y páginas son de la tienda; el sistema guarda cada mensaje.
 - **Esconder clientes**: reasignar exige permiso y motivo; todo queda en `lead_asignaciones` y `lead_historial`.
 - **Inflar estados**: lo automático sale de hechos (mensajes, cotizaciones, ventas); lo manual queda con nombre.
-- **Llevarse el número**: si el vendedor ve el teléfono completo puede copiarlo. Ver decisión abierta.
+- **Llevarse el número**: el vendedor ve el teléfono completo (decisión de Victor, sección 6) y puede copiarlo; el
+  riesgo aceptado se compensa con que las conversaciones viven en canales de Unisound.
 - Nada de esto mueve dinero, caja ni inventario.
 
-## 6. Decisión abierta (Victor)
+## 6. Teléfono visible (decidido)
 
-¿En la bandeja y la ficha, el **vendedor** ve el teléfono completo del cliente o enmascarado (`919•••2233`)?
-Recomendación: enmascarado para vendedores, completo para gerente y Administrador. Hoy la ficha del CRM se lo muestra
-completo a todos.
+Victor aprobó el spec el 2026-10-18 y decidió **no enmascarar** el teléfono: el vendedor lo sigue viendo completo en
+la bandeja y en la ficha, como hoy. El control está en que el canal y el historial son de Unisound.
 
 ## 7. Pruebas (TDD)
 
