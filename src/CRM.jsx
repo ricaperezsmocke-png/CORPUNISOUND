@@ -3,6 +3,7 @@ import { apiFetch, sinSucursalElegida } from "./api";
 import { digitosTelefono } from "./telefono";
 import SicarAdministracion from "./SicarAdministracion";
 import CRMListaClientes from "./CRMListaClientes";
+import CRMBandeja from "./CRMBandeja";
 
 const ESTADOS = [
   { id: "contactado",    label: "Contactado",  color: "#94a3b8" },
@@ -122,6 +123,7 @@ export default function CRM({ onVolver, permisos }) {
   const puedeSicar = permisos?.some(p => ['administrar_llaves_sicar', 'ver_sincronizacion_sicar', 'resolver_vinculos_sicar'].includes(p));
   const puede = (clave) => !permisos || permisos.includes(clave);
   const verClientesSicar = permisos?.includes("ver_clientes_sicar");
+  const verBandeja = permisos?.includes("ver_bandeja");
   // El cliente nace en UNA tienda (es la que decide quién puede verlo después).
   // A diferencia de Punto de Venta o Corte de Caja, aquí el encabezado en
   // "Todas" no bloquea la pantalla: el modal de alta tiene su propio <select>
@@ -138,7 +140,7 @@ export default function CRM({ onVolver, permisos }) {
 
   const [selId, setSelId] = useState(null);
   const [tab, setTab] = useState("hoy");
-  const tabSicar = tab === "sicar" || tab === "clientes_sicar";
+  const tabSicar = tab === "sicar" || tab === "clientes_sicar" || tab === "bandeja";
   const [campType, setCampType] = useState(null);
   const [search, setSearch] = useState("");
   const [fSuc, setFSuc] = useState("Todas");
@@ -338,6 +340,9 @@ export default function CRM({ onVolver, permisos }) {
           {[["hoy", "Hoy"], ["clientes", "Clientes"], ["dashboard", "Dashboard"]].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: tab === id ? "rgba(255,255,255,.2)" : "transparent", color: "#fff" }}>{label}</button>
           ))}
+          {verBandeja && <button onClick={() => setTab("bandeja")} className="rounded px-3 py-1 text-sm font-semibold text-white">
+            Bandeja
+          </button>}
           {verClientesSicar && <button onClick={() => setTab("clientes_sicar")} className="rounded px-3 py-1 text-sm font-semibold text-white">
             Clientes SICAR
           </button>}
@@ -362,6 +367,7 @@ export default function CRM({ onVolver, permisos }) {
 
       <div className="crm-contenido" style={{ maxWidth: 1280, margin: "0 auto", padding: "20px 24px", boxSizing: "border-box" }}>
         {tab === "sicar" && puedeSicar && <SicarAdministracion permisos={permisos} />}
+        {tab === "bandeja" && verBandeja && <CRMBandeja permisos={permisos} onAbrirCliente={(id) => { setSelId(id); setTab("clientes"); }} />}
         {tab === "clientes_sicar" && verClientesSicar && <CRMListaClientes nombreSucursal={(id) => nombreSucursal(Number(id))}
           onAbrirNativo={(id) => { setSelId(id); setTab("clientes"); }} />}
         {/* STATS: son del CRM nativo; en las pestañas SICAR confundían (se veían encima de su panel). */}

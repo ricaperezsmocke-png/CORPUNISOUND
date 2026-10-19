@@ -12,7 +12,7 @@ function crearConsultasBandeja(ctx) {
 
   function filas() {
     return sqlite.prepare(`SELECT c.id, c.canal, f.nombre AS canal_nombre, f.sucursal_responsable_id AS sucursal_id,
-        i.cliente_id, i.nombre_mostrado, i.telefono_normalizado AS telefono, c.ultima_interaccion_en,
+        c.identidad_externa_id AS identidad_id, i.cliente_id, i.nombre_mostrado, i.telefono_normalizado AS telefono, c.ultima_interaccion_en,
         (SELECT texto FROM lead_interacciones x WHERE x.conversacion_id = c.id ORDER BY x.ocurrida_en DESC, x.id DESC LIMIT 1) AS ultimo_texto,
         (SELECT direccion FROM lead_interacciones x WHERE x.conversacion_id = c.id ORDER BY x.ocurrida_en DESC, x.id DESC LIMIT 1) AS ultima_direccion
       FROM lead_conversaciones c JOIN lead_fuentes f ON f.id = c.fuente_id

@@ -41,6 +41,7 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
   const [filtros, setFiltros] = useState({ orden: 'reciente', desde: '', hasta: '', estado: '' });
   const [puedeCambiar, setPuedeCambiar] = useState(false);
   const [puedeMarcarInterna, setPuedeMarcarInterna] = useState(false);
+  const [puedeVerBandeja, setPuedeVerBandeja] = useState(false);
   const peticion = useRef(0);
   useEffect(() => {
     let activo = true;
@@ -48,6 +49,7 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
       if (activo) {
         setPuedeCambiar(sesion.permisos?.includes('cambiar_estado_cliente') === true);
         setPuedeMarcarInterna(sesion.permisos?.includes('marcar_cuenta_interna') === true);
+        setPuedeVerBandeja(sesion.permisos?.includes('ver_bandeja') === true);
       }
     }).catch(e => { if (activo) setError(e.message); });
     return () => { activo = false; };
@@ -130,7 +132,7 @@ export default function CRMListaClientes({ nombreSucursal, onAbrirNativo }) {
     <aside className="rounded-lg border border-slate-200 bg-white p-4">
       {seleccion
         ? <CRMFichaCliente key={seleccion} clienteRef={seleccion} nombreSucursal={nombreSucursal} onAbrirNativo={onAbrirNativo}
-          puedeCambiar={puedeCambiar} puedeMarcarInterna={puedeMarcarInterna} onActualizado={cargar} />
+          puedeCambiar={puedeCambiar} puedeMarcarInterna={puedeMarcarInterna} puedeVerBandeja={puedeVerBandeja} onActualizado={cargar} />
         : <p className="text-sm">Elige un cliente para ver su ficha y sus compras.</p>}
     </aside>
   </section>;
