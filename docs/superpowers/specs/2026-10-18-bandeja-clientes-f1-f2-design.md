@@ -139,6 +139,15 @@ Respaldos actuales (sin tablas de leads) siguen restaurando.
   riesgo aceptado se compensa con que las conversaciones viven en canales de Unisound.
 - Nada de esto mueve dinero, caja ni inventario.
 
+## 5b. Decisiones tras la revisión independiente (2026-10-18, Victor delegó: "lo más adecuado a como trabajamos")
+
+- Un **apartado vigente** (sin liquidar, sin cancelar y dentro de su fecha límite) **frena el Perdido**; al liquidarse
+  cuenta como compra en su fecha de liquidación.
+- Los 30 días para Perdido **cuentan desde la activación**: nadie cambia de estado el primer día. Consecuencia
+  aceptada: los clientes viejos sin actividad pasan a Perdido juntos el día 30; se avisa a Victor antes.
+- "En tienda" sale de apartados y del Radar (el sistema no tiene cotizaciones).
+- Los permisos van en el módulo `crm` (la bandeja es una pestaña del CRM), no en un módulo nuevo.
+
 ## 6. Teléfono visible (decidido)
 
 Victor aprobó el spec el 2026-10-18 y decidió **no enmascarar** el teléfono: el vendedor lo sigue viendo completo en

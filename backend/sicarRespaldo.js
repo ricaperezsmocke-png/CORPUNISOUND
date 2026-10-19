@@ -7,7 +7,15 @@ const { empaquetar, desempaquetar } = require('./respaldoCifrado');
 const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes',
   'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos',
   'sicar_estados', 'sicar_estados_historial', 'sicar_internas', 'sicar_internas_historial', 'sicar_articulos']);
-const GENERACIONES = [TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS.slice(0, 14), TABLAS];
+// Bandeja de clientes (spec 2026-10-18 §4.7): sus tablas viajan en la misma copia y se restauran en la misma transacción
+// que los datos del negocio, porque sus cliente_id apuntan a clientes del JSON. Solo si la base ya las tiene.
+const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes', 'lead_contenidos', 'lead_eventos_externos',
+  'lead_identidades_externas', 'lead_conversaciones', 'leads', 'lead_interacciones', 'lead_atribuciones', 'lead_asignaciones',
+  'lead_historial', 'lead_posibles_duplicados', 'lead_fusiones', 'lead_seguimientos', 'lead_zonas', 'lead_reglas_zona',
+  'lead_reglas_asignacion', 'lead_sla_configuracion', 'lead_relaciones_cotizaciones', 'lead_relaciones_ventas',
+  'lead_enlaces_rastreados']);
+const TODAS = Object.freeze([...TABLAS, ...TABLAS_LEADS]);
+const GENERACIONES = [TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS.slice(0, 14), TABLAS, TODAS];
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
 const MAX_FILAS_BYTES = MAX_TROZO - 65536;
@@ -20,9 +28,36 @@ const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 function configurarContexto(repo, contexto) { contextos.set(repo, contexto); }
 
+const existe = (sqlite, tabla) => !!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(tabla);
+const conLeads = sqlite => TABLAS_LEADS.every(tabla => existe(sqlite, tabla));
+const versionLeads = sqlite => sqlite.prepare('SELECT version FROM centro_leads_schema_version WHERE id = 1').get()?.version ?? null;
+
+// SICAR o conversaciones: cualquiera de los dos hace que la copia relacional entre al respaldo.
 function tieneDatosSicar(repo) {
   const sqlite = repo.conexionParaRespaldo();
-  return TABLAS.slice(1).some(tabla => !!sqlite.prepare(`SELECT 1 FROM ${tabla} LIMIT 1`).get());
+  const hay = tabla => !!sqlite.prepare(`SELECT 1 FROM ${tabla} LIMIT 1`).get();
+  return TABLAS.slice(1).some(hay) || (conLeads(sqlite) && TABLAS_LEADS.slice(1).some(hay));
+}
+
+/**
+ * Restauración que no trae conversaciones (copia vieja o parcial): los mensajes se conservan, pero una liga a un
+ * cliente que ya no existe o que se hizo después de la foto ya no es confiable (el JSON vuelve a repartir esos ids).
+ * Esas identidades pasan a Por identificar y sus expedientes se sueltan. Misma regla que los vínculos SICAR.
+ */
+function desligarLeadsParciales(sqlite, clientes, fechaFoto) {
+  if (!conLeads(sqlite)) return;
+  const ids = new Set((clientes || []).map(c => Number(c.id)));
+  const foto = Date.parse(fechaFoto);
+  const posterior = valor => !Number.isFinite(foto) || !Number.isFinite(Date.parse(valor)) || Date.parse(valor) > foto;
+  const soltarIdentidad = sqlite.prepare('UPDATE lead_identidades_externas SET cliente_id = NULL WHERE id = ?');
+  const identidades = sqlite.prepare('SELECT id, cliente_id, creada_en, actualizada_en FROM lead_identidades_externas WHERE cliente_id IS NOT NULL');
+  for (const i of identidades.all()) {
+    if (!ids.has(Number(i.cliente_id)) || posterior(i.creada_en) || posterior(i.actualizada_en)) soltarIdentidad.run(i.id);
+  }
+  const soltarExpediente = sqlite.prepare('UPDATE leads SET cliente_id = NULL WHERE id = ?');
+  for (const l of sqlite.prepare('SELECT id, cliente_id, creado_en FROM leads WHERE cliente_id IS NOT NULL').all()) {
+    if (!ids.has(Number(l.cliente_id)) || posterior(l.creado_en)) soltarExpediente.run(l.id);
+  }
 }
 
 function columnas(sqlite, tabla) {
@@ -55,7 +90,11 @@ function validarManifiesto(m) {
   if (!tablas) {
     throw new Error('El manifiesto SICAR es inválido.');
   }
-  const conteos = Object.fromEntries(TABLAS.map(t => [t, 0]));
+  const conBandeja = tablas === TODAS;
+  if (conBandeja !== (m.version_leads !== undefined) || (conBandeja && !Number.isSafeInteger(m.version_leads))) {
+    throw new Error('El manifiesto SICAR es inválido.');
+  }
+  const conteos = Object.fromEntries(TODAS.map(t => [t, 0]));
   let anterior = -1;
   const ids = new Set();
   for (const [i, c] of m.trozos.entries()) {
@@ -108,6 +147,7 @@ async function crearSnapshotSicar(repo, drive, contexto) {
   let lector, vigilancia, fallo, terminado = false;
   const m = { version: 1, version_esquema: 2, snapshot_id: crypto.randomUUID(),
     estado: 'completo', generado_en: new Date().toISOString(), conteos: {}, trozos: [] };
+  let tablasFoto = TABLAS;
   const inicio = Date.now(), walInicial = tamano(`${sqlite.name}-wal`);
   let rechazar;
   const vencimiento = new Promise((_, reject) => { rechazar = reject; });
@@ -125,6 +165,10 @@ async function crearSnapshotSicar(repo, drive, contexto) {
     lector.exec('BEGIN');
     // Fija la foto antes del primer await, incluso si Drive tarda en obtener la carpeta.
     if (lector.prepare('SELECT max(version) v FROM sicar_esquema').get().v !== 2) throw new Error('Versión SICAR incompatible.');
+    if (conLeads(lector)) {
+      tablasFoto = TODAS;
+      m.version_leads = versionLeads(lector);
+    }
     vigilancia = setInterval(() => {
       try { comprobar(); } catch (e) { fallo = e; cerrar(); rechazar(e); }
     }, 100);
@@ -151,7 +195,7 @@ async function crearSnapshotSicar(repo, drive, contexto) {
       m.trozos.push(c);
       await esperar(leerTrozo(drive, contexto, m, c));
     }
-    for (const tabla of TABLAS) {
+    for (const tabla of tablasFoto) {
       comprobar();
       m.conteos[tabla] = lector.prepare(`SELECT count(*) n FROM ${tabla}`).get().n;
       const campos = columnas(lector, tabla);
@@ -215,6 +259,13 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
     liberada = true;
   };
   try {
+    const traeLeads = Object.hasOwn(manifiesto.conteos, 'leads');
+    if (traeLeads && (!conLeads(sqlite) || versionLeads(sqlite) !== manifiesto.version_leads)) {
+      throw new Error('La copia de la bandeja de mensajes no es compatible con esta base.');
+    }
+    // Las filas de la bandeja se quedan en memoria y entran en la transacción final con llaves foráneas diferidas:
+    // sus tablas se referencian entre sí en ciclo y no caben en tablas de preparación con llaves inmediatas.
+    const filasLeads = new Map();
     limpiarPreparacion(sqlite);
     sqlite.transaction(() => {
       for (const tabla of TABLAS) {
@@ -228,6 +279,15 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
       comprobarDisco(sqlite);
       const filas = await leerTrozo(drive, contexto, manifiesto, c);
       const campos = columnas(sqlite, c.tabla);
+      if (TABLAS_LEADS.includes(c.tabla)) {
+        for (const fila of filas) {
+          if (!fila || Object.keys(fila).length !== campos.length || campos.some(k => !Object.hasOwn(fila, k))) {
+            throw new Error('Una fila del respaldo de la bandeja tiene columnas incompatibles.');
+          }
+        }
+        filasLeads.set(c.tabla, [...(filasLeads.get(c.tabla) || []), ...filas]);
+        continue;
+      }
       const sentencia = sqlite.prepare(`INSERT INTO ${PREFIJO}${c.tabla} (${campos.join(',')}) VALUES (${campos.map(() => '?').join(',')})`);
       sqlite.transaction(() => {
         for (const fila of filas) {
@@ -249,7 +309,7 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
     let aplicada = false;
     return {
       liberar,
-      aplicar(guardarEstado = () => {}) {
+      aplicar(guardarEstado = () => {}, { clientes = null, fechaFoto = manifiesto.generado_en } = {}) {
         if (liberada || aplicada) throw new Error('La preparación SICAR ya fue utilizada o liberada.');
         sqlite.transaction(() => {
           // Conserva las revocaciones también para llaves que aún no existían en la foto.
@@ -262,6 +322,15 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
             ON CONFLICT(key_id) DO UPDATE SET revocada=excluded.revocada`);
           for (const tabla of [...TABLAS].reverse()) sqlite.exec(`DELETE FROM ${tabla}`);
           for (const tabla of TABLAS) sqlite.exec(`INSERT INTO ${tabla} SELECT * FROM ${PREFIJO}${tabla}`);
+          if (traeLeads) {
+            sqlite.pragma('defer_foreign_keys = ON');
+            for (const tabla of [...TABLAS_LEADS].reverse()) sqlite.exec(`DELETE FROM ${tabla}`);
+            for (const tabla of TABLAS_LEADS) {
+              const campos = columnas(sqlite, tabla);
+              const insertar = sqlite.prepare(`INSERT INTO ${tabla} (${campos.join(',')}) VALUES (${campos.map(() => '?').join(',')})`);
+              for (const fila of filasLeads.get(tabla) || []) insertar.run(...campos.map(k => fila[k]));
+            }
+          } else if (clientes) desligarLeadsParciales(sqlite, clientes, fechaFoto);
           const resultado = guardarEstado();
           if (resultado?.then) throw new Error('El guardado de estado debe ser síncrono dentro de la transacción SICAR.');
         }).immediate();
@@ -271,4 +340,5 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
   } catch (e) { liberar(); throw e; }
 }
 
-module.exports = { crearSnapshotSicar, prepararRestauracionSicar, verificarSnapshotSicar, configurarContexto, tieneDatosSicar, TABLAS, MAX_TROZO };
+module.exports = { crearSnapshotSicar, prepararRestauracionSicar, verificarSnapshotSicar, configurarContexto, tieneDatosSicar,
+  desligarLeadsParciales, TABLAS, TABLAS_LEADS, MAX_TROZO };

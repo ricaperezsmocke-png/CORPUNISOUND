@@ -723,11 +723,15 @@ async function restaurar(DB, drive, {
         const reparaciones = alTerminar?.(siguiente)?.reparaciones || [];
         pushMovimiento(siguiente, copia.id, 'restauracion',
           `Restaurado al estado del ${copia.fecha} ${copia.hora_local}. ${comparacion.resumen} Respaldo previo: ${pre.nombre_archivo}`, usuario);
-        if (preparadaSicar) preparadaSicar.aplicar(() => contextoSicar.guardar(siguiente));
-        else {
+        if (preparadaSicar) {
+          preparadaSicar.aplicar(() => contextoSicar.guardar(siguiente),
+            { clientes: siguiente.crm?.clientes || [], fechaFoto: foto.generado_en });
+        } else {
           const sqlite = contextoSicar.repo.conexionParaRespaldo();
           sqlite.transaction(() => {
             reconciliarVinculosParciales(sqlite, siguiente.crm?.clientes || [], foto.generado_en);
+            // Las conversaciones se quedan; sus ligas a clientes posteriores a la foto pasan a Por identificar.
+            sicar.desligarLeadsParciales(sqlite, siguiente.crm?.clientes || [], foto.generado_en);
             const guardado = contextoSicar.guardar(siguiente);
             if (guardado?.then) throw new Error('El guardado de la restauración debe ser síncrono.');
           }).immediate();
