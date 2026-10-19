@@ -38,12 +38,12 @@ test('SICAR cae al catalogo por SKU, normaliza nombres y usa ambos nombres de re
   const f = preparar(t);
   f.DB['catalogo-productos'] = {
     departamentos: [{ id: 2, nombre: 'Áudio' }],
-    categorias: [{ id: 3, nombre: ' Bafles ', departamento_id: 2 }],
-    productos: [{ id: 7, sku: 'G-1', nombre: 'Desde catálogo', categoria_id: 3 }],
+    categorias: [{ id: 3, nombre: ' Bafles ' }],
+    productos: [{ id: 7, sku: 'G-1', nombre: 'Desde catálogo', categoria_id: 3, departamento_id: 2 }],
   };
-  detalleSicar(f, f.sicar(10000), { art_id: '1' });
+  detalleSicar(f, f.sicar(10000), { art_id: '1', importe: 10000 });
   articuloSicar(f, { art_id: '2', clave: 'G-2', categoria: 'bafles', departamento: 'AUDIO' });
-  detalleSicar(f, f.sicar(20000), { art_id: '2', clave: 'G-2' });
+  detalleSicar(f, f.sicar(20000), { art_id: '2', clave: 'G-2', importe: 20000 });
   detalleSicar(f, f.sicar(30000), { art_id: '3', clave: null, descripcion: 'Sin ficha' });
   f.unir();
 
@@ -51,7 +51,7 @@ test('SICAR cae al catalogo por SKU, normaliza nombres y usa ambos nombres de re
 
   assert.deepEqual(r.departamentos, [
     { nombre: 'Áudio', monto_centavos: 30000, piezas: 4,
-      categorias: [{ nombre: ' Bafles ', monto_centavos: 30000, piezas: 4 }] },
+      categorias: [{ nombre: 'Bafles', monto_centavos: 30000, piezas: 4 }] },
     { nombre: 'Sin departamento', monto_centavos: 30000, piezas: 2,
       categorias: [{ nombre: 'Sin categoría', monto_centavos: 30000, piezas: 2 }] },
   ]);
@@ -63,8 +63,8 @@ test('POS toma departamento y categoria del catalogo y los ajustes conservan el 
   const f = preparar(t);
   f.DB['catalogo-productos'] = {
     departamentos: [{ id: 4, nombre: 'Accesorios' }],
-    categorias: [{ id: 5, nombre: 'Cables', departamento_id: 4 }],
-    productos: [{ id: 6, sku: 'C-1', nombre: 'Cable', categoria_id: 5 }],
+    categorias: [{ id: 5, nombre: 'Cables' }],
+    productos: [{ id: 6, sku: 'C-1', nombre: 'Cable', categoria_id: 5, departamento_id: 4 }],
   };
   const id = f.pos(450, '2020-01-01');
   f.DB.pos.venta_detalle.push({ venta_id: id, producto_id: 6, cantidad: 1, subtotal: 500 });
