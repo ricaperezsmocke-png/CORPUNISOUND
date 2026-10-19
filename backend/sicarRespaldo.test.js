@@ -131,6 +131,26 @@ test('respaldo viejo sin seguimiento restaura vacio sobre estados posteriores', 
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_estados_historial').get().n, 0);
 });
 
+for (const generacion of [12, 14]) {
+  test(`respaldo de ${generacion} tablas deja articulos vacios al restaurar`, async t => {
+    const f = preparar(t), s = api();
+    sembrar(f);
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    for (const tabla of ['sicar_internas', 'sicar_internas_historial', 'sicar_articulos'].slice(generacion === 12 ? 0 : 2)) {
+      delete m.conteos[tabla];
+    }
+    f.sqlite.prepare(`INSERT INTO sicar_articulos
+      (sucursal_id, art_id, clave, descripcion, categoria, departamento, actualizado_en)
+      VALUES (1, '9', 'SKU-9', 'Artículo pendiente', 'Cuerdas', 'Accesorios', 'hoy')`).run();
+
+    const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+    p.aplicar();
+    p.liberar();
+
+    assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_articulos').get().n, 0);
+  });
+}
+
 test('manifiesto que omite solo una tabla de seguimiento se rechaza', async t => {
   const f = preparar(t), s = api();
   sembrar(f);
