@@ -1,7 +1,7 @@
 const Database = require("better-sqlite3");
 const path = require("path");
 const fs = require("fs");
-const { inicializarPersistenciaCentroLeads } = require("./centroLeads/persistencia");
+const { iniciarCentroLeadsSeguro } = require("./centroLeads/arranque");
 
 /**
  * Dónde vive la base de datos.
@@ -47,7 +47,8 @@ sqlite.pragma('cache_size = -8192');
 // Centro de Leads comparte este MISMO archivo SQLite, pero usa tablas
 // relacionales propias. Su inicialización es idempotente y no toca la fila JSON
 // `estado` que siguen usando POS, CRM, inventario y los demás módulos actuales.
-inicializarPersistenciaCentroLeads(sqlite);
+// Si su migración falla, queda apagado y el POS arranca igual (centroLeads/arranque.js).
+const estadoCentroLeads = iniciarCentroLeadsSeguro(sqlite);
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS estado (
@@ -78,4 +79,4 @@ function obtenerConexionSqlite() {
   return sqlite;
 }
 
-module.exports = { cargar, guardar, obtenerConexionSqlite };
+module.exports = { cargar, guardar, obtenerConexionSqlite, estadoCentroLeads };
