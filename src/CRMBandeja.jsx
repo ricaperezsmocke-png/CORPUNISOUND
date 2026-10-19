@@ -52,7 +52,8 @@ export default function CRMBandeja({ permisos = [], onAbrirCliente }) {
       </li>)}</ul>
     </div>
     <div className="space-y-3">
-      {seleccion ? <CRMBandejaHilo conversacionId={seleccion} permisos={permisos} onCambio={recargar} onAbrirCliente={onAbrirCliente} />
+      {/* La llave con la versión vuelve a leer la conversación cuando cambia algo fuera de ella (por ejemplo, un traspaso). */}
+      {seleccion ? <CRMBandejaHilo key={`${seleccion}-${version}`} conversacionId={seleccion} permisos={permisos} onCambio={recargar} onAbrirCliente={onAbrirCliente} />
         : <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-600">Elige una conversación.</p>}
       <CRMBandejaHerramientas permisos={permisos} onCambio={recargar} />
     </div>

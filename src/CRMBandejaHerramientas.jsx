@@ -34,7 +34,7 @@ export default function CRMBandejaHerramientas({ permisos = [], onCambio, desarr
   const traspasar = e => { e.preventDefault(); correr(async () => {
     const r = await leer(await enviarJson('/mensajes/traspasos', traspaso), 'No se pudo traspasar.');
     setTraspaso({ de_vendedor_id: '', a_vendedor_id: '', motivo: '' });
-    return `Se traspasaron ${r.movidos} clientes.`;
+    return r.movidos === 1 ? 'Se traspasó 1 cliente.' : `Se traspasaron ${r.movidos} clientes.`;
   }); };
   const simular = e => { e.preventDefault(); correr(async () => {
     await leer(await enviarJson('/mensajes/simulado/entrante', { sucursal_id: Number(prueba.sucursal_id), canal: prueba.canal,
