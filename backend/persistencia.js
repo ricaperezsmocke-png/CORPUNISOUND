@@ -1,6 +1,7 @@
 const Database = require("better-sqlite3");
 const path = require("path");
 const fs = require("fs");
+const { inicializarPersistenciaCentroLeads } = require("./centroLeads/persistencia");
 
 /**
  * Dónde vive la base de datos.
@@ -42,6 +43,11 @@ const sqlite = new Database(DB_PATH);
 // Las pruebas de concurrencia y recuperación cubren este modo; no se usa un archivo de copia.
 sqlite.pragma('journal_mode = WAL');
 sqlite.pragma('cache_size = -8192');
+
+// Centro de Leads comparte este MISMO archivo SQLite, pero usa tablas
+// relacionales propias. Su inicialización es idempotente y no toca la fila JSON
+// `estado` que siguen usando POS, CRM, inventario y los demás módulos actuales.
+inicializarPersistenciaCentroLeads(sqlite);
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS estado (
