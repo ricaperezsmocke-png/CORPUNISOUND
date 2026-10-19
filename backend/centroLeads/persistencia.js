@@ -398,6 +398,7 @@ function aplicarVersion4(sqlite) {
   sqlite.exec(`
     ALTER TABLE lead_conversaciones ADD COLUMN identidad_externa_id INTEGER
       REFERENCES lead_identidades_externas(id) ON DELETE RESTRICT;
+    ALTER TABLE lead_interacciones ADD COLUMN usuario_id INTEGER;
     CREATE UNIQUE INDEX ux_leads_cliente ON leads (cliente_id) WHERE cliente_id IS NOT NULL;
     CREATE INDEX idx_lead_identidades_cliente ON lead_identidades_externas (cliente_id);
     CREATE INDEX idx_lead_conversaciones_identidad ON lead_conversaciones (identidad_externa_id);
