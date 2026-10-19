@@ -68,8 +68,9 @@ function validarArticulo(a, indice) {
       throw e;
     }
   };
-  textoArticulo(a.descripcion, 300);
-  for (const [campo, maximo] of [['clave', 60], ['categoria', 100], ['departamento', 100]]) {
+  // Mismos máximos que los renglones de venta para clave y descripción.
+  textoArticulo(a.descripcion, 500);
+  for (const [campo, maximo] of [['clave', 100], ['categoria', 100], ['departamento', 100]]) {
     enReferencia(`articulos[${indice}].${campo}`, () => textoArticulo(a[campo], maximo, true));
   }
 }

@@ -54,7 +54,8 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   `schema_version`. Cada fila es `{ "art_id": "10", "clave": "JLX215P", "descripcion": "BAFLE JLX ...",
   "categoria": "Bafles", "departamento": "Audio" }`. `descripcion` es texto; `clave`, `categoria` y
   `departamento` pueden ser texto o `null`. El servidor recorta los textos y convierte los opcionales vacíos en
-  `null`; rechaza U+FFFD y valores mayores a 60, 300, 100 y 100 caracteres respectivamente.
+  `null`; rechaza U+FFFD y valores mayores a 100, 500, 100 y 100 caracteres respectivamente (clave y descripción
+  con los mismos máximos que los renglones de venta).
 - El mismo `art_id` no puede aparecer dos veces en `articulos`. La tienda no va en la fila: el servidor la toma
   exclusivamente de la llave autenticada. El recibo incluye `aceptados.articulos` cuando el lote trae esta colección.
 
@@ -82,6 +83,7 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
 | Ventas por lote | 100 | 422 `LIMITE_ENTIDADES` |
 | Artículos por lote | 500 | 422 `LIMITE_ENTIDADES` |
 | Renglones de detalle por lote | 1,000 (500 por venta) | 422 `LIMITE_ENTIDADES` |
+| Artículos por lote | 500 | 422 `LIMITE_ENTIDADES` |
 | Tamaño del cuerpo | 1 MiB | 413 `CUERPO_EXCESIVO` |
 | Envíos por minuto con la misma llave | 12 | 429 `RITMO_EXCEDIDO` |
 | Lotes simultáneos por tienda | 1 | esperar la respuesta antes de mandar el siguiente |

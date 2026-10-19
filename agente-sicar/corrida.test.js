@@ -109,3 +109,69 @@ test('columna faltante al arrancar bloquea incluso el reenvío pendiente', async
   assert.equal(p.lotes.length, 0);
   assert.equal((await cargar(p.archivo)).ven_id, '0');
 });
+
+function conArticulos(p, filas) {
+  p.fuente.articulosDisponibles = true;
+  const leidos = [];
+  p.fuente.articulos = async (cursor, limite) => { leidos.push(cursor); return filas.filter(a => BigInt(a.art_id) > BigInt(cursor)).slice(0, limite); };
+  return leidos;
+}
+const articulo = n => ({ art_id: String(n), clave: `C-${n}`, descripcion: `Articulo ${n}`, categoria: 'Bafles', departamento: 'Audio' });
+test('articulos: de noche manda la lista completa en lotes aparte y marca el dia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.tamano = 2;
+  conArticulos(p, [articulo(1), articulo(2), articulo(3)]);
+  await ejecutar(p.archivo, {}, p.deps);
+  const lotes = p.lotes.filter(l => l.articulos);
+  assert.deepEqual(lotes.map(l => l.articulos.map(a => a.art_id)), [['1', '2'], ['3']]);
+  assert.ok(lotes.every(l => !l.clientes.length && !l.ventas.length));
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.articulos_dia, '2026-10-14');
+  assert.equal(estado.articulos_cursor, '0');
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.equal(p.lotes.length, 0, 'el mismo dia no se repite');
+});
+test('articulos: de dia no se mandan salvo con articulosAhora', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+  conArticulos(p, [articulo(1)]);
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.equal(p.lotes.length, 0);
+  await ejecutar(p.archivo, {}, { ...p.deps, articulosAhora: true });
+  assert.deepEqual(p.lotes.map(l => l.articulos?.length), [1]);
+});
+test('articulos: no se mandan mientras la carga historica no termina', async t => {
+  const p = await preparar(t);
+  const leidos = conArticulos(p, [articulo(1)]);
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.equal(leidos.length, 0);
+  assert.ok(p.lotes.every(l => !l.articulos));
+});
+test('articulos: sin columnas avisa y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.articulosDisponibles = false;
+  p.fuente.articulos = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('ARTICULOS_NO_DISPONIBLES'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+  assert.equal((await cargar(p.archivo)).articulos_dia, null);
+});
+test('articulos: uno raro se omite con su id y el resto se manda; cursor solo avanza con 200', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conArticulos(p, [articulo(1), { ...articulo(2), descripcion: ' ' }, articulo(3)]);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).articulos ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, {}, { ...p.deps, intentos: 1 });
+  const atorado = await cargar(p.archivo);
+  assert.equal(atorado.articulos_cursor, '0');
+  assert.ok(atorado.pendiente);
+  p.deps.fetch = fetch;
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('ARTICULO_OMITIDO'));
+  assert.deepEqual(p.lotes.filter(l => l.articulos).at(-1).articulos.map(a => a.art_id), ['1', '3']);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.articulos_dia, '2026-10-14');
+  assert.equal(estado.pendiente, null);
+});

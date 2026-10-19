@@ -70,7 +70,7 @@ function sobre(sequence, mode, ahora) {
     window: { from: new Date(ahora.getTime() - 48 * 3600000).toISOString(), to: ahora.toISOString() }, clientes: [], ventas: [] };
 }
 function cabe(lote) {
-  return lote.clientes.length <= 100 && lote.ventas.length <= 100
+  return lote.clientes.length <= 100 && lote.ventas.length <= 100 && (lote.articulos?.length || 0) <= 500
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
     && Buffer.byteLength(JSON.stringify(lote), 'utf8') <= 1024 * 1024;
@@ -90,6 +90,26 @@ function clienteSeguro(c, avisar) {
     return { cliente: null, omitido: { cli_id: String(c.cli_id), codigo: error.message } };
   }
 }
+// Mismos límites que el servidor (sicarIngesta.js). Vacío → null; la descripción es obligatoria.
+function articulo(a) {
+  const art_id = id(a.art_id);
+  const opcional = (valor, maximo) => {
+    if (valor == null) return null;
+    const limpio = texto(String(valor), maximo).trim();
+    return limpio || null;
+  };
+  return { art_id, clave: opcional(a.clave, 100), descripcion: texto(String(a.descripcion ?? ''), 500, false).trim(),
+    categoria: opcional(a.categoria, 100), departamento: opcional(a.departamento, 100) };
+}
+// Un artículo que el contrato no acepta no detiene la carga: se salta con su id, como ventas y clientes.
+function articuloSeguro(a) {
+  const art_id = id(a?.art_id);
+  try { return { articulo: articulo(a), omitido: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message)) throw error;
+    return { articulo: null, omitido: { art_id, codigo: error.message } };
+  }
+}
 function ventaSegura(v, c, detalles, enviada, avisar) {
   try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
   catch (error) {
@@ -102,4 +122,4 @@ function ventaSegura(v, c, detalles, enviada, avisar) {
     return { venta: enviada ? { ven_id: error.ven_id, estado: 'excluida' } : null, omitida };
   }
 }
-module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura };
+module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro };

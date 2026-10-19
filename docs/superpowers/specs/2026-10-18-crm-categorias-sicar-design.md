@@ -65,7 +65,7 @@ idéntico al de hoy):
 ```
 
 - `art_id` texto entero positivo (misma regla que hoy). `clave`, `categoria`, `departamento`: texto o `null`;
-  `descripcion` texto. Recortados; vacío → `null`. Máximos: clave 60, descripcion 300, categoria y departamento 100
+  `descripcion` texto. Recortados; vacío → `null`. Máximos: clave 100, descripcion 500 (iguales a los renglones de venta), categoria y departamento 100
   (si se pasan → 422 `TEXTO_INVALIDO` con `referencia`, el código que ya usa la ingesta). UTF-8 estricto, igual que el resto (`�` → rechazo).
 - Límite: **500 artículos por lote** (422 `LIMITE_ENTIDADES`). El tope de 1 MiB sigue igual.
 - Un lote puede traer solo `articulos` (clientes y ventas vacíos). Avanza la secuencia como cualquier lote.

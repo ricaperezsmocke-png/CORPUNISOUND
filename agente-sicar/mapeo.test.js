@@ -63,3 +63,49 @@ test('lee páginas por PK, documentos por COALESCE y detalles por su PK descubie
   assert.match(consultas.findLast(q => q.sql.includes('FROM `venta`')).sql, /`ven_id` IN \(\?\)/);
   for (const q of consultas) assert.doesNotMatch(q.sql, /\b(huella|muestra|foto|OFFSET)\b|WHERE.*fecha/i);
 });
+
+const columnasArticulos = { articulo: 'art_id clave descripcion cat_id precio', categoria: 'cat_id nombre dep_id', departamento: 'dep_id nombre' };
+function prepararArticulos(sinColumna) {
+  const consultas = [];
+  const leer = async (sql, parametros) => {
+    validarSQL(sql);
+    consultas.push({ sql, parametros });
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries({ ...columnas, ...columnasArticulos }).flatMap(([TABLE_NAME, campos]) => campos.split(' ')
+        .filter(c => `${TABLE_NAME}.${c}` !== sinColumna).map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('COUNT(*)')) return [{ total: '2' }];
+    if (sql.includes('FROM `articulo`')) return [{ art_id: '8', clave: 'JLX', descripcion: 'Bafle', categoria: 'Bafles', departamento: 'Audio' }];
+    return [];
+  };
+  return { fuente: crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {}), consultas };
+}
+test('articulos: lee departamento y categoria por art_id con consulta que pasa la guardia', async () => {
+  const { fuente, consultas } = prepararArticulos();
+  await fuente.validar();
+  assert.equal(fuente.articulosDisponibles, true);
+  assert.deepEqual(await fuente.articulos('5', 100), [{ art_id: '8', clave: 'JLX', descripcion: 'Bafle', categoria: 'Bafles', departamento: 'Audio' }]);
+  const q = consultas.at(-1);
+  assert.match(q.sql, /LEFT JOIN `categoria`.*LEFT JOIN `departamento`/);
+  assert.match(q.sql, /`art_id` > \? ORDER BY a\.`art_id` LIMIT \?/);
+  assert.deepEqual(q.parametros, ['5', 100]);
+  const info = await fuente.verificar();
+  assert.equal(info.articulos.total, '2');
+  assert.ok(info.articulos.columnas.includes('categoria.dep_id'));
+});
+test('articulos: columna faltante no detiene la validacion y deja los articulos apagados', async () => {
+  const { fuente, consultas } = prepararArticulos('categoria.dep_id');
+  await fuente.validar();
+  assert.equal(fuente.articulosDisponibles, false);
+  await assert.rejects(fuente.articulos('0', 100), /ARTICULOS_NO_DISPONIBLES/);
+  assert.equal(consultas.some(q => q.sql.includes('FROM `articulo`')), false);
+  const info = await fuente.verificar();
+  assert.deepEqual(info.articulos.faltantes, ['categoria.dep_id']);
+  assert.equal(info.articulos.total, null);
+});
+test('articulos: sin tablas de articulos tambien sigue y no los consulta', async () => {
+  const { fuente } = preparar();
+  await fuente.validar();
+  assert.equal(fuente.articulosDisponibles, false);
+});

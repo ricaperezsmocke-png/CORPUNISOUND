@@ -58,3 +58,15 @@ test('histórica únicamente desde 20:00 inclusive hasta 07:00 exclusiva en tien
     assert.equal(esHorarioHistorico(new Date(`2026-10-15T${hora}Z`)), esperado);
   }
 });
+
+test('articulo seguro recorta vacios a null y omite los que no cumplen el contrato', () => {
+  const { articuloSeguro } = require('./formato');
+  assert.deepEqual(articuloSeguro({ art_id: 8, clave: ' JLX ', descripcion: ' Bafle ', categoria: '', departamento: null }).articulo,
+    { art_id: '8', clave: 'JLX', descripcion: 'Bafle', categoria: null, departamento: null });
+  for (const [raro, codigo] of [[{ descripcion: '  ' }, 'TEXTO_VACIO'], [{ categoria: 'x'.repeat(101) }, 'TEXTO_INVALIDO'],
+    [{ departamento: 'Au\u0001dio' }, 'TEXTO_INVALIDO'], [{ clave: 'c'.repeat(101) }, 'TEXTO_INVALIDO']]) {
+    const r = articuloSeguro({ art_id: '9', clave: 'A', descripcion: 'Bafle', categoria: 'B', departamento: 'C', ...raro });
+    assert.deepEqual(r, { articulo: null, omitido: { art_id: '9', codigo } });
+  }
+  assert.throws(() => articuloSeguro({ art_id: 'x', descripcion: 'Bafle' }), /ID_INVALIDO/);
+});
