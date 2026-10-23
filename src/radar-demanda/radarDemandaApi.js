@@ -29,6 +29,8 @@ export function mensajeErrorRadar(error, accion = "guardar") {
   if (error?.status === 409) return error.message || "Ese cambio de estado ya no está permitido.";
   if (error?.status === 500) return "Ocurrió un error interno. Intenta nuevamente.";
   const texto = String(error?.message || "");
+  // Antes que "producto": el mensaje del proveedor también menciona el producto.
+  if (/proveedor/i.test(texto)) return texto;
   if (/motivo/i.test(texto)) return "Selecciona el motivo por el que no se realizó la venta.";
   if (/producto|describe/i.test(texto)) return "Indica qué producto pidió el cliente.";
   if (/cantidad/i.test(texto)) return "La cantidad debe ser mayor que cero.";
@@ -115,6 +117,11 @@ export async function registrarDemanda(datos) {
     method: "POST",
     body: JSON.stringify(datos),
   }), "No fue posible registrar la demanda");
+}
+
+/** Proveedores de SICAR de todas las tiendas, uno por nombre: [{ clave, nombre }]. */
+export async function cargarProveedoresRadar() {
+  return leerRespuesta(await apiFetch("/radar-demanda/proveedores"), "No fue posible cargar los proveedores");
 }
 
 export async function cargarCatalogosRadar() {
