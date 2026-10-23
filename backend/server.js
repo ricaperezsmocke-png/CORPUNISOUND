@@ -783,7 +783,7 @@ function requiereVerProveedoresRadar(req, res, next) {
   if (!req.usuarioToken) return res.status(401).json({ error: "No autenticado" });
   const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
   if (!["registrar_demanda", "ver_radar_demanda"].some((clave) => permisos.includes(clave))) {
-    return res.status(403).json({ error: "No tienes el permiso requerido: registrar_demanda" });
+    return res.status(403).json({ error: "No tienes el permiso requerido: registrar_demanda o ver_radar_demanda" });
   }
   next();
 }

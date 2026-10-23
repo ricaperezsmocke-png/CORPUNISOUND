@@ -167,7 +167,10 @@ async function ejecutar(archivo, config, deps) {
     const hoy = horaLocal(reloj()).slice(0, 10);
     async function listaDiaria(lista, { ahora, disponible, aviso, leer, idDe, seguro, evento }) {
       if (config[lista] !== true) return true;
-      const toca = () => estado[`${lista}_dia`] !== hoy && (ahora || esHorarioHistorico(new Date(reloj())));
+      // A mano (--articulos-ahora / --proveedores-ahora) se manda una vuelta completa aunque hoy ya se haya mandado:
+      // sirve tras restaurar un respaldo que dejó la lista vacía. Solo, de noche, una vez al día.
+      let vueltaCompleta = false;
+      const toca = () => (ahora ? !vueltaCompleta : estado[`${lista}_dia`] !== hoy && esHorarioHistorico(new Date(reloj())));
       if (!toca()) return true;
       if (!disponible) { log(aviso); return true; }
       while (toca()) {
@@ -179,6 +182,7 @@ async function ejecutar(archivo, config, deps) {
           return item;
         });
         if (!await transmitir(items, cambios, 'incremental')) return false;
+        if (!filas.length) vueltaCompleta = true;
       }
       return true;
     }

@@ -258,3 +258,15 @@ test('proveedores: sin el interruptor en config no se leen ni se mandan, y los l
   assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'proveedores')), 'un servidor viejo rechazaria la llave');
   assert.equal(p.mensajes.includes('PROVEEDORES_NO_DISPONIBLES'), false);
 });
+test('proveedores: --proveedores-ahora vuelve a mandar la lista aunque hoy ya se haya mandado (tras restaurar un respaldo)', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+  conProveedores(p, [proveedor(1)]);
+  await ejecutar(p.archivo, { proveedores: true }, { ...p.deps, proveedoresAhora: true });
+  assert.deepEqual(p.lotes.map(l => l.proveedores?.length), [1]);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'sin la bandera no se repite el mismo dia');
+  await ejecutar(p.archivo, { proveedores: true }, { ...p.deps, proveedoresAhora: true });
+  assert.deepEqual(p.lotes.map(l => l.proveedores?.length), [1], 'con la bandera a mano si se repite');
+});
