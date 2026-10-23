@@ -184,3 +184,77 @@ test('articulos: uno raro se omite con su id y el resto se manda; cursor solo av
   assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'articulos')), 'un servidor viejo rechazaria la llave');
   assert.equal(p.mensajes.includes('ARTICULOS_NO_DISPONIBLES'), false);
 });
+
+function conProveedores(p, filas) {
+  p.fuente.proveedoresDisponibles = true;
+  const leidos = [];
+  p.fuente.proveedores = async (cursor, limite) => { leidos.push(cursor); return filas.filter(x => BigInt(x.prv_id) > BigInt(cursor)).slice(0, limite); };
+  return leidos;
+}
+const proveedor = n => ({ prv_id: String(n), nombre: `Proveedor ${n}` });
+test('proveedores: de noche manda la lista completa en lotes aparte y marca el dia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.tamano = 2;
+  conProveedores(p, [proveedor(1), proveedor(2), proveedor(3)]);
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  const lotes = p.lotes.filter(l => l.proveedores);
+  assert.deepEqual(lotes.map(l => l.proveedores.map(x => x.prv_id)), [['1', '2', '3']]);
+  assert.ok(lotes.every(l => !l.clientes.length && !l.ventas.length && !Object.hasOwn(l, 'articulos')));
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.proveedores_dia, '2026-10-14');
+  assert.equal(estado.proveedores_cursor, '0');
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'el mismo dia no se repite');
+});
+test('proveedores: de dia no se mandan salvo con proveedoresAhora', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+  conProveedores(p, [proveedor(1)]);
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  assert.equal(p.lotes.length, 0);
+  await ejecutar(p.archivo, { proveedores: true }, { ...p.deps, articulosAhora: true });
+  assert.equal(p.lotes.length, 0, 'la bandera de articulos no prende proveedores');
+  await ejecutar(p.archivo, { proveedores: true }, { ...p.deps, proveedoresAhora: true });
+  assert.deepEqual(p.lotes.map(l => l.proveedores?.length), [1]);
+});
+test('proveedores: se mandan aunque los articulos esten apagados o sin columnas, y despues de ellos', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conArticulos(p, [articulo(1)]);
+  conProveedores(p, [proveedor(4)]);
+  await ejecutar(p.archivo, { articulos: true, proveedores: true }, p.deps);
+  assert.deepEqual(p.lotes.map(l => l.articulos ? 'articulos' : l.proveedores ? 'proveedores' : 'otro'), ['articulos', 'proveedores']);
+  const q = await preparar(t, { ...inicial(), fase: 'incremental' });
+  q.fuente.articulosDisponibles = false;
+  conProveedores(q, [proveedor(4)]);
+  await ejecutar(q.archivo, { articulos: true, proveedores: true }, q.deps);
+  assert.ok(q.mensajes.includes('ARTICULOS_NO_DISPONIBLES'));
+  assert.deepEqual(q.lotes.map(l => l.proveedores?.length), [1]);
+});
+test('proveedores: sin columnas avisa y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.proveedoresDisponibles = false;
+  p.fuente.proveedores = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  assert.ok(p.mensajes.includes('PROVEEDORES_NO_DISPONIBLES'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+  assert.equal((await cargar(p.archivo)).proveedores_dia, null);
+});
+test('proveedores: uno raro se omite con su id y el resto se manda', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conProveedores(p, [proveedor(1), { prv_id: '2', nombre: '   ' }, proveedor(3)]);
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  assert.ok(p.mensajes.includes('PROVEEDOR_OMITIDO'));
+  assert.deepEqual(p.lotes.filter(l => l.proveedores).at(-1).proveedores.map(x => x.prv_id), ['1', '3']);
+});
+test('proveedores: sin el interruptor en config no se leen ni se mandan, y los lotes no llevan la llave', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  const leidos = conProveedores(p, [proveedor(1)]);
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { articulos: false }, { ...p.deps, proveedoresAhora: true });
+  assert.equal(leidos.length, 0);
+  assert.ok(p.lotes.length > 0);
+  assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'proveedores')), 'un servidor viejo rechazaria la llave');
+  assert.equal(p.mensajes.includes('PROVEEDORES_NO_DISPONIBLES'), false);
+});

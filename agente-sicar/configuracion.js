@@ -37,6 +37,8 @@ async function leerConfiguracion(archivo) {
   }
   // Interruptor de la lista de artículos: solo true la prende, y se prende después de --verificar (spec 2026-10-18).
   if (config.articulos !== undefined && typeof config.articulos !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
+  // Igual la de proveedores (Radar de Demanda): apagada hasta que el servidor nuevo esté en producción.
+  if (config.proveedores !== undefined && typeof config.proveedores !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   return config;
 }
 module.exports = { leerConfiguracion };

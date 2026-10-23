@@ -47,3 +47,30 @@ test('--verificar cuenta por páginas, muestra historial solo local y no llama H
     assert.equal(salida.join('\n').includes(secreto), false);
   }
 });
+test('el interruptor proveedores solo acepta true o false', async t => {
+  const { archivo, config } = await preparar(t);
+  assert.equal((await leerConfiguracion(archivo)).proveedores, undefined);
+  for (const [valor, acepta] of [[true, true], [false, true], ['si', false], [1, false]]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, proveedores: valor }));
+    if (acepta) assert.equal((await leerConfiguracion(archivo)).proveedores, valor);
+    else await assert.rejects(leerConfiguracion(archivo), /CONFIGURACION_INVALIDA/);
+  }
+});
+test('--verificar dice que columnas de proveedor encontro y cuantos hay, o que estan apagados', async t => {
+  const { archivo } = await preparar(t);
+  const base = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }) };
+  const info = proveedores => async () => ({ grants: [], columnas: [], ventas: [], clientes: [], proveedores });
+  for (const [proveedores, esperado, aviso] of [
+    [{ columnas: ['proveedor.prv_id', 'proveedor.nombre'], faltantes: [], total: '42' }, /Proveedores en SICAR: 42/, false],
+    [{ columnas: ['proveedor.prv_id'], faltantes: ['proveedor.nombre'], total: null }, /Proveedores APAGADOS, faltan columnas: \["proveedor.nombre"\]/, true],
+  ]) {
+    const salida = [], registros = [];
+    await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+      crearFuente: async () => ({ ...base, verificar: info(proveedores) }), imprimir: x => salida.push(x), log: x => registros.push(x),
+      esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+    assert.match(salida.join('\n'), /Columnas de proveedor: \["proveedor.prv_id"/);
+    assert.match(salida.join('\n'), esperado);
+    assert.equal(registros.includes('PROVEEDORES_NO_DISPONIBLES'), aviso);
+  }
+});

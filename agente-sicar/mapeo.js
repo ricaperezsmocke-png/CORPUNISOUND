@@ -11,6 +11,10 @@ const COLUMNAS = {
 const COLUMNAS_ARTICULOS = {
   articulo: ['art_id', 'clave', 'descripcion', 'cat_id'], categoria: ['cat_id', 'nombre', 'dep_id'], departamento: ['dep_id', 'nombre'],
 };
+// Proveedores con los que la tienda consigue la mercancía (Radar de Demanda, 2026-10-23). Esquema supuesto: se confirma
+// con --verificar. Opcionales igual que los artículos: si falta una columna, se sigue con todo lo demás y no se mandan.
+// Si SICAR los nombra distinto, se cambian aquí los dos nombres: [id, nombre].
+const COLUMNAS_PROVEEDORES = { proveedor: ['prv_id', 'nombre'] };
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -25,6 +29,10 @@ function crearFuente(lector, config = {}) {
   let validado = false;
   let articulosFaltantes = null;
   let columnasArticulos = [];
+  let proveedoresFaltantes = null;
+  let columnasProveedores = [];
+  const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
+  const [idProveedor, nombreProveedor] = COLUMNAS_PROVEEDORES[tablaProveedor].map(identificador);
   const desdeVenta = 'FROM `venta` v LEFT JOIN `ticket` t ON t.`tic_id` = v.`tic_id` '
     + 'LEFT JOIN `nota` n ON n.`not_id` = v.`not_id` LEFT JOIN `remision` r ON r.`rem_id` = v.`rem_id`';
   const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
@@ -52,6 +60,15 @@ function crearFuente(lector, config = {}) {
         // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
         + 'WHERE a.`art_id` > ? ORDER BY a.`art_id` LIMIT ?', [cursor, Math.min(limite, lector.tamano * 5)]));
     },
+    get proveedoresDisponibles() { return Array.isArray(proveedoresFaltantes) && !proveedoresFaltantes.length; },
+    async proveedores(cursor, limite) {
+      comprobar();
+      if (proveedoresFaltantes.length) throw new Error('PROVEEDORES_NO_DISPONIBLES');
+      // Se renombran a prv_id y nombre: el contrato no cambia aunque SICAR use otros nombres de columna.
+      return lector.pagina(leer => leer(`SELECT p.${idProveedor} AS prv_id, p.${nombreProveedor} AS nombre `
+        + `FROM ${identificador(tablaProveedor)} p WHERE p.${idProveedor} > ? ORDER BY p.${idProveedor} LIMIT ?`,
+      [cursor, Math.min(limite, lector.tamano * 5)]));
+    },
     async validar() {
       await lector.pagina(async leer => {
         const columnas = await leer('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE()');
@@ -78,6 +95,10 @@ function crearFuente(lector, config = {}) {
         columnasArticulos = columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`)
           .filter(c => Object.keys(COLUMNAS_ARTICULOS).includes(c.split('.')[0]) && !/\.(huella|muestra|foto)$/i.test(c));
         articulosFaltantes = Object.entries(COLUMNAS_ARTICULOS).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`))
+          .filter(c => !presentes.has(c));
+        columnasProveedores = columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`)
+          .filter(c => c.split('.')[0] === tablaProveedor && !/\.(huella|muestra|foto)$/i.test(c));
+        proveedoresFaltantes = Object.entries(COLUMNAS_PROVEEDORES).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`))
           .filter(c => !presentes.has(c));
         validado = true;
       });
@@ -125,6 +146,8 @@ function crearFuente(lector, config = {}) {
           + 'WHERE `tabla` = ? ORDER BY `his_id` DESC LIMIT 3', ['Cliente']),
         articulos: { columnas: columnasArticulos, faltantes: articulosFaltantes,
           total: articulosFaltantes.length ? null : String((await leer('SELECT COUNT(*) AS total FROM `articulo`'))[0].total) },
+        proveedores: { columnas: columnasProveedores, faltantes: proveedoresFaltantes, total: proveedoresFaltantes.length ? null
+          : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)}`))[0].total) },
       }));
     },
   };

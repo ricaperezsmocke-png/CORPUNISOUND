@@ -75,3 +75,12 @@ test('articulo con relleno de espacios de SICAR cabe una vez recortado', () => {
   const r = articuloSeguro({ art_id: '9', clave: 'A' + ' '.repeat(150), descripcion: 'Bafle' + ' '.repeat(600), categoria: 'Bafles' + ' '.repeat(200) });
   assert.deepEqual(r.articulo, { art_id: '9', clave: 'A', descripcion: 'Bafle', categoria: 'Bafles', departamento: null });
 });
+test('proveedor seguro recorta el relleno de SICAR y omite los que no cumplen el contrato', () => {
+  const { proveedorSeguro } = require('./formato');
+  assert.deepEqual(proveedorSeguro({ prv_id: 7, nombre: ' Casa Veerkamp' + ' '.repeat(300) }),
+    { proveedor: { prv_id: '7', nombre: 'Casa Veerkamp' }, omitido: null });
+  for (const [nombre, codigo] of [['  ', 'TEXTO_VACIO'], [null, 'TEXTO_VACIO'], ['x'.repeat(251), 'TEXTO_INVALIDO'], ['Ca\u0001sa', 'TEXTO_INVALIDO']]) {
+    assert.deepEqual(proveedorSeguro({ prv_id: '9', nombre }), { proveedor: null, omitido: { prv_id: '9', codigo } });
+  }
+  assert.throws(() => proveedorSeguro({ prv_id: 'x', nombre: 'Casa' }), /ID_INVALIDO/);
+});

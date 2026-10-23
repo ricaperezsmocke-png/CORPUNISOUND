@@ -8,5 +8,6 @@
   "llave": "LLAVE_DE_LA_TIENDA_QUE_DA_CORPUNISOUND",
   "estado": "C:\\UnisoundSICAR\\estado.json",
   "historial": {},
-  "articulos": false
+  "articulos": false,
+  "proveedores": false
 }

@@ -1,6 +1,7 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { cargar, guardar, bloquear } = require('./estado');
-const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro } = require('./formato');
+const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
+  proveedorSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
@@ -22,8 +23,9 @@ function agregar(lote, elemento) {
   if (elemento.venta) lote.ventas.push(elemento.venta);
   // La colección solo aparece cuando hay artículos: un lote sin ellos queda idéntico al de antes.
   if (elemento.articulo) (lote.articulos ??= []).push(elemento.articulo);
+  if (elemento.proveedor) (lote.proveedores ??= []).push(elemento.proveedor);
 }
-const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length;
+const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -159,23 +161,35 @@ async function ejecutar(archivo, config, deps) {
       if (!await transmitir(elementos(pagina, estado, avisar, omitir), { ventana: cache(pagina, estado) })) return;
       i += paginaIds.length;
     }
-    // Lista de artículos (departamento y categoría): completa una vez al día, de noche o a mano, después de las ventas.
-    // Apagada mientras config.articulos no sea true: un servidor viejo rechaza la colección y detendría las ventas.
-    if (config.articulos !== true) return;
+    // Listas diarias (artículos con departamento y categoría; proveedores para el Radar): completas una vez al día, de noche
+    // o a mano, después de las ventas. Cada una apagada mientras su interruptor no sea true: un servidor viejo rechaza la
+    // colección y detendría las ventas.
     const hoy = horaLocal(reloj()).slice(0, 10);
-    const toca = () => estado.articulos_dia !== hoy && (deps.articulosAhora || esHorarioHistorico(new Date(reloj())));
-    if (!toca()) return;
-    if (!fuente.articulosDisponibles) { log('ARTICULOS_NO_DISPONIBLES'); return; }
-    while (toca()) {
-      const filas = await fuente.articulos(estado.articulos_cursor, 500);
-      const cambios = filas.length ? { articulos_cursor: id(filas.at(-1).art_id) } : { articulos_cursor: '0', articulos_dia: hoy };
-      const items = filas.map(a => {
-        const { articulo, omitido } = articuloSeguro(a);
-        if (omitido) omitir('ARTICULO_OMITIDO', omitido);
-        return { articulo };
-      });
-      if (!await transmitir(items, cambios, 'incremental')) return;
+    async function listaDiaria(lista, { ahora, disponible, aviso, leer, idDe, seguro, evento }) {
+      if (config[lista] !== true) return true;
+      const toca = () => estado[`${lista}_dia`] !== hoy && (ahora || esHorarioHistorico(new Date(reloj())));
+      if (!toca()) return true;
+      if (!disponible) { log(aviso); return true; }
+      while (toca()) {
+        const filas = await leer(estado[`${lista}_cursor`], 500);
+        const cambios = filas.length ? { [`${lista}_cursor`]: id(idDe(filas.at(-1))) } : { [`${lista}_cursor`]: '0', [`${lista}_dia`]: hoy };
+        const items = filas.map(fila => {
+          const { item, omitido } = seguro(fila);
+          if (omitido) omitir(evento, omitido);
+          return item;
+        });
+        if (!await transmitir(items, cambios, 'incremental')) return false;
+      }
+      return true;
     }
+    if (!await listaDiaria('articulos', { ahora: deps.articulosAhora, disponible: fuente.articulosDisponibles,
+      aviso: 'ARTICULOS_NO_DISPONIBLES', leer: (cursor, n) => fuente.articulos(cursor, n), idDe: a => a.art_id,
+      seguro: a => { const r = articuloSeguro(a); return { item: { articulo: r.articulo }, omitido: r.omitido }; },
+      evento: 'ARTICULO_OMITIDO' })) return;
+    await listaDiaria('proveedores', { ahora: deps.proveedoresAhora, disponible: fuente.proveedoresDisponibles,
+      aviso: 'PROVEEDORES_NO_DISPONIBLES', leer: (cursor, n) => fuente.proveedores(cursor, n), idDe: p => p.prv_id,
+      seguro: p => { const r = proveedorSeguro(p); return { item: { proveedor: r.proveedor }, omitido: r.omitido }; },
+      evento: 'PROVEEDOR_OMITIDO' });
   } finally { await liberar(); }
 }
 module.exports = { ejecutar };

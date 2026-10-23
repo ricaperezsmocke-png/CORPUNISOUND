@@ -442,3 +442,30 @@ test('--articulos-ahora manda la lista de dia solo con el interruptor articulos:
   await main(['--articulos-ahora'], deps);
   assert.deepEqual(lotes.map(l => l.articulos?.map(a => a.art_id)), [['5']]);
 });
+test('--proveedores-ahora manda la lista de dia solo con el interruptor proveedores: true en config', async t => {
+  const { main } = require('./index');
+  const { inicial, guardar } = require('./estado');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'config.json');
+  const estadoRuta = path.join(dir, 'estado.json');
+  await guardar(estadoRuta, { ...inicial(), fase: 'incremental' });
+  const config = { mysql: { host: 'localhost', database: 'sicar', password: 'p' }, llave: 'k', estado: estadoRuta };
+  const lotes = [];
+  const vacia = async () => ({ filas: [], clientes: [], detalles: [] });
+  const fuente = { tamano: 100, proveedoresDisponibles: true, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: vacia, historial: async () => [], porIds: vacia,
+    proveedores: async cursor => cursor === '0' ? [{ prv_id: '5', nombre: 'Casa Veerkamp' }] : [] };
+  const deps = { configPath: archivo, eco: () => {}, conectar: async () => ({ end: async () => {} }), crearFuente: async () => fuente,
+    esperar: async () => {}, reloj: () => Date.parse('2026-10-15T19:00:00Z'), // 13:00 en la tienda
+    fetch: async (_, { body }) => { const l = JSON.parse(body); lotes.push(l);
+      return { status: 200, json: async () => ({ next_sequence: String(BigInt(l.sequence) + 1n) }) }; } };
+  await fs.writeFile(archivo, JSON.stringify(config));
+  await main(['--proveedores-ahora'], deps);
+  assert.equal(lotes.length, 0, 'sin interruptor no manda');
+  await fs.writeFile(archivo, JSON.stringify({ ...config, proveedores: true }));
+  await main([], deps);
+  assert.equal(lotes.length, 0, 'de dia, sin la bandera, no manda');
+  await main(['--proveedores-ahora'], deps);
+  assert.deepEqual(lotes.map(l => l.proveedores?.map(x => x.prv_id)), [['5']]);
+  await assert.rejects(main(['--proveedores-ahora', '--verificar'], deps), 'no se combina con --verificar');
+});

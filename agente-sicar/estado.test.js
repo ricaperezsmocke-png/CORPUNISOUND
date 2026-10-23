@@ -132,3 +132,19 @@ test('401 con respuesta no JSON también detiene sin reintentar', async t => {
   assert.equal(envios, 1);
   assert.equal((await cargar(archivo)).detenido, 'HTTP_401');
 });
+test('un estado.json de antes de los proveedores arranca su lista desde cero y rechaza cursores raros', async t => {
+  const archivo = await entorno(t);
+  const viejo = inicial();
+  delete viejo.proveedores_cursor;
+  delete viejo.proveedores_dia;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const estado = await cargar(archivo);
+  assert.equal(estado.proveedores_cursor, '0');
+  assert.equal(estado.proveedores_dia, null);
+  for (const raro of [{ proveedores_cursor: 'x' }, { proveedores_cursor: 5 }, { proveedores_dia: 'ayer' }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/);
+  }
+  assert.equal(registrar(x => x)('PROVEEDOR_OMITIDO', { prv_id: '7', codigo: 'TEXTO_VACIO' }), 'PROVEEDOR_OMITIDO prv_id=7 codigo=TEXTO_VACIO');
+  assert.equal(registrar(x => x)('PROVEEDORES_NO_DISPONIBLES'), 'PROVEEDORES_NO_DISPONIBLES');
+});
