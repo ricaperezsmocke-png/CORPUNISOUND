@@ -58,6 +58,12 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   con los mismos máximos que los renglones de venta).
 - El mismo `art_id` no puede aparecer dos veces en `articulos`. La tienda no va en la fila: el servidor la toma
   exclusivamente de la llave autenticada. El recibo incluye `aceptados.articulos` cuando el lote trae esta colección.
+- `proveedores` es otra colección opcional independiente (Radar de Demanda, 2026-10-23), con las mismas reglas:
+  puede ser el único contenido del lote, no cambia `schema_version`, hasta 500 por lote y el mismo `prv_id` no se
+  repite. Cada fila es exactamente `{ "prv_id": "7", "nombre": "Casa Veerkamp" }`; `nombre` es texto obligatorio de
+  hasta 250 caracteres, sin U+FFFD. El servidor lo recorta y lo guarda por tienda (la de la llave). El recibo incluye
+  `aceptados.proveedores` cuando el lote trae esta colección. Un servidor anterior a esta versión rechaza la llave
+  `proveedores` con 400: el agente la manda solo con `"proveedores": true` en su configuración.
 
 ## 3. Qué venta mandar y con qué estado
 

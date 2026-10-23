@@ -107,7 +107,7 @@ test('la migración es idempotente, activa FK y crea las catorce tablas aisladas
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 15);
+  assert.equal(Object.keys(antes).length, 16);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -312,4 +312,24 @@ test('guarda articulos por tienda, recorta texto y los reemplaza sin romper el r
   const otraTienda = { ...reemplazo, batch_id: 'lote-1', sequence: '1' };
   aplicar(repo, otraTienda, 2);
   assert.equal(sqlite.prepare("SELECT count(*) AS n FROM sicar_articulos WHERE art_id='81'").get().n, 2);
+});
+
+test('guarda proveedores por tienda, recorta el nombre, los reemplaza y los lista sin romper el reenvio', t => {
+  const { sqlite, repo } = prepararDB(t);
+  assert.deepEqual(repo.listarProveedores(), []);
+  const datos = { ...lote(), clientes: [], ventas: [], proveedores: [{ prv_id: '7', nombre: ' Casa Veerkamp ' }] };
+  const recibo = aplicar(repo, datos);
+  assert.deepEqual(recibo.aceptados, { clientes: 0, ventas: 0, proveedores: 1 });
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores').all(),
+    [{ sucursal_id: 1, prv_id: '7', nombre: 'Casa Veerkamp' }]);
+  assert.match(sqlite.prepare('SELECT actualizado_en FROM sicar_proveedores').get().actualizado_en, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(aplicar(repo, datos), recibo);
+  const reemplazo = { ...datos, batch_id: 'lote-2', sequence: '2', proveedores: [{ prv_id: '7', nombre: 'Casa Veerkamp S.A.' }] };
+  aplicar(repo, reemplazo);
+  aplicar(repo, { ...reemplazo, batch_id: 'lote-1', sequence: '1', proveedores: [{ prv_id: '3', nombre: 'Yamaha' }] }, 2);
+  assert.deepEqual(repo.listarProveedores(), [
+    { sucursal_id: 1, prv_id: '7', nombre: 'Casa Veerkamp S.A.' }, { sucursal_id: 2, prv_id: '3', nombre: 'Yamaha' },
+  ]);
+  const sinProveedores = aplicar(repo, { ...lote('3'), clientes: [], ventas: [] });
+  assert.equal(Object.hasOwn(sinProveedores.aceptados, 'proveedores'), false, 'un lote sin la llave no la reporta');
 });

@@ -75,6 +75,17 @@ function validarArticulo(a, indice) {
   }
 }
 
+// Proveedor de SICAR para el Radar de Demanda: id y nombre (mismo máximo que el nombre del cliente).
+function validarProveedor(p) {
+  objeto(p, ['prv_id', 'nombre']);
+  if (!esId(p.prv_id)) fallar('ID_INVALIDO');
+  try { texto(p.nombre, 250); }
+  catch (e) {
+    if (e instanceof ErrorIngestaSicar && e.codigo === 'DATOS_INVALIDOS') fallar('TEXTO_INVALIDO');
+    throw e;
+  }
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -93,7 +104,8 @@ function validarVenta(v, indice) {
 }
 
 function validarSobreSicar(body) {
-  objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos']);
+  objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
+    'proveedores']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -113,6 +125,10 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
   if (body.articulos !== undefined) {
     arreglo(body.articulos, 500, 'art_id');
     body.articulos.forEach((a, i) => enReferencia(`articulos[${i}]`, () => validarArticulo(a, i)));
+  }
+  if (body.proveedores !== undefined) {
+    arreglo(body.proveedores, 500, 'prv_id');
+    body.proveedores.forEach((p, i) => enReferencia(`proveedores[${i}]`, () => validarProveedor(p)));
   }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);

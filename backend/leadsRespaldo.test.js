@@ -127,11 +127,11 @@ test('una base solo con conversaciones (sin SICAR) también entra al respaldo', 
   assert.equal(s.tieneDatosSicar(f.repo), true);
 });
 
-test('sin tablas de la bandeja el respaldo sigue con la generación de 15 tablas', async t => {
+test('sin tablas de la bandeja el respaldo sigue con la generación de 16 tablas', async t => {
   const f = preparar(t), s = api();
   sembrar(f);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 15);
+  assert.equal(Object.keys(m.conteos).length, 16);
   assert.equal(m.version_leads, undefined);
 });
 
@@ -200,4 +200,26 @@ test('restauración parcial (copia dañada): los mensajes se conservan y las lig
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM lead_interacciones').get().n, 2);
   const ligas = f.sqlite.prepare('SELECT identificador_externo, cliente_id FROM lead_identidades_externas ORDER BY id').all();
   assert.deepEqual(ligas, [{ identificador_externo: '529191112233', cliente_id: 5 }, { identificador_externo: '529197776655', cliente_id: null }]);
+});
+
+// Forma exacta de los respaldos con bandeja que ya están en Drive: 15 tablas SICAR + 21 de la bandeja, sin proveedores.
+test('respaldo viejo de 36 tablas (bandeja sin proveedores) sigue abriendo y trae las conversaciones', async t => {
+  const f = conBandeja(t), g = preparar(t), s = api();
+  inicializarPersistenciaCentroLeads(g.sqlite);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(Object.keys(m.conteos).length, 37);
+  assert.deepEqual(Object.keys(m.conteos).slice(15, 17), ['sicar_proveedores', 'centro_leads_schema_version']);
+  const viejo = structuredClone(m);
+  delete viejo.conteos.sicar_proveedores;
+  viejo.trozos = viejo.trozos.filter(c => c.tabla !== 'sicar_proveedores');
+  assert.equal(Object.keys(viejo.conteos).length, 36);
+  assert.equal(viejo.trozos.some(c => c.tabla === 'sicar_proveedores'), false);
+  g.repo.aplicarLote({ sucursalId: 1, hash: 'hash-p', lote: { batch_id: 'lote-p', sequence: '1', mapping_version: 'v1',
+    clientes: [], ventas: [], proveedores: [{ prv_id: '7', nombre: 'Casa Veerkamp' }] } });
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, viejo);
+  p.aplicar(() => {}, { clientes: f.DB.crm.clientes, fechaFoto: m.generado_en });
+  p.liberar();
+  for (const tabla of TABLAS_LEADS) assert.deepEqual(foto(g.sqlite, tabla), foto(f.sqlite, tabla), tabla);
+  assert.equal(g.sqlite.prepare('SELECT count(*) n FROM sicar_proveedores').get().n, 0);
 });

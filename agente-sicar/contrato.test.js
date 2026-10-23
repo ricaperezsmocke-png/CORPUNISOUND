@@ -79,3 +79,42 @@ test('agente → ruta real → SQLite en memoria: repetidos, ACK perdido, cancel
   assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
   assert.equal(cuerpos.some(c => c.includes('PÚBLICO')), false);
 });
+
+test('agente → ruta real: la lista de proveedores entra a sicar_proveedores y un nombre raro se salta', async t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const llave = crearLlaveSicar(repo, 1, 961).llave;
+  let ruta;
+  registrarAgenteSicar({ use: (_, handler) => { ruta = handler; } }, { repo, mantenimiento: { estaActivo: () => false } });
+  const transportar = (_, opciones) => new Promise(resolve => {
+    const req = Readable.from([Buffer.from(opciones.body, 'utf8')]);
+    Object.assign(req, { method: 'POST', path: '/v1/lotes', socket: { remoteAddress: '127.0.0.1' },
+      headers: { authorization: opciones.headers.Authorization, 'content-type': opciones.headers['Content-Type'] } });
+    const res = new EventEmitter();
+    res.set = () => res;
+    res.status = status => { res.codigo = status; return res; };
+    res.json = datos => { res.emit('close'); resolve({ status: res.codigo, json: async () => datos }); };
+    ruta(req, res);
+  });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sicar-proveedores-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const archivo = path.join(dir, 'estado.json');
+  await guardar(archivo, { ...inicial(), fase: 'incremental' });
+  const vacia = async () => ({ filas: [], clientes: [], detalles: [] });
+  const filas = [{ prv_id: '7', nombre: ' Casa Veerkamp ' }, { prv_id: '8', nombre: '  ' }, { prv_id: '9', nombre: 'Fender México' }];
+  const fuente = { tamano: 100, proveedoresDisponibles: true, validar: async () => {}, tope: async () => '0',
+    ventas: vacia, porIds: vacia, historial: async () => [], clientesIds: async () => [],
+    proveedores: async cursor => filas.filter(p => BigInt(p.prv_id) > BigInt(cursor)) };
+  const mensajes = [];
+  await ejecutar(archivo, { llave, proveedores: true }, { fuente, esperar: async () => {}, log: m => mensajes.push(m),
+    reloj: () => Date.parse('2026-10-15T03:00:00Z'), fetch: async (url, opciones) => {
+      const respuesta = await transportar(url, opciones);
+      assert.equal(respuesta.status, 200, JSON.stringify(await respuesta.json()));
+      return respuesta;
+    } });
+  assert.ok(mensajes.includes('PROVEEDOR_OMITIDO'));
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores ORDER BY prv_id').all(),
+    [{ sucursal_id: 1, prv_id: '7', nombre: 'Casa Veerkamp' }, { sucursal_id: 1, prv_id: '9', nombre: 'Fender México' }]);
+  assert.equal((await cargar(archivo)).proveedores_dia, '2026-10-14');
+});
