@@ -41,7 +41,7 @@ function datosValidos(extra = {}) {
   return {
     producto_id: 30,
     cantidad: 1,
-    motivo_no_venta: "SIN_EXISTENCIA",
+    motivo_no_venta: "SIN_EXISTENCIA", proveedor_texto: "Proveedor de prueba",
     ...extra,
   };
 }
@@ -76,7 +76,7 @@ test("permite producto no catalogado sin crear producto", () => {
     variante_solicitada: "Negra",
     categoria_solicitada: "Guitarras",
     cantidad: 2,
-    motivo_no_venta: "NO_MANEJAMOS",
+    motivo_no_venta: "NO_MANEJAMOS", proveedor_texto: "Proveedor de prueba",
   }, { usuarioId: 100, sucursalId: 1 });
 
   assert.equal(demanda.producto_id, null);

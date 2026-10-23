@@ -156,7 +156,7 @@ function baseEscritura() {
 
 const datosDemanda = (extra = {}) => ({
   producto_buscado: "guitarra electroacustica", cantidad: 2,
-  motivo_no_venta: "SIN_EXISTENCIA", intencion_compra: false,
+  motivo_no_venta: "SIN_EXISTENCIA", intencion_compra: false, proveedor_texto: "Proveedor de prueba",
   consentimiento_aviso: false, ...extra,
 });
 

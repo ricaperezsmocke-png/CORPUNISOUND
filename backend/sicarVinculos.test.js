@@ -194,7 +194,7 @@ test('público F0 nunca genera ficha ni vínculo', async () => {
 for (const radar of [false, true]) {
   const alta = () => radar
     ? pedir('/api/radar-demanda?sucursal_id=1', local, { producto_buscado: 'Guitarra', cantidad: 1,
-      motivo_no_venta: 'NO_MANEJAMOS', intencion_compra: true, consentimiento_aviso: true,
+      motivo_no_venta: 'NO_MANEJAMOS', proveedor_texto: 'Proveedor de prueba', intencion_compra: true, consentimiento_aviso: true,
       nombre_contacto: 'Nueva persona', telefono_contacto: '9197654321' })
     : pedir('/api/clientes', local, { nombre: 'Nueva persona', telefono: '9197654321', sucursal_id: '1' });
   test(`alta ${radar ? 'Radar' : 'manual'} vuelve a resolver sin duplicar ni trasladar demandas`, async () => {

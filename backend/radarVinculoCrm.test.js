@@ -24,7 +24,7 @@ const contexto = { usuarioId: 100, sucursalId: 1 };
 test("el prospecto que entra por Radar queda marcado como tal", () => {
   const DB = construirDB();
   crearDemandaConCRM(DB, {
-    producto_id: 30, cantidad: 1, motivo_no_venta: "SIN_EXISTENCIA",
+    producto_id: 30, cantidad: 1, motivo_no_venta: "SIN_EXISTENCIA", proveedor_texto: "Proveedor de prueba",
     intencion_compra: true, consentimiento_aviso: true,
     nombre_contacto: "María López", telefono_contacto: "9612223344",
   }, contexto);
@@ -39,7 +39,7 @@ test("a un cliente que ya existía no se le inventa un origen", () => {
     id: 7, nombre: "Cliente Viejo", celular: "9613334455", sucursal_id: 1, estado: "contactado",
   });
   crearDemandaConCRM(DB, {
-    producto_id: 30, cantidad: 1, motivo_no_venta: "SIN_EXISTENCIA",
+    producto_id: 30, cantidad: 1, motivo_no_venta: "SIN_EXISTENCIA", proveedor_texto: "Proveedor de prueba",
     intencion_compra: true, consentimiento_aviso: true,
     nombre_contacto: "Cliente Viejo", telefono_contacto: "9613334455",
   }, contexto);

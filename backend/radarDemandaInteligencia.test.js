@@ -42,7 +42,7 @@ test("contrato superior no contiene clasificación, score ni recomendación", ()
   // fuera. Es un conteo, no una recomendación, y la prueba de abajo sigue
   // exigiendo que aquí no viaje ninguna.
   assert.deepEqual(Object.keys(resultado), [
-    "periodo", "productos", "productos_no_manejados", "familias",
+    "periodo", "productos", "productos_no_manejados", "familias", "por_proveedor",
     "candidatos_inventario", "capacidades",
   ]);
   assert.deepEqual(resultado.periodo.ventanas_dias, VENTANAS);

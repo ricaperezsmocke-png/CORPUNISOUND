@@ -15,6 +15,7 @@ const { ErrorRadar } = require("./radar/errores");
 const { calcularMetricas, porcentaje, ESTADOS_PENDIENTES, seleccionarUniversoDemanda } = require("./radar/metricas");
 const { agruparFamilias } = require("./radar/familias");
 const { agruparRegistrosLibres, crearBolsaPalabras, calcularSimilitud } = require("./radar/identidad");
+const { resolverProveedor } = require("./radar/proveedores");
 const {
   exigirVentaParaConvertir,
   exigirVentaEnDemandaConvertida,
@@ -147,6 +148,8 @@ function crearDemanda(DB, datos, contexto) {
   const usuario = buscarUsuario(DB, contexto?.usuarioId);
   const sucursalId = validarSucursal(DB, contexto?.sucursalId);
   const { productoId, producto, productoBuscado } = validarProductoSolicitado(DB, datos);
+  // Obligatorio desde 2026-10-23. La lista la arma el servidor con lo que manda SICAR, nunca el navegador.
+  const proveedor = resolverProveedor(datos, contexto?.proveedores || []);
   const ahora = new Date().toISOString();
 
   const demanda = {
@@ -163,6 +166,9 @@ function crearDemanda(DB, datos, contexto) {
     modelo_solicitado: texto(datos.modelo_solicitado),
     variante_solicitada: texto(datos.variante_solicitada),
     categoria_solicitada: texto(datos.categoria_solicitada),
+    proveedor_clave: proveedor.proveedor_clave,
+    proveedor_nombre: proveedor.proveedor_nombre,
+    proveedor_por_revisar: proveedor.proveedor_por_revisar,
     cantidad: validarCantidad(datos.cantidad),
     motivo_no_venta: validarMotivo(datos.motivo_no_venta),
     notas: texto(datos.notas),
@@ -197,6 +203,8 @@ function crearDemandaConCRM(DB, datos, contexto) {
     const intencion = booleanoEstricto(datos?.intencion_compra, "intencion_compra");
     const consentimiento = booleanoEstricto(datos?.consentimiento_aviso, "consentimiento_aviso");
     if (!intencion) return crearDemanda(DB, datos || {}, contexto);
+    // Antes de tocar el CRM: una demanda sin proveedor válido no debe dejar un prospecto creado.
+    resolverProveedor(datos, contexto?.proveedores || []);
     if (!consentimiento) {
       throw new ErrorRadar("Confirma el consentimiento del cliente para recibir el aviso", 400);
     }
