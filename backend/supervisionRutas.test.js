@@ -143,7 +143,7 @@ test("gerente de otra tienda no ve ni reasigna las fallas de Ocosingo", async ()
   const lista = await pedir("GET", "/api/supervision/fallas", gerenteAjeno);
   estado(lista, 200);
   assert.equal(lista.cuerpo.length, 0);
-  estado(await pedir("POST", `/api/supervision/fallas/${fallas[0].id}/cancelar`, gerenteAjeno, { motivo: "x" }), 404);
+  estado(await pedir("POST", `/api/supervision/fallas/${fallas[0].id}/cancelar`, gerenteAjeno, { motivo: "x" }), 403);
   const global = await pedir("GET", "/api/supervision/fallas?estado=abierta", supervisor);
   assert.equal(global.cuerpo.length, 1);
   estado(await pedir("POST", `/api/supervision/fallas/${fallas[0].id}/cancelar`, supervisor, { motivo: "Duplicada" }), 200);
@@ -164,4 +164,18 @@ test("la visita terminada cuenta en la fuente visitas_tienda", async () => {
   const mes = app.DB.supervision.visitas[0].mes;
   const r = contarFuente(app.DB, { fuente: "visitas_tienda", usuario_id: 280, sucursal_id: null, periodo: "mensual", inicio: `${mes}-01` });
   assert.equal(r.valor, 1);
+});
+
+test("I1: ver_supervision no basta para cancelar o reasignar, y el responsable no cierra su propia falla asi", async () => {
+  const { fallas } = await visitaConFalla();
+  const falla = app.DB.supervision.fallas.find((f) => f.id === fallas[0].id);
+  falla.sucursal_id = 2;
+  falla.responsable_id = 292;
+  estado(await pedir("POST", `/api/supervision/fallas/${falla.id}/cancelar`, gerenteAjeno, { motivo: "Ya no aplica" }), 403);
+  estado(await pedir("POST", `/api/supervision/fallas/${falla.id}/reasignar`, gerenteAjeno, { motivo: "x", responsable_id: 291 }), 403);
+  falla.sucursal_id = 1;
+  falla.responsable_id = 280;
+  const propia = await pedir("POST", `/api/supervision/fallas/${falla.id}/cancelar`, supervisor, { motivo: "Ya no aplica" });
+  estado(propia, 400);
+  assert.match(propia.cuerpo.error, /responsable/);
 });

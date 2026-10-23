@@ -189,6 +189,7 @@ function marcarRevisada(DB, id, usuario) {
   if (!captura) throw new Error("La captura no existe");
   if (captura.revisada) throw new Error("La captura ya está revisada");
   if (captura.anulada) throw new Error("La captura está anulada; no se puede marcar revisada");
+  if (usuario?.id != null && captura.creado_por_id === usuario.id) throw new Error("No puedes marcar revisada una captura propia");
   if (periodoSellado(DB, captura.periodo, captura.inicio)) throw new Error("El periodo ya está sellado; no se puede revisar");
   captura.revisada = { por_id: usuario?.id ?? null, por_nombre: usuario?.nombre || "desconocido", en: new Date().toISOString() };
   return captura;

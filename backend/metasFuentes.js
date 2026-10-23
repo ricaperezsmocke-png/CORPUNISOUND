@@ -79,11 +79,11 @@ function bandejaRespuestas(meta) {
     .map((f) => ({ clave: `msg:${f.id}`, fecha: diaDe(f.ocurrida_en), texto: "Respuesta en la bandeja" })));
 }
 
-// Revisar o anular la misma captura cuenta una sola vez.
+// Revisar o anular la misma captura cuenta una sola vez, y nunca las capturas propias (no se infla capturando y anulando).
 function revisiones(DB, meta) {
   const detalle = [];
   for (const c of DB.pos?.meta_capturas || []) {
-    if (!deTienda(meta, c.sucursal_id)) continue;
+    if (!deTienda(meta, c.sucursal_id) || esDe(meta, c.creado_por_id) || esDe(meta, c.usuario_id)) continue;
     const marca = [c.revisada, c.anulada].find((m) => m && esDe(meta, m.por_id) && enPeriodo(meta, m.en));
     if (marca) detalle.push({ clave: `cap:${c.id}`, fecha: diaDe(marca.en), texto: `Captura #${c.id} revisada` });
   }

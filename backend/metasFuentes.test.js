@@ -108,3 +108,13 @@ test("visitas: una por tienda y mes, solo terminadas y con ubicacion comprobada"
 test("fuente desconocida lanza", () => {
   assert.throws(() => contarFuente(DBBase(), meta("inventada")), /desconocida/);
 });
+
+test("I3: revisar o anular capturas propias no cuenta como revision", () => {
+  const DB = DBBase();
+  DB.pos.meta_capturas = [
+    { id: 1, sucursal_id: 1, usuario_id: 80, creado_por_id: 80, revisada: null, anulada: { por_id: 80, en: "2026-09-06T18:00:00.000Z" } },
+    { id: 2, sucursal_id: 1, vendedor_id: 3, creado_por_id: 80, revisada: { por_id: 80, en: "2026-09-06T18:00:00.000Z" }, anulada: null },
+    { id: 3, sucursal_id: 1, vendedor_id: 3, creado_por_id: 33, revisada: { por_id: 80, en: "2026-09-06T18:00:00.000Z" }, anulada: null },
+  ];
+  assert.equal(contarFuente(DB, meta("revisiones_metas_tienda")).valor, 1);
+});

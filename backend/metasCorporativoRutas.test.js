@@ -102,3 +102,13 @@ test("personas y fuentes: solo el administrador, sin contrasenas", async () => {
   const f = await pedir("GET", "/api/metas/fuentes", admin);
   assert.ok(f.cuerpo.some((x) => x.clave === "crm_cambios_estado" && x.descripcion));
 });
+
+test("C1: el gerente de tienda no ve, ni revisa, ni anula capturas de una meta corporativa con su tienda", async () => {
+  const meta = (await pedir("POST", "/api/metas", admin, { ...META, sucursal_id: 1 })).cuerpo;
+  const captura = (await pedir("POST", `/api/metas/${meta.clave}/captura`, supervisor, { fecha: HOY, cantidad: 2 })).cuerpo;
+  const lista = await pedir("GET", `/api/metas/revision?${consulta}`, gerente);
+  assert.equal(lista.cuerpo.some((c) => c.id === captura.id), false);
+  estado(await pedir("POST", `/api/metas/captura/${captura.id}/revisada`, gerente, {}), 404);
+  estado(await pedir("POST", `/api/metas/captura/${captura.id}/anular`, gerente, { motivo: "x" }), 404);
+  estado(await pedir("POST", `/api/metas/captura/${captura.id}/revisada`, admin, {}), 200);
+});

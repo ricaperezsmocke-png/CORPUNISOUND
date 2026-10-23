@@ -338,3 +338,10 @@ test("marcarRevisada: una sola vez, guarda quien y no cambia la cantidad", async
   anularCaptura(DB, otra.id, "No vale", VICTOR);
   assert.throws(() => marcarRevisada(DB, otra.id, VICTOR), /anulada/);
 });
+
+test("I3: nadie marca revisada su propia captura", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 1 });
+  assert.throws(() => marcarRevisada(DB, c.id, ANA), /propia/);
+});

@@ -19,6 +19,14 @@ module.exports = function registrarRutasSupervision(app, deps) {
   const realiza = alguno("realizar_visitas_tienda");
   const atiende = alguno("atender_fallas_visita");
   const supervisa = alguno("realizar_visitas_tienda", "ver_supervision");
+  // Reasignar o cancelar es del supervisor (o del Administrador, que tiene todo); ver_supervision es solo para ver.
+  // Y el responsable de una falla no la cierra por esta vía: la resuelve con foto.
+  const fallaDeOtro = (req, id) => {
+    const falla = fallaVisible(req, id);
+    if (!enAlcance(req, falla.sucursal_id)) throw Object.assign(new Error("La falla no existe"), { status: 404 });
+    if (falla.responsable_id === req.usuarioToken.id) throw new Error("Eres el responsable de esta falla: resuélvela con foto, no la canceles ni la pases");
+    return falla;
+  };
 
   async function subirFoto(sucursalId, archivo, etiqueta) {
     const { evidencia, buffer } = prepararEvidencia({ evidencia: "foto" }, { archivo });
@@ -119,17 +127,15 @@ module.exports = function registrarRutasSupervision(app, deps) {
         S.resolverFalla(DB, falla.id, datos, req.usuarioToken, foto))));
     } catch (e) { fallo(res, e); }
   });
-  app.post("/api/supervision/fallas/:id/reasignar", requiereLogin, supervisa, (req, res) => {
+  app.post("/api/supervision/fallas/:id/reasignar", requiereLogin, realiza, (req, res) => {
     try {
-      const falla = fallaVisible(req, req.params.id);
-      if (!enAlcance(req, falla.sucursal_id)) throw Object.assign(new Error("La falla no existe"), { status: 404 });
+      const falla = fallaDeOtro(req, req.params.id);
       res.json(conAtrasada(S.reasignarFalla(DB, falla.id, req.body || {}, req.usuarioToken)));
     } catch (e) { fallo(res, e); }
   });
-  app.post("/api/supervision/fallas/:id/cancelar", requiereLogin, supervisa, (req, res) => {
+  app.post("/api/supervision/fallas/:id/cancelar", requiereLogin, realiza, (req, res) => {
     try {
-      const falla = fallaVisible(req, req.params.id);
-      if (!enAlcance(req, falla.sucursal_id)) throw Object.assign(new Error("La falla no existe"), { status: 404 });
+      const falla = fallaDeOtro(req, req.params.id);
       res.json(conAtrasada(S.cancelarFalla(DB, falla.id, req.body || {}, req.usuarioToken)));
     } catch (e) { fallo(res, e); }
   });

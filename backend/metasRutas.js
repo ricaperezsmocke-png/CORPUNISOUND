@@ -39,7 +39,7 @@ module.exports = function registrarRutasMetas(app, deps) {
     const { verTodas, sucursalId } = resolverAlcanceAutorizado(req);
     if (verTodas) return true;
     const meta = DB.pos.metas_personalizadas.find((m) => m.clave === captura.meta_clave);
-    return meta?.alcance !== "empresa" && captura.sucursal_id === sucursalId;
+    return !["empresa", "corporativo"].includes(meta?.alcance) && captura.sucursal_id === sucursalId;
   }
 
   app.get("/api/metas/tablero", requiereLogin, uso, (req, res) => responder(res, () => tablero(DB, visorDe(req), {
