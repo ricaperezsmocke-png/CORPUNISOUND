@@ -13,7 +13,7 @@ function DBPrueba() {
     sucursales: [{ id: 1, nombre: "Ocosingo" }, { id: 4, nombre: "Palenque" }],
     vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 4 }, { id: 2, nombre: "Luis", sucursal_id: 4 }, { id: 3, nombre: "Eva", sucursal_id: 1 }],
     okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [], objetivo_plantilla: [],
-  } };
+  }, admin: { usuarios: [{ id: 80, nombre: "Sofía", activo: true }, { id: 82, nombre: "Otro", activo: true }] } };
 }
 const BASE = { periodo: "mensual", inicio: "2026-10-01" };
 const captura = (DB, meta, vendedor_id, cantidad, extra = {}) => DB.pos.meta_capturas.push({
@@ -252,4 +252,62 @@ test("fase2: trasladada a media mes conserva Hecho para los dias que estuvo en l
   assert.equal(tb.sueltas[0].puede_capturar, true);
   const antes = tablero(DB, visor, { periodo: "mensual", inicio: "2026-10-01" }, "2026-09-30");
   assert.equal(antes.sueltas[0].puede_capturar, false); // periodo que no ha empezado
+});
+
+const visorCorp = { vendedor_id: null, usuario_id: 80, jefatura: false, verTodas: false, sucursalId: 1 };
+const SEP = { periodo: "mensual", inicio: "2026-09-01" };
+const corp = (DB, extra = {}) => M.crearMeta(DB, { nombre: "CRM", unidad: "cambios", prueba: "ninguna", valor_meta: 4, ...SEP,
+  alcance: "corporativo", usuario_id: 80, ...extra }, VICTOR);
+
+test("corporativo: la duena ve su meta y su avance automatico con detalle", () => {
+  const DB = DBPrueba();
+  DB.crm = { clientes: [{ id: 5, sucursal_id: 1 }], estados_historial: [
+    { id: 1, cliente_id: 5, usuario_id: 80, anterior: null, nuevo: "interesado", fecha_hora: "2026-09-03T18:00:00.000Z" }] };
+  corp(DB, { fuente: "crm_cambios_estado" });
+  const t = tablero(DB, visorCorp, SEP, "2026-09-15");
+  assert.equal(t.sueltas.length, 1);
+  assert.equal(t.sueltas[0].resultado, 1);
+  assert.equal(t.sueltas[0].fuente, "crm_cambios_estado");
+  assert.equal(t.sueltas[0].detalle.length, 1);
+  assert.equal(t.sueltas[0].aviso, null);
+  assert.equal(t.sueltas[0].puede_capturar, false);
+});
+
+test("corporativo: bandeja apagada responde 0 con aviso, sin caerse", () => {
+  const DB = DBPrueba();
+  corp(DB, { fuente: "bandeja_respuestas" });
+  const m = tablero(DB, visorCorp, SEP, "2026-09-15").sueltas[0];
+  assert.equal(m.resultado, 0);
+  assert.match(m.aviso, /no está disponible/);
+});
+
+test("corporativo: gerente de tienda sin alcance global no la ve aunque sea de su tienda", () => {
+  const DB = DBPrueba();
+  corp(DB, { sucursal_id: 1 });
+  const gerente = { vendedor_id: null, usuario_id: 90, jefatura: true, verTodas: false, sucursalId: 1 };
+  assert.equal(tablero(DB, gerente, SEP, "2026-09-15").sueltas.length, 0);
+  const victor = { vendedor_id: null, usuario_id: 1, jefatura: true, verTodas: true, sucursalId: 1 };
+  assert.equal(tablero(DB, victor, SEP, "2026-09-15").sueltas.length, 1);
+  assert.equal(tablero(DB, { ...visorCorp, usuario_id: 82 }, SEP, "2026-09-15").sueltas.length, 0);
+  assert.equal(tablero(DB, { vendedor_id: 3, usuario_id: 83, jefatura: false, verTodas: false, sucursalId: 1 }, SEP, "2026-09-15").sueltas.length, 0);
+});
+
+test("corporativo manual: la duena puede capturar dentro del periodo y ve sus capturas", async () => {
+  const DB = DBPrueba();
+  const meta = corp(DB);
+  assert.equal(tablero(DB, visorCorp, SEP, "2026-09-15").sueltas[0].puede_capturar, true);
+  await capturarMeta(DB, meta.clave, { fecha: "2026-09-10", cantidad: 2 }, { usuario: { id: 80, nombre: "Sofía" }, vendedor_id: null,
+    drive: {}, hoy: "2026-09-15" });
+  const m = tablero(DB, visorCorp, SEP, "2026-09-15").sueltas[0];
+  assert.equal(m.resultado, 2);
+  assert.equal(m.mis_capturas.length, 1);
+  assert.equal(tablero(DB, { ...visorCorp, usuario_id: 82 }, SEP, "2026-09-15").sueltas.length, 0);
+});
+
+test("filtro por usuario_id en el tablero de jefatura", () => {
+  const DB = DBPrueba();
+  corp(DB);
+  const victor = { vendedor_id: null, usuario_id: 1, jefatura: true, verTodas: true, sucursalId: 1 };
+  assert.equal(tablero(DB, victor, { ...SEP, usuario_id: 82 }, "2026-09-15").sueltas.length, 0);
+  assert.equal(tablero(DB, victor, { ...SEP, usuario_id: 80 }, "2026-09-15").sueltas.length, 1);
 });

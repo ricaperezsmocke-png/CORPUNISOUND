@@ -1,7 +1,8 @@
 // Avance de metas personalizadas. Son conteos, no dinero: la vendedora ve el total y el % de las
 // metas compartidas, pero nunca quién capturó qué (solo lo suyo). La jefatura ve el desglose.
 const { validarPeriodo, finDePeriodo, ritmoEsperado } = require("./metasPeriodos");
-const { periodoSellado } = require("./metasPersonalizadas");
+const { periodoSellado, fuenteDe } = require("./metasPersonalizadas");
+const { contarFuente } = require("./metasFuentes");
 const { capturaParaRespuesta, validarParticipacion } = require("./metasCapturas");
 const { plantillaDelMes } = require("./objetivos");
 const { fechaLocal } = require("./fechas");
@@ -9,7 +10,12 @@ const { fechaLocal } = require("./fechas");
 // Las capturas apuntan a la clave estable: editar la meta no pierde lo ya capturado.
 const validas = (DB, meta) => DB.pos.meta_capturas.filter((c) => c.meta_clave === meta.clave && !c.anulada);
 
+// Una meta automática no suma capturas: su resultado lo da la fuente (spec 2026-10-22 §4.3).
+const conteoAutomatico = (DB, meta) => (fuenteDe(meta) === "manual" ? null : contarFuente(DB, meta));
+
 function resultadoMeta(DB, meta) {
+  const auto = conteoAutomatico(DB, meta);
+  if (auto) return auto.valor;
   return validas(DB, meta).reduce((suma, c) => suma + c.cantidad, 0);
 }
 
@@ -48,27 +54,34 @@ function participoEnTienda(DB, meta, vendedor_id) {
   return false;
 }
 
-const capturasPropias = (DB, meta, vendedor_id) => DB.pos.meta_capturas
-  .filter((c) => c.meta_clave === meta.clave && c.vendedor_id === vendedor_id);
+const capturasPropias = (DB, meta, visor) => DB.pos.meta_capturas.filter((c) => c.meta_clave === meta.clave &&
+  (meta.alcance === "corporativo" ? c.usuario_id === visor.usuario_id : c.vendedor_id === visor.vendedor_id));
 
 function puedeVer(DB, meta, visor) {
+  // La meta de una persona del corporativo la ven ella y quien ve todas las tiendas; un gerente de tienda no.
+  if (meta.alcance === "corporativo") return meta.usuario_id === visor.usuario_id || Boolean(visor.jefatura && visor.verTodas);
   if (visor.jefatura) {
     if (visor.verTodas) return true;
-    return meta.alcance !== "empresa" && meta.sucursal_id === visor.sucursalId;
+    return !["empresa", "corporativo"].includes(meta.alcance) && meta.sucursal_id === visor.sucursalId;
   }
   if (visor.vendedor_id === null) return false;
   if (meta.alcance === "persona") return meta.vendedor_id === visor.vendedor_id;
   if (meta.alcance === "empresa") return meta.participantes.includes(visor.vendedor_id);
   const propio = DB.pos.vendedores.find((v) => v.id === visor.vendedor_id);
-  return propio?.sucursal_id === meta.sucursal_id || capturasPropias(DB, meta, visor.vendedor_id).length > 0 ||
+  return propio?.sucursal_id === meta.sucursal_id || capturasPropias(DB, meta, visor).length > 0 ||
     participoEnTienda(DB, meta, visor.vendedor_id);
 }
 
 // Si quien ve el tablero puede marcar "Hecho" en esta meta. El servidor ya rechaza la captura ajena;
 // esto evita que la pantalla ofrezca un botón que va a fallar.
-function puedeCapturar(DB, meta, vendedor_id, hoy) {
-  if (vendedor_id === null || vendedor_id === undefined) return false;
+function puedeCapturar(DB, meta, visor, hoy) {
+  if (fuenteDe(meta) !== "manual") return false;
   if (hoy < meta.inicio || periodoSellado(DB, meta.periodo, meta.inicio)) return false;
+  if (meta.alcance === "corporativo") {
+    try { validarParticipacion(DB, meta, null, hoy, visor.usuario_id); return true; } catch { return false; }
+  }
+  const vendedor_id = visor.vendedor_id;
+  if (vendedor_id === null || vendedor_id === undefined) return false;
   // Basta un día del periodo (hasta hoy) en que el servidor aceptaría la captura: a quien trasladaron a media
   // semana o mes todavía le toca registrar lo que hizo antes del cambio, con la fecha de ese día.
   const fin = finDePeriodo(meta.periodo, meta.inicio);
@@ -90,7 +103,13 @@ function desglosePorPersona(DB, capturas) {
   }));
 }
 
+function detalleSellado(DB, meta) {
+  const sello = selloDe(DB, meta.periodo, meta.inicio);
+  return sello ? (sello.foto?.resultados || []).find((r) => r.clave === meta.clave)?.detalle || [] : null;
+}
+
 function avanceMeta(DB, meta, visor, ritmo, hoy) {
+  const auto = conteoAutomatico(DB, meta);
   const resultado = resultadoRectificado(DB, meta);
   const pct = porcentaje(resultado, meta.valor_meta);
   const capturas = validas(DB, meta);
@@ -98,29 +117,31 @@ function avanceMeta(DB, meta, visor, ritmo, hoy) {
     clave: meta.clave, okr_clave: meta.okr_clave, nombre: meta.nombre, descripcion: meta.descripcion, unidad: meta.unidad,
     prueba: meta.prueba, alcance: meta.alcance, sucursal_id: meta.sucursal_id, vendedor_id: meta.vendedor_id,
     valor_meta: meta.valor_meta, resultado, porcentaje: pct, ritmo, semaforo: semaforo(pct, ritmo),
-    mis_capturas: capturasPropias(DB, meta, visor.vendedor_id).map(capturaParaRespuesta),
-    puede_capturar: puedeCapturar(DB, meta, visor.vendedor_id, hoy),
+    fuente: fuenteDe(meta), usuario_id: meta.usuario_id ?? null,
+    detalle: auto ? detalleSellado(DB, meta) ?? auto.detalle : null, aviso: auto?.aviso || null,
+    mis_capturas: capturasPropias(DB, meta, visor).map(capturaParaRespuesta),
+    puede_capturar: puedeCapturar(DB, meta, visor, hoy),
   };
   if (visor.jefatura) avance.por_persona = desglosePorPersona(DB, capturas);
   return avance;
 }
 
-function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id = null }, hoy = fechaLocal(new Date())) {
+function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id = null, usuario_id = null }, hoy = fechaLocal(new Date())) {
   validarPeriodo(periodo, inicio);
   const ritmo = ritmoEsperado(periodo, inicio, hoy);
   const filtro = (m) => (sucursal_id === null || m.alcance === "empresa" || m.sucursal_id === sucursal_id) &&
-    (vendedor_id === null || m.vendedor_id === vendedor_id);
+    (vendedor_id === null || m.vendedor_id === vendedor_id) && (usuario_id === null || m.usuario_id === usuario_id);
   const metas = DB.pos.metas_personalizadas
     .filter((m) => m.vigente && m.periodo === periodo && m.inicio === inicio && puedeVer(DB, m, visor) && filtro(m))
     .map((m) => avanceMeta(DB, m, visor, ritmo, hoy));
   const retiradas = DB.pos.metas_personalizadas
     .filter((m) => m.retirada && m.periodo === periodo && m.inicio === inicio && puedeVer(DB, m, visor) && filtro(m))
-    .filter((m) => visor.jefatura || capturasPropias(DB, m, visor.vendedor_id).length > 0)
+    .filter((m) => visor.jefatura || capturasPropias(DB, m, visor).length > 0)
     .map((m) => ({
       clave: m.clave, nombre: m.nombre, unidad: m.unidad, alcance: m.alcance,
       sucursal_id: m.sucursal_id, vendedor_id: m.vendedor_id, valor_meta: m.valor_meta,
       retirada: { por_nombre: m.retirada.por_nombre, en: m.retirada.en, motivo: m.retirada.motivo },
-      mis_capturas: capturasPropias(DB, m, visor.vendedor_id).map(capturaParaRespuesta),
+      mis_capturas: capturasPropias(DB, m, visor).map(capturaParaRespuesta),
     }));
   const okrs = DB.pos.okrs
     .filter((o) => o.vigente && o.periodo === periodo && o.inicio === inicio)

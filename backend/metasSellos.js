@@ -2,7 +2,8 @@
 // el Administrador lo sella; después nada cambia. Rectificar corrige el RESULTADO con motivo y deja
 // el sellado intacto; la cifra meta nunca se rectifica (sería maquillar el cumplimiento).
 const { validarPeriodo, finDePeriodo } = require("./metasPeriodos");
-const { periodoSellado, motivoObligatorio } = require("./metasPersonalizadas");
+const { periodoSellado, motivoObligatorio, fuenteDe } = require("./metasPersonalizadas");
+const { contarFuente } = require("./metasFuentes");
 const { resultadoMeta, resultadoRectificado, porcentaje } = require("./metasAvance");
 const { createHash } = require("node:crypto");
 
@@ -17,8 +18,12 @@ function previoSello(DB, { periodo, inicio }, hoy) {
   const previo = {
     periodo, inicio, fin,
     resultados: metas.map((m) => {
-      const resultado = resultadoMeta(DB, m);
+      // Una fuente que no se puede leer ahora no se sella en cero: sería un incumplimiento inventado.
+      const auto = fuenteDe(m) === "manual" ? null : contarFuente(DB, m);
+      if (auto?.aviso) throw new Error(`No se puede sellar "${m.nombre}": ${auto.aviso}`);
+      const resultado = auto ? auto.valor : resultadoMeta(DB, m);
       return { clave: m.clave, nombre: m.nombre, alcance: m.alcance, sucursal_id: m.sucursal_id, vendedor_id: m.vendedor_id,
+        usuario_id: m.usuario_id ?? null, fuente: fuenteDe(m), detalle: auto ? auto.detalle : null,
         valor_meta: m.valor_meta, resultado, porcentaje: porcentaje(resultado, m.valor_meta) };
     }),
   };
