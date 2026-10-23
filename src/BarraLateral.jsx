@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   ShoppingCart, Landmark, Wallet, Boxes, ArrowRightLeft,
   Users, RadioTower, Store, Target,
-  FileBarChart, Scale, ShieldAlert, ShieldCheck, DatabaseBackup, Settings,
+  FileBarChart, Scale, ShieldAlert, ShieldCheck, DatabaseBackup, Settings, ClipboardCheck,
   ChevronRight, ChevronsLeft, ChevronsRight, Home,
 } from "lucide-react";
 import { categoriasVisibles } from "./menuCategorias.js";
@@ -33,6 +33,7 @@ const ICONOS = {
   reportes: FileBarChart,
   estado_cuenta: Scale,
   garantias: ShieldAlert,
+  supervision: ClipboardCheck,
   roles: ShieldCheck,
   respaldos: DatabaseBackup,
   configuracion: Settings,

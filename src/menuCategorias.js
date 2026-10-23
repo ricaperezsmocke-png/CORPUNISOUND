@@ -57,6 +57,8 @@ export const CATEGORIAS = [
       // Garantías vive aquí y no en operación: quien la usa a diario no es la
       // cajera sino quien gestiona el reclamo.
       { id: "garantias", nombre: "Garantías", modulo: "inventario", permiso: "gestionar_garantias" },
+      { id: "supervision", nombre: "Supervisión", modulo: "supervision",
+        permiso: ["realizar_visitas_tienda", "administrar_checklist_visitas", "atender_fallas_visita", "ver_supervision"] },
       { id: "roles", nombre: "Roles y Personal", modulo: "admin" },
       { id: "respaldos", nombre: "Respaldos", modulo: "respaldos", permiso: "ver_respaldos" },
       { id: "configuracion", nombre: "Configuración", modulo: "pos", permiso: ["editar_configuracion_pos", "activar_pantallas_caja"] },

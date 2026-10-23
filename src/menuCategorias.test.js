@@ -51,7 +51,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 15);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 16);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -114,6 +114,7 @@ const PARES_CONGELADOS = {
   reportes:        { modulo: "reportes",      permiso: "ver_reportes" },
   estado_cuenta:   { modulo: "cuenta_comun",  permiso: "ver_estado_cuenta" },
   garantias:       { modulo: "inventario",    permiso: "gestionar_garantias" },
+  supervision:     { modulo: "supervision",   permiso: ["realizar_visitas_tienda", "administrar_checklist_visitas", "atender_fallas_visita", "ver_supervision"] },
   roles:           { modulo: "admin",         permiso: undefined },
   respaldos:       { modulo: "respaldos",     permiso: "ver_respaldos" },
   configuracion:   { modulo: "pos",           permiso: ["editar_configuracion_pos", "activar_pantallas_caja"] }, // 2026-10-15: interruptores de caja
