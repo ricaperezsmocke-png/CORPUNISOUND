@@ -1,4 +1,4 @@
-export function pestanasObjetivos({ miVendedorId = null, veTienda = false, permisos = [] } = {}) {
+export function pestanasObjetivos({ miVendedorId = null, veTienda = false, permisos = [], sinVendedor = false } = {}) {
   const administra = permisos.includes("administrar_metas_personalizadas");
   const anula = permisos.includes("anular_capturas_metas");
   return [
@@ -9,6 +9,9 @@ export function pestanasObjetivos({ miVendedorId = null, veTienda = false, permi
       { clave: "mis-creditos", etiqueta: "Mis créditos", icono: "CreditCard", grupo: "mio" },
       { clave: "mis-metas", etiqueta: "Mis metas extra", icono: "ListChecks", grupo: "mio" },
     ] : []),
+    // Cuenta del corporativo (sin vendedor): solo sus metas extra; lo de venta sigue exigiendo vendedor.
+    ...(miVendedorId == null && sinVendedor && permisos.includes("usar_gerente_ventas")
+      ? [{ clave: "mis-metas", etiqueta: "Mis metas extra", icono: "ListChecks", grupo: "mio" }] : []),
     ...(veTienda ? [
       { clave: "tienda-avance", etiqueta: "Avance", icono: "BarChart3", grupo: "tienda" },
       { clave: "tienda-venta", etiqueta: "Venta", icono: "Store", grupo: "tienda" },

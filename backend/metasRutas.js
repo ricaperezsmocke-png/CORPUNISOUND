@@ -64,7 +64,8 @@ module.exports = function registrarRutasMetas(app, deps) {
       .filter((c) => c.periodo === req.query.periodo && c.inicio === req.query.inicio && capturaEnAlcance(req, c))
       .map((c) => ({
         ...capturaParaRespuesta(c),
-        vendedor_nombre: DB.pos.vendedores.find((v) => v.id === c.vendedor_id)?.nombre || "desconocido",
+        vendedor_nombre: (c.usuario_id != null ? DB.admin.usuarios.find((u) => u.id === c.usuario_id)
+          : DB.pos.vendedores.find((v) => v.id === c.vendedor_id))?.nombre || "desconocido",
         meta_nombre: M.historial(DB, "metas_personalizadas", c.meta_clave).at(-1)?.nombre || "desconocida",
       }))));
 

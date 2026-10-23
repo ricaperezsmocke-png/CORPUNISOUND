@@ -157,3 +157,10 @@ test("solo las tres pestañas de metas usan el selector de periodo compartido", 
   for (const clave of ["mis-metas", "metas-tienda", "administrar-metas"]) assert.equal(esPestanaMetas(clave), true, clave);
   for (const clave of ["mi-avance", "tienda-venta", "cierre-mes", null, undefined]) assert.equal(esPestanaMetas(clave), false, clave);
 });
+
+test("cuenta sin vendedor con usar_gerente_ventas ve solo Mis metas extra en Lo mio", () => {
+  const p = pestanasObjetivos({ miVendedorId: null, sinVendedor: true, permisos: ["usar_gerente_ventas"] });
+  assert.deepEqual(p.filter((x) => x.grupo === "mio").map((x) => x.clave), ["mis-metas"]);
+  assert.deepEqual(claves({ miVendedorId: null, sinVendedor: true, permisos: [] }), []);
+  assert.equal(claves({ miVendedorId: 3, sinVendedor: false, permisos: ["usar_gerente_ventas"] }).filter((c) => c === "mis-metas").length, 1);
+});

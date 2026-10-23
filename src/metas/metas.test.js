@@ -107,3 +107,15 @@ test("fase3: cada ventana de Hecho tiene su propia operación válida para el se
   assert.notEqual(a, b);
   for (const id of [a, b]) assert.match(id, /^[A-Za-z0-9-]{8,64}$/);
 });
+
+test("cuerpoMeta del corporativo: cuenta, tienda opcional y fuente; automatica sin prueba", () => {
+  const base = { nombre: "CRM", unidad: "cambios", prueba: "foto", valor_meta: "4", periodo: "mensual", inicio: "2026-09-01",
+    alcance: "corporativo", usuario_id: "80", sucursal_id: "" };
+  assert.deepEqual(cuerpoMeta({ ...base, fuente: "crm_cambios_estado" }), { nombre: "CRM", descripcion: undefined, unidad: "cambios",
+    prueba: "ninguna", valor_meta: 4, periodo: "mensual", inicio: "2026-09-01", alcance: "corporativo", usuario_id: 80, sucursal_id: null,
+    fuente: "crm_cambios_estado" });
+  const manual = cuerpoMeta({ ...base, sucursal_id: "1" });
+  assert.equal(manual.prueba, "foto");
+  assert.equal(manual.sucursal_id, 1);
+  assert.equal(manual.fuente, "manual");
+});

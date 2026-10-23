@@ -8,7 +8,8 @@ import {
 } from "./Comunes";
 
 const BOTON_HECHO = "bg-blue-600 text-white rounded-lg px-5 py-2.5 font-semibold shrink-0";
-const DE_QUIEN = { tienda: "De la tienda", persona: "Tuya", empresa: "De toda la empresa" };
+const DE_QUIEN = { tienda: "De la tienda", persona: "Tuya", empresa: "De toda la empresa", corporativo: "Tuya" };
+const SOLA = "text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 rounded px-2 py-1 shrink-0";
 const PIDE = { liga: "Pega la liga de la publicación", foto: "Sube la foto", ninguna: "¿Cuántas?" };
 
 // "Mis metas": lo que le toca a la persona, con un botón grande "Hecho" (decisión de Victor 2026-10-08).
@@ -59,13 +60,23 @@ export default function MisMetas({ periodo, inicio, hoy }) {
                     <Barra porcentaje={meta.porcentaje} />
                     <div className="flex flex-wrap gap-4 items-center">
                       <Semaforo semaforo={meta.semaforo} />
-                      {meta.alcance !== "persona" && <span className="text-xs text-slate-600">Tú llevas {mias}</span>}
+                      {!["persona", "corporativo"].includes(meta.alcance) && <span className="text-xs text-slate-600">Tú llevas {mias}</span>}
                     </div>
+                    {meta.aviso && <p className="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded p-2">{meta.aviso}</p>}
                   </div>
+                  {meta.fuente && meta.fuente !== "manual" && <span className={SOLA}>Se cuenta sola</span>}
                   {!tablero.sellado && meta.puede_capturar && (
                     <button type="button" className={BOTON_HECHO} onClick={() => { setExito(""); setCapturando(meta); }}>Hecho</button>
                   )}
                 </div>
+                {meta.detalle?.length > 0 && (
+                  <details className="text-sm">
+                    <summary className={`${ENLACE} cursor-pointer`}>Ver lo que contó ({meta.detalle.length})</summary>
+                    <ul className="mt-2 space-y-1">
+                      {meta.detalle.map((d) => <li key={d.clave}>{fechaCorta(d.fecha)} · {d.texto}</li>)}
+                    </ul>
+                  </details>
+                )}
                 {meta.mis_capturas.length > 0 && (
                   <div>
                     <button type="button" className={`${ENLACE} text-sm`} aria-expanded={Boolean(abiertas[meta.clave])}

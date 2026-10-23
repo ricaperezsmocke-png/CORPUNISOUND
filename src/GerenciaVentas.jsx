@@ -247,7 +247,9 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   }, new Map()).values()];
 
   const veTienda = esJefatura && (veTodas || Number(sucursalId) === Number(usuario?.sucursal_id));
-  const pestanas = pestanasObjetivos({ miVendedorId, veTienda, permisos }).map((p) => ({ ...p, Icono: ICONOS[p.icono] }));
+  const pestanas = pestanasObjetivos({ miVendedorId, veTienda, permisos, sinVendedor: identificado && miVendedorId == null })
+    .map((p) => ({ ...p, Icono: ICONOS[p.icono] }));
+  const tieneMisMetas = pestanas.some((p) => p.clave === "mis-metas");
   const grupos = gruposObjetivos(pestanas);
   const { grupo, pestana: activa } = resolverActiva({ pestanas, ...seleccion });
   const elegir = (opciones) => setSeleccion((anterior) => {
@@ -312,7 +314,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
         </div>
       )}
       {exito && <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg p-3 text-sm">{exito}</div>}
-      {identificado && miVendedorId == null && !esJefatura && (
+      {identificado && miVendedorId == null && !esJefatura && !tieneMisMetas && (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
           Tu cuenta no tiene un vendedor ligado. Pídele a quien administra el personal que la ligue desde Roles y Personal.
         </div>
