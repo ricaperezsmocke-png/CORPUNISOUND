@@ -91,6 +91,7 @@ function nuevoDB() {
       ultimo_id: 7,
       ultimo_seguimiento_id: 11,
     },
+    supervision: { checklist: [], visitas: [{ id: 1, sucursal_id: 1, estado: "terminada" }], fallas: [], encargado_sugerido: {} },
     respaldos: nuevoEstadoRespaldos(),
   };
 }

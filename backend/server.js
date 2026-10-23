@@ -340,6 +340,7 @@ const DB = {
     ultimo_intento: null,
     carpeta_drive_id: null,
   },
+  supervision: { checklist: [], visitas: [], fallas: [], encargado_sugerido: {} },
   radar_demanda: {
     registros: [],
     seguimientos: [],
@@ -367,6 +368,7 @@ if (estadoGuardado) {
 // traer arreglos sin contadores o registros anteriores con campos faltantes.
 // Se preserva lo existente y solo se completan valores defensivos.
 normalizarRadarDemanda(DB);
+require("./supervision").asegurarChecklistInicial(DB);
 
 sembrarCategoriasGastos(DB);
 

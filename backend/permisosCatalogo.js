@@ -96,6 +96,11 @@ const PERMISOS = [
   { clave: "traspasar_cartera", etiqueta: "Traspasar la cartera de un vendedor", modulo: "crm", implementado: true },
   { clave: "ligar_identidades", etiqueta: "Identificar contactos de la bandeja", modulo: "crm", implementado: true },
   { clave: "conectar_canales_mensajes", etiqueta: "Conectar canales de mensajes", modulo: "crm", implementado: true },
+  // Supervisión de tiendas (spec 2026-10-22 F2): visita mensual con checklist y fallas con paso a paso.
+  { clave: "realizar_visitas_tienda", etiqueta: "Realizar visitas a tienda", modulo: "supervision", implementado: true },
+  { clave: "administrar_checklist_visitas", etiqueta: "Editar el checklist de visitas", modulo: "supervision", implementado: true },
+  { clave: "atender_fallas_visita", etiqueta: "Atender fallas de la visita", modulo: "supervision", implementado: true },
+  { clave: "ver_supervision", etiqueta: "Ver visitas y fallas de tiendas", modulo: "supervision", implementado: true },
 
   // ---- Gerencia de Ventas (objetivos y tareas del vendedor) ----
   // Van en el módulo `pos` a propósito: es la misma pantalla de trabajo de la
@@ -177,6 +182,7 @@ const MODULOS_SISTEMA = [
   { id: "cuenta_comun", nombre: "Estado de Cuenta" },
   { id: "respaldos", nombre: "Respaldos" },
   { id: "radar_demanda", nombre: "Radar de Demanda" },
+  { id: "supervision", nombre: "Supervisión de tiendas" },
 ];
 
 function listarPermisos() {
