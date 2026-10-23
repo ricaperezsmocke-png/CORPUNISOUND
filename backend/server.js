@@ -3110,6 +3110,9 @@ require("./metasRutas")(app, {
   clienteIA: () => (app.locals.clienteIA !== undefined ? app.locals.clienteIA : (process.env.ANTHROPIC_API_KEY ? anthropic : null)),
 });
 
+// Supervisión de tiendas: visita mensual y fallas. Ver supervisionRutas.js.
+require("./supervisionRutas")(app, { DB, drive, requiereLogin, resolverPermisosDeRol, resolverAlcanceAutorizado });
+
 // ---------- Respaldos y punto de restauración ----------
 
 app.get("/api/respaldos", requiereLogin, requierePermiso("ver_respaldos", resolverPermisosDeRol), (req, res) => {
