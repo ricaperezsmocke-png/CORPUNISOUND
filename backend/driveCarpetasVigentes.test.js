@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  asegurarCarpetaRaiz, asegurarCarpetaGastosSucursal, asegurarCarpetaRespaldos, asegurarCarpetaGarantia,
+  asegurarCarpetaRaiz, asegurarCarpetaGastosSucursal, asegurarCarpetaRespaldos, asegurarCarpetaGarantia, asegurarCarpetaCorporativo,
 } = require("./drive");
 
 // Una carpeta guardada puede dejar de servir: alguien la manda a la papelera, o Victor reconecta Drive
@@ -104,4 +104,14 @@ test("la carpeta de respaldos también se revisa: si no existe se rehace", async
   assert.equal(await asegurarCarpetaRespaldos(DB), "nueva-1");
   assert.equal(DB.respaldos.carpeta_drive_id, "nueva-1");
   assert.deepEqual(llamadas, ["revisar respaldos-vieja", "buscar", "crear"]);
+});
+
+test("carpeta Corporativo: se crea dentro de Evidencias de Actividades y se guarda aparte de las de empleados", async (t) => {
+  const llamadas = driveFalso(t, {});
+  const DB = { drive: { cuenta: cuentaVigente() } };
+  const id = await asegurarCarpetaCorporativo(DB);
+  assert.equal(DB.drive.carpeta_actividades_id, "nueva-1");
+  assert.equal(DB.drive.carpeta_corporativo_id, "nueva-2");
+  assert.equal(id, "nueva-2");
+  assert.deepEqual(llamadas, ["buscar", "crear", "buscar", "crear"]);
 });
