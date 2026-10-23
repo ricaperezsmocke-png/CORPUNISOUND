@@ -1912,6 +1912,8 @@ const { crearContextoBandeja } = require('./bandeja/mensajes');
 const { revisarEstadosAutomaticos, anotarEstado } = require('./bandeja/estados');
 const bandejaDisponible = () => !!(conexionSqlite && estadoCentroLeads.disponible);
 const bandeja = bandejaDisponible() ? crearContextoBandeja({ sqlite: conexionSqlite, DB, repo: repoSicar, guardar }) : null;
+// Las metas que se cuentan solas leen la bandeja y el historial SICAR de la misma conexión (spec 2026-10-22 §4.2).
+require("./metasFuentes").configurarFuentes({ sqlite: bandejaDisponible() ? conexionSqlite : null });
 const responsablesBandeja = bandeja ? require('./bandeja/responsable').crearResponsables(bandeja) : null;
 // Cambios hechos desde la pantalla Clientes (ficha y estado): quedan en el historial con quién los hizo.
 function anotarCambiosDeFicha(cliente, antes, usuarioId) {
