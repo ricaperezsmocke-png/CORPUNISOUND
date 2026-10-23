@@ -316,14 +316,17 @@ test("meta automatica rechaza toda captura", async () => {
     { message: "Esta meta se cuenta sola" });
 });
 
-test("corporativo con foto y sin tienda sube a la carpeta de la cuenta", async () => {
+test("corporativo con foto y sin tienda sube a la carpeta Corporativo, nunca a la de Recursos Humanos", async () => {
   const DB = DBPrueba();
   const meta = metaCorp(DB, { prueba: "foto" });
-  let carpeta = null;
-  const drive = { ...driveFalso, asegurarCarpetaEmpleado: async (db, cuenta) => { carpeta = cuenta.id; return "carpeta-cuenta"; } };
+  const usadas = [];
+  const drive = { ...driveFalso,
+    asegurarCarpetaCorporativo: async () => { usadas.push("corporativo"); return "carpeta-corporativo"; },
+    asegurarCarpetaEmpleado: async () => { usadas.push("empleado"); return "carpeta-rh"; },
+    subirArchivoADrive: async (db, datos) => { usadas.push(datos.carpetaId); return driveFalso.subirArchivoADrive(); } };
   const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "f.jpg" };
   await capturarMeta(DB, meta.clave, { fecha: "2026-09-10", archivo }, comoSofia({ drive }));
-  assert.equal(carpeta, 80);
+  assert.deepEqual(usadas, ["corporativo", "carpeta-corporativo"]);
 });
 
 test("marcarRevisada: una sola vez, guarda quien y no cambia la cantidad", async () => {

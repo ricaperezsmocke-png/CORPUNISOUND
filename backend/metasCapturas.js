@@ -85,7 +85,7 @@ async function subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucu
   try {
     const cuenta = meta.alcance === "corporativo" ? (DB.admin?.usuarios || []).find((u) => u.id === meta.usuario_id) : null;
     let carpetaId;
-    if (cuenta && sucursal_id === null) carpetaId = await drive.asegurarCarpetaEmpleado(DB, cuenta);
+    if (cuenta && sucursal_id === null) carpetaId = await drive.asegurarCarpetaCorporativo(DB);
     else carpetaId = await drive.asegurarCarpetaActividadesSucursal(DB, DB.pos.sucursales.find((s) => s.id === sucursal_id) || { id: sucursal_id });
     const quien = cuenta ? cuenta.nombre : DB.pos.vendedores.find((v) => v.id === vendedor_id)?.nombre || vendedor_id;
     const subido = await drive.subirArchivoADrive(DB, {

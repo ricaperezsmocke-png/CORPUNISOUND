@@ -242,6 +242,16 @@ async function asegurarCarpetaActividadesRaiz(DB) {
   });
 }
 
+// Evidencias de metas del corporativo que no son de ninguna tienda (decisión de Victor 2026-10-22): carpeta propia
+// dentro de "Evidencias de Actividades", nunca la carpeta de la persona, que guarda sus documentos de Recursos Humanos.
+async function asegurarCarpetaCorporativo(DB) {
+  return asegurarCarpeta(DB, {
+    guardada: DB.drive.carpeta_corporativo_id, nombre: "Corporativo",
+    padre: () => asegurarCarpetaActividadesRaiz(DB),
+    guardar: (id) => { DB.drive.carpeta_corporativo_id = id; },
+  });
+}
+
 async function asegurarCarpetaActividadesSucursal(DB, sucursal) {
   return asegurarCarpeta(DB, {
     guardada: sucursal.drive_folder_actividades_id, nombre: sucursal.nombre || `Sucursal ${sucursal.id}`,
@@ -352,7 +362,7 @@ module.exports = {
   asegurarCarpetaGarantia,
   asegurarCarpetaGastosRaiz, asegurarCarpetaGastosSucursal,
   asegurarCarpetaDepositosRaiz, asegurarCarpetaDepositosSucursal,
-  asegurarCarpetaActividadesRaiz, asegurarCarpetaActividadesSucursal,
+  asegurarCarpetaActividadesRaiz, asegurarCarpetaActividadesSucursal, asegurarCarpetaCorporativo,
   asegurarCarpetaRespaldos, CARPETA_RESPALDOS_NOMBRE,
   subirArchivoADrive, eliminarArchivoDeDrive, descargarArchivoDeDrive,
   CARPETA_RAIZ_NOMBRE, CARPETA_GARANTIAS_NOMBRE, CARPETA_GASTOS_NOMBRE, CARPETA_DEPOSITOS_NOMBRE,
