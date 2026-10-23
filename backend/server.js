@@ -340,6 +340,7 @@ const DB = {
     ultimo_intento: null,
     carpeta_drive_id: null,
   },
+  supervision: { checklist: [], visitas: [], fallas: [], encargado_sugerido: {} },
   radar_demanda: {
     registros: [],
     seguimientos: [],
@@ -367,6 +368,7 @@ if (estadoGuardado) {
 // traer arreglos sin contadores o registros anteriores con campos faltantes.
 // Se preserva lo existente y solo se completan valores defensivos.
 normalizarRadarDemanda(DB);
+require("./supervision").asegurarChecklistInicial(DB);
 
 sembrarCategoriasGastos(DB);
 
@@ -1912,6 +1914,8 @@ const { crearContextoBandeja } = require('./bandeja/mensajes');
 const { revisarEstadosAutomaticos, anotarEstado } = require('./bandeja/estados');
 const bandejaDisponible = () => !!(conexionSqlite && estadoCentroLeads.disponible);
 const bandeja = bandejaDisponible() ? crearContextoBandeja({ sqlite: conexionSqlite, DB, repo: repoSicar, guardar }) : null;
+// Las metas que se cuentan solas leen la bandeja y el historial SICAR de la misma conexión (spec 2026-10-22 §4.2).
+require("./metasFuentes").configurarFuentes({ sqlite: conexionSqlite });
 const responsablesBandeja = bandeja ? require('./bandeja/responsable').crearResponsables(bandeja) : null;
 // Cambios hechos desde la pantalla Clientes (ficha y estado): quedan en el historial con quién los hizo.
 function anotarCambiosDeFicha(cliente, antes, usuarioId) {
@@ -3105,6 +3109,9 @@ require("./metasRutas")(app, {
   guardarDB: () => guardar(DB),
   clienteIA: () => (app.locals.clienteIA !== undefined ? app.locals.clienteIA : (process.env.ANTHROPIC_API_KEY ? anthropic : null)),
 });
+
+// Supervisión de tiendas: visita mensual y fallas. Ver supervisionRutas.js.
+require("./supervisionRutas")(app, { DB, drive, requiereLogin, resolverPermisosDeRol, resolverAlcanceAutorizado });
 
 // ---------- Respaldos y punto de restauración ----------
 

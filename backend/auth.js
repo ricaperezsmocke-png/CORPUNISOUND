@@ -362,5 +362,5 @@ module.exports = {
   configurarRevisionDeCuenta,
   alcanceSucursal, filtrarPorSucursal, dentroDeAlcance,
   sucursalDeEscritura, sucursalDelFormulario,
-  distanciaMetros, validarUbicacionLogin, mensajePorMotivoUbicacion,
+  distanciaMetros, RADIO_TOLERANCIA_METROS, validarUbicacionLogin, mensajePorMotivoUbicacion,
 };

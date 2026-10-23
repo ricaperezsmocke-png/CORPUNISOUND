@@ -74,7 +74,7 @@ const VERSION_FORMATO = 2;
  */
 const COLECCIONES_RESPALDADAS = [
   "pos", "crm", "inventario", "catalogo-productos", "admin", "ml", "drive",
-  "gastos", "cuenta_comun", "radar_demanda",
+  "gastos", "cuenta_comun", "radar_demanda", "supervision",
 ];
 
 /**

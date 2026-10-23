@@ -13,7 +13,7 @@ const SEGMENTO = "px-3 py-1.5 text-sm rounded-lg border";
 const ACTIVO = `${SEGMENTO} bg-blue-600 border-blue-600 text-white`;
 const INACTIVO = `${SEGMENTO} border-slate-300 text-slate-700 bg-white`;
 const SELECT = "block neu-campo rounded-lg px-3 py-2 mt-1 w-full";
-const ALCANCES = { tienda: "Una tienda", persona: "Una persona", empresa: "Toda la empresa" };
+const ALCANCES = { tienda: "Una tienda", persona: "Una persona", empresa: "Toda la empresa", corporativo: "Persona del corporativo" };
 const PRUEBAS = { liga: "Liga", foto: "Foto", ninguna: "Sin prueba" };
 
 function Segmentos({ etiqueta, opciones, valor, cambiar }) {
@@ -31,7 +31,7 @@ function Segmentos({ etiqueta, opciones, valor, cambiar }) {
 }
 
 // "¿Para quién?": una tienda, una persona o toda la empresa (con sus participantes).
-function ParaQuien({ form, cambiar, sucursales, vendedores }) {
+function ParaQuien({ form, cambiar, sucursales, vendedores, personas }) {
   const alternar = (id) => cambiar("participantes")(form.participantes.includes(id)
     ? form.participantes.filter((p) => p !== id) : [...form.participantes, id]);
   return (
@@ -53,6 +53,22 @@ function ParaQuien({ form, cambiar, sucursales, vendedores }) {
           </select>
         </label>
       )}
+      {form.alcance === "corporativo" && (
+        <>
+          <label className="text-sm block">Persona del corporativo
+            <select className={SELECT} value={form.usuario_id} onChange={(e) => cambiar("usuario_id")(e.target.value)}>
+              <option value="">Elige a la persona</option>
+              {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.rol ? ` — ${p.rol}` : ""}</option>)}
+            </select>
+          </label>
+          <label className="text-sm block">Tienda (opcional)
+            <select className={SELECT} value={form.sucursal_id} onChange={(e) => cambiar("sucursal_id")(e.target.value)}>
+              <option value="">Toda la empresa</option>
+              {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+        </>
+      )}
       {form.alcance === "empresa" && (
         <fieldset className="text-sm">
           <legend className="mb-1">¿Quiénes participan?</legend>
@@ -71,18 +87,21 @@ function ParaQuien({ form, cambiar, sucursales, vendedores }) {
 }
 
 const alcanceCompleto = (f) => (f.alcance === "tienda" && f.sucursal_id) || (f.alcance === "persona" && f.vendedor_id) ||
-  (f.alcance === "empresa" && f.participantes.length > 0);
+  (f.alcance === "empresa" && f.participantes.length > 0) || (f.alcance === "corporativo" && f.usuario_id);
 // Solo el "para quién" de un formulario, con los ids como número.
 function alcanceDe(f) {
   if (f.alcance === "tienda") return { alcance: "tienda", sucursal_id: Number(f.sucursal_id) };
   if (f.alcance === "persona") return { alcance: "persona", vendedor_id: Number(f.vendedor_id) };
+  if (f.alcance === "corporativo") {
+    return { alcance: "corporativo", usuario_id: Number(f.usuario_id), sucursal_id: f.sucursal_id ? Number(f.sucursal_id) : null };
+  }
   return { alcance: "empresa", participantes: f.participantes.map(Number) };
 }
 const FORM_VACIO = { titulo: "", descripcion: "", nombre: "", unidad: "", prueba: "liga", valor_meta: "", okr_clave: "",
-  alcance: "tienda", sucursal_id: "", vendedor_id: "", participantes: [], motivo: "" };
+  alcance: "tienda", sucursal_id: "", vendedor_id: "", usuario_id: "", fuente: "manual", participantes: [], motivo: "" };
 
 // Crear o editar un OKR o una meta. Al editar solo se mandan los campos que cambiaron, más el motivo.
-function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, vendedores, cerrar, alTerminar }) {
+function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, vendedores, personas, fuentes, cerrar, alTerminar }) {
   const editando = Boolean(registro);
   const [form, setForm] = useState(() => (registro ? { ...FORM_VACIO, ...registro, valor_meta: String(registro.valor_meta ?? ""),
     descripcion: registro.descripcion || "", motivo: "" } : FORM_VACIO));
@@ -135,12 +154,24 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
             <Campo etiqueta="Cifra meta" tipo="number" min="1" valor={form.valor_meta} cambiar={cambiar("valor_meta")} />
             <Campo etiqueta="Unidad (ej. videos)" valor={form.unidad} cambiar={cambiar("unidad")} />
           </div>
-          <Segmentos etiqueta="¿Qué prueba pide?" opciones={PRUEBAS} valor={form.prueba} cambiar={cambiar("prueba")} />
+          {!editando && !form.okr_clave && form.alcance === "corporativo" && (
+            <label className="text-sm block">¿Cómo se cuenta?
+              <select className={SELECT} value={form.fuente} onChange={(e) => cambiar("fuente")(e.target.value)}>
+                {fuentes.map((f) => <option key={f.clave} value={f.clave}>{f.descripcion}</option>)}
+              </select>
+            </label>
+          )}
+          {(form.fuente || "manual") === "manual" && (
+            <Segmentos etiqueta="¿Qué prueba pide?" opciones={PRUEBAS} valor={form.prueba} cambiar={cambiar("prueba")} />
+          )}
         </>
       )}
       <Campo etiqueta="Descripción (opcional)" valor={form.descripcion} cambiar={cambiar("descripcion")} area />
       {!editando && (esOkr || !form.okr_clave) && (
-        <ParaQuien form={form} cambiar={cambiar} sucursales={sucursales} vendedores={vendedores} />
+        <ParaQuien form={form} cambiar={(campo) => (valor) => {
+          cambiar(campo)(valor);
+          if (campo === "alcance" && valor !== "corporativo") cambiar("fuente")("manual");
+        }} sucursales={sucursales} vendedores={vendedores} personas={personas} />
       )}
       {editando && <Campo etiqueta="Motivo del cambio" valor={form.motivo} cambiar={cambiar("motivo")} area />}
     </Modal>
@@ -177,9 +208,13 @@ function Historial({ registro, cerrar }) {
   );
 }
 
-const paraQuien = (r, sucursales, vendedores) => {
+const paraQuien = (r, sucursales, vendedores, personas = []) => {
   if (r.alcance === "tienda") return sucursales.find((s) => s.id === r.sucursal_id)?.nombre || "Tienda";
   if (r.alcance === "persona") return vendedores.find((v) => v.id === r.vendedor_id)?.nombre || "Persona";
+  if (r.alcance === "corporativo") {
+    const tienda = r.sucursal_id ? ` · ${sucursales.find((s) => s.id === r.sucursal_id)?.nombre || "Tienda"}` : "";
+    return `${personas.find((p) => p.id === r.usuario_id)?.nombre || "Corporativo"}${tienda}`;
+  }
   return `Empresa (${r.participantes.length} personas)`;
 };
 
@@ -188,6 +223,8 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
   const [datos, setDatos] = useState(null);
   const [sello, setSello] = useState(null);
   const [planes, setPlanes] = useState({ configurado: false, planes: [] });
+  const [personas, setPersonas] = useState([]);
+  const [fuentes, setFuentes] = useState([]);
   const [dialogo, setDialogo] = useState(null);
   const [verEliminadas, setVerEliminadas] = useState(false);
   const [error, setError] = useState("");
@@ -201,6 +238,8 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
       const r = await apiFetch(`/metas/sello?${base}`);
       setSello(r.status === 404 ? null : await leer(r, "No se pudo consultar el sello"));
       setPlanes(await apiFetch("/metas/plan-ia").then((r) => leer(r, "No se pudieron cargar los planes con IA")));
+      setPersonas(await apiFetch("/metas/personas-corporativo").then((r) => leer(r, "No se pudo cargar el personal")));
+      setFuentes(await apiFetch("/metas/fuentes").then((r) => leer(r, "No se pudieron cargar las formas de contar")));
     } catch (e) { setError(e.message); }
   }, [periodo, inicio]);
   useEffect(() => { cargar(); }, [cargar]);
@@ -214,7 +253,7 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
     { okr: null, metas: metas.filter((m) => m.okr_clave == null) }];
   const abierto = !sello;
   const terminar = async (mensaje) => { setDialogo(null); setExito(mensaje); await cargar(); };
-  const comunes = { okrs, periodo, inicio, sucursales, vendedores, cerrar: () => setDialogo(null), alTerminar: terminar };
+  const comunes = { okrs, periodo, inicio, sucursales, vendedores, personas, fuentes, cerrar: () => setDialogo(null), alTerminar: terminar };
 
   const Acciones = ({ registro, esOkr }) => (
     <span className="flex gap-3 text-sm shrink-0">
@@ -252,7 +291,7 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
           <header className="flex gap-3 items-start">
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-slate-800">{okr ? okr.titulo : "Otras metas"}</h3>
-              {okr && <p className="text-xs text-slate-500">{paraQuien(okr, sucursales, vendedores)}{okr.descripcion ? ` · ${okr.descripcion}` : ""}</p>}
+              {okr && <p className="text-xs text-slate-500">{paraQuien(okr, sucursales, vendedores, personas)}{okr.descripcion ? ` · ${okr.descripcion}` : ""}</p>}
             </div>
             {okr && <Acciones registro={okr} esOkr />}
           </header>
@@ -262,7 +301,11 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
                 <li key={m.clave} className="flex gap-3 items-center py-2 text-sm">
                   <div className="flex-1 min-w-0">
                     <strong className="text-slate-800">{m.nombre}</strong>
-                    <span className="text-slate-500"> · {m.valor_meta} {m.unidad} · {TEXTO_PRUEBA[m.prueba]} · {paraQuien(m, sucursales, vendedores)}</span>
+                    <span className="text-slate-500">
+                      {` · ${m.valor_meta} ${m.unidad} · `}
+                      {m.fuente && m.fuente !== "manual" ? "Se cuenta sola" : TEXTO_PRUEBA[m.prueba]}
+                      {` · ${paraQuien(m, sucursales, vendedores, personas)}`}
+                    </span>
                   </div>
                   <Acciones registro={m} />
                 </li>

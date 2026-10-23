@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const M = require("./metasPersonalizadas");
 const { previoSello, sellarPeriodo, rectificarSello } = require("./metasSellos");
+const { resultadoRectificado } = require("./metasAvance");
 
 const VICTOR = { id: 1, nombre: "Victor" };
 const BASE = { periodo: "semanal", inicio: "2026-10-05" };
@@ -25,7 +26,7 @@ function DBPrueba() {
   return { pos: {
     sucursales: [{ id: 4, nombre: "Palenque" }], vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 4 }],
     okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [],
-  } };
+  }, admin: { usuarios: [{ id: 80, nombre: "Sofía", activo: true }] } };
 }
 function conMeta() {
   const DB = DBPrueba();
@@ -93,4 +94,22 @@ test("no se sella un periodo sin metas: impediría crearle metas después", () =
   const DB = DBPrueba();
   assert.throws(() => sellarPeriodo(DB, { ...BASE, huella: previoSello(DB, BASE, "2026-10-12").huella }, VICTOR, "2026-10-12"), /no hay metas/i);
   assert.equal(DB.pos.meta_sellos.length, 0);
+});
+
+test("sello: congela el valor automatico y su detalle; rechaza si la fuente no esta disponible", () => {
+  const SEP = { periodo: "mensual", inicio: "2026-09-01" };
+  const DB = DBPrueba();
+  DB.crm = { clientes: [{ id: 5, sucursal_id: 4 }], estados_historial: [
+    { id: 1, cliente_id: 5, usuario_id: 80, nuevo: "interesado", fecha_hora: "2026-09-03T18:00:00.000Z" }] };
+  const meta = M.crearMeta(DB, { nombre: "CRM", unidad: "cambios", prueba: "ninguna", valor_meta: 4, ...SEP,
+    alcance: "corporativo", usuario_id: 80, fuente: "crm_cambios_estado" }, VICTOR);
+  const previo = previoSello(DB, SEP, "2026-10-02");
+  const sello = sellarPeriodo(DB, { ...SEP, huella: previo.huella }, VICTOR, "2026-10-02");
+  assert.equal(sello.foto.resultados[0].detalle.length, 1);
+  DB.crm.estados_historial.push({ id: 2, cliente_id: 5, usuario_id: 80, nuevo: "compro", fecha_hora: "2026-09-20T18:00:00.000Z" });
+  assert.equal(resultadoRectificado(DB, meta), 1);
+  const DB2 = DBPrueba();
+  M.crearMeta(DB2, { nombre: "Bandeja", unidad: "mensajes", prueba: "ninguna", valor_meta: 4, ...SEP,
+    alcance: "corporativo", usuario_id: 80, fuente: "bandeja_respuestas" }, VICTOR);
+  assert.throws(() => previoSello(DB2, SEP, "2026-10-02"), /no se puede contar/);
 });

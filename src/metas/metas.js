@@ -12,8 +12,8 @@ export const TEXTO_PRUEBA = { ninguna: "Sin prueba", liga: "Liga de la publicaci
 export const TEXTO_PERIODO = { semanal: "Semana", mensual: "Mes", trimestral: "Trimestre" };
 
 // Vacío explícito impide que apiFetch herede la sucursal del encabezado.
-export function queryTablero({ periodo, inicio, sucursal_id, vendedor_id }) {
-  return new URLSearchParams({ periodo, inicio, sucursal_id: sucursal_id ?? "", vendedor_id: vendedor_id ?? "" }).toString();
+export function queryTablero({ periodo, inicio, sucursal_id, vendedor_id, usuario_id }) {
+  return new URLSearchParams({ periodo, inicio, sucursal_id: sucursal_id ?? "", vendedor_id: vendedor_id ?? "", usuario_id: usuario_id ?? "" }).toString();
 }
 
 export function inicioDePeriodo(periodo, fecha) {
@@ -66,6 +66,11 @@ export function cuerpoMeta(form) {
   const base = { ...comun, periodo: form.periodo, inicio: form.inicio, alcance: form.alcance };
   if (form.alcance === "tienda") return { ...base, sucursal_id: Number(form.sucursal_id) };
   if (form.alcance === "persona") return { ...base, vendedor_id: Number(form.vendedor_id) };
+  if (form.alcance === "corporativo") {
+    const fuente = form.fuente || "manual";
+    return { ...base, prueba: fuente === "manual" ? form.prueba : "ninguna", usuario_id: Number(form.usuario_id),
+      sucursal_id: form.sucursal_id ? Number(form.sucursal_id) : null, fuente };
+  }
   return { ...base, participantes: (form.participantes || []).map(Number) };
 }
 

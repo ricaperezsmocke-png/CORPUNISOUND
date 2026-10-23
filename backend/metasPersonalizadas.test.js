@@ -8,7 +8,7 @@ function DBPrueba() {
     sucursales: [{ id: 1, nombre: "Ocosingo" }, { id: 4, nombre: "Palenque" }],
     vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 1 }, { id: 2, nombre: "Luis", sucursal_id: 4 }],
     okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [],
-  } };
+  }, admin: { usuarios: [{ id: 80, nombre: "Sofía", activo: true }, { id: 81, nombre: "Baja", activo: false }] } };
 }
 const OKR = { titulo: "Videos Palenque", periodo: "mensual", inicio: "2026-10-01", alcance: "tienda", sucursal_id: 4 };
 const META = { nombre: "Videos de tips", unidad: "videos", prueba: "liga", valor_meta: 12,
@@ -116,4 +116,40 @@ test("planeador ia: crearOkr y crearMeta guardan el origen; sin origen queda nul
   assert.deepEqual(okr.origen, origen);
   assert.deepEqual(meta.origen, origen);
   assert.equal(mano.origen, null);
+});
+
+const CORP = { nombre: "Seguimiento Radar", unidad: "demandas", prueba: "ninguna", valor_meta: 20, periodo: "mensual", inicio: "2026-11-01",
+  alcance: "corporativo", usuario_id: "80" };
+
+test("corporativo: guarda usuario_id numerico, tienda opcional y fuente manual por omision", () => {
+  const DB = DBPrueba();
+  const meta = M.crearMeta(DB, CORP, VICTOR);
+  assert.equal(meta.usuario_id, 80);
+  assert.equal(meta.vendedor_id, null);
+  assert.equal(meta.sucursal_id, null);
+  assert.equal(meta.fuente, "manual");
+  assert.equal(M.crearMeta(DB, { ...CORP, sucursal_id: "1" }, VICTOR).sucursal_id, 1);
+});
+
+test("corporativo: cuenta inactiva, inexistente o tienda inexistente se rechazan", () => {
+  const DB = DBPrueba();
+  assert.throws(() => M.crearMeta(DB, { ...CORP, usuario_id: 81 }, VICTOR), /cuenta activa/);
+  assert.throws(() => M.crearMeta(DB, { ...CORP, usuario_id: 99 }, VICTOR), /cuenta activa/);
+  assert.throws(() => M.crearMeta(DB, { ...CORP, sucursal_id: 77 }, VICTOR), /La tienda no existe/);
+});
+
+test("fuente automatica: solo corporativo, sin prueba, y no editable", () => {
+  const DB = DBPrueba();
+  const auto = M.crearMeta(DB, { ...CORP, fuente: "crm_cambios_estado" }, VICTOR);
+  assert.equal(auto.fuente, "crm_cambios_estado");
+  assert.throws(() => M.crearMeta(DB, { ...CORP, fuente: "inventada" }, VICTOR), /fuente/);
+  assert.throws(() => M.crearMeta(DB, { ...CORP, fuente: "crm_cambios_estado", prueba: "foto" }, VICTOR), /se cuenta sola/);
+  assert.throws(() => M.crearMeta(DB, { ...CORP, alcance: "tienda", sucursal_id: 1, fuente: "crm_cambios_estado" }, VICTOR), /corporativo/);
+  assert.throws(() => M.editarMeta(DB, auto.clave, { fuente: "manual", motivo: "x" }, VICTOR), /no se pueden cambiar/);
+  assert.throws(() => M.editarMeta(DB, auto.clave, { prueba: "foto", motivo: "x" }, VICTOR), /se cuenta sola/);
+});
+
+test("metas existentes sin fuente se leen como manual", () => {
+  assert.equal(M.fuenteDe({}), "manual");
+  assert.equal(M.ALCANCES.includes("corporativo"), true);
 });

@@ -1,7 +1,7 @@
 // Captura de metas personalizadas: la persona marca "Hecho" con su prueba y cuenta al momento
 // (decisión de Victor 2026-10-08). La jefatura revisa y anula con motivo. Una liga o una foto
 // solo cuenta una vez en todo el sistema (metas y actividades).
-const { metaVigente, periodoSellado, motivoObligatorio } = require("./metasPersonalizadas");
+const { metaVigente, periodoSellado, motivoObligatorio, fuenteDe } = require("./metasPersonalizadas");
 const { finDePeriodo } = require("./metasPeriodos");
 const { clavePublicacion, prepararEvidencia, subidasEnCurso } = require("./objetivosActividades");
 const { validarFechaYPlantilla, fechaValida } = require("./objetivosFechas");
@@ -26,7 +26,14 @@ function validarEvidenciaUnica(DB, evidencia) {
   }
 }
 
-function validarParticipacion(DB, meta, vendedor_id, fecha) {
+function validarParticipacion(DB, meta, vendedor_id, fecha, usuario_id = null) {
+  // Meta del corporativo: solo la cuenta dueña, sin vendedor ni plantilla (spec 2026-10-22 §4.3).
+  if (meta.alcance === "corporativo") {
+    if (usuario_id === null || usuario_id === undefined || Number(usuario_id) !== meta.usuario_id) throw new Error("Esta meta no es tuya");
+    const cuenta = (DB.admin?.usuarios || []).find((u) => u.id === meta.usuario_id);
+    if (!cuenta || cuenta.activo === false) throw new Error("Tu cuenta no está activa; no puede capturar");
+    return meta.sucursal_id;
+  }
   if (vendedor_id === null || vendedor_id === undefined) throw new Error("Tu cuenta no está ligada a un vendedor");
   if (meta.alcance === "persona") {
     if (vendedor_id !== meta.vendedor_id) throw new Error("Esta meta no es tuya");
@@ -76,11 +83,13 @@ async function subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucu
   if (subidasEnCurso.has(evidencia.huella)) throw new Error("Ya se está subiendo esta foto; inténtalo de nuevo al terminar");
   subidasEnCurso.add(evidencia.huella);
   try {
-    const sucursal = DB.pos.sucursales.find((s) => s.id === sucursal_id) || { id: sucursal_id };
-    const vendedor = DB.pos.vendedores.find((v) => v.id === vendedor_id);
-    const carpetaId = await drive.asegurarCarpetaActividadesSucursal(DB, sucursal);
+    const cuenta = meta.alcance === "corporativo" ? (DB.admin?.usuarios || []).find((u) => u.id === meta.usuario_id) : null;
+    let carpetaId;
+    if (cuenta && sucursal_id === null) carpetaId = await drive.asegurarCarpetaEmpleado(DB, cuenta);
+    else carpetaId = await drive.asegurarCarpetaActividadesSucursal(DB, DB.pos.sucursales.find((s) => s.id === sucursal_id) || { id: sucursal_id });
+    const quien = cuenta ? cuenta.nombre : DB.pos.vendedores.find((v) => v.id === vendedor_id)?.nombre || vendedor_id;
     const subido = await drive.subirArchivoADrive(DB, {
-      nombre: `${datos.fecha} - ${vendedor?.nombre || vendedor_id} - meta ${meta.clave} - ${evidencia.nombre_archivo}`,
+      nombre: `${datos.fecha} - ${quien} - meta ${meta.clave} - ${evidencia.nombre_archivo}`,
       mimeType: datos.archivo.tipo_mime, contenidoBuffer: buffer, carpetaId,
     });
     if (subido?.id) evidencia.drive_file_id = subido.id;
@@ -94,10 +103,12 @@ async function subirFoto(DB, meta, datos, { evidencia, buffer, vendedor_id, sucu
 
 // Cada ventana de "Hecho" manda un id de operación. Si la señal falla y la vendedora vuelve a guardar, el
 // reintento devuelve la captura que ya quedó en vez de contarla dos veces. Es por persona: no tapa a nadie más.
-function operacionPrevia(DB, operacion_id, vendedor_id, clave) {
+// `dueno` = { vendedor_id, usuario_id }: las capturas del corporativo se buscan por cuenta, las demás por vendedor.
+function operacionPrevia(DB, operacion_id, dueno, clave) {
   if (operacion_id === undefined || operacion_id === null) return null;
   if (typeof operacion_id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(operacion_id)) throw new Error("El id de operación no es válido");
-  const previa = DB.pos.meta_capturas.find((c) => c.operacion_id === operacion_id && c.vendedor_id === vendedor_id);
+  const suya = (c) => (c.usuario_id != null ? c.usuario_id === dueno.usuario_id : c.vendedor_id === dueno.vendedor_id);
+  const previa = DB.pos.meta_capturas.find((c) => c.operacion_id === operacion_id && suya(c));
   if (previa && previa.meta_clave !== Number(clave)) throw new Error("Esa operación ya se usó en otra meta; vuelve a abrir la ventana");
   if (previa?.anulada) throw new Error("Esa captura fue quitada mientras la registrabas; abre la ventana de nuevo si quieres registrar otra");
   return previa || null;
@@ -110,10 +121,12 @@ async function borrarFoto(drive, DB, id) {
 
 async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, antesDeGuardar, hoy = fechaLocal(new Date()) }) {
   const operacion_id = datos?.operacion_id ?? null;
-  const yaGuardada = operacionPrevia(DB, operacion_id, vendedor_id, clave);
+  const dueno = { vendedor_id, usuario_id: usuario?.id ?? null };
+  const yaGuardada = operacionPrevia(DB, operacion_id, dueno, clave);
   if (yaGuardada) return yaGuardada;
   const meta = metaVigente(DB, clave);
   if (!meta) throw new Error("La meta no existe o fue eliminada");
+  if (fuenteDe(meta) !== "manual") throw new Error("Esta meta se cuenta sola");
   exigirAbierto(DB, meta);
   const fecha = datos?.fecha;
   if (!fechaValida(fecha)) throw new Error("La fecha debe tener formato AAAA-MM-DD y ser válida");
@@ -121,7 +134,7 @@ async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, ant
   if (fecha < meta.inicio || fecha > finDePeriodo(meta.periodo, meta.inicio)) {
     throw new Error("La fecha no cae dentro del periodo de la meta");
   }
-  const sucursal_id = validarParticipacion(DB, meta, vendedor_id, fecha);
+  const sucursal_id = validarParticipacion(DB, meta, vendedor_id, fecha, dueno.usuario_id);
   const nota = normalizarNota(datos.nota);
   const { cantidad, evidencia, buffer } = cantidadYEvidencia(meta, datos);
   validarEvidenciaUnica(DB, evidencia);
@@ -133,19 +146,20 @@ async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, ant
     if (fecha < vigente.inicio || fecha > finDePeriodo(vigente.periodo, vigente.inicio)) {
       throw new Error("La fecha no cae dentro del periodo de la meta");
     }
-    const sucursalVigente = validarParticipacion(DB, vigente, vendedor_id, fecha);
+    const sucursalVigente = validarParticipacion(DB, vigente, vendedor_id, fecha, dueno.usuario_id);
     exigirAbierto(DB, vigente);
     // Mientras subía la foto pudo entrar el reintento de la misma operación: se conserva la primera.
-    const entretanto = operacionPrevia(DB, operacion_id, vendedor_id, vigente.clave);
+    const entretanto = operacionPrevia(DB, operacion_id, dueno, vigente.clave);
     if (entretanto) {
       if (evidencia?.drive_file_id) await borrarFoto(drive, DB, evidencia.drive_file_id);
       return entretanto;
     }
     const captura = {
       id: siguienteId(DB.pos.meta_capturas), meta_clave: vigente.clave, meta_id: vigente.id, periodo: vigente.periodo, inicio: vigente.inicio,
-      fecha, vendedor_id, sucursal_id: sucursalVigente, cantidad, evidencia, nota,
+      fecha, vendedor_id: vigente.alcance === "corporativo" ? null : vendedor_id,
+      usuario_id: vigente.alcance === "corporativo" ? vigente.usuario_id : null, sucursal_id: sucursalVigente, cantidad, evidencia, nota,
       operacion_id, creado_por_id: usuario?.id ?? null, creado_por: usuario?.nombre || "desconocido", creado_en: new Date().toISOString(),
-      anulada: null,
+      anulada: null, revisada: null,
     };
     DB.pos.meta_capturas.push(captura);
     return captura;
@@ -153,7 +167,7 @@ async function capturarMeta(DB, clave, datos, { usuario, vendedor_id, drive, ant
     if (evidencia?.drive_file_id) await borrarFoto(drive, DB, evidencia.drive_file_id);
     // Si la falla fue porque la primera petición de esta misma ventana ya quedó (p.ej. "foto ya usada"), se devuelve esa.
     let primera = null;
-    try { primera = operacionPrevia(DB, operacion_id, vendedor_id, meta.clave); } catch { /* se reporta el error original */ }
+    try { primera = operacionPrevia(DB, operacion_id, dueno, meta.clave); } catch { /* se reporta el error original */ }
     if (primera) return primera;
     throw error;
   }
@@ -169,6 +183,18 @@ function anularCaptura(DB, id, motivo, usuario) {
   return captura;
 }
 
+// La jefatura deja constancia de que revisó una captura sin anularla; no cambia el avance de nadie.
+function marcarRevisada(DB, id, usuario) {
+  const captura = DB.pos.meta_capturas.find((c) => c.id === Number(id));
+  if (!captura) throw new Error("La captura no existe");
+  if (captura.revisada) throw new Error("La captura ya está revisada");
+  if (captura.anulada) throw new Error("La captura está anulada; no se puede marcar revisada");
+  if (usuario?.id != null && captura.creado_por_id === usuario.id) throw new Error("No puedes marcar revisada una captura propia");
+  if (periodoSellado(DB, captura.periodo, captura.inicio)) throw new Error("El periodo ya está sellado; no se puede revisar");
+  captura.revisada = { por_id: usuario?.id ?? null, por_nombre: usuario?.nombre || "desconocido", en: new Date().toISOString() };
+  return captura;
+}
+
 function capturaParaRespuesta(captura) {
   if (captura.evidencia?.tipo !== "foto") return { ...captura };
   const evidencia = { ...captura.evidencia };
@@ -176,4 +202,4 @@ function capturaParaRespuesta(captura) {
   return { ...captura, evidencia };
 }
 
-module.exports = { capturarMeta, anularCaptura, capturaParaRespuesta, validarParticipacion };
+module.exports = { capturarMeta, anularCaptura, marcarRevisada, capturaParaRespuesta, validarParticipacion };

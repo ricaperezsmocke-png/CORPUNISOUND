@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const M = require("./metasPersonalizadas");
-const { capturarMeta, anularCaptura, capturaParaRespuesta } = require("./metasCapturas");
+const { capturarMeta, anularCaptura, capturaParaRespuesta, marcarRevisada } = require("./metasCapturas");
 
 // Fechas ya pasadas a propósito: la plantilla de la tienda compara contra el día real.
 const VICTOR = { id: 1, nombre: "Victor" };
@@ -47,7 +47,7 @@ function DBPrueba() {
     vendedores: [{ id: 1, nombre: "Ana", sucursal_id: 4 }, { id: 2, nombre: "Luis", sucursal_id: 4 }, { id: 3, nombre: "Eva", sucursal_id: 1 }],
     objetivo_plantilla: [], objetivo_actividades: [], objetivo_inventarios: [],
     okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [],
-  } };
+  }, admin: { usuarios: [{ id: 80, nombre: "Sofía", usuario: "sofia", activo: true }, { id: 82, nombre: "Otro", activo: true }] } };
 }
 const metaTienda = (DB, prueba = "liga") => M.crearMeta(DB, { nombre: "Videos", unidad: "videos", prueba, valor_meta: 12,
   ...MES, alcance: "tienda", sucursal_id: 4 }, VICTOR);
@@ -266,4 +266,82 @@ test("revisión: reintento de foto que llega cuando la primera ya quedó devuelv
   assert.equal(segunda.id, primera.id);
   assert.equal(DB.pos.meta_capturas.length, 1);
   assert.equal(archivos.size, 0, "la foto del reintento se borró");
+});
+
+const SOFIA = { id: 80, nombre: "Sofía" };
+const metaCorp = (DB, extra = {}) => M.crearMeta(DB, { nombre: "Visitas proveedores", unidad: "visitas", prueba: "ninguna", valor_meta: 4,
+  ...MES, alcance: "corporativo", usuario_id: 80, ...extra }, VICTOR);
+const comoSofia = (extra = {}) => ({ usuario: SOFIA, vendedor_id: null, drive: driveFalso, hoy: HOY, ...extra });
+
+test("corporativo manual: captura la duena sin vendedor ni plantilla", async () => {
+  const DB = DBPrueba();
+  const meta = metaCorp(DB);
+  const c = await capturarMeta(DB, meta.clave, { fecha: "2026-09-10", cantidad: 2 }, comoSofia());
+  assert.equal(c.usuario_id, 80);
+  assert.equal(c.vendedor_id, null);
+  assert.equal(c.sucursal_id, null);
+  assert.equal(c.revisada, null);
+});
+
+test("corporativo manual: otra cuenta o un vendedor no capturan", async () => {
+  const DB = DBPrueba();
+  const meta = metaCorp(DB);
+  await assert.rejects(capturarMeta(DB, meta.clave, { fecha: "2026-09-10", cantidad: 1 },
+    comoSofia({ usuario: { id: 82, nombre: "Otro" } })), /no es tuya/);
+  await assert.rejects(capturarMeta(DB, meta.clave, { fecha: "2026-09-10", cantidad: 1 },
+    { usuario: ANA, vendedor_id: 1, drive: driveFalso, hoy: HOY }), /no es tuya/);
+});
+
+test("corporativo: reintento de la misma operacion no cuenta dos veces", async () => {
+  const DB = DBPrueba();
+  const meta = metaCorp(DB);
+  const datos = { fecha: "2026-09-10", cantidad: 1, operacion_id: "operacion-corp-1" };
+  const a = await capturarMeta(DB, meta.clave, datos, comoSofia());
+  const b = await capturarMeta(DB, meta.clave, datos, comoSofia());
+  assert.equal(a.id, b.id);
+  assert.equal(DB.pos.meta_capturas.length, 1);
+});
+
+test("corporativo: la cuenta desactivada ya no captura", async () => {
+  const DB = DBPrueba();
+  const meta = metaCorp(DB);
+  DB.admin.usuarios.find((u) => u.id === 80).activo = false;
+  await assert.rejects(capturarMeta(DB, meta.clave, { fecha: "2026-09-10", cantidad: 1 }, comoSofia()), /cuenta no está activa/);
+});
+
+test("meta automatica rechaza toda captura", async () => {
+  const DB = DBPrueba();
+  const meta = metaCorp(DB, { fuente: "crm_cambios_estado" });
+  await assert.rejects(capturarMeta(DB, meta.clave, { fecha: "2026-09-10", cantidad: 1 }, comoSofia()),
+    { message: "Esta meta se cuenta sola" });
+});
+
+test("corporativo con foto y sin tienda sube a la carpeta de la cuenta", async () => {
+  const DB = DBPrueba();
+  const meta = metaCorp(DB, { prueba: "foto" });
+  let carpeta = null;
+  const drive = { ...driveFalso, asegurarCarpetaEmpleado: async (db, cuenta) => { carpeta = cuenta.id; return "carpeta-cuenta"; } };
+  const archivo = { contenido_base64: "/9j/2Q==", tipo_mime: "image/jpeg", nombre_archivo: "f.jpg" };
+  await capturarMeta(DB, meta.clave, { fecha: "2026-09-10", archivo }, comoSofia({ drive }));
+  assert.equal(carpeta, 80);
+});
+
+test("marcarRevisada: una sola vez, guarda quien y no cambia la cantidad", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 3 });
+  const r = marcarRevisada(DB, c.id, VICTOR);
+  assert.equal(r.revisada.por_id, 1);
+  assert.equal(r.cantidad, 3);
+  assert.throws(() => marcarRevisada(DB, c.id, VICTOR), /ya está revisada/);
+  const otra = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 1 });
+  anularCaptura(DB, otra.id, "No vale", VICTOR);
+  assert.throws(() => marcarRevisada(DB, otra.id, VICTOR), /anulada/);
+});
+
+test("I3: nadie marca revisada su propia captura", async () => {
+  const DB = DBPrueba();
+  const meta = metaTienda(DB, "ninguna");
+  const c = await capturar(DB, meta.clave, { fecha: "2026-09-14", cantidad: 1 });
+  assert.throws(() => marcarRevisada(DB, c.id, ANA), /propia/);
 });

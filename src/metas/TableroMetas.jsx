@@ -2,16 +2,25 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { queryTablero } from "./metas";
-import { ALERTA, Anulada, Barra, DialogoMotivo, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta } from "./Comunes";
+import { ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta } from "./Comunes";
 
 const SELECT = "block neu-campo rounded-lg px-3 py-2 mt-1";
+const MARCA = "text-xs text-emerald-700";
 const RENGLON = "w-full text-left grid grid-cols-[minmax(10rem,16rem)_1fr_4rem_9rem] gap-3 items-center py-1.5 text-sm";
 
 // Tablero: un cuadro por OKR con sus metas. La jefatura abre una meta para ver quién capturó qué y anular ahí mismo.
 export default function TableroMetas({ periodo, inicio, permisos, sucursales, vendedores }) {
   const puedeAnular = permisos.includes("anular_capturas_metas");
   const esAdmin = permisos.includes("administrar_metas_personalizadas");
-  const [filtros, setFiltros] = useState({ sucursal_id: "", vendedor_id: "" });
+  const [filtros, setFiltros] = useState({ sucursal_id: "", vendedor_id: "", usuario_id: "" });
+  const [personas, setPersonas] = useState([]);
+  useEffect(() => {
+    if (!esAdmin) return;
+    apiFetch("/metas/personas-corporativo").then((r) => leer(r, "No se pudo cargar el personal")).then(setPersonas).catch(() => setPersonas([]));
+  }, [esAdmin]);
+  const elegirPersona = (valor) => setFiltros((f) => ({ ...f,
+    vendedor_id: valor.startsWith("v:") ? valor.slice(2) : "", usuario_id: valor.startsWith("u:") ? valor.slice(2) : "" }));
+  const personaElegida = filtros.usuario_id ? `u:${filtros.usuario_id}` : filtros.vendedor_id ? `v:${filtros.vendedor_id}` : "";
   const [tablero, setTablero] = useState(null);
   const [capturas, setCapturas] = useState([]);
   const [abierta, setAbierta] = useState(null);
@@ -28,6 +37,15 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
     } catch (e) { setError(e.message); }
   }, [periodo, inicio, filtros, puedeAnular]);
   useEffect(() => { cargar(); }, [cargar]);
+
+  const revisar = async (captura) => {
+    setError("");
+    try {
+      await apiFetch(`/metas/captura/${captura.id}/revisada`, { method: "POST", body: "{}" }).then((r) => leer(r, "No se pudo marcar revisada"));
+      setExito("Captura marcada como revisada.");
+      await cargar();
+    } catch (e) { setError(e.message); }
+  };
 
   if (!tablero) return error ? <div role="alert" className={ALERTA}>{error}</div> : <p className="text-sm text-slate-500">Cargando…</p>;
   const grupos = [
@@ -49,9 +67,16 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
           </label>
           <label className="text-sm text-slate-600">
             Persona
-            <select value={filtros.vendedor_id} className={SELECT} onChange={(e) => setFiltros((f) => ({ ...f, vendedor_id: e.target.value }))}>
+            <select value={personaElegida} className={SELECT} onChange={(e) => elegirPersona(e.target.value)}>
               <option value="">Todas</option>
-              {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+              <optgroup label="Tiendas">
+                {vendedores.map((v) => <option key={`v${v.id}`} value={`v:${v.id}`}>{v.nombre}</option>)}
+              </optgroup>
+              {personas.length > 0 && (
+                <optgroup label="Corporativo">
+                  {personas.map((p) => <option key={`u${p.id}`} value={`u:${p.id}`}>{p.nombre}</option>)}
+                </optgroup>
+              )}
             </select>
           </label>
         </div>
@@ -86,10 +111,14 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
                   <strong className="text-right">{meta.porcentaje}%</strong>
                   <span className="text-slate-500">{meta.resultado} de {meta.valor_meta} {meta.unidad}</span>
                 </button>
-                <div className="pb-2"><Semaforo semaforo={meta.semaforo} /></div>
+                <div className="pb-2 flex gap-3 items-center">
+                  <Semaforo semaforo={meta.semaforo} />
+                  {meta.fuente && meta.fuente !== "manual" && <span className={MARCA}>Se cuenta sola</span>}
+                  {meta.aviso && <span className="text-xs text-amber-800">{meta.aviso}</span>}
+                </div>
                 {abierta === meta.clave && meta.por_persona && (
                   <Detalle meta={meta} capturas={capturas.filter((c) => c.meta_clave === meta.clave)}
-                    puedeAnular={puedeAnular && !tablero.sellado} anular={setAnulando} />
+                    puedeAnular={puedeAnular && !tablero.sellado} anular={setAnulando} revisar={revisar} />
                 )}
               </div>
             ))}
@@ -105,7 +134,7 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
   );
 }
 
-function Detalle({ meta, capturas, puedeAnular, anular }) {
+function Detalle({ meta, capturas, puedeAnular, anular, revisar }) {
   return (
     <div className="bg-slate-50 rounded-lg p-3 mb-2 space-y-3 text-sm">
       <div>
@@ -125,6 +154,10 @@ function Detalle({ meta, capturas, puedeAnular, anular }) {
                   <span>{c.vendedor_nombre}</span>
                   <Prueba captura={c} />
                   {c.nota && <span className="text-slate-500">{c.nota}</span>}
+                  {puedeAnular && !c.anulada && !c.revisada && (
+                    <button type="button" className={ENLACE} onClick={() => revisar(c)}>Revisada</button>
+                  )}
+                  {c.revisada && <span className={MARCA}>Revisada por {c.revisada.por_nombre}</span>}
                   {puedeAnular && !c.anulada && (
                     <button type="button" className={ENLACE_ROJO} onClick={() => anular(c)}>Anular</button>
                   )}

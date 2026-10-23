@@ -18,12 +18,13 @@ import EncabezadoModulo from "./EncabezadoModulo.jsx";
 import RadarDemanda from "./radar-demanda/RadarDemanda.jsx";
 import BarraLateral from "./BarraLateral.jsx";
 import Configuracion from "./Configuracion.jsx";
+import Supervision from "./supervision/Supervision.jsx";
 import { apiFetch } from "./api";
 import { vistaApagada } from "./menuCategorias.js";
 
 const MODULOS = [
   "pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta",
-  "respaldos", "gerencia_ventas", "radar_demanda", "configuracion",
+  "respaldos", "gerencia_ventas", "radar_demanda", "configuracion", "supervision",
 ];
 
 async function seleccionarCajaPredeterminada() {
@@ -185,6 +186,7 @@ function App() {
         {vista === "gerencia_ventas" && (
           <GerenciaVentas onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
+        {vista === "supervision" && <Supervision permisos={usuario.permisos} usuario={usuario} />}
         {vista === "radar_demanda" && (
           <RadarDemanda permisos={usuario.permisos} />
         )}

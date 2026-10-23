@@ -1,7 +1,8 @@
 // Rutas de metas personalizadas. El vendedor sale SIEMPRE de la cuenta, nunca del cuerpo:
 // nadie captura a nombre de otro. Lo de otra tienda responde 404, igual que en Objetivos.
 const M = require("./metasPersonalizadas");
-const { capturarMeta, anularCaptura, capturaParaRespuesta } = require("./metasCapturas");
+const { capturarMeta, anularCaptura, marcarRevisada, capturaParaRespuesta } = require("./metasCapturas");
+const { FUENTES, DESCRIPCION_FUENTES } = require("./metasFuentes");
 const { tablero } = require("./metasAvance");
 const { previoSello, sellarPeriodo, rectificarSello } = require("./metasSellos");
 const { fechaLocal } = require("./fechas");
@@ -29,21 +30,29 @@ module.exports = function registrarRutasMetas(app, deps) {
   function visorDe(req) {
     const { verTodas, sucursalId } = resolverAlcanceAutorizado(req);
     const jefatura = tiene(req, "administrar_metas_personalizadas") || tiene(req, "anular_capturas_metas");
-    return { vendedor_id: vendedorLigadoAObjetivos(req), jefatura, verTodas, sucursalId };
+    return { vendedor_id: vendedorLigadoAObjetivos(req), usuario_id: req.usuarioToken.id, jefatura, verTodas, sucursalId };
   }
 
   // Alcance de jefatura sobre una captura: su tienda; las de metas de empresa, solo quien ve todas.
+  // Una captura del corporativo sin tienda (sucursal_id null) tampoco coincide con ninguna tienda: solo quien ve todas.
   function capturaEnAlcance(req, captura) {
     const { verTodas, sucursalId } = resolverAlcanceAutorizado(req);
     if (verTodas) return true;
     const meta = DB.pos.metas_personalizadas.find((m) => m.clave === captura.meta_clave);
-    return meta?.alcance !== "empresa" && captura.sucursal_id === sucursalId;
+    return !["empresa", "corporativo"].includes(meta?.alcance) && captura.sucursal_id === sucursalId;
   }
 
   app.get("/api/metas/tablero", requiereLogin, uso, (req, res) => responder(res, () => tablero(DB, visorDe(req), {
     ...periodoDe(req.query), sucursal_id: opcional(req.query.sucursal_id, "sucursal_id"),
-    vendedor_id: opcional(req.query.vendedor_id, "vendedor_id"),
+    vendedor_id: opcional(req.query.vendedor_id, "vendedor_id"), usuario_id: opcional(req.query.usuario_id, "usuario_id"),
   }, hoy())));
+
+  // Para "¿Para quién?" de una meta del corporativo: cuentas activas, sin contraseñas.
+  app.get("/api/metas/personas-corporativo", requiereLogin, admin, (req, res) => res.json(DB.admin.usuarios
+    .filter((u) => u.activo !== false)
+    .map((u) => ({ id: u.id, nombre: u.nombre, rol: DB.admin.roles.find((r) => r.id === u.rol_id)?.nombre || "" }))));
+  app.get("/api/metas/fuentes", requiereLogin, admin, (req, res) =>
+    res.json(FUENTES.map((clave) => ({ clave, descripcion: DESCRIPCION_FUENTES[clave] }))));
 
   app.get("/api/metas/admin", requiereLogin, admin, (req, res) => responder(res, () => {
     const delPeriodo = (r) => r.periodo === req.query.periodo && r.inicio === req.query.inicio;
@@ -55,7 +64,8 @@ module.exports = function registrarRutasMetas(app, deps) {
       .filter((c) => c.periodo === req.query.periodo && c.inicio === req.query.inicio && capturaEnAlcance(req, c))
       .map((c) => ({
         ...capturaParaRespuesta(c),
-        vendedor_nombre: DB.pos.vendedores.find((v) => v.id === c.vendedor_id)?.nombre || "desconocido",
+        vendedor_nombre: (c.usuario_id != null ? DB.admin.usuarios.find((u) => u.id === c.usuario_id)
+          : DB.pos.vendedores.find((v) => v.id === c.vendedor_id))?.nombre || "desconocido",
         meta_nombre: M.historial(DB, "metas_personalizadas", c.meta_clave).at(-1)?.nombre || "desconocida",
       }))));
 
@@ -80,10 +90,21 @@ module.exports = function registrarRutasMetas(app, deps) {
     try {
       const id = idDeObjetivos(req.params.id, "id");
       const captura = DB.pos.meta_capturas.find((c) => c.id === id);
-      const propia = captura && captura.vendedor_id === vendedorLigadoAObjetivos(req);
+      const propia = captura && (captura.usuario_id != null
+        ? captura.usuario_id === req.usuarioToken.id
+        : captura.vendedor_id === vendedorLigadoAObjetivos(req));
       const jefatura = captura && tiene(req, "anular_capturas_metas") && capturaEnAlcance(req, captura);
       if (!captura || (!propia && !jefatura)) return res.status(404).json({ error: "Captura no encontrada" });
       res.json(capturaParaRespuesta(anularCaptura(DB, id, req.body?.motivo, req.usuarioToken)));
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.post("/api/metas/captura/:id/revisada", requiereLogin, permiso("anular_capturas_metas"), (req, res) => {
+    try {
+      const id = idDeObjetivos(req.params.id, "id");
+      const captura = DB.pos.meta_capturas.find((c) => c.id === id);
+      if (!captura || !capturaEnAlcance(req, captura)) return res.status(404).json({ error: "Captura no encontrada" });
+      res.json(capturaParaRespuesta(marcarRevisada(DB, id, req.usuarioToken)));
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
 

@@ -47,6 +47,9 @@ function reconciliarTrasRestaurar(db) {
   // reinicio no hay cajas que ofrecer, el corte queda bloqueado, y cada venta
   // se guarda sin caja. Y si la foto trae el catalogo torcido, se repara en vez
   // de rechazar la restauracion entera.
+  // Un respaldo anterior a la supervisión de tiendas la trae vacía: se siembra su checklist.
+  require("./supervision").asegurarChecklistInicial(db);
+
   if (!Array.isArray(db.pos.cajas)) db.pos.cajas = [];
   const { reparaciones } = repararCajas(db);
 

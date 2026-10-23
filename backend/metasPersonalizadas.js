@@ -2,12 +2,14 @@
 // Cada cambio es una versión nueva con motivo; eliminar es retirar, nunca borrar: una meta
 // incumplida no puede desaparecer del historial.
 const { validarPeriodo } = require("./metasPeriodos");
+const { FUENTES } = require("./metasFuentes");
 
-const ALCANCES = ["tienda", "persona", "empresa"];
+const ALCANCES = ["tienda", "persona", "empresa", "corporativo"];
 const PRUEBAS = ["ninguna", "liga", "foto"];
 const EDITABLES_META = ["nombre", "descripcion", "unidad", "prueba", "valor_meta"];
 const EDITABLES_OKR = ["titulo", "descripcion"];
 
+const fuenteDe = (meta) => meta.fuente || "manual";
 const siguienteId = (lista) => lista.reduce((maximo, r) => Math.max(maximo, r.id), 0) + 1;
 
 function texto(valor, campo, maximo, { obligatorio = true } = {}) {
@@ -38,23 +40,34 @@ function exigirAbierto(DB, periodo, inicio) {
   if (periodoSellado(DB, periodo, inicio)) throw new Error("El periodo ya está sellado; solo se puede rectificar el sello");
 }
 
-function validarAlcance(DB, { alcance, sucursal_id, vendedor_id, participantes }) {
-  if (!ALCANCES.includes(alcance)) throw new Error("El alcance debe ser tienda, persona o empresa");
+function validarAlcance(DB, { alcance, sucursal_id, vendedor_id, participantes, usuario_id }) {
+  if (!ALCANCES.includes(alcance)) throw new Error("El alcance debe ser tienda, persona, empresa o corporativo");
   if (alcance === "tienda") {
     const id = Number(sucursal_id);
     if (!DB.pos.sucursales.some((s) => s.id === id)) throw new Error("La tienda no existe");
-    return { alcance, sucursal_id: id, vendedor_id: null, participantes: [] };
+    return { alcance, sucursal_id: id, vendedor_id: null, usuario_id: null, participantes: [] };
+  }
+  // Persona del corporativo (spec 2026-10-22 §4.1): apunta a una cuenta, no a un vendedor; la tienda es opcional.
+  if (alcance === "corporativo") {
+    const cuenta = (DB.admin?.usuarios || []).find((u) => u.id === Number(usuario_id) && u.activo !== false);
+    if (!cuenta) throw new Error("La meta del corporativo necesita una cuenta activa");
+    let tienda = null;
+    if (sucursal_id !== undefined && sucursal_id !== null && sucursal_id !== "") {
+      tienda = Number(sucursal_id);
+      if (!DB.pos.sucursales.some((s) => s.id === tienda)) throw new Error("La tienda no existe");
+    }
+    return { alcance, sucursal_id: tienda, vendedor_id: null, usuario_id: cuenta.id, participantes: [] };
   }
   if (alcance === "persona") {
     const vendedor = DB.pos.vendedores.find((v) => v.id === Number(vendedor_id));
     if (!vendedor) throw new Error("La persona no existe");
-    return { alcance, sucursal_id: vendedor.sucursal_id, vendedor_id: vendedor.id, participantes: [] };
+    return { alcance, sucursal_id: vendedor.sucursal_id, vendedor_id: vendedor.id, usuario_id: null, participantes: [] };
   }
   const ids = Array.isArray(participantes) ? [...new Set(participantes.map(Number))].sort((a, b) => a - b) : [];
   if (!ids.length || ids.some((id) => !DB.pos.vendedores.some((v) => v.id === id))) {
     throw new Error("Una meta de empresa necesita participantes que existan");
   }
-  return { alcance, sucursal_id: null, vendedor_id: null, participantes: ids };
+  return { alcance, sucursal_id: null, vendedor_id: null, usuario_id: null, participantes: ids };
 }
 
 function validarCifra(valor) {
@@ -146,9 +159,15 @@ function crearMeta(DB, datos, usuario, { origen = null } = {}) {
   validarPeriodo(base.periodo, base.inicio);
   exigirAbierto(DB, base.periodo, base.inicio);
   const alcance = validarAlcance(DB, base);
+  const fuente = datos.fuente === undefined || datos.fuente === null ? "manual" : datos.fuente;
+  if (!FUENTES.includes(fuente)) throw new Error("La fuente de la meta no es válida");
+  if (fuente !== "manual") {
+    if (alcance.alcance !== "corporativo") throw new Error("Solo las metas del corporativo se pueden contar solas");
+    if (prueba !== "ninguna") throw new Error("Una meta que se cuenta sola no lleva prueba");
+  }
   const id = siguienteId(DB.pos.metas_personalizadas);
   const meta = { id, clave: id, version: 1, vigente: true, retirada: null, reemplaza_a: null, motivo: null,
-    okr_clave, nombre, descripcion, unidad, prueba, valor_meta, periodo: base.periodo, inicio: base.inicio,
+    okr_clave, nombre, descripcion, unidad, prueba, valor_meta, fuente, periodo: base.periodo, inicio: base.inicio,
     ...alcance, origen, ...auditoria(usuario) };
   DB.pos.metas_personalizadas.push(meta);
   return meta;
@@ -167,6 +186,9 @@ function editarMeta(DB, clave, datos, usuario) {
   if ("descripcion" in datos) cambios.descripcion = texto(datos.descripcion, "descripción", 500, { obligatorio: false });
   if ("unidad" in datos) cambios.unidad = texto(datos.unidad, "unidad", 40);
   if ("prueba" in datos) cambios.prueba = validarPrueba(datos.prueba);
+  if (fuenteDe(anterior) !== "manual" && "prueba" in cambios && cambios.prueba !== "ninguna") {
+    throw new Error("Una meta que se cuenta sola no lleva prueba");
+  }
   if ("valor_meta" in datos) cambios.valor_meta = validarCifra(datos.valor_meta);
   return nuevaVersion(DB.pos.metas_personalizadas, anterior, cambios, motivo, usuario);
 }
@@ -179,6 +201,6 @@ function retirarMeta(DB, clave, motivo, usuario) {
 }
 
 module.exports = {
-  ALCANCES, PRUEBAS, periodoSellado, okrVigente, metaVigente, historial,
+  ALCANCES, PRUEBAS, fuenteDe, periodoSellado, okrVigente, metaVigente, historial,
   crearOkr, editarOkr, retirarOkr, crearMeta, editarMeta, retirarMeta, motivoObligatorio,
 };
