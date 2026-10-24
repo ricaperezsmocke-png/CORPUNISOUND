@@ -73,6 +73,23 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   diezmilésimas por tienda (la de la llave). El recibo incluye `aceptados.existencias` (cuenta todas las filas,
   incluidas las `null`) cuando el lote trae esta colección. Un servidor anterior a esta versión rechaza la llave
   `existencias` con 400: el agente la manda solo con `"existencias": true` en su configuración.
+- `cortes` es otra colección opcional independiente (Cortes de caja desde SICAR, 2026-10-23), con las mismas reglas:
+  puede ser el único contenido del lote, no cambia `schema_version`, hasta 100 por lote y el mismo `cor_id` no se
+  repite. Cada fila es exactamente `{ cor_id, caj_id, fecha_local, usu_id, contado, calculado, diferencia, retiro,
+  pagos, cobros }`: `cor_id` y `caj_id` son ids texto; `usu_id` es el id texto de quien cerró el corte o `null`;
+  `fecha_local` tiene el formato de `ventas` (`YYYY-MM-DDTHH:MM:SS`). Los importes son texto con signo opcional, de 1
+  a 16 enteros y exactamente 2 decimales (sin `+`, sin espacios, nunca número JSON), con valor sin el punto no mayor
+  a 9007199254740991; otra cosa responde 422 `IMPORTE_INVALIDO`. `diferencia` es contado menos calculado (positiva =
+  sobrante, negativa = faltante) tal como la guardó SICAR; `"-0.00"` se acepta y se guarda como 0. `pagos` es un
+  arreglo de hasta 8, sin `tpa_id` repetido, cada uno exactamente `{ tpa_id, contado, calculado, diferencia,
+  retiro }`. `cobros` es un arreglo de hasta 50, sin `usu_id` repetido (`null` cuenta como un valor y solo una vez),
+  cada uno exactamente `{ usu_id, ventas, total, canceladas, total_canceladas }`, con `ventas` y `canceladas`
+  enteros JSON de 0 a 100000 (otra cosa responde 422 `DATOS_INVALIDOS`) y los totales como importe; `usu_id: null`
+  son ventas sin alta en historial y se guarda como cadena vacía. El servidor guarda centavos enteros con signo por
+  tienda (la de la llave); reenviar un corte lo reemplaza junto con todos sus pagos y cobros en la misma
+  transacción. El recibo incluye `aceptados.cortes` cuando el lote trae esta colección. Un servidor anterior a esta
+  versión rechaza la llave `cortes` con 400: el agente la manda solo con `"cortes": true` en su configuración. El
+  agente no manda nombres de personas, solo `usu_id`.
 
 ## 3. Qué venta mandar y con qué estado
 

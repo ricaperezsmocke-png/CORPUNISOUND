@@ -219,3 +219,26 @@ test('13. un lote solo de existencias avanza la secuencia, se guarda por tienda 
     existencias: [{ art_id: '10', existencia: '3' }] });
   assert.equal((await enviar(malo)).status, 422);
 });
+
+test('14. un lote solo de cortes avanza la secuencia, se guarda por tienda y el reenvio no duplica', async () => {
+  // El ritmo es de 12 solicitudes por minuto por llave y este archivo ya las gasta: una llave nueva de la misma tienda.
+  const llaveAnterior = llave;
+  llave = crearLlaveSicar(repo, 1, 961).llave;
+  try {
+  const corte = { cor_id: '5', caj_id: '2', fecha_local: '2026-10-22T20:15:00', usu_id: null, contado: '10.00', calculado: '10.33',
+    diferencia: '-0.33', retiro: '0.00', pagos: [{ tpa_id: '1', contado: '10.00', calculado: '10.33', diferencia: '-0.33', retiro: '0.00' }],
+    cobros: [{ usu_id: null, ventas: 1, total: '10.33', canceladas: 0, total_canceladas: '0.00' }] };
+  const cuerpo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000016', sequence: '10', clientes: [], ventas: [], cortes: [corte] });
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  assert.deepEqual(r.datos.aceptados, { clientes: 0, ventas: 0, cortes: 1 });
+  assert.equal(r.datos.next_sequence, '11');
+  assert.deepEqual(await enviar(cuerpo), r);
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, cor_id, diferencia_centavos, usu_id FROM sicar_cortes').all(),
+    [{ sucursal_id: 1, cor_id: '5', diferencia_centavos: -33, usu_id: null }]);
+  assert.deepEqual(sqlite.prepare('SELECT usu_id, total_centavos FROM sicar_cortes_cobros').all(), [{ usu_id: '', total_centavos: 1033 }]);
+  const malo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000017', sequence: '11', clientes: [], ventas: [],
+    cortes: [{ ...corte, diferencia: '-0.3' }] });
+  assert.equal((await enviar(malo)).status, 422);
+  } finally { llave = llaveAnterior; }
+});

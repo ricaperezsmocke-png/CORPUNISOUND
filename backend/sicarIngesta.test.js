@@ -212,3 +212,55 @@ test('existencias opcionales aceptan lote exclusivo, nulos y rechazan formatos, 
   cero.existencias[0].existencia = '-0.0000';
   assert.deepEqual(validarLoteSicar(cero), cero);
 });
+
+function corteValido(id = '5') {
+  return { cor_id: id, caj_id: '2', fecha_local: '2026-10-22T20:15:00', usu_id: '3',
+    contado: '1500.00', calculado: '1500.33', diferencia: '-0.33', retiro: '0.00',
+    pagos: [{ tpa_id: '1', contado: '1000.00', calculado: '1000.33', diferencia: '-0.33', retiro: '0.00' },
+      { tpa_id: '2', contado: '500.00', calculado: '500.00', diferencia: '0.00', retiro: '0.00' }],
+    cobros: [{ usu_id: '3', ventas: 12, total: '1500.33', canceladas: 1, total_canceladas: '80.00' },
+      { usu_id: null, ventas: 0, total: '0.00', canceladas: 0, total_canceladas: '0.00' }] };
+}
+
+test('cortes opcionales aceptan lote exclusivo y rechazan importes, duplicados, limites, propiedades y conteos', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const soloCortes = { ...lote(), clientes: [], ventas: [], cortes: [corteValido()] };
+  assert.deepEqual(validarLoteSicar(soloCortes), soloCortes);
+  const sinUsuario = structuredClone(soloCortes);
+  sinUsuario.cortes[0].usu_id = null;
+  assert.deepEqual(validarLoteSicar(sinUsuario), sinUsuario);
+  for (const [nombre, cambiar, codigo] of [
+    ['un decimal', b => { b.cortes[0].diferencia = '1.5'; }, 'IMPORTE_INVALIDO'],
+    ['numero', b => { b.cortes[0].diferencia = 1.5; }, 'IMPORTE_INVALIDO'],
+    ['signo mas', b => { b.cortes[0].contado = '+1.00'; }, 'IMPORTE_INVALIDO'],
+    ['mayor a safe integer', b => { b.cortes[0].retiro = '9999999999999999.00'; }, 'IMPORTE_INVALIDO'],
+    ['importe de pago', b => { b.cortes[0].pagos[0].calculado = '1'; }, 'IMPORTE_INVALIDO'],
+    ['total de cobro', b => { b.cortes[0].cobros[0].total = '3'; }, 'IMPORTE_INVALIDO'],
+    ['tpa repetido', b => { b.cortes[0].pagos[1].tpa_id = '1'; }, 'ID_DUPLICADO'],
+    ['usu repetido en cobros', b => { b.cortes[0].cobros[1].usu_id = '3'; }, 'ID_DUPLICADO'],
+    ['null repetido en cobros', b => { b.cortes[0].cobros.push({ ...b.cortes[0].cobros[1] }); }, 'ID_DUPLICADO'],
+    ['cor repetido', b => { b.cortes.push(corteValido()); }, 'ID_DUPLICADO'],
+    ['limite de cortes', b => { b.cortes = Array.from({ length: 101 }, (_, i) => corteValido(String(i + 1))); }, 'LIMITE_ENTIDADES'],
+    ['limite de pagos', b => { b.cortes[0].pagos = Array.from({ length: 9 }, (_, i) => ({ ...b.cortes[0].pagos[0], tpa_id: String(i + 1) })); }, 'LIMITE_ENTIDADES'],
+    ['limite de cobros', b => { b.cortes[0].cobros = Array.from({ length: 51 }, (_, i) => ({ ...b.cortes[0].cobros[0], usu_id: String(i + 1) })); }, 'LIMITE_ENTIDADES'],
+    ['propiedad extra en fila', b => { b.cortes[0].nombre = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['propiedad extra en pago', b => { b.cortes[0].pagos[0].nombre = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['propiedad extra en cobro', b => { b.cortes[0].cobros[0].nombre = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['ventas negativas', b => { b.cortes[0].cobros[0].ventas = -1; }, 'DATOS_INVALIDOS'],
+    ['ventas decimales', b => { b.cortes[0].cobros[0].ventas = 1.5; }, 'DATOS_INVALIDOS'],
+    ['canceladas texto', b => { b.cortes[0].cobros[0].canceladas = '1'; }, 'DATOS_INVALIDOS'],
+    ['ventas sobre el maximo', b => { b.cortes[0].cobros[0].ventas = 100001; }, 'DATOS_INVALIDOS'],
+    ['fecha invalida', b => { b.cortes[0].fecha_local = '2026-10-22'; }, 'FECHA_INVALIDA'],
+    ['cor invalido', b => { b.cortes[0].cor_id = 5; }, 'ID_INVALIDO'],
+    ['caj invalido', b => { b.cortes[0].caj_id = '0'; }, 'ID_INVALIDO'],
+    ['usu invalido', b => { b.cortes[0].usu_id = 3; }, 'ID_INVALIDO'],
+    ['pagos no arreglo', b => { b.cortes[0].pagos = null; }, 'LIMITE_ENTIDADES'],
+  ]) {
+    const entrada = structuredClone(soloCortes);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+  const cero = structuredClone(soloCortes);
+  cero.cortes[0].diferencia = '-0.00';
+  assert.deepEqual(validarLoteSicar(cero), cero);
+});
