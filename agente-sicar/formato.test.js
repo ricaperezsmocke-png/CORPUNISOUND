@@ -165,7 +165,6 @@ test('corte: dato que el contrato no acepta se omite con su cor_id; un cor_id in
     [{ corte: { ...corte8006, fecha: '0000-00-00 00:00:00' } }, 'FECHA_INVALIDA'],
     [{ corte: { ...corte8006, fecha: '2026-02-30 10:00:00' } }, 'FECHA_INVALIDA'],
     [{ corte: { ...corte8006, caj_id: '0' } }, 'ID_INVALIDO'],
-    [{ cajeros: [{ id: '8006', usu_id: '0' }] }, 'ID_INVALIDO'],
     [{ ventas: [venta8006('11', '52', '100.00', '2')] }, 'ESTADO_VENTA_DESCONOCIDO'],
     [{ ventas: [venta8006('11', '52', 'x', '1')] }, 'DECIMAL_INVALIDO'],
     [{ pagos: [pago('1', '1.00'), pago('1', '2.00')] }, 'ID_INVALIDO'],
@@ -175,6 +174,16 @@ test('corte: dato que el contrato no acepta se omite con su cor_id; un cor_id in
     assert.deepEqual(corteSeguro(datos), { corte: null, omitido: { cor_id: '8006', codigo } }, codigo);
   }
   assert.throws(() => corteSeguro({ corte: { ...corte8006, cor_id: 'x' }, pagos: [], cajeros: [], ventas: [] }), /ID_INVALIDO/);
+});
+test('corte: usu_id invalido no omite el corte: quien cerro va null y la venta cuenta con usu_id null', () => {
+  for (const raro of ['0', 'abc', '-3', 1.5]) {
+    const { corte, omitido } = corteSeguro({ corte: corte8006, pagos: [], cajeros: [{ id: '8006', usu_id: raro }],
+      ventas: [venta8006('11', raro, '100.00', '1'), venta8006('12', '52', '5.00', '-1')] });
+    assert.equal(omitido, null, String(raro));
+    assert.equal(corte.usu_id, null);
+    assert.deepEqual(corte.cobros, [{ usu_id: '52', ventas: 0, total: '0.00', canceladas: 1, total_canceladas: '5.00' },
+      { usu_id: null, ventas: 1, total: '100.00', canceladas: 0, total_canceladas: '0.00' }]);
+  }
 });
 test('un lote cabe con hasta 100 cortes', () => {
   const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));

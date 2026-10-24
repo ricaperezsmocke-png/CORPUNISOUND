@@ -187,3 +187,20 @@ test('un estado.json de antes de los cortes arranca con cortes_cursor en 0 y rec
   assert.equal(registrar(x => x)('CORTE_SIN_CAJERO', { cor_id: '8006' }), 'CORTE_SIN_CAJERO cor_id=8006');
   assert.equal(registrar(x => x)('CORTES_NO_DISPONIBLES'), 'CORTES_NO_DISPONIBLES');
 });
+test('cortes_enviados: arranca vacio, acepta hasta 50 ids y rechaza listas raras', async t => {
+  const archivo = await entorno(t);
+  assert.deepEqual(inicial().cortes_enviados, []);
+  const viejo = inicial();
+  delete viejo.cortes_enviados;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  assert.deepEqual((await cargar(archivo)).cortes_enviados, []);
+  const cincuenta = Array.from({ length: 50 }, (_, i) => String(i + 1));
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, cortes_enviados: cincuenta }));
+  assert.deepEqual((await cargar(archivo)).cortes_enviados, cincuenta);
+  for (const raro of [{ cortes_enviados: 'x' }, { cortes_enviados: {} }, { cortes_enviados: [1] }, { cortes_enviados: ['0'] },
+    { cortes_enviados: ['07'] }, { cortes_enviados: [...cincuenta, '51'] }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('CORTE_FECHA_FUTURA', { cor_id: '8006' }), 'CORTE_FECHA_FUTURA cor_id=8006');
+});

@@ -30,6 +30,10 @@ const COLUMNAS_CORTES = { cortecaja: ['cor_id', 'fecha', 'contado', 'calculado',
 const LEER_CORTES = 'SELECT c.`cor_id`, c.`fecha`, c.`contado`, c.`calculado`, c.`diferencia`, c.`retiro`, c.`caj_id` FROM `cortecaja` c '
   + 'WHERE c.`cor_id` > ? ORDER BY c.`cor_id` LIMIT ?';
 const MAXIMO_CORTES = 100;
+// Ventas de un grupo de cortes con quién dio de alta cada una. La usan la corrida y la medición de --verificar.
+const ventasDeCortes = (leer, ids) => leer('SELECT r.`cor_id`, v.`ven_id`, v.`total`, v.`status`, h.`usu_id` FROM `resumencortecaja` r '
+  + 'JOIN `venta` v ON v.`rcc_id` = r.`rcc_id` LEFT JOIN `historial` h ON h.`id` = v.`ven_id` AND h.`tabla` = ? '
+  + `AND h.\`movimiento\` = 0 WHERE r.\`cor_id\` IN (${ids.map(() => '?').join(', ')})`, ['Venta', ...ids]);
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -84,6 +88,14 @@ function crearFuente(lector, config = {}) {
     }
     return { total, ms: Math.round(performance.now() - inicio) };
   }
+  // Para --verificar: cuánto tarda la consulta de ventas (la misma de cada corrida) con los últimos 100 cortes.
+  async function medirCortes(leer) {
+    const total = String((await leer('SELECT COUNT(*) AS total FROM `cortecaja`'))[0].total);
+    const inicio = performance.now();
+    const ids = (await leer('SELECT c.`cor_id` FROM `cortecaja` c ORDER BY c.`cor_id` DESC LIMIT ?', [MAXIMO_CORTES])).map(c => String(c.cor_id));
+    if (ids.length) await ventasDeCortes(leer, ids);
+    return { total, ms: Math.round(performance.now() - inicio) };
+  }
   async function clientesIds(leer, ids) {
     if (!ids.length) return [];
     return leer(`SELECT ${lista(COLUMNAS.cliente)} FROM \`cliente\` WHERE \`cli_id\` IN (${huecos(ids)})`, ids);
@@ -129,16 +141,16 @@ function crearFuente(lector, config = {}) {
       if (cortesFaltantes.length) throw new Error('CORTES_NO_DISPONIBLES');
       return lector.pagina(async leer => {
         const cortes = await leer(LEER_CORTES, [cursor, Math.min(limite, MAXIMO_CORTES)]);
-        if (!cortes.length) return { cortes, pagos: [], cajeros: [], ventas: [] };
+        if (!cortes.length) return { cortes, pagos: [], cajeros: [], resumenes: [], ventas: [] };
         const ids = cortes.map(c => String(c.cor_id));
         const pagos = await leer('SELECT p.`cor_id`, p.`tpa_id`, p.`contado`, p.`calculado`, p.`diferencia`, p.`retiro` '
           + `FROM \`cortetipopago\` p WHERE p.\`cor_id\` IN (${huecos(ids)})`, ids);
         const cajeros = await leer('SELECT h.`id`, h.`usu_id` FROM `historial` h WHERE h.`tabla` = ? AND h.`movimiento` = 0 '
           + `AND h.\`id\` IN (${huecos(ids)})`, ['CorteCaja', ...ids]);
-        const ventas = await leer('SELECT r.`cor_id`, v.`ven_id`, v.`total`, v.`status`, h.`usu_id` FROM `resumencortecaja` r '
-          + 'JOIN `venta` v ON v.`rcc_id` = r.`rcc_id` LEFT JOIN `historial` h ON h.`id` = v.`ven_id` AND h.`tabla` = ? '
-          + `AND h.\`movimiento\` = 0 WHERE r.\`cor_id\` IN (${huecos(ids)})`, ['Venta', ...ids]);
-        return { cortes, pagos, cajeros, ventas };
+        // El resumen se crea al cerrar, un instante después del renglón de historial: sin él, el corte puede estar a medias.
+        const resumenes = await leer(`SELECT r.\`cor_id\`, r.\`rcc_id\` FROM \`resumencortecaja\` r WHERE r.\`cor_id\` IN (${huecos(ids)})`, ids);
+        const ventas = await ventasDeCortes(leer, ids);
+        return { cortes, pagos, cajeros, resumenes, ventas };
       });
     },
     async validar() {
@@ -232,8 +244,8 @@ function crearFuente(lector, config = {}) {
           : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)} WHERE ${proveedorVigente}`))[0].total) },
         existencias: existenciasFaltantes.length ? { columnas: columnasExistencias, faltantes: existenciasFaltantes, total: null, ms: null }
           : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
-        cortes: { columnas: columnasCortes, faltantes: cortesFaltantes, total: cortesFaltantes.length ? null
-          : String((await leer('SELECT COUNT(*) AS total FROM `cortecaja`'))[0].total) },
+        cortes: cortesFaltantes.length ? { columnas: columnasCortes, faltantes: cortesFaltantes, total: null, ms: null }
+          : { columnas: columnasCortes, faltantes: [], ...await medirCortes(leer) },
       }));
     },
   };

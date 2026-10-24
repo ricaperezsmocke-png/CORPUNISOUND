@@ -136,7 +136,8 @@ test('--verificar dice cuantos cortes hay en SICAR o que estan apagados', async 
     ventas: async () => ({ filas: [], clientes: [], detalles: [] }) };
   const info = cortes => async () => ({ grants: [], columnas: [], ventas: [], clientes: [], cortes });
   for (const [cortes, esperado, aviso] of [
-    [{ columnas: ['cortecaja.cor_id'], faltantes: [], total: '8006' }, /Cortes en SICAR: 8006/, false],
+    [{ columnas: ['cortecaja.cor_id'], faltantes: [], total: '8006', ms: 42 },
+      /Cortes en SICAR: 8006, lectura de ventas de 100 cortes en 42 ms/, false],
     [{ columnas: ['cortecaja.cor_id'], faltantes: ['cortetipopago.tpa_id'], total: null },
       /Cortes APAGADOS, faltan columnas: \["cortetipopago.tpa_id"\]/, true],
     [undefined, /Cortes APAGADOS, faltan columnas/, true],

@@ -159,6 +159,10 @@ function fechaLocal(valor) {
   return fecha;
 }
 const IMPORTES_CORTE = ['contado', 'calculado', 'diferencia', 'retiro'];
+// Un usu_id que no es un id (0, texto raro) no tumba el corte: queda sin persona (null), nunca se le carga a otra.
+function usuario(valor) {
+  try { return valor == null ? null : id(valor); } catch { return null; }
+}
 // Corte de caja de SICAR con sus formas de pago y, por usuario que dio de alta la venta, lo que se cobró y canceló en el
 // turno. Recibe las filas de toda la página y toma solo las de este cor_id. Solo usu_id: nunca nombres.
 function corte({ corte: c, pagos, cajeros, ventas }) {
@@ -173,12 +177,12 @@ function corte({ corte: c, pagos, cajeros, ventas }) {
   if (formas.length > 8) throw new Error('DETALLE_FUERA_DE_LIMITE');
   // Quien cerró: el usu_id de su único renglón CorteCaja. Con cero o más de uno no se adivina.
   const cierre = cajeros.filter(h => String(h.id) === cor_id);
-  const usu_id = cierre.length === 1 ? id(cierre[0].usu_id) : null;
+  const usu_id = cierre.length === 1 ? usuario(cierre[0].usu_id) : null;
   // El JOIN con historial puede repetir una venta: cuenta una vez. Si trae dos altas distintas, no se le carga a nadie.
   const porVenta = new Map();
   for (const v of suyos(ventas)) {
     const ven_id = id(v.ven_id);
-    const quien = v.usu_id == null ? null : id(v.usu_id);
+    const quien = usuario(v.usu_id);
     if (!['1', '-1'].includes(String(v.status))) throw new Error('ESTADO_VENTA_DESCONOCIDO');
     const previa = porVenta.get(ven_id);
     porVenta.set(ven_id, { quien: previa && previa.quien !== quien ? null : quien, vigente: String(v.status) === '1',

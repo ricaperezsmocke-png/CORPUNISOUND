@@ -5,7 +5,8 @@ function inicial() {
   return { version: 1, siguiente_secuencia: '1', fase: 'clientes', cli_id: '0', ven_id: '0', his_id: '0',
     tope: null, enviadas: {}, ventana: {}, pendiente: null, detenido: null, ultimo_envio: null,
     articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null,
-    existencias: {}, existencias_dia: null, cortes_cursor: '0' };
+    existencias: {}, existencias_dia: null, cortes_cursor: '0',
+    cortes_enviados: [] };
 }
 async function guardar(archivo, estado) {
   const temporal = `${archivo}.${randomUUID()}.tmp`;
@@ -50,6 +51,12 @@ async function cargar(archivo) {
   // Cortes: el último cor_id que el servidor confirmó. Un estado.json de antes arranca desde el primero.
   estado.cortes_cursor ??= '0';
   if (typeof estado.cortes_cursor !== 'string' || !/^\d+$/.test(estado.cortes_cursor)) throw new Error('ESTADO_INVALIDO');
+  // Los 50 cor_id más altos ya resueltos (confirmados u omitidos): la relectura bajo el cursor no los repite.
+  estado.cortes_enviados ??= [];
+  const enviados = estado.cortes_enviados;
+  if (!Array.isArray(enviados) || enviados.length > 50 || enviados.some(x => typeof x !== 'string' || !/^[1-9]\d*$/.test(x))) {
+    throw new Error('ESTADO_INVALIDO');
+  }
   return estado;
 }
 const CANDADO_ABANDONADO_MS = 6 * 3600000;
@@ -91,7 +98,7 @@ const EVENTOS = new Set([
   'ARTICULO_OMITIDO', 'ARTICULOS_NO_DISPONIBLES', 'ARTICULOS_AUTORIZADOS_DE_DIA',
   'PROVEEDOR_OMITIDO', 'PROVEEDORES_NO_DISPONIBLES', 'PROVEEDORES_AUTORIZADOS_DE_DIA',
   'EXISTENCIA_OMITIDA', 'EXISTENCIAS_NO_DISPONIBLES', 'EXISTENCIAS_AUTORIZADAS_DE_DIA', 'EXISTENCIAS_DESCARTADAS',
-  'CORTE_OMITIDO', 'CORTE_SIN_CAJERO', 'CORTES_NO_DISPONIBLES',
+  'CORTE_OMITIDO', 'CORTE_SIN_CAJERO', 'CORTES_NO_DISPONIBLES', 'CORTE_FECHA_FUTURA', 'CORTE_SIN_RESUMEN',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,

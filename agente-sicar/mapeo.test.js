@@ -273,6 +273,8 @@ const CORTES_SQL = 'SELECT c.`cor_id`, c.`fecha`, c.`contado`, c.`calculado`, c.
 const PAGOS_SQL = 'SELECT p.`cor_id`, p.`tpa_id`, p.`contado`, p.`calculado`, p.`diferencia`, p.`retiro` FROM `cortetipopago` p '
   + 'WHERE p.`cor_id` IN (?, ?)';
 const CAJEROS_SQL = 'SELECT h.`id`, h.`usu_id` FROM `historial` h WHERE h.`tabla` = ? AND h.`movimiento` = 0 AND h.`id` IN (?, ?)';
+const RESUMENES_SQL = 'SELECT r.`cor_id`, r.`rcc_id` FROM `resumencortecaja` r WHERE r.`cor_id` IN (?, ?)';
+const ULTIMOS_CORTES_SQL = 'SELECT c.`cor_id` FROM `cortecaja` c ORDER BY c.`cor_id` DESC LIMIT ?';
 const VENTAS_CORTE_SQL = 'SELECT r.`cor_id`, v.`ven_id`, v.`total`, v.`status`, h.`usu_id` FROM `resumencortecaja` r '
   + 'JOIN `venta` v ON v.`rcc_id` = r.`rcc_id` LEFT JOIN `historial` h ON h.`id` = v.`ven_id` AND h.`tabla` = ? AND h.`movimiento` = 0 '
   + 'WHERE r.`cor_id` IN (?, ?)';
@@ -294,6 +296,8 @@ function prepararCortes(sinColumna, cortes = [{ cor_id: '8005' }, { cor_id: '800
     if (sql === CORTES_SQL) return cortes;
     if (sql === PAGOS_SQL) return [{ cor_id: '8006', tpa_id: '1' }];
     if (sql === CAJEROS_SQL) return [{ id: '8006', usu_id: '52' }];
+    if (sql === RESUMENES_SQL) return [{ cor_id: '8006', rcc_id: '40' }];
+    if (sql === ULTIMOS_CORTES_SQL) return [{ cor_id: '8006' }, { cor_id: '8005' }];
     if (sql === VENTAS_CORTE_SQL) return [{ cor_id: '8006', ven_id: '9', total: '100.00', status: '1', usu_id: '52' }];
     return [];
   };
@@ -305,27 +309,34 @@ test('cortes: una sola pagina lee cortes, pagos, cajero que cerro y ventas con c
   assert.equal(fuente.cortesDisponibles, true);
   const r = await fuente.cortes('8004', 500);
   assert.deepEqual(r, { cortes: [{ cor_id: '8005' }, { cor_id: '8006' }], pagos: [{ cor_id: '8006', tpa_id: '1' }],
-    cajeros: [{ id: '8006', usu_id: '52' }], ventas: [{ cor_id: '8006', ven_id: '9', total: '100.00', status: '1', usu_id: '52' }] });
+    cajeros: [{ id: '8006', usu_id: '52' }], resumenes: [{ cor_id: '8006', rcc_id: '40' }], ventas: [{ cor_id: '8006', ven_id: '9', total: '100.00', status: '1', usu_id: '52' }] });
   const desde = consultas.findIndex(q => q.sql === CORTES_SQL);
-  assert.deepEqual(consultas.slice(desde).map(q => q.sql), [CORTES_SQL, PAGOS_SQL, CAJEROS_SQL, VENTAS_CORTE_SQL]);
+  assert.deepEqual(consultas.slice(desde).map(q => q.sql), [CORTES_SQL, PAGOS_SQL, CAJEROS_SQL, RESUMENES_SQL, VENTAS_CORTE_SQL]);
   assert.deepEqual(consultas[desde].parametros, ['8004', 100], 'no mas de 100 por pagina');
   assert.deepEqual(consultas[desde + 1].parametros, ['8005', '8006']);
   assert.deepEqual(consultas[desde + 2].parametros, ['CorteCaja', '8005', '8006']);
-  assert.deepEqual(consultas[desde + 3].parametros, ['Venta', '8005', '8006']);
+  assert.deepEqual(consultas[desde + 3].parametros, ['8005', '8006']);
+  assert.deepEqual(consultas[desde + 4].parametros, ['Venta', '8005', '8006']);
   assert.equal(consultas.slice(desde).some(q => /`usuario`|nombre/.test(q.sql)), false, 'nunca lee la tabla usuario ni nombres');
 });
 test('cortes: una pagina vacia no consulta los detalles', async () => {
   const { fuente, consultas } = prepararCortes(undefined, []);
   await fuente.validar();
-  assert.deepEqual(await fuente.cortes('9000', 100), { cortes: [], pagos: [], cajeros: [], ventas: [] });
+  assert.deepEqual(await fuente.cortes('9000', 100), { cortes: [], pagos: [], cajeros: [], resumenes: [], ventas: [] });
   assert.deepEqual(consultas.filter(q => /`cortetipopago`|`resumencortecaja`|`historial` h/.test(q.sql)), []);
 });
-test('cortes: verificar trae columnas, faltantes y total de cortes', async () => {
-  const { fuente } = prepararCortes();
+test('cortes: verificar trae columnas, faltantes, total y cuanto tarda leer las ventas de los ultimos 100 cortes', async () => {
+  const { fuente, consultas } = prepararCortes();
   await fuente.validar();
   const info = await fuente.verificar();
   assert.deepEqual(info.cortes.faltantes, []);
   assert.equal(info.cortes.total, '8006');
+  assert.equal(typeof info.cortes.ms, 'number');
+  assert.ok(info.cortes.ms >= 0);
+  const i = consultas.findIndex(q => q.sql === ULTIMOS_CORTES_SQL);
+  assert.deepEqual(consultas[i].parametros, [100]);
+  assert.equal(consultas[i + 1].sql, VENTAS_CORTE_SQL, 'mide la misma consulta de ventas de produccion');
+  assert.deepEqual(consultas[i + 1].parametros, ['Venta', '8006', '8005']);
   assert.ok(info.cortes.columnas.includes('cortetipopago.tpa_id'));
   assert.ok(info.cortes.columnas.includes('historial.usu_id'));
   assert.equal(info.cortes.columnas.some(c => c.startsWith('usuario.')), false);
@@ -339,6 +350,7 @@ for (const falta of ['cortetipopago.tpa_id', 'historial.usu_id', 'venta.rcc_id',
     const info = await fuente.verificar();
     assert.deepEqual(info.cortes.faltantes, [falta]);
     assert.equal(info.cortes.total, null);
+    assert.equal(info.cortes.ms, null);
     assert.equal(consultas.some(q => /`cortecaja`|`cortetipopago`|`resumencortecaja`/.test(q.sql)), false);
   });
 }

@@ -41,8 +41,14 @@ const soloExistencias = lote => !!lote.existencias?.length && !lote.clientes?.le
   && !lote.articulos?.length && !lote.proveedores?.length && !lote.cortes?.length;
 const EXISTENCIAS_POR_LOTE = 500;
 const CORTES_POR_LOTE = 100;
-// Un corte sin renglón de quién lo cerró se espera hasta 10 minutos: SICAR escribe ese renglón 0-22 s después del corte.
-const ESPERA_CAJERO_MS = 10 * 60000;
+// SICAR escribe el corte, luego el renglón de historial de quién lo cerró (0-22 s) y enseguida el resumen (1 s): un
+// corte leído en esos segundos puede estar a medias. Ninguno se manda antes de 2 minutos; sin quién lo cerró o sin
+// resumen se espera hasta 10. Uno fechado más de 10 minutos en el futuro (reloj de SICAR adelantado) no se espera.
+const ESPERA_CORTE_MS = 2 * 60000;
+const ESPERA_INCOMPLETO_MS = 10 * 60000;
+// Cortes bajo el cursor que se releen por si otra caja los guardó tarde (como MARGEN_VENTAS) y cuántos se recuerdan.
+const MARGEN_CORTES = 50;
+const FECHA_SICAR = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -277,32 +283,48 @@ async function ejecutar(archivo, config, deps) {
     // cortes_cursor avanza solo cuando el servidor confirma el lote. Apagados mientras el interruptor no sea true.
     if (config.cortes !== true) return;
     if (!fuente.cortesDisponibles) { log('CORTES_NO_DISPONIBLES'); return; }
+    const posterior = (a, b) => BigInt(a) > BigInt(b);
+    // Se empieza 50 abajo del cursor: un corte de número menor guardado tarde también sale. Los ya resueltos se saltan.
+    let lectura = posterior(estado.cortes_cursor, MARGEN_CORTES) ? String(BigInt(estado.cortes_cursor) - BigInt(MARGEN_CORTES)) : '0';
     while (true) {
-      const pagina = await fuente.cortes(estado.cortes_cursor, CORTES_POR_LOTE);
-      // Hora de la tienda hace 10 minutos, en el mismo formato que la fecha de SICAR.
-      const limite = horaLocal(reloj() - ESPERA_CAJERO_MS);
+      const pagina = await fuente.cortes(lectura, CORTES_POR_LOTE);
+      if (!pagina.cortes.length) return;
+      // Horas de la tienda, en el mismo formato que la fecha de SICAR.
+      const hace2 = horaLocal(reloj() - ESPERA_CORTE_MS), hace10 = horaLocal(reloj() - ESPERA_INCOMPLETO_MS);
+      const futuro = horaLocal(reloj() + ESPERA_INCOMPLETO_MS);
+      const resueltos = new Set(estado.cortes_enviados);
       let cursor = estado.cortes_cursor, espera = false;
-      const items = [];
+      const items = [], nuevos = [];
       for (const fila of pagina.cortes) {
         const cor_id = id(fila.cor_id);
-        // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
-        if (BigInt(cor_id) <= BigInt(cursor)) throw new Error('ID_INVALIDO');
-        // Recién cerrado y todavía sin quién lo cerró: se espera a la siguiente corrida, junto con todos los posteriores.
+        // La lectura solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+        if (!posterior(cor_id, lectura)) throw new Error('ID_INVALIDO');
+        lectura = cor_id;
+        if (!posterior(cor_id, estado.cortes_cursor) && resueltos.has(cor_id)) continue;
         const fecha = String(fila.fecha).replace(' ', 'T');
-        if (!pagina.cajeros.some(h => String(h.id) === cor_id) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fecha) && fecha > limite) {
+        const conCajero = pagina.cajeros.some(h => String(h.id) === cor_id);
+        const conResumen = pagina.resumenes.some(r => String(r.cor_id) === cor_id);
+        const adelantado = FECHA_SICAR.test(fecha) && fecha > futuro;
+        // Recién cerrado o a medias: se espera a la siguiente corrida, junto con todos los posteriores.
+        if (FECHA_SICAR.test(fecha) && !adelantado && (fecha > hace2 || ((!conCajero || !conResumen) && fecha > hace10))) {
           espera = true;
           break;
         }
         const { corte, omitido } = corteSeguro({ corte: fila, pagos: pagina.pagos, cajeros: pagina.cajeros, ventas: pagina.ventas });
         if (omitido) omitir('CORTE_OMITIDO', omitido);
         else {
+          if (adelantado) log('CORTE_FECHA_FUTURA', { cor_id });
           if (corte.usu_id === null) log('CORTE_SIN_CAJERO', { cor_id });
+          if (!conResumen) log('CORTE_SIN_RESUMEN', { cor_id });
           items.push({ corte });
         }
-        cursor = cor_id;
+        nuevos.push(cor_id);
+        if (posterior(cor_id, cursor)) cursor = cor_id;
       }
-      if (cursor === estado.cortes_cursor) return;
-      if (!await transmitir(items, { cortes_cursor: cursor }, 'incremental')) return;
+      if (nuevos.length) {
+        const enviados = [...new Set([...estado.cortes_enviados, ...nuevos])].sort((x, y) => (posterior(x, y) ? 1 : -1)).slice(-MARGEN_CORTES);
+        if (!await transmitir(items, { cortes_cursor: cursor, cortes_enviados: enviados }, 'incremental')) return;
+      }
       if (espera) return;
     }
   } finally { await liberar(); }

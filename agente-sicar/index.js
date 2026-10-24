@@ -37,7 +37,7 @@ async function verificar(fuente, imprimir, esperar, log) {
   if (cortes.faltantes.length) {
     imprimir('Cortes APAGADOS, faltan columnas: ' + JSON.stringify(cortes.faltantes));
     log('CORTES_NO_DISPONIBLES');
-  } else imprimir(`Cortes en SICAR: ${cortes.total}`);
+  } else imprimir(`Cortes en SICAR: ${cortes.total}, lectura de ventas de 100 cortes en ${cortes.ms} ms`);
   let cursor = '0', clientes = 0, ventas = 0;
   const clientesRaros = [];
   while (true) {

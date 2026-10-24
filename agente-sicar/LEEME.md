@@ -146,14 +146,22 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
   y los manda en paquetes de hasta 100. Lo que ya se mandó lo recuerda `estado.json` (`cortes_cursor`) y solo avanza
   cuando el servidor confirma: si el envío falla, la siguiente corrida reenvía los mismos cortes. Un paquete de cortes
   atorado **no se descarta** (a diferencia de las existencias): se reintenta hasta que pase.
-- SICAR anota quién cerró el corte unos segundos después de cerrarlo. Si un corte de hace menos de 10 minutos todavía
-  no tiene ese dato, el agente lo espera a la siguiente corrida (y con él los que vengan después). Pasados 10 minutos
-  se manda sin quién lo cerró y queda `CORTE_SIN_CAJERO cor_id=...` en el registro.
+- Cada corrida relee también los últimos 50 números de corte bajo el cursor: si otra caja guardó tarde un corte de
+  número menor, sale en la siguiente corrida. Los ya mandados no se repiten (`estado.json` recuerda los 50 más altos,
+  `cortes_enviados`, solo cuando el servidor confirma).
+- SICAR guarda el corte en varios pasos: primero el corte, luego quién lo cerró (0-22 s) y enseguida el resumen del
+  turno (1 s). Por eso **ningún corte se manda antes de 2 minutos** de cerrado (va en la siguiente corrida). Si a un
+  corte de menos de 10 minutos todavía le falta quién lo cerró o el resumen, el agente lo espera (y con él los que
+  vengan después). Pasados 10 minutos se manda como esté: sin quién lo cerró queda `CORTE_SIN_CAJERO cor_id=...`; sin
+  resumen se manda sin ventas por usuario y queda `CORTE_SIN_RESUMEN cor_id=...`. Un número de usuario raro (por
+  ejemplo 0) se manda como "sin persona", nunca se le carga a otra.
+- Si la fecha del corte va más de 10 minutos adelantada respecto al reloj de esta PC (reloj de SICAR mal puesto), no
+  se espera: se manda como esté y queda `CORTE_FECHA_FUTURA cor_id=...`, para que no congele los cortes siguientes.
 - **Vienen apagados.** Se prenden poniendo `"cortes": true` en `config.json`, solo después de que el servidor de
   CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de que
   `--verificar` confirme las columnas. Es independiente de las demás listas. La primera vez manda todos los cortes de
-  la historia de SICAR, 100 por paquete y 6 segundos entre paquetes (Ocosingo va en el corte 8,006: unos 80 paquetes).
-- `--verificar` dice `Cortes en SICAR: N`. Si dice `Cortes APAGADOS, faltan columnas`, el agente sigue con todo lo
+  la historia de SICAR, 100 por paquete y 6 segundos entre paquetes (Ocosingo va en el corte 8,006: unos 80 paquetes, **estimado**, no medido).
+- `--verificar` dice `Cortes en SICAR: N, lectura de ventas de 100 cortes en X ms`. Si dice `Cortes APAGADOS, faltan columnas`, el agente sigue con todo lo
   demás pero no manda cortes: hay que ajustar `COLUMNAS_CORTES` en `mapeo.js`.
 - Un corte con un dato que el agente no sabe leer (importe con 3 decimales, fecha imposible) se salta y queda
   `CORTE_OMITIDO cor_id=... codigo=...` en el registro. Ese corte **no se vuelve a intentar**: hay que avisar.
@@ -196,6 +204,8 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
 | `CORTE_SIN_CAJERO cor_id=…` | SICAR no anotó quién cerró ese corte (o anotó a dos). Se mandó igual, sin quién lo cerró. | Nada si es raro. Si sale en todos los cortes, avisar. |
+| `CORTE_SIN_RESUMEN cor_id=…` | Pasados 10 minutos, SICAR no tenía el resumen de ese corte. Se mandó sin las ventas por usuario. | Revisar ese corte en SICAR; si sale seguido, avisar. |
+| `CORTE_FECHA_FUTURA cor_id=…` | La fecha del corte va más de 10 minutos adelantada respecto a esta PC. Se mandó sin esperar. | Revisar la hora de la PC de SICAR y la de esta PC. |
 | `CORTE_OMITIDO cor_id=… codigo=…` | Un corte con un dato que el agente no sabe leer. **Se saltó** y no aparece en CORPUNISOUND. | Avisar con la línea del registro. |
 | `CORTES_NO_DISPONIBLES` | `"cortes": true` pero no encontró las columnas de cortes. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_CORTES`, o apagar `"cortes"`. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
