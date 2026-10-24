@@ -3,7 +3,7 @@ import {
   ShoppingCart, Landmark, Wallet, Boxes, ArrowRightLeft,
   Users, RadioTower, Store, Target,
   FileBarChart, Scale, ShieldAlert, ShieldCheck, DatabaseBackup, Settings, ClipboardCheck,
-  ChevronRight, ChevronsLeft, ChevronsRight, Home,
+  PackageSearch, ChevronRight, ChevronsLeft, ChevronsRight, Home,
 } from "lucide-react";
 import { categoriasVisibles } from "./menuCategorias.js";
 
@@ -26,6 +26,7 @@ const ICONOS = {
   gastos: Wallet,
   inventario: Boxes,
   traspasos: ArrowRightLeft,
+  existencias_sicar: PackageSearch,
   crm: Users,
   radar_demanda: RadioTower,
   ml: Store,

@@ -32,6 +32,7 @@ export const CATEGORIAS = [
         hijos: [{ id: "recepcion", nombre: "Recepción de Compras" }],
       },
       { id: "traspasos", nombre: "Traspasos entre Sucursales", modulo: "inventario", permiso: "realizar_traspasos" },
+      { id: "existencias_sicar", nombre: "Existencias SICAR", modulo: "inventario", permiso: "ver_existencias_sicar" },
     ],
   },
   {
