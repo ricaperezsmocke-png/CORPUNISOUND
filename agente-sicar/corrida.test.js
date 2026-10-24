@@ -248,6 +248,18 @@ test('proveedores: uno raro se omite con su id y el resto se manda', async t => 
   assert.ok(p.mensajes.includes('PROVEEDOR_OMITIDO'));
   assert.deepEqual(p.lotes.filter(l => l.proveedores).at(-1).proveedores.map(x => x.prv_id), ['1', '3']);
 });
+test('proveedores: un id repetido en la pagina se manda una sola vez (el primero) y no detiene el agente', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.proveedores = async cursor => (cursor === '0'
+    ? [proveedor(1), { prv_id: 2, nombre: 'Primero' }, { prv_id: '2', nombre: 'Repetido' }, proveedor(3)] : []);
+  p.fuente.proveedoresDisponibles = true;
+  await ejecutar(p.archivo, { proveedores: true }, p.deps);
+  const mandados = p.lotes.filter(l => l.proveedores).flatMap(l => l.proveedores);
+  assert.deepEqual(mandados.map(x => [x.prv_id, x.nombre]), [['1', 'Proveedor 1'], ['2', 'Primero'], ['3', 'Proveedor 3']]);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.detenido, null);
+  assert.equal(estado.proveedores_dia, '2026-10-14');
+});
 test('proveedores: sin el interruptor en config no se leen ni se mandan, y los lotes no llevan la llave', async t => {
   const p = await preparar(t, { ...inicial(), fase: 'incremental' });
   const leidos = conProveedores(p, [proveedor(1)]);

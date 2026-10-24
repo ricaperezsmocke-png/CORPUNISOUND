@@ -25,6 +25,12 @@ function agregar(lote, elemento) {
   if (elemento.articulo) (lote.articulos ??= []).push(elemento.articulo);
   if (elemento.proveedor) (lote.proveedores ??= []).push(elemento.proveedor);
 }
+// Un prv_id repetido en el lote lo rechaza el servidor (ID_DUPLICADO, 422) y eso detendría el agente entero, con clientes
+// y ventas. La lista de proveedores es opcional: se conserva la primera aparición de cada id y se sigue.
+function sinIdsRepetidos(filas) {
+  const vistos = new Set();
+  return filas.filter(p => !vistos.has(String(p.prv_id)) && vistos.add(String(p.prv_id)));
+}
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
@@ -191,7 +197,7 @@ async function ejecutar(archivo, config, deps) {
       seguro: a => { const r = articuloSeguro(a); return { item: { articulo: r.articulo }, omitido: r.omitido }; },
       evento: 'ARTICULO_OMITIDO' })) return;
     await listaDiaria('proveedores', { ahora: deps.proveedoresAhora, disponible: fuente.proveedoresDisponibles,
-      aviso: 'PROVEEDORES_NO_DISPONIBLES', leer: (cursor, n) => fuente.proveedores(cursor, n), idDe: p => p.prv_id,
+      aviso: 'PROVEEDORES_NO_DISPONIBLES', leer: async (cursor, n) => sinIdsRepetidos(await fuente.proveedores(cursor, n)), idDe: p => p.prv_id,
       seguro: p => { const r = proveedorSeguro(p); return { item: { proveedor: r.proveedor }, omitido: r.omitido }; },
       evento: 'PROVEEDOR_OMITIDO' });
   } finally { await liberar(); }

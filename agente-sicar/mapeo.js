@@ -38,6 +38,18 @@ function crearFuente(lector, config = {}) {
   const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
     + ', COALESCE(t.`cli_id`, n.`cli_id`, r.`cli_id`) AS cli_id ' + desdeVenta;
   function comprobar() { if (!validado) throw new Error('ESQUEMA_NO_VALIDADO'); }
+  // Con un id que se puede repetir, el servidor rechaza el lote (ID_DUPLICADO) y el agente se detendría con todo y
+  // clientes y ventas. Solo se habilitan si el id es PRIMARY o UNIQUE de una sola columna completa; si no, o si el
+  // índice no se puede leer, la lista queda apagada (falla cerrando) sin tumbar la validación.
+  async function idProveedorUnico(leer) {
+    let indices;
+    try { indices = await leer(`SHOW INDEX FROM ${identificador(tablaProveedor)}`); } catch { return false; }
+    const columnaId = COLUMNAS_PROVEEDORES[tablaProveedor][0];
+    const porIndice = new Map();
+    for (const i of indices) porIndice.set(i.Key_name, [...(porIndice.get(i.Key_name) || []), i]);
+    return [...porIndice.values()].some(partes => partes.length === 1 && String(partes[0].Non_unique) === '0'
+      && partes[0].Column_name === columnaId && partes[0].Sub_part == null);
+  }
   async function clientesIds(leer, ids) {
     if (!ids.length) return [];
     return leer(`SELECT ${lista(COLUMNAS.cliente)} FROM \`cliente\` WHERE \`cli_id\` IN (${huecos(ids)})`, ids);
@@ -100,6 +112,9 @@ function crearFuente(lector, config = {}) {
           .filter(c => c.split('.')[0] === tablaProveedor && !/\.(huella|muestra|foto)$/i.test(c));
         proveedoresFaltantes = Object.entries(COLUMNAS_PROVEEDORES).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`))
           .filter(c => !presentes.has(c));
+        if (!proveedoresFaltantes.length && !await idProveedorUnico(leer)) {
+          proveedoresFaltantes = [`${tablaProveedor}.${COLUMNAS_PROVEEDORES[tablaProveedor][0]} (sin índice único)`];
+        }
         validado = true;
       });
     },
