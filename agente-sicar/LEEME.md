@@ -106,6 +106,31 @@ Los proveedores borrados en SICAR (`status` -1) no se mandan. En SICAR la tabla 
 - Un proveedor sin nombre o con un nombre de más de 250 letras se salta y queda `PROVEEDOR_OMITIDO prv_id=...` en
   el registro. No detiene nada.
 
+### Existencias
+
+El agente manda cuántas piezas hay de cada artículo **vigente** de SICAR (`articulo.status` = 1 y que no sea servicio,
+`articulo.servicio` = 0), para verlas en CORPUNISOUND → Inventario → Existencias SICAR. Solo número de artículo y
+existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se manda negativa).
+
+- **En cada corrida (cada 5 min), al final**, después de ventas y listas: lee todas las vigentes (~6,400 en Ocosingo,
+  unos 10 ms) y las compara con lo último que el servidor **confirmó** (guardado en `estado.json`). Manda solo las que
+  cambiaron y, como "sin existencia" (`null`), las que dejaron de ser vigentes (borradas o vueltas servicio): el
+  servidor borra esa fila. Si no cambió nada, no manda nada. Si el envío falla, la copia local no cambia y la
+  siguiente corrida reenvía lo mismo: no se pierde un cambio.
+- **Una vez al día, de noche (20:00-07:00)**, manda todas aunque no hayan cambiado, para que el servidor sepa que
+  siguen al día. La primera vez manda todas (~13 paquetes).
+- **Viene apagada.** Se prende poniendo `"existencias": true` en `config.json`, solo después de que el servidor de
+  CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de
+  que `--verificar` confirme las columnas. Es independiente de `"articulos"` y `"proveedores"`.
+- `--verificar` dice `Existencias: N artículos vigentes, lectura en X ms`. Si dice `Existencias APAGADAS, faltan
+  columnas`, el agente sigue con todo lo demás pero no manda existencias: hay que ajustar `COLUMNAS_EXISTENCIAS` en
+  `mapeo.js`.
+- A mano, de día: `C:\UnisoundSICAR\agente-sicar\correr.cmd --existencias-ahora` manda la vuelta completa en ese
+  momento (sirve tras restaurar un respaldo en CORPUNISOUND o tras borrar `estado.json`).
+- Una existencia que el agente no sabe leer (más de 4 decimales, vacía) se salta y queda
+  `EXISTENCIA_OMITIDA art_id=...` en el registro. Ese artículo conserva en CORPUNISOUND lo último que se confirmó y, si
+  no se vuelve a confirmar, la pantalla lo muestra en gris pasadas 36 horas. No detiene nada.
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
@@ -139,6 +164,9 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `ARTICULOS_NO_DISPONIBLES` | No encontró las columnas de artículo, categoría o departamento. Clientes y ventas siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_ARTICULOS`. |
 | `PROVEEDOR_OMITIDO prv_id=… codigo=…` | Un proveedor de SICAR sin nombre o con nombre muy largo. **Se salta**; no aparece en la lista del Radar. | Revisar ese proveedor en SICAR. |
 | `PROVEEDORES_NO_DISPONIBLES` | No encontró las columnas de la tabla de proveedores. Clientes, ventas y artículos siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_PROVEEDORES`. |
+| `EXISTENCIA_OMITIDA art_id=… codigo=…` | Un artículo con una existencia que el agente no sabe leer (por ejemplo, más de 4 decimales). **Se salta**; en CORPUNISOUND queda lo último confirmado. | Revisar ese artículo en SICAR. |
+| `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
+| `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
 | `FALLO ...` | Algo que no es un dato raro (configuración, MySQL, servidor). La corrida termina sin avanzar. | Avisar con la línea completa. |
 | `FALLO MYSQL_ACCESO_DENEGADO` / `MYSQL_NO_DISPONIBLE` | Contraseña de MySQL o MySQL apagado. | Revisar `config.json` y que SICAR esté abierto. |

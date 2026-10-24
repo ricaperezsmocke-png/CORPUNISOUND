@@ -15,6 +15,12 @@ const COLUMNAS_ARTICULOS = {
 // --verificar en Ocosingo el 2026-10-23: el id es pro_id (PRIMARY) y status -1 es proveedor borrado. Opcionales igual
 // que los artículos: si falta una columna, se sigue con todo lo demás y no se mandan. Orden: [id, nombre, status].
 const COLUMNAS_PROVEEDORES = { proveedor: ['pro_id', 'nombre', 'status'] };
+// Existencias de los artículos vigentes (spec 2026-10-23). Confirmado en Ocosingo: status 1 vigente / -1 borrado,
+// servicio 1 = servicio (no lleva existencia). Opcionales: si falta una columna, se sigue con todo lo demás.
+const COLUMNAS_EXISTENCIAS = { articulo: ['art_id', 'existencia', 'status', 'servicio'] };
+const DESDE_EXISTENCIAS = 'FROM `articulo` a WHERE a.`status` = 1 AND a.`servicio` = 0';
+const LEER_EXISTENCIAS = 'SELECT a.`art_id`, a.`existencia` FROM `articulo` a WHERE a.`art_id` > ? AND a.`status` = 1 AND '
+  + 'a.`servicio` = 0 ORDER BY a.`art_id` LIMIT ?';
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -31,6 +37,10 @@ function crearFuente(lector, config = {}) {
   let columnasArticulos = [];
   let proveedoresFaltantes = null;
   let columnasProveedores = [];
+  let existenciasFaltantes = null;
+  let columnasExistencias = [];
+  // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
+  const paginaExistencias = limite => Math.min(limite, lector.tamano * 5);
   const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
   const [idProveedor, nombreProveedor, estadoProveedor] = COLUMNAS_PROVEEDORES[tablaProveedor].map(identificador);
   // Los borrados en SICAR (status -1) no se ofrecen al vendedor.
@@ -51,6 +61,17 @@ function crearFuente(lector, config = {}) {
     for (const i of indices) porIndice.set(i.Key_name, [...(porIndice.get(i.Key_name) || []), i]);
     return [...porIndice.values()].some(partes => partes.length === 1 && String(partes[0].Non_unique) === '0'
       && partes[0].Column_name === columnaId && partes[0].Sub_part == null);
+  }
+  // Para --verificar: cuántas vigentes hay y cuánto tarda leerlas todas, página por página, como en cada corrida.
+  async function medirExistencias(leer) {
+    const total = String((await leer(`SELECT COUNT(*) AS total ${DESDE_EXISTENCIAS}`))[0].total);
+    const inicio = performance.now();
+    for (let cursor = '0'; ;) {
+      const filas = await leer(LEER_EXISTENCIAS, [cursor, paginaExistencias(500)]);
+      if (!filas.length) break;
+      cursor = String(filas.at(-1).art_id);
+    }
+    return { total, ms: Math.round(performance.now() - inicio) };
   }
   async function clientesIds(leer, ids) {
     if (!ids.length) return [];
@@ -82,6 +103,12 @@ function crearFuente(lector, config = {}) {
       return lector.pagina(leer => leer(`SELECT p.${idProveedor} AS prv_id, p.${nombreProveedor} AS nombre `
         + `FROM ${identificador(tablaProveedor)} p WHERE p.${idProveedor} > ? AND p.${proveedorVigente} ORDER BY p.${idProveedor} LIMIT ?`,
       [cursor, Math.min(limite, lector.tamano * 5)]));
+    },
+    get existenciasDisponibles() { return Array.isArray(existenciasFaltantes) && !existenciasFaltantes.length; },
+    async existencias(cursor, limite) {
+      comprobar();
+      if (existenciasFaltantes.length) throw new Error('EXISTENCIAS_NO_DISPONIBLES');
+      return lector.pagina(leer => leer(LEER_EXISTENCIAS, [cursor, paginaExistencias(limite)]));
     },
     async validar() {
       await lector.pagina(async leer => {
@@ -117,6 +144,10 @@ function crearFuente(lector, config = {}) {
         if (!proveedoresFaltantes.length && !await idProveedorUnico(leer)) {
           proveedoresFaltantes = [`${tablaProveedor}.${COLUMNAS_PROVEEDORES[tablaProveedor][0]} (sin índice único)`];
         }
+        const [tablaExistencias] = Object.keys(COLUMNAS_EXISTENCIAS);
+        columnasExistencias = columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`)
+          .filter(c => COLUMNAS_EXISTENCIAS[tablaExistencias].map(x => `${tablaExistencias}.${x}`).includes(c));
+        existenciasFaltantes = COLUMNAS_EXISTENCIAS[tablaExistencias].map(c => `${tablaExistencias}.${c}`).filter(c => !presentes.has(c));
         validado = true;
       });
     },
@@ -165,6 +196,8 @@ function crearFuente(lector, config = {}) {
           total: articulosFaltantes.length ? null : String((await leer('SELECT COUNT(*) AS total FROM `articulo`'))[0].total) },
         proveedores: { columnas: columnasProveedores, faltantes: proveedoresFaltantes, total: proveedoresFaltantes.length ? null
           : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)} WHERE ${proveedorVigente}`))[0].total) },
+        existencias: existenciasFaltantes.length ? { columnas: columnasExistencias, faltantes: existenciasFaltantes, total: null, ms: null }
+          : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
       }));
     },
   };

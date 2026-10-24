@@ -205,3 +205,64 @@ for (const [caso, indices] of Object.entries(indicesSinUnicidad)) {
     assert.ok(info.proveedores.faltantes.length > 0);
   });
 }
+
+const consultaExistencias = 'SELECT a.`art_id`, a.`existencia` FROM `articulo` a WHERE a.`art_id` > ? AND a.`status` = 1 AND '
+  + 'a.`servicio` = 0 ORDER BY a.`art_id` LIMIT ?';
+function prepararExistencias(sinColumna, filas = [{ art_id: '8', existencia: '3.0000' }]) {
+  const consultas = [];
+  const leer = async (sql, parametros) => {
+    validarSQL(sql);
+    consultas.push({ sql, parametros });
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries({ ...columnas, articulo: 'art_id clave existencia status servicio' }).flatMap(([TABLE_NAME, campos]) => campos
+        .split(' ').filter(c => `${TABLE_NAME}.${c}` !== sinColumna).map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('COUNT(*)') && sql.includes('`servicio`')) return [{ total: String(filas.length) }];
+    if (sql.includes('COUNT(*)')) return [{ total: '0' }];
+    if (sql === consultaExistencias) return filas.filter(f => BigInt(f.art_id) > BigInt(parametros[0])).slice(0, parametros[1]);
+    return [];
+  };
+  return { fuente: crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {}), consultas };
+}
+test('existencias: lee art_id y existencia de los vigentes que no son servicio, con consulta que pasa la guardia', async () => {
+  const { fuente, consultas } = prepararExistencias();
+  await fuente.validar();
+  assert.equal(fuente.existenciasDisponibles, true);
+  assert.deepEqual(await fuente.existencias('5', 500), [{ art_id: '8', existencia: '3.0000' }]);
+  const q = consultas.at(-1);
+  assert.equal(q.sql, consultaExistencias);
+  assert.deepEqual(q.parametros, ['5', 500]);
+  await fuente.existencias('0', 9000);
+  assert.deepEqual(consultas.at(-1).parametros, ['0', 500], 'no mas de cinco paginas normales');
+});
+test('existencias: verificar trae columnas, total con el mismo WHERE y cuanto tarda la lectura completa', async () => {
+  const filas = Array.from({ length: 1200 }, (_, i) => ({ art_id: String(i + 1), existencia: '1.0000' }));
+  const { fuente, consultas } = prepararExistencias(undefined, filas);
+  await fuente.validar();
+  const info = await fuente.verificar();
+  assert.equal(info.existencias.total, '1200');
+  assert.deepEqual(info.existencias.faltantes, []);
+  assert.deepEqual(info.existencias.columnas, ['articulo.art_id', 'articulo.existencia', 'articulo.status', 'articulo.servicio']);
+  assert.equal(typeof info.existencias.ms, 'number');
+  assert.ok(info.existencias.ms >= 0);
+  const conteo = consultas.find(c => c.sql.includes('COUNT(*)') && c.sql.includes('`servicio`')).sql;
+  assert.equal(conteo, 'SELECT COUNT(*) AS total FROM `articulo` a WHERE a.`status` = 1 AND a.`servicio` = 0');
+  assert.equal(consultas.filter(c => c.sql === consultaExistencias).length, 4, 'lee las 1200 en paginas de 500 hasta la vacia');
+});
+test('existencias: sin articulo.servicio quedan apagadas, no detiene la validacion y no consulta la tabla', async () => {
+  const { fuente, consultas } = prepararExistencias('articulo.servicio');
+  await fuente.validar();
+  assert.equal(fuente.existenciasDisponibles, false);
+  await assert.rejects(fuente.existencias('0', 500), /EXISTENCIAS_NO_DISPONIBLES/);
+  const info = await fuente.verificar();
+  assert.deepEqual(info.existencias.faltantes, ['articulo.servicio']);
+  assert.equal(info.existencias.total, null);
+  assert.equal(info.existencias.ms, null);
+  assert.equal(consultas.some(q => q.sql.includes('`existencia`') || q.sql.includes('`servicio`')), false);
+});
+test('existencias: sin la tabla articulo tambien siguen apagadas', async () => {
+  const { fuente } = preparar();
+  await fuente.validar();
+  assert.equal(fuente.existenciasDisponibles, false);
+});

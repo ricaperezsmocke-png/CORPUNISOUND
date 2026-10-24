@@ -71,7 +71,7 @@ function sobre(sequence, mode, ahora) {
 }
 function cabe(lote) {
   return lote.clientes.length <= 100 && lote.ventas.length <= 100 && (lote.articulos?.length || 0) <= 500
-    && (lote.proveedores?.length || 0) <= 500
+    && (lote.proveedores?.length || 0) <= 500 && (lote.existencias?.length || 0) <= 500
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
     && Buffer.byteLength(JSON.stringify(lote), 'utf8') <= 1024 * 1024;
@@ -120,6 +120,22 @@ function proveedorSeguro(p) {
     return { proveedor: null, omitido: { prv_id, codigo: error.message } };
   }
 }
+// Existencia de un artículo vigente: texto con signo y 4 decimales, tal cual la guarda SICAR (sin redondear). decimal()
+// no acepta negativos, así que el signo se separa aquí y se valida la parte sin signo. '-0.0000' se manda como '0.0000'.
+function existencia(valor) {
+  const negativa = typeof valor === 'string' && valor.startsWith('-');
+  const absoluta = decimal(negativa ? valor.slice(1) : valor, 4);
+  return negativa && /[1-9]/.test(absoluta) ? `-${absoluta}` : absoluta;
+}
+// Una existencia que el contrato no acepta no detiene la carga: se salta con su id. Un art_id inválido sí detiene.
+function existenciaSegura(fila) {
+  const art_id = id(fila?.art_id);
+  try { return { existencia: { art_id, existencia: existencia(fila.existencia) }, omitido: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message)) throw error;
+    return { existencia: null, omitido: { art_id, codigo: error.message } };
+  }
+}
 function ventaSegura(v, c, detalles, enviada, avisar) {
   try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
   catch (error) {
@@ -133,4 +149,4 @@ function ventaSegura(v, c, detalles, enviada, avisar) {
   }
 }
 module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro };
+  proveedorSeguro, existenciaSegura };

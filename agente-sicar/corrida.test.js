@@ -282,3 +282,144 @@ test('proveedores: --proveedores-ahora vuelve a mandar la lista aunque hoy ya se
   await ejecutar(p.archivo, { proveedores: true }, { ...p.deps, proveedoresAhora: true });
   assert.deepEqual(p.lotes.map(l => l.proveedores?.length), [1], 'con la bandera a mano si se repite');
 });
+
+// Existencias: la fuente falsa lee de un arreglo que la prueba puede cambiar entre corridas.
+function conExistencias(p, filas) {
+  p.fuente.existenciasDisponibles = true;
+  const leidos = [];
+  p.fuente.existencias = async (cursor, limite) => {
+    leidos.push(cursor);
+    return filas.filter(x => BigInt(x.art_id) > BigInt(cursor)).slice(0, Math.min(limite, 500));
+  };
+  return leidos;
+}
+const existencia = (n, valor = '3.0000') => ({ art_id: String(n), existencia: valor });
+const DE_DIA = () => Date.parse('2026-10-15T18:00:00Z');
+const mandadas = p => p.lotes.filter(l => l.existencias).map(l => l.existencias);
+test('existencias: la primera corrida de dia manda todas las vigentes y el mapa queda igual a lo leido', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1), existencia(2, '-1.0000'), existencia(3, '0')]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '3.0000' }, { art_id: '2', existencia: '-1.0000' },
+    { art_id: '3', existencia: '0.0000' }]]);
+  assert.ok(p.lotes.filter(l => l.existencias).every(l => l.mode === 'incremental' && !l.clientes.length && !l.ventas.length));
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '-1.0000', 3: '0.0000' });
+  assert.equal(estado.pendiente, null);
+});
+test('existencias: sin cambios no manda nada; un cambio y un no vigente mandan exactamente esos dos', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const filas = [existencia(1), existencia(2), existencia(3)];
+  conExistencias(p, filas);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'sin cambios no gasta envio');
+  filas[0] = existencia(1, '5.0000');
+  filas.splice(1, 1);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '5.0000' }, { art_id: '2', existencia: null }]]);
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '5.0000', 3: '3.0000' });
+});
+test('existencias: si el envio falla el mapa no cambia y la siguiente corrida reenvia lo mismo', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000', 2: '3.0000' } });
+  p.deps.reloj = DE_DIA;
+  const filas = [existencia(1, '4.0000'), existencia(2)];
+  conExistencias(p, filas);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).existencias ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { existencias: true }, { ...p.deps, intentos: 1 });
+  const atorado = await cargar(p.archivo);
+  assert.deepEqual(atorado.existencias, { 1: '3.0000', 2: '3.0000' });
+  assert.deepEqual(JSON.parse(atorado.pendiente.bytes).existencias, [{ art_id: '1', existencia: '4.0000' }]);
+  p.deps.fetch = fetch;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '4.0000' }]], 'el mismo lote, una sola vez');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '4.0000', 2: '3.0000' });
+  assert.equal(estado.pendiente, null);
+});
+test('existencias: de noche una vez al dia, o a mano con existenciasAhora, manda todas aunque no cambiaran', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000', 2: '3.0000', 9: '1.0000' } });
+  conExistencias(p, [existencia(1), existencia(2)]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[existencia(1), existencia(2), { art_id: '9', existencia: null }]]);
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.existencias_dia, '2026-10-14');
+  assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '3.0000' });
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'la misma noche no se repite');
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'de dia solo cambios');
+  await ejecutar(p.archivo, { existencias: true }, { ...p.deps, articulosAhora: true, proveedoresAhora: true });
+  assert.equal(p.lotes.length, 0, 'las banderas de otras listas no prenden la vuelta completa');
+  await ejecutar(p.archivo, { existencias: true }, { ...p.deps, existenciasAhora: true });
+  assert.deepEqual(mandadas(p), [[existencia(1), existencia(2)]]);
+  estado = await cargar(p.archivo);
+  assert.equal(estado.existencias_dia, '2026-10-15');
+});
+test('existencias: interruptor apagado no las lee y los lotes no llevan la llave; ventas igual', async t => {
+  for (const config of [{}, { existencias: false }, { existencias: 'true' }, { existencias: 1 }]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+    const leidos = conExistencias(p, [existencia(1)]);
+    p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+    await ejecutar(p.archivo, config, { ...p.deps, existenciasAhora: true });
+    assert.equal(leidos.length, 0);
+    assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+    assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'existencias')), 'un servidor viejo rechazaria la llave');
+    assert.equal(p.mensajes.includes('EXISTENCIAS_NO_DISPONIBLES'), false);
+    assert.deepEqual((await cargar(p.archivo)).existencias, {});
+  }
+});
+test('existencias: sin columnas avisa, no las lee y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.existenciasDisponibles = false;
+  p.fuente.existencias = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_NO_DISPONIBLES'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+  assert.equal((await cargar(p.archivo)).existencias_dia, null);
+});
+test('existencias: 1,200 vigentes van en 3 lotes y cada lote confirmado actualiza el mapa con sus filas', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conExistencias(p, Array.from({ length: 1200 }, (_, i) => existencia(i + 1)));
+  const fetch = p.deps.fetch, mapaAlEnviar = [];
+  p.deps.fetch = async (...args) => {
+    if (JSON.parse(args[1].body).existencias) mapaAlEnviar.push(Object.keys((await cargar(p.archivo)).existencias).length);
+    return fetch(...args);
+  };
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p).map(l => l.length), [500, 500, 200]);
+  assert.deepEqual(mandadas(p).flat().map(x => x.art_id), Array.from({ length: 1200 }, (_, i) => String(i + 1)));
+  assert.deepEqual(mapaAlEnviar, [0, 500, 1000]);
+  const estado = await cargar(p.archivo);
+  assert.equal(Object.keys(estado.existencias).length, 1200);
+  assert.equal(estado.existencias_dia, '2026-10-14');
+});
+test('existencias: una rara se omite con su id, no se manda ni se borra, y lo demas sigue', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 2: '1.0000' } });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1), existencia(2, '1.12345'), existencia(3, 4)]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIA_OMITIDA'));
+  assert.deepEqual(mandadas(p), [[existencia(1)]]);
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '3.0000', 2: '1.0000' }, 'la rara conserva lo ultimo confirmado');
+});
+test('existencias: van despues de articulos y proveedores, y no antes de terminar la carga historica', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conArticulos(p, [articulo(1)]);
+  conProveedores(p, [proveedor(4)]);
+  conExistencias(p, [existencia(1)]);
+  await ejecutar(p.archivo, { articulos: true, proveedores: true, existencias: true }, p.deps);
+  assert.deepEqual(p.lotes.map(l => l.articulos ? 'articulos' : l.proveedores ? 'proveedores' : l.existencias ? 'existencias' : 'otro'),
+    ['articulos', 'proveedores', 'existencias']);
+  const q = await preparar(t);
+  const leidos = conExistencias(q, [existencia(1)]);
+  await ejecutar(q.archivo, { existencias: true }, { ...q.deps, existenciasAhora: true });
+  assert.equal(leidos.length, 0);
+});

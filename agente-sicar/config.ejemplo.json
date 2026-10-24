@@ -9,5 +9,6 @@
   "estado": "C:\\UnisoundSICAR\\estado.json",
   "historial": {},
   "articulos": false,
-  "proveedores": false
+  "proveedores": false,
+  "existencias": false
 }

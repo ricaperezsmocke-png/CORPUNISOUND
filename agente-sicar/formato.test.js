@@ -84,3 +84,22 @@ test('proveedor seguro recorta el relleno de SICAR y omite los que no cumplen el
   }
   assert.throws(() => proveedorSeguro({ prv_id: 'x', nombre: 'Casa' }), /ID_INVALIDO/);
 });
+test('existencia segura conserva el signo, normaliza a 4 decimales y omite lo que el contrato no acepta', () => {
+  const { existenciaSegura } = require('./formato');
+  for (const [entrada, salida] of [['3.0000', '3.0000'], ['-1.0000', '-1.0000'], ['-0.0000', '0.0000'], ['3', '3.0000'],
+    ['-2.5', '-2.5000'], ['0', '0.0000']]) {
+    assert.deepEqual(existenciaSegura({ art_id: '7', existencia: entrada }), { existencia: { art_id: '7', existencia: salida }, omitido: null });
+  }
+  for (const [entrada, codigo] of [['3.12345', 'PRECISION_NO_PACTADA'], [3, 'DECIMAL_INVALIDO'], [null, 'DECIMAL_INVALIDO'],
+    ['--1', 'DECIMAL_INVALIDO'], ['+1', 'DECIMAL_INVALIDO'], ['-', 'DECIMAL_INVALIDO']]) {
+    assert.deepEqual(existenciaSegura({ art_id: 7, existencia: entrada }), { existencia: null, omitido: { art_id: '7', codigo } });
+  }
+  assert.throws(() => existenciaSegura({ art_id: 'x', existencia: '1.0000' }), /ID_INVALIDO/);
+});
+test('un lote cabe con hasta 500 existencias', () => {
+  const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));
+  lote.existencias = Array.from({ length: 500 }, (_, i) => ({ art_id: String(i + 1), existencia: '1.0000' }));
+  assert.equal(cabe(lote), true);
+  lote.existencias.push({ art_id: '501', existencia: null });
+  assert.equal(cabe(lote), false);
+});

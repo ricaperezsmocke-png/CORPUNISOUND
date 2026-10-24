@@ -148,3 +148,25 @@ test('un estado.json de antes de los proveedores arranca su lista desde cero y r
   assert.equal(registrar(x => x)('PROVEEDOR_OMITIDO', { prv_id: '7', codigo: 'TEXTO_VACIO' }), 'PROVEEDOR_OMITIDO prv_id=7 codigo=TEXTO_VACIO');
   assert.equal(registrar(x => x)('PROVEEDORES_NO_DISPONIBLES'), 'PROVEEDORES_NO_DISPONIBLES');
 });
+test('un estado.json de antes de las existencias arranca con el mapa vacio y rechaza mapas raros', async t => {
+  const archivo = await entorno(t);
+  const viejo = inicial();
+  delete viejo.existencias;
+  delete viejo.existencias_dia;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const estado = await cargar(archivo);
+  assert.deepEqual(estado.existencias, {});
+  assert.equal(estado.existencias_dia, null);
+  const bueno = { ...viejo, existencias: { 7: '3.0000', 8: '-1.0000' }, existencias_dia: '2026-10-14' };
+  await fs.writeFile(archivo, JSON.stringify(bueno));
+  assert.deepEqual((await cargar(archivo)).existencias, { 7: '3.0000', 8: '-1.0000' });
+  for (const raro of [{ existencias: { 7: 'x' } }, { existencias: { a: '1.0000' } }, { existencias: { 7: null } }, { existencias: { 7: 3 } },
+    { existencias: [] }, { existencias: 'x' }, { existencias_dia: 'ayer' }, { existencias: { '07': '1.0000' } }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('EXISTENCIA_OMITIDA', { art_id: '7', codigo: 'PRECISION_NO_PACTADA' }),
+    'EXISTENCIA_OMITIDA art_id=7 codigo=PRECISION_NO_PACTADA');
+  assert.equal(registrar(x => x)('EXISTENCIAS_NO_DISPONIBLES'), 'EXISTENCIAS_NO_DISPONIBLES');
+  assert.equal(registrar(x => x)('EXISTENCIAS_AUTORIZADAS_DE_DIA'), 'EXISTENCIAS_AUTORIZADAS_DE_DIA');
+});
