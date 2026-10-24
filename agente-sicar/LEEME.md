@@ -134,6 +134,30 @@ existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se m
   `EXISTENCIA_OMITIDA art_id=...` en el registro. Ese artículo conserva en CORPUNISOUND lo último que se confirmó y, si
   no se vuelve a confirmar, la pantalla lo muestra en gris pasadas 36 horas. No detiene nada.
 
+### Cortes de caja
+
+El agente manda cada corte de caja de SICAR para verlo en CORPUNISOUND con la etiqueta "Cifras según SICAR": caja,
+fecha y hora, contado, calculado, diferencia (contado − calculado, tal cual la guardó SICAR: negativa es faltante) y
+retiro; las formas de pago que tuvieron algún importe; quién lo **cerró** y, por cada usuario que dio de alta ventas en
+ese turno, cuántas ventas y cuánto, y cuántas canceladas y cuánto. Solo números de usuario (`usu_id`): **el agente no
+lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISOUND.
+
+- **En cada corrida (cada 5 min), al final**, después de las existencias: lee los cortes nuevos (por número de corte)
+  y los manda en paquetes de hasta 100. Lo que ya se mandó lo recuerda `estado.json` (`cortes_cursor`) y solo avanza
+  cuando el servidor confirma: si el envío falla, la siguiente corrida reenvía los mismos cortes. Un paquete de cortes
+  atorado **no se descarta** (a diferencia de las existencias): se reintenta hasta que pase.
+- SICAR anota quién cerró el corte unos segundos después de cerrarlo. Si un corte de hace menos de 10 minutos todavía
+  no tiene ese dato, el agente lo espera a la siguiente corrida (y con él los que vengan después). Pasados 10 minutos
+  se manda sin quién lo cerró y queda `CORTE_SIN_CAJERO cor_id=...` en el registro.
+- **Vienen apagados.** Se prenden poniendo `"cortes": true` en `config.json`, solo después de que el servidor de
+  CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de que
+  `--verificar` confirme las columnas. Es independiente de las demás listas. La primera vez manda todos los cortes de
+  la historia de SICAR, 100 por paquete y 6 segundos entre paquetes (Ocosingo va en el corte 8,006: unos 80 paquetes).
+- `--verificar` dice `Cortes en SICAR: N`. Si dice `Cortes APAGADOS, faltan columnas`, el agente sigue con todo lo
+  demás pero no manda cortes: hay que ajustar `COLUMNAS_CORTES` en `mapeo.js`.
+- Un corte con un dato que el agente no sabe leer (importe con 3 decimales, fecha imposible) se salta y queda
+  `CORTE_OMITIDO cor_id=... codigo=...` en el registro. Ese corte **no se vuelve a intentar**: hay que avisar.
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
@@ -171,6 +195,9 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
 | `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
+| `CORTE_SIN_CAJERO cor_id=…` | SICAR no anotó quién cerró ese corte (o anotó a dos). Se mandó igual, sin quién lo cerró. | Nada si es raro. Si sale en todos los cortes, avisar. |
+| `CORTE_OMITIDO cor_id=… codigo=…` | Un corte con un dato que el agente no sabe leer. **Se saltó** y no aparece en CORPUNISOUND. | Avisar con la línea del registro. |
+| `CORTES_NO_DISPONIBLES` | `"cortes": true` pero no encontró las columnas de cortes. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_CORTES`, o apagar `"cortes"`. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
 | `FALLO ...` | Algo que no es un dato raro (configuración, MySQL, servidor). La corrida termina sin avanzar. | Avisar con la línea completa. |
 | `FALLO MYSQL_ACCESO_DENEGADO` / `MYSQL_NO_DISPONIBLE` | Contraseña de MySQL o MySQL apagado. | Revisar `config.json` y que SICAR esté abierto. |

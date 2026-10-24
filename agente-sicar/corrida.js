@@ -1,7 +1,7 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { cargar, guardar, bloquear } = require('./estado');
 const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura } = require('./formato');
+  proveedorSeguro, existenciaSegura, corteSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
@@ -26,6 +26,7 @@ function agregar(lote, elemento) {
   if (elemento.proveedor) (lote.proveedores ??= []).push(elemento.proveedor);
   // La fila nunca es null (su existencia sí puede serlo: artículo que dejó de ser vigente).
   if (elemento.existencia) (lote.existencias ??= []).push(elemento.existencia);
+  if (elemento.corte) (lote.cortes ??= []).push(elemento.corte);
 }
 // Un prv_id repetido en el lote lo rechaza el servidor (ID_DUPLICADO, 422) y eso detendría el agente entero, con clientes
 // y ventas. La lista de proveedores es opcional: se conserva la primera aparición de cada id y se sigue.
@@ -34,10 +35,14 @@ function sinIdsRepetidos(filas) {
   return filas.filter(p => !vistos.has(String(p.prv_id)) && vistos.add(String(p.prv_id)));
 }
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
-  && !lote.existencias?.length;
+  && !lote.existencias?.length && !lote.cortes?.length;
+// Un lote con cortes nunca se descarta: sus cambios avanzan cortes_cursor y descartarlo perdería esos cortes.
 const soloExistencias = lote => !!lote.existencias?.length && !lote.clientes?.length && !lote.ventas?.length
-  && !lote.articulos?.length && !lote.proveedores?.length;
+  && !lote.articulos?.length && !lote.proveedores?.length && !lote.cortes?.length;
 const EXISTENCIAS_POR_LOTE = 500;
+const CORTES_POR_LOTE = 100;
+// Un corte sin renglón de quién lo cerró se espera hasta 10 minutos: SICAR escribe ese renglón 0-22 s después del corte.
+const ESPERA_CAJERO_MS = 10 * 60000;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -218,51 +223,87 @@ async function ejecutar(archivo, config, deps) {
     // CONFIRMÓ (estado.existencias); se mandan solo las que cambiaron y, con null, las que dejaron de ser vigentes. Una
     // vez al día (de noche, de día si la última fue antes de ayer, o a mano con --existencias-ahora) se mandan todas. Apagadas mientras el
     // interruptor no sea true: un servidor viejo rechaza la colección y detendría las ventas.
-    if (config.existencias !== true) return;
-    if (!fuente.existenciasDisponibles) { log('EXISTENCIAS_NO_DISPONIBLES'); return; }
-    // De día también toca si la última vuelta completa fue antes de ayer (o nunca): tiendas que apagan la PC de noche.
-    const ayer = horaLocal(reloj() - 24 * 3600000).slice(0, 10);
-    const atrasada = !estado.existencias_dia || estado.existencias_dia < ayer;
-    const completa = deps.existenciasAhora ? true
-      : estado.existencias_dia !== hoy && (esHorarioHistorico(new Date(reloj())) || atrasada);
-    const actuales = new Map();
-    const omitidas = new Set();
-    for (let cursor = '0'; ;) {
-      const filas = await fuente.existencias(cursor, EXISTENCIAS_POR_LOTE);
-      if (!filas.length) break;
-      const siguiente = id(filas.at(-1).art_id);
-      // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
-      if (BigInt(siguiente) <= BigInt(cursor)) throw new Error('ID_INVALIDO');
-      cursor = siguiente;
-      for (const fila of filas) {
-        const { existencia, omitido } = existenciaSegura(fila);
-        if (omitido) { omitir('EXISTENCIA_OMITIDA', omitido); omitidas.add(omitido.art_id); continue; }
-        // Un art_id repetido lo rechaza el servidor (ID_DUPLICADO, 422) y detendría el agente: se queda el primero.
-        if (!actuales.has(existencia.art_id)) actuales.set(existencia.art_id, existencia.existencia);
+    async function mandarExistencias() {
+      if (config.existencias !== true) return true;
+      if (!fuente.existenciasDisponibles) { log('EXISTENCIAS_NO_DISPONIBLES'); return true; }
+      // De día también toca si la última vuelta completa fue antes de ayer (o nunca): tiendas que apagan la PC de noche.
+      const ayer = horaLocal(reloj() - 24 * 3600000).slice(0, 10);
+      const atrasada = !estado.existencias_dia || estado.existencias_dia < ayer;
+      const completa = deps.existenciasAhora ? true
+        : estado.existencias_dia !== hoy && (esHorarioHistorico(new Date(reloj())) || atrasada);
+      const actuales = new Map();
+      const omitidas = new Set();
+      for (let cursor = '0'; ;) {
+        const filas = await fuente.existencias(cursor, EXISTENCIAS_POR_LOTE);
+        if (!filas.length) break;
+        const siguiente = id(filas.at(-1).art_id);
+        // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+        if (BigInt(siguiente) <= BigInt(cursor)) throw new Error('ID_INVALIDO');
+        cursor = siguiente;
+        for (const fila of filas) {
+          const { existencia, omitido } = existenciaSegura(fila);
+          if (omitido) { omitir('EXISTENCIA_OMITIDA', omitido); omitidas.add(omitido.art_id); continue; }
+          // Un art_id repetido lo rechaza el servidor (ID_DUPLICADO, 422) y detendría el agente: se queda el primero.
+          if (!actuales.has(existencia.art_id)) actuales.set(existencia.art_id, existencia.existencia);
+        }
       }
+      const confirmadas = estado.existencias;
+      const items = [...actuales].filter(([art_id, valor]) => completa || confirmadas[art_id] !== valor)
+        .map(([art_id, existencia]) => ({ art_id, existencia }));
+      // Una omitida (dato que no se sabe leer) no se borra: el servidor conserva lo último confirmado y, si no se vuelve a
+      // confirmar, la pantalla la muestra en gris tras 36 h.
+      const bajas = Object.keys(confirmadas).filter(art_id => !actuales.has(art_id) && !omitidas.has(art_id))
+        .sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+      items.push(...bajas.map(art_id => ({ art_id, existencia: null })));
+      if (!items.length && !completa) return true;
+      // Un tramo = un lote: transmitir() aplica sus cambios solo cuando el servidor confirma el último grupo de la llamada,
+      // así el mapa local nunca guarda algo que el servidor no recibió.
+      let mapa = { ...confirmadas };
+      for (let i = 0; i < items.length || (i === 0 && completa); i += EXISTENCIAS_POR_LOTE) {
+        const tramo = items.slice(i, i + EXISTENCIAS_POR_LOTE);
+        mapa = { ...mapa };
+        for (const { art_id, existencia } of tramo) {
+          if (existencia === null) delete mapa[art_id];
+          else mapa[art_id] = existencia;
+        }
+        const ultimo = i + EXISTENCIAS_POR_LOTE >= items.length;
+        const cambios = { existencias: mapa, ...(ultimo && completa ? { existencias_dia: hoy } : {}) };
+        if (!await transmitir(tramo.map(existencia => ({ existencia })), cambios, 'incremental')) return false;
+      }
+      return true;
     }
-    const confirmadas = estado.existencias;
-    const items = [...actuales].filter(([art_id, valor]) => completa || confirmadas[art_id] !== valor)
-      .map(([art_id, existencia]) => ({ art_id, existencia }));
-    // Una omitida (dato que no se sabe leer) no se borra: el servidor conserva lo último confirmado y, si no se vuelve a
-    // confirmar, la pantalla la muestra en gris tras 36 h.
-    const bajas = Object.keys(confirmadas).filter(art_id => !actuales.has(art_id) && !omitidas.has(art_id))
-      .sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
-    items.push(...bajas.map(art_id => ({ art_id, existencia: null })));
-    if (!items.length && !completa) return;
-    // Un tramo = un lote: transmitir() aplica sus cambios solo cuando el servidor confirma el último grupo de la llamada,
-    // así el mapa local nunca guarda algo que el servidor no recibió.
-    let mapa = { ...confirmadas };
-    for (let i = 0; i < items.length || (i === 0 && completa); i += EXISTENCIAS_POR_LOTE) {
-      const tramo = items.slice(i, i + EXISTENCIAS_POR_LOTE);
-      mapa = { ...mapa };
-      for (const { art_id, existencia } of tramo) {
-        if (existencia === null) delete mapa[art_id];
-        else mapa[art_id] = existencia;
+    if (!await mandarExistencias()) return;
+    // Cortes de caja: en cada corrida, después de las existencias, por cor_id (nunca se editan y crecen con el tiempo).
+    // cortes_cursor avanza solo cuando el servidor confirma el lote. Apagados mientras el interruptor no sea true.
+    if (config.cortes !== true) return;
+    if (!fuente.cortesDisponibles) { log('CORTES_NO_DISPONIBLES'); return; }
+    while (true) {
+      const pagina = await fuente.cortes(estado.cortes_cursor, CORTES_POR_LOTE);
+      // Hora de la tienda hace 10 minutos, en el mismo formato que la fecha de SICAR.
+      const limite = horaLocal(reloj() - ESPERA_CAJERO_MS);
+      let cursor = estado.cortes_cursor, espera = false;
+      const items = [];
+      for (const fila of pagina.cortes) {
+        const cor_id = id(fila.cor_id);
+        // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+        if (BigInt(cor_id) <= BigInt(cursor)) throw new Error('ID_INVALIDO');
+        // Recién cerrado y todavía sin quién lo cerró: se espera a la siguiente corrida, junto con todos los posteriores.
+        const fecha = String(fila.fecha).replace(' ', 'T');
+        if (!pagina.cajeros.some(h => String(h.id) === cor_id) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fecha) && fecha > limite) {
+          espera = true;
+          break;
+        }
+        const { corte, omitido } = corteSeguro({ corte: fila, pagos: pagina.pagos, cajeros: pagina.cajeros, ventas: pagina.ventas });
+        if (omitido) omitir('CORTE_OMITIDO', omitido);
+        else {
+          if (corte.usu_id === null) log('CORTE_SIN_CAJERO', { cor_id });
+          items.push({ corte });
+        }
+        cursor = cor_id;
       }
-      const ultimo = i + EXISTENCIAS_POR_LOTE >= items.length;
-      const cambios = { existencias: mapa, ...(ultimo && completa ? { existencias_dia: hoy } : {}) };
-      if (!await transmitir(tramo.map(existencia => ({ existencia })), cambios, 'incremental')) return;
+      if (cursor === estado.cortes_cursor) return;
+      if (!await transmitir(items, { cortes_cursor: cursor }, 'incremental')) return;
+      if (espera) return;
     }
   } finally { await liberar(); }
 }

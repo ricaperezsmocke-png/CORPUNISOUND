@@ -71,7 +71,7 @@ function sobre(sequence, mode, ahora) {
 }
 function cabe(lote) {
   return lote.clientes.length <= 100 && lote.ventas.length <= 100 && (lote.articulos?.length || 0) <= 500
-    && (lote.proveedores?.length || 0) <= 500 && (lote.existencias?.length || 0) <= 500
+    && (lote.proveedores?.length || 0) <= 500 && (lote.existencias?.length || 0) <= 500 && (lote.cortes?.length || 0) <= 100
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
     && Buffer.byteLength(JSON.stringify(lote), 'utf8') <= 1024 * 1024;
@@ -136,6 +136,79 @@ function existenciaSegura(fila) {
     return { existencia: null, omitido: { art_id, codigo: error.message } };
   }
 }
+// Importe de corte: texto con signo y 2 decimales, tal cual lo guarda SICAR (sin redondear). '-0.00' va como '0.00'.
+function conSigno(valor) {
+  const negativo = typeof valor === 'string' && valor.startsWith('-');
+  const absoluto = decimal(negativo ? valor.slice(1) : valor, 2);
+  return negativo && /[1-9]/.test(absoluto) ? `-${absoluto}` : absoluto;
+}
+const centavos = importe => BigInt(importe.replace('.', ''));
+function importe(c) {
+  const signo = c < 0n ? '-' : '';
+  const texto = (c < 0n ? -c : c).toString().padStart(3, '0');
+  const salida = `${signo}${texto.slice(0, -2)}.${texto.slice(-2)}`;
+  if (centavos(salida.replace('-', '')) > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('IMPORTE_EXCESIVO');
+  return salida;
+}
+function fechaLocal(valor) {
+  const fecha = String(valor).replace(' ', 'T');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fecha)) throw new Error('FECHA_INVALIDA');
+  // Mismo criterio que el servidor: 0000-00-00 o 30 de febrero no son fechas.
+  const instante = new Date(`${fecha}Z`);
+  if (!Number.isFinite(instante.getTime()) || instante.toISOString().slice(0, 19) !== fecha) throw new Error('FECHA_INVALIDA');
+  return fecha;
+}
+const IMPORTES_CORTE = ['contado', 'calculado', 'diferencia', 'retiro'];
+// Corte de caja de SICAR con sus formas de pago y, por usuario que dio de alta la venta, lo que se cobró y canceló en el
+// turno. Recibe las filas de toda la página y toma solo las de este cor_id. Solo usu_id: nunca nombres.
+function corte({ corte: c, pagos, cajeros, ventas }) {
+  const cor_id = id(c.cor_id);
+  const suyos = filas => filas.filter(f => String(f.cor_id) === cor_id);
+  const importes = fila => Object.fromEntries(IMPORTES_CORTE.map(campo => [campo, conSigno(fila[campo])]));
+  // Solo las formas de pago con algún importe: SICAR guarda un renglón en cero por cada forma que existe.
+  const formas = suyos(pagos).map(p => ({ tpa_id: id(p.tpa_id), ...importes(p) }))
+    .filter(p => IMPORTES_CORTE.some(campo => /[1-9]/.test(p[campo])))
+    .sort((a, b) => (BigInt(a.tpa_id) < BigInt(b.tpa_id) ? -1 : 1));
+  if (new Set(formas.map(p => p.tpa_id)).size !== formas.length) throw new Error('ID_INVALIDO');
+  if (formas.length > 8) throw new Error('DETALLE_FUERA_DE_LIMITE');
+  // Quien cerró: el usu_id de su único renglón CorteCaja. Con cero o más de uno no se adivina.
+  const cierre = cajeros.filter(h => String(h.id) === cor_id);
+  const usu_id = cierre.length === 1 ? id(cierre[0].usu_id) : null;
+  // El JOIN con historial puede repetir una venta: cuenta una vez. Si trae dos altas distintas, no se le carga a nadie.
+  const porVenta = new Map();
+  for (const v of suyos(ventas)) {
+    const ven_id = id(v.ven_id);
+    const quien = v.usu_id == null ? null : id(v.usu_id);
+    if (!['1', '-1'].includes(String(v.status))) throw new Error('ESTADO_VENTA_DESCONOCIDO');
+    const previa = porVenta.get(ven_id);
+    porVenta.set(ven_id, { quien: previa && previa.quien !== quien ? null : quien, vigente: String(v.status) === '1',
+      total: centavos(conSigno(v.total)) });
+  }
+  const cobros = new Map();
+  const orden = [...porVenta].sort(([a], [b]) => (BigInt(a) < BigInt(b) ? -1 : 1));
+  for (const [, v] of orden) {
+    const cobro = cobros.get(v.quien) || { ventas: 0, total: 0n, canceladas: 0, total_canceladas: 0n };
+    if (v.vigente) { cobro.ventas++; cobro.total += v.total; } else { cobro.canceladas++; cobro.total_canceladas += v.total; }
+    cobros.set(v.quien, cobro);
+  }
+  // Las ventas sin alta en historial (usu_id null) van al final.
+  const usuarios = [...cobros.keys()].filter(u => u !== null).concat(cobros.has(null) ? [null] : []);
+  if (usuarios.length > 50) throw new Error('DETALLE_FUERA_DE_LIMITE');
+  return { cor_id, caj_id: id(c.caj_id), fecha_local: fechaLocal(c.fecha), usu_id, ...importes(c), pagos: formas,
+    cobros: usuarios.map(u => {
+      const b = cobros.get(u);
+      return { usu_id: u, ventas: b.ventas, total: importe(b.total), canceladas: b.canceladas, total_canceladas: importe(b.total_canceladas) };
+    }) };
+}
+// Un corte que el contrato no acepta no detiene la carga: se salta con su cor_id. Un cor_id inválido sí detiene.
+function corteSeguro(datos) {
+  const cor_id = id(datos?.corte?.cor_id);
+  try { return { corte: corte(datos), omitido: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message)) throw error;
+    return { corte: null, omitido: { cor_id, codigo: error.message } };
+  }
+}
 function ventaSegura(v, c, detalles, enviada, avisar) {
   try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
   catch (error) {
@@ -149,4 +222,4 @@ function ventaSegura(v, c, detalles, enviada, avisar) {
   }
 }
 module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura };
+  proveedorSeguro, existenciaSegura, corteSeguro };

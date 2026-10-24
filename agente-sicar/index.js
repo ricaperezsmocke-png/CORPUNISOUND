@@ -32,6 +32,12 @@ async function verificar(fuente, imprimir, esperar, log) {
     imprimir('Existencias APAGADAS, faltan columnas: ' + JSON.stringify(existencias.faltantes));
     log('EXISTENCIAS_NO_DISPONIBLES');
   } else imprimir(`Existencias: ${existencias.total} artículos vigentes, lectura en ${existencias.ms} ms`);
+  const cortes = info.cortes || { columnas: [], faltantes: ['cortecaja'], total: null };
+  imprimir('Columnas de cortes: ' + JSON.stringify(cortes.columnas));
+  if (cortes.faltantes.length) {
+    imprimir('Cortes APAGADOS, faltan columnas: ' + JSON.stringify(cortes.faltantes));
+    log('CORTES_NO_DISPONIBLES');
+  } else imprimir(`Cortes en SICAR: ${cortes.total}`);
   let cursor = '0', clientes = 0, ventas = 0;
   const clientesRaros = [];
   while (true) {

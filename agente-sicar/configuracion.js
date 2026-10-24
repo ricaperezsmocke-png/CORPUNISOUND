@@ -41,6 +41,8 @@ async function leerConfiguracion(archivo) {
   if (config.proveedores !== undefined && typeof config.proveedores !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   // Y la de existencias (spec 2026-10-23): solo true la prende; un servidor viejo rechazaría la colección.
   if (config.existencias !== undefined && typeof config.existencias !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
+  // Y la de cortes de caja (plan E2): igual, solo true la prende.
+  if (config.cortes !== undefined && typeof config.cortes !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   return config;
 }
 module.exports = { leerConfiguracion };

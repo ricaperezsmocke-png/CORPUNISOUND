@@ -10,5 +10,6 @@
   "historial": {},
   "articulos": false,
   "proveedores": false,
-  "existencias": false
+  "existencias": false,
+  "cortes": false
 }

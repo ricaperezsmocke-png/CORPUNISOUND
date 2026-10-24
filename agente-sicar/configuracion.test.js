@@ -118,3 +118,34 @@ test('--verificar dice que columnas de proveedor encontro y cuantos hay, o que e
     assert.equal(registros.includes('PROVEEDORES_NO_DISPONIBLES'), aviso);
   }
 });
+test('el interruptor cortes solo acepta true o false', async t => {
+  const { archivo, config } = await preparar(t);
+  assert.equal((await leerConfiguracion(archivo)).cortes, undefined);
+  for (const [valor, acepta] of [[true, true], [false, true], ['true', false], [1, false], [null, false], [{}, false]]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, cortes: valor }));
+    if (acepta) assert.equal((await leerConfiguracion(archivo)).cortes, valor);
+    else await assert.rejects(leerConfiguracion(archivo), /CONFIGURACION_INVALIDA/);
+  }
+});
+test('el ejemplo de configuracion trae los cortes apagados', async () => {
+  assert.equal(JSON.parse(await fs.readFile(path.join(__dirname, 'config.ejemplo.json'), 'utf8')).cortes, false);
+});
+test('--verificar dice cuantos cortes hay en SICAR o que estan apagados', async t => {
+  const { archivo } = await preparar(t);
+  const base = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }) };
+  const info = cortes => async () => ({ grants: [], columnas: [], ventas: [], clientes: [], cortes });
+  for (const [cortes, esperado, aviso] of [
+    [{ columnas: ['cortecaja.cor_id'], faltantes: [], total: '8006' }, /Cortes en SICAR: 8006/, false],
+    [{ columnas: ['cortecaja.cor_id'], faltantes: ['cortetipopago.tpa_id'], total: null },
+      /Cortes APAGADOS, faltan columnas: \["cortetipopago.tpa_id"\]/, true],
+    [undefined, /Cortes APAGADOS, faltan columnas/, true],
+  ]) {
+    const salida = [], registros = [];
+    await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+      crearFuente: async () => ({ ...base, verificar: info(cortes) }), imprimir: x => salida.push(x), log: x => registros.push(x),
+      esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+    assert.match(salida.join('\n'), esperado);
+    assert.equal(registros.includes('CORTES_NO_DISPONIBLES'), aviso);
+  }
+});

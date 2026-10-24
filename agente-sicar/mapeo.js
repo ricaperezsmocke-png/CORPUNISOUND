@@ -21,6 +21,15 @@ const COLUMNAS_EXISTENCIAS = { articulo: ['art_id', 'existencia', 'status', 'ser
 const DESDE_EXISTENCIAS = 'FROM `articulo` a WHERE a.`status` = 1 AND a.`servicio` = 0';
 const LEER_EXISTENCIAS = 'SELECT a.`art_id`, a.`existencia` FROM `articulo` a WHERE a.`art_id` > ? AND a.`status` = 1 AND '
   + 'a.`servicio` = 0 ORDER BY a.`art_id` LIMIT ?';
+// Cortes de caja (plan E2, 2026-10-23). Confirmado en Ocosingo: un solo renglón de historial (tabla CorteCaja,
+// movimiento 0, id = cor_id) por corte, con el usu_id de quien lo cerró; venta.rcc_id → resumencortecaja.cor_id. Nunca se
+// lee la tabla usuario: solo usu_id. Opcionales: si falta una columna, se sigue con todo lo demás y no se mandan.
+const COLUMNAS_CORTES = { cortecaja: ['cor_id', 'fecha', 'contado', 'calculado', 'diferencia', 'retiro', 'caj_id'],
+  cortetipopago: ['cor_id', 'tpa_id', 'contado', 'calculado', 'diferencia', 'retiro'], resumencortecaja: ['rcc_id', 'cor_id'],
+  historial: ['tabla', 'movimiento', 'id', 'usu_id'], venta: ['ven_id', 'rcc_id', 'total', 'status'] };
+const LEER_CORTES = 'SELECT c.`cor_id`, c.`fecha`, c.`contado`, c.`calculado`, c.`diferencia`, c.`retiro`, c.`caj_id` FROM `cortecaja` c '
+  + 'WHERE c.`cor_id` > ? ORDER BY c.`cor_id` LIMIT ?';
+const MAXIMO_CORTES = 100;
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -39,6 +48,8 @@ function crearFuente(lector, config = {}) {
   let columnasProveedores = [];
   let existenciasFaltantes = null;
   let columnasExistencias = [];
+  let cortesFaltantes = null;
+  let columnasCortes = [];
   // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
   const paginaExistencias = limite => Math.min(limite, lector.tamano * 5);
   const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
@@ -110,6 +121,26 @@ function crearFuente(lector, config = {}) {
       if (existenciasFaltantes.length) throw new Error('EXISTENCIAS_NO_DISPONIBLES');
       return lector.pagina(leer => leer(LEER_EXISTENCIAS, [cursor, paginaExistencias(limite)]));
     },
+    get cortesDisponibles() { return Array.isArray(cortesFaltantes) && !cortesFaltantes.length; },
+    // Una sola página (misma transacción): los cortes y, para esos cor_id, sus formas de pago, quién lo cerró y las ventas
+    // del turno con quién las dio de alta. Los textos CorteCaja y Venta van como parámetro: la guardia no admite comillas.
+    async cortes(cursor, limite) {
+      comprobar();
+      if (cortesFaltantes.length) throw new Error('CORTES_NO_DISPONIBLES');
+      return lector.pagina(async leer => {
+        const cortes = await leer(LEER_CORTES, [cursor, Math.min(limite, MAXIMO_CORTES)]);
+        if (!cortes.length) return { cortes, pagos: [], cajeros: [], ventas: [] };
+        const ids = cortes.map(c => String(c.cor_id));
+        const pagos = await leer('SELECT p.`cor_id`, p.`tpa_id`, p.`contado`, p.`calculado`, p.`diferencia`, p.`retiro` '
+          + `FROM \`cortetipopago\` p WHERE p.\`cor_id\` IN (${huecos(ids)})`, ids);
+        const cajeros = await leer('SELECT h.`id`, h.`usu_id` FROM `historial` h WHERE h.`tabla` = ? AND h.`movimiento` = 0 '
+          + `AND h.\`id\` IN (${huecos(ids)})`, ['CorteCaja', ...ids]);
+        const ventas = await leer('SELECT r.`cor_id`, v.`ven_id`, v.`total`, v.`status`, h.`usu_id` FROM `resumencortecaja` r '
+          + 'JOIN `venta` v ON v.`rcc_id` = r.`rcc_id` LEFT JOIN `historial` h ON h.`id` = v.`ven_id` AND h.`tabla` = ? '
+          + `AND h.\`movimiento\` = 0 WHERE r.\`cor_id\` IN (${huecos(ids)})`, ['Venta', ...ids]);
+        return { cortes, pagos, cajeros, ventas };
+      });
+    },
     async validar() {
       await lector.pagina(async leer => {
         const columnas = await leer('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE()');
@@ -148,6 +179,9 @@ function crearFuente(lector, config = {}) {
         columnasExistencias = columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`)
           .filter(c => COLUMNAS_EXISTENCIAS[tablaExistencias].map(x => `${tablaExistencias}.${x}`).includes(c));
         existenciasFaltantes = COLUMNAS_EXISTENCIAS[tablaExistencias].map(c => `${tablaExistencias}.${c}`).filter(c => !presentes.has(c));
+        const requeridasCortes = Object.entries(COLUMNAS_CORTES).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`));
+        columnasCortes = requeridasCortes.filter(c => presentes.has(c));
+        cortesFaltantes = requeridasCortes.filter(c => !presentes.has(c));
         validado = true;
       });
     },
@@ -198,6 +232,8 @@ function crearFuente(lector, config = {}) {
           : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)} WHERE ${proveedorVigente}`))[0].total) },
         existencias: existenciasFaltantes.length ? { columnas: columnasExistencias, faltantes: existenciasFaltantes, total: null, ms: null }
           : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
+        cortes: { columnas: columnasCortes, faltantes: cortesFaltantes, total: cortesFaltantes.length ? null
+          : String((await leer('SELECT COUNT(*) AS total FROM `cortecaja`'))[0].total) },
       }));
     },
   };

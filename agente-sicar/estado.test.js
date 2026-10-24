@@ -170,3 +170,20 @@ test('un estado.json de antes de las existencias arranca con el mapa vacio y rec
   assert.equal(registrar(x => x)('EXISTENCIAS_NO_DISPONIBLES'), 'EXISTENCIAS_NO_DISPONIBLES');
   assert.equal(registrar(x => x)('EXISTENCIAS_AUTORIZADAS_DE_DIA'), 'EXISTENCIAS_AUTORIZADAS_DE_DIA');
 });
+test('un estado.json de antes de los cortes arranca con cortes_cursor en 0 y rechaza cursores raros', async t => {
+  const archivo = await entorno(t);
+  assert.equal(inicial().cortes_cursor, '0');
+  const viejo = inicial();
+  delete viejo.cortes_cursor;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  assert.equal((await cargar(archivo)).cortes_cursor, '0');
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, cortes_cursor: '8006' }));
+  assert.equal((await cargar(archivo)).cortes_cursor, '8006');
+  for (const raro of [{ cortes_cursor: 'x' }, { cortes_cursor: 5 }, { cortes_cursor: '-1' }, { cortes_cursor: '1.5' }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('CORTE_OMITIDO', { cor_id: '8006', codigo: 'FECHA_INVALIDA' }), 'CORTE_OMITIDO cor_id=8006 codigo=FECHA_INVALIDA');
+  assert.equal(registrar(x => x)('CORTE_SIN_CAJERO', { cor_id: '8006' }), 'CORTE_SIN_CAJERO cor_id=8006');
+  assert.equal(registrar(x => x)('CORTES_NO_DISPONIBLES'), 'CORTES_NO_DISPONIBLES');
+});
