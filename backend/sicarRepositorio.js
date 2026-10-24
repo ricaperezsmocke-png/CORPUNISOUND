@@ -383,6 +383,8 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
       WHERE (? IS NULL OR sucursal_id=?) ORDER BY id DESC LIMIT 100`).all(sucursalId, sucursalId),
     // Lista cruda de todas las tiendas para el Radar de Demanda; la pantalla la junta por nombre.
     listarProveedores: () => sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores ORDER BY sucursal_id, prv_id').all(),
+    consultarExistencias: (params, ahora, nombres) => require('./sicarExistencias')
+      .consultarExistenciasSicar(sqlite, params, ahora, nombres),
     listarExistencias: () => sqlite.prepare(`SELECT sucursal_id, art_id, existencia_diezmilesimas, actualizado_en
       FROM sicar_existencias ORDER BY sucursal_id, art_id`).all(),
     registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos

@@ -166,6 +166,12 @@ function registrarRutasSicar(app, opciones) {
     const sucursalId = alcance.verTodas ? null : alcance.sucursalId;
     res.json({ tiendas: tiendasVisibles(alcance), envios: repo.listarEnvios(sucursalId), intentos: repo.listarIntentos(sucursalId) });
   }));
+  // Quien tiene el permiso ve todas las tiendas con agente: el alcance NO sale de ?sucursal_id= ni del encabezado.
+  app.get('/api/sicar/existencias', ...permiso('ver_existencias_sicar'), ejecutar((req, res) => {
+    const nombres = Object.fromEntries(tiendas().map(t => [t.id, t.nombre]));
+    const { q, solo, pagina } = req.query;
+    res.json(repo.consultarExistencias({ q: String(q ?? ''), solo, pagina }, new Date(), nombres));
+  }));
 }
 
 module.exports = { registrarAgenteSicar, registrarRutasSicar };

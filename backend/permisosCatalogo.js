@@ -75,6 +75,7 @@ const PERMISOS = [
   { clave: "eliminar_producto", etiqueta: "Eliminar Artículo", modulo: "inventario", implementado: true },
   { clave: "clonar_producto", etiqueta: "Clonar Artículo", modulo: "inventario", implementado: true },
   { clave: "ajustar_existencia", etiqueta: "Ajustar Inventario", modulo: "inventario", implementado: true },
+  { clave: "ver_existencias_sicar", etiqueta: "Ver Existencias SICAR", modulo: "inventario", implementado: true },
   { clave: "realizar_traspasos", etiqueta: "Realizar Traspasos entre Sucursales", modulo: "inventario", implementado: true },
   { clave: "recibir_compra", etiqueta: "Recibir Compras a Proveedor", modulo: "inventario", implementado: true },
   { clave: "gestionar_garantias", etiqueta: "Gestionar Garantías", modulo: "inventario", implementado: true },
