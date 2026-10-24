@@ -65,7 +65,7 @@ export default function ExistenciasSicar() {
           <div key={t.id} className={CAJA}>
             <p className="font-semibold text-slate-900">{t.nombre}</p>
             <p className="text-slate-700">Último contacto del agente: {haceCuanto(t.ultimo_contacto, ahora)}</p>
-            <p className="text-slate-700">Último cambio de existencias: {haceCuanto(t.ultimo_cambio, ahora)}</p>
+            <p className="text-slate-700">Última confirmación de existencias: {haceCuanto(t.ultimo_cambio, ahora)}</p>
             {avisoTienda(t, ahora) && <p role="alert" className={AVISO_AMBAR}>{avisoTienda(t, ahora)}</p>}
           </div>
         ))}

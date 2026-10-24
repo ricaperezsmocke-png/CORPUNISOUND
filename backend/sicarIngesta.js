@@ -86,7 +86,7 @@ function validarProveedor(p) {
   }
 }
 
-// Existencia de SICAR para cortes: art_id y cantidad como texto exacto con cuatro decimales; null = ya no vigente.
+// Existencia de SICAR para la pantalla Existencias SICAR: art_id y cantidad como texto exacto con cuatro decimales; null = ya no vigente.
 function validarExistencia(e) {
   objeto(e, ['art_id', 'existencia']);
   if (!esId(e.art_id)) fallar('ID_INVALIDO');

@@ -156,7 +156,7 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `FUERA_DE_HORARIO` | La carga inicial espera a las 20:00. | Nada. |
 | `TOPE_DE_CORRIDA` | Ya mandó 300 paquetes en esta corrida. | Nada: la siguiente sigue donde se quedó. |
 | `OTRA_CORRIDA_ACTIVA` | La anterior no ha terminado. | Nada. Si dura más de 6 horas, el agente la da por muerta solo. |
-| `RED_NO_DISPONIBLE`, `HTTP_429`, `HTTP_503`, `HTTP_5XX` | Internet o el servidor (por ejemplo, Render reiniciando). | Nada: reenvía lo mismo sin duplicar. Si dura más de un día, avisar. |
+| `RED_NO_DISPONIBLE`, `HTTP_429`, `HTTP_503`, `HTTP_5XX` | Internet o el servidor (por ejemplo, Render reiniciando). | Nada: reenvía lo mismo sin duplicar. Si dura más de un día, avisar. Si `HTTP_503` se repite por más de una hora, apagar `existencias` en `config.json` (`"existencias": false`) para que las ventas salgan sin estorbo, y avisar. |
 | `CAMPO_OMITIDO cli_id=… campo=…` | Un teléfono, correo o RFC mal capturado en SICAR. Se mandó el cliente sin ese dato. | Corregirlo en SICAR si importa. |
 | `HISTORIAL_SIN_CONFIGURAR` / `cancelaciones antiguas sin vigilar` | Falta la sección 3. | Configurar `historial`. |
 | `HTTP_401` | Llave incorrecta o revocada. **El agente se detiene.** | Pedir llave nueva y avisar a quien mantiene el sistema. |

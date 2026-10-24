@@ -64,7 +64,7 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   hasta 250 caracteres, sin U+FFFD. El servidor lo recorta y lo guarda por tienda (la de la llave). El recibo incluye
   `aceptados.proveedores` cuando el lote trae esta colección. Un servidor anterior a esta versión rechaza la llave
   `proveedores` con 400: el agente la manda solo con `"proveedores": true` en su configuración.
-- `existencias` es otra colección opcional independiente (Cortes por existencia, 2026-10-23), con las mismas reglas:
+- `existencias` es otra colección opcional independiente (Existencias SICAR, 2026-10-23), con las mismas reglas:
   puede ser el único contenido del lote, no cambia `schema_version`, hasta 500 por lote y el mismo `art_id` no se
   repite. Cada fila es exactamente `{ "art_id": "7", "existencia": "-1.0000" }`; `existencia` es texto con signo
   opcional, de 1 a 16 enteros y exactamente 4 decimales (sin `+`, sin espacios, nunca número JSON) y su valor sin el
