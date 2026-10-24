@@ -10,14 +10,14 @@ const ADMIN = {
              "gestionar_garantias", "ver_respaldos", "usar_gerente_ventas",
              "editar_objetivos_venta", "ver_radar_demanda", "registrar_demanda",
              "ver_resumen_demanda", "ver_reportes", "editar_configuracion_pos",
-             "cerrar_mes_objetivos", "ver_existencias_sicar"],
+             "cerrar_mes_objetivos", "ver_existencias_sicar", "ver_cortes_sicar"],
 };
 
-test("el administrador ve las tres categorías y los 16 módulos", () => {
+test("el administrador ve las tres categorías y los 17 módulos", () => {
   const vistas = categoriasVisibles(ADMIN);
   assert.equal(vistas.length, 3);
   assert.deepEqual(vistas.map((c) => c.id), ["operacion", "comercial", "administracion"]);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 16);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 17);
 });
 
 test("una categoría sin módulos visibles no se dibuja", () => {
@@ -51,7 +51,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 17);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 18);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -106,6 +106,7 @@ const PARES_CONGELADOS = {
   inventario:      { modulo: "inventario",    permiso: undefined },
   traspasos:       { modulo: "inventario",    permiso: "realizar_traspasos" },
   existencias_sicar: { modulo: "inventario",  permiso: "ver_existencias_sicar" },
+  cortes_sicar:    { modulo: "admin",         permiso: "ver_cortes_sicar" },
   crm:             { modulo: "crm",           permiso: undefined },
   radar_demanda:   { modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },
   ml:              { modulo: "ml",            permiso: undefined },
@@ -196,4 +197,12 @@ test("Existencias SICAR solo aparece con el modulo inventario y el permiso ver_e
   assert.equal(moduloVisible(modulo, { modulos: ["inventario"], permisos: ["ver_existencias_sicar"] }), true);
   assert.equal(moduloVisible(modulo, { modulos: ["inventario"], permisos: ["realizar_traspasos"] }), false);
   assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: ["ver_existencias_sicar"] }), false);
+});
+
+test("Cortes SICAR solo aparece con el modulo admin y el permiso ver_cortes_sicar", () => {
+  const modulo = CATEGORIAS.flatMap((c) => c.modulos).find((m) => m.id === "cortes_sicar");
+  assert.equal(modulo.nombre, "Cortes SICAR");
+  assert.equal(moduloVisible(modulo, { modulos: ["admin"], permisos: ["ver_cortes_sicar"] }), true);
+  assert.equal(moduloVisible(modulo, { modulos: ["admin"], permisos: ["asignar_cajeros_sicar"] }), false);
+  assert.equal(moduloVisible(modulo, { modulos: ["pos"], permisos: ["ver_cortes_sicar"] }), false);
 });
