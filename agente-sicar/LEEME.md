@@ -118,7 +118,8 @@ existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se m
   servidor borra esa fila. Si no cambió nada, no manda nada. Si el envío falla, la copia local no cambia y la
   siguiente corrida reenvía lo mismo: no se pierde un cambio. Si ese reenvío también falla (servidor caído, sin
   internet), el paquete de existencias se descarta (`EXISTENCIAS_DESCARTADAS`) para no frenar las ventas, y las
-  existencias se vuelven a comparar y mandar cuando el servidor responda.
+  existencias se vuelven a comparar y mandar cuando el servidor responda. Los artículos de ese paquete se vuelven a
+  mandar aunque en SICAR hayan regresado al valor de antes (por si el servidor sí alcanzó a recibirlo).
 - **Una vez al día, de noche (20:00-07:00)**, manda todas aunque no hayan cambiado, para que el servidor sepa que
   siguen al día. La primera vez manda todas (~13 paquetes). En una tienda que apaga la PC de noche, si la última
   vuelta completa fue antes de ayer, la manda de día en la primera corrida.
@@ -144,8 +145,11 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
 
 - **En cada corrida (cada 5 min), al final**, después de las existencias: lee los cortes nuevos (por número de corte)
   y los manda en paquetes de hasta 100. Lo que ya se mandó lo recuerda `estado.json` (`cortes_cursor`) y solo avanza
-  cuando el servidor confirma: si el envío falla, la siguiente corrida reenvía los mismos cortes. Un paquete de cortes
-  atorado **no se descarta** (a diferencia de las existencias): se reintenta hasta que pase.
+  cuando el servidor confirma: si el envío falla, la siguiente corrida reenvía los mismos cortes. Si ese reenvío
+  también falla (servidor caído, sin internet), el paquete de cortes se descarta (`CORTES_DESCARTADOS`) **para no
+  frenar las ventas**, igual que las existencias. No se pierde ningún corte: como el servidor no confirmó, el cursor
+  no avanzó y esos cortes se vuelven a leer y mandar en las siguientes corridas. Un paquete que trae clientes, ventas,
+  artículos o proveedores nunca se descarta.
 - Cada corrida relee también los últimos 50 números de corte bajo el cursor: si otra caja guardó tarde un corte de
   número menor, sale en la siguiente corrida. Los ya mandados no se repiten (`estado.json` recuerda los 50 más altos,
   `cortes_enviados`, solo cuando el servidor confirma).
@@ -157,6 +161,14 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
   ejemplo 0) se manda como "sin persona", nunca se le carga a otra.
 - Si la fecha del corte va más de 10 minutos adelantada respecto al reloj de esta PC (reloj de SICAR mal puesto), no
   se espera: se manda como esté y queda `CORTE_FECHA_FUTURA cor_id=...`, para que no congele los cortes siguientes.
+- **Revisar que el reloj de las PCs de SICAR esté bien** (fecha, hora y zona horaria), el de esta PC incluido. Las
+  esperas de 2 y 10 minutos se miden comparando la hora que SICAR guardó en el corte con la de esta PC: un reloj
+  atrasado hace que un corte a medias (sin quién lo cerró o sin resumen) salga antes de tiempo, y uno adelantado
+  hace que los cortes esperen de más.
+- **Tras restaurar un respaldo del servidor de CORPUNISOUND**, para volver a mandar todos los cortes: con la tarea
+  pausada, en `estado.json` poner `"cortes_cursor": "0"` y `"cortes_enviados": []`, y volver a prender la tarea. La
+  siguiente corrida manda toda la historia de cortes otra vez (el servidor no los duplica). Para las existencias, lo
+  equivalente es correr a mano `correr.cmd --existencias-ahora`.
 - **Vienen apagados.** Se prenden poniendo `"cortes": true` en `config.json`, solo después de que el servidor de
   CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de que
   `--verificar` confirme las columnas. Es independiente de las demás listas. La primera vez manda todos los cortes de
@@ -201,7 +213,8 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `PROVEEDORES_NO_DISPONIBLES` | No encontró las columnas de la tabla de proveedores. Clientes, ventas y artículos siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_PROVEEDORES`. |
 | `EXISTENCIA_OMITIDA art_id=… codigo=…` | Un artículo con una existencia que el agente no sabe leer (por ejemplo, más de 4 decimales). **Se salta**; en CORPUNISOUND queda lo último confirmado. | Revisar ese artículo en SICAR. |
 | `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
-| `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias (o de existencias y cortes) no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `CORTES_DESCARTADOS` | Un paquete de solo cortes (o de cortes y existencias) no se pudo mandar tras sus reintentos. Se tiró **para que las ventas sigan saliendo**; no se pierde ningún corte: el cursor no avanzó y se vuelven a mandar en las siguientes corridas. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
 | `CORTE_SIN_CAJERO cor_id=…` | SICAR no anotó quién cerró ese corte (o anotó a dos). Se mandó igual, sin quién lo cerró. | Nada si es raro. Si sale en todos los cortes, avisar. |
 | `CORTE_SIN_RESUMEN cor_id=…` | Pasados 10 minutos, SICAR no tenía el resumen de ese corte. Se mandó sin las ventas por usuario. | Revisar ese corte en SICAR; si sale seguido, avisar. |

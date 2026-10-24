@@ -36,9 +36,9 @@ function sinIdsRepetidos(filas) {
 }
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
   && !lote.existencias?.length && !lote.cortes?.length;
-// Un lote con cortes nunca se descarta: sus cambios avanzan cortes_cursor y descartarlo perdería esos cortes.
-const soloExistencias = lote => !!lote.existencias?.length && !lote.clientes?.length && !lote.ventas?.length
-  && !lote.articulos?.length && !lote.proveedores?.length && !lote.cortes?.length;
+// Solo un lote de existencias y/o cortes se puede descartar; nunca uno que traiga clientes, ventas, artículos o proveedores.
+const descartable = lote => (!!lote.existencias?.length || !!lote.cortes?.length) && !lote.clientes?.length
+  && !lote.ventas?.length && !lote.articulos?.length && !lote.proveedores?.length;
 const EXISTENCIAS_POR_LOTE = 500;
 const CORTES_POR_LOTE = 100;
 // SICAR escribe el corte, luego el renglón de historial de quién lo cerró (0-22 s) y enseguida el resumen (1 s): un
@@ -82,13 +82,21 @@ async function ejecutar(archivo, config, deps) {
     if (estado.pendiente) {
       if (!permitido(JSON.parse(estado.pendiente.bytes).mode)) return;
       if (!await enviarPendiente(archivo, estado, config, deps)) {
-        // Lo más importante del agente son las ventas: un lote de SOLO existencias que agotó sus intentos (5xx, red) se
-        // descarta sin aplicar sus cambios. El mapa queda como estaba y la siguiente corrida vuelve a mandar la diferencia.
-        // Si el servidor sí lo había aceptado, el siguiente lote recibe 409 SECUENCIA_INCORRECTA y se renumera solo.
-        if (!estado.pendiente || !soloExistencias(JSON.parse(estado.pendiente.bytes))) return;
+        // Lo más importante del agente son las ventas: un lote de SOLO existencias y/o cortes que agotó sus intentos (5xx,
+        // red, 409) se descarta sin aplicar sus cambios: cortes_cursor y cortes_enviados quedan como estaban y esos cortes
+        // se vuelven a leer y mandar. Si el servidor sí lo había aceptado, el siguiente lote recibe 409 SECUENCIA_INCORRECTA
+        // y se renumera solo; por eso los artículos que el lote traía con valor se olvidan del mapa: si SICAR regresa al
+        // valor anterior, se vuelve a mandar. Las bajas (null) se quedan en el mapa para recalcularse y mandarse otra vez.
+        if (!estado.pendiente) return;
+        const atorado = JSON.parse(estado.pendiente.bytes);
+        if (!descartable(atorado)) return;
         estado.pendiente = null;
+        for (const { art_id, existencia } of atorado.existencias || []) {
+          if (existencia !== null) delete estado.existencias[art_id];
+        }
         await guardar(archivo, estado);
-        log('EXISTENCIAS_DESCARTADAS');
+        if (atorado.existencias?.length) log('EXISTENCIAS_DESCARTADAS');
+        if (atorado.cortes?.length) log('CORTES_DESCARTADOS');
       }
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';

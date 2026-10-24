@@ -204,3 +204,8 @@ test('cortes_enviados: arranca vacio, acepta hasta 50 ids y rechaza listas raras
   }
   assert.equal(registrar(x => x)('CORTE_FECHA_FUTURA', { cor_id: '8006' }), 'CORTE_FECHA_FUTURA cor_id=8006');
 });
+test('registro reconoce los avisos de paquetes descartados', () => {
+  const linea = registrar(x => x);
+  assert.equal(linea('EXISTENCIAS_DESCARTADAS'), 'EXISTENCIAS_DESCARTADAS');
+  assert.equal(linea('CORTES_DESCARTADOS'), 'CORTES_DESCARTADOS');
+});

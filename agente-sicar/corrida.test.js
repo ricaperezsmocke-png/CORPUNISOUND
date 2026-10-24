@@ -442,7 +442,7 @@ test('existencias: pendiente de solo existencias con 503 persistente se descarta
   assert.equal(conVentas.length, 1, 'las ventas salen en la misma corrida');
   assert.equal(conVentas[0].sequence, '1', 'el servidor no lo acepto: se reutiliza el numero');
   const estado = await cargar(p.archivo);
-  assert.deepEqual(estado.existencias, { 1: '3.0000' }, 'los cambios del lote descartado no se aplican');
+  assert.deepEqual(estado.existencias, {}, 'los cambios no se aplican y el articulo que traia valor se olvida para reenviarse');
   assert.equal(estado.pendiente, null);
   assert.equal(estado.ven_id, '9');
   assert.equal(estado.siguiente_secuencia, '2');
@@ -493,7 +493,53 @@ test('existencias: si el servidor si acepto el lote descartado, el 409 del sigui
   assert.equal(estado.siguiente_secuencia, '3');
   assert.equal(estado.detenido, null);
   assert.equal(estado.pendiente, null);
-  assert.deepEqual(estado.existencias, { 1: '3.0000' });
+  assert.deepEqual(estado.existencias, {});
+});
+// Al descartar, los articulos que el lote traia con valor se olvidan del mapa: si el servidor si lo habia aceptado y
+// SICAR regresa al valor viejo, la siguiente corrida lo vuelve a mandar. Las bajas (null) se quedan para recalcularse.
+test('existencias: lote descartado que el servidor si acepto; SICAR regresa al valor viejo y se reenvia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-15', existencias: { 1: '3.0000', 2: '3.0000' },
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }] }) });
+  p.deps.reloj = DE_DIA;
+  // Mientras tanto, en SICAR el articulo 1 regreso a 3.
+  conExistencias(p, [existencia(1, '3.0000'), existencia(2)]);
+  let servidor = 1n;
+  const servidorVe = {};
+  p.deps.fetch = async (_, { body }) => {
+    const lote = JSON.parse(body);
+    if (BigInt(lote.sequence) !== servidor) {
+      return { status: 409, json: async () => ({ codigo: 'SECUENCIA_INCORRECTA', siguiente_secuencia: String(servidor) }) };
+    }
+    for (const e of lote.existencias || []) servidorVe[e.art_id] = e.existencia;
+    servidor++;
+    // El servidor acepta el 9, pero la respuesta se pierde en el camino.
+    if (lote.existencias?.[0]?.existencia === '9.0000') throw new Error('socket hang up');
+    return { status: 200, json: async () => ({ next_sequence: String(servidor) }) };
+  };
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.equal(servidorVe[1], '3.0000', 'el valor viejo se vuelve a mandar');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '3.0000' });
+  assert.equal(estado.pendiente, null);
+  assert.equal(estado.detenido, null);
+});
+test('existencias: una baja descartada se vuelve a mandar como null', async t => {
+  const pendiente = pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }, { art_id: '7', existencia: null }] });
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-15',
+    existencias: { 1: '3.0000', 7: '2.0000' }, pendiente });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1, '9.0000')]);
+  const fetch = p.deps.fetch;
+  let caido = true;
+  p.deps.fetch = async (...args) => caido ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, {}, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 7: '2.0000' }, 'la baja se queda para recalcularse');
+  caido = false;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '9.0000' }, { art_id: '7', existencia: null }]]);
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '9.0000' });
 });
 // Tiendas que apagan la PC de noche: de día también toca la vuelta completa si la última fue antes de ayer.
 test('existencias: de dia con la ultima vuelta completa de anteayer manda todas y marca hoy', async t => {
@@ -581,7 +627,7 @@ test('cortes: uno sin cajero de hace 3 minutos espera; 15 minutos despues sale c
   assert.ok(registro.includes('CORTE_SIN_CAJERO cor_id=3'));
   assert.equal((await cargar(p.archivo)).cortes_cursor, '4');
 });
-test('cortes: si el envio falla el cursor no se mueve y el lote atorado no se descarta', async t => {
+test('cortes: lote de solo cortes con 503 persistente se descarta, salen las ventas, el cursor no se mueve y se reenvian despues', async t => {
   const p = await preparar(t, { ...inicial(), fase: 'incremental' });
   p.deps.reloj = DE_DIA;
   conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
@@ -591,32 +637,58 @@ test('cortes: si el envio falla el cursor no se mueve y el lote atorado no se de
   let estado = await cargar(p.archivo);
   assert.equal(estado.cortes_cursor, '0');
   assert.deepEqual(JSON.parse(estado.pendiente.bytes).cortes.map(x => x.cor_id), ['1']);
-  const pendiente = estado.pendiente;
-  p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote de cortes atorado');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
   await ejecutar(p.archivo, { cortes: true }, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('CORTES_DESCARTADOS'));
+  assert.ok(!p.mensajes.includes('EXISTENCIAS_DESCARTADAS'), 'no traia existencias');
+  const conVentas = p.lotes.filter(l => l.ventas.length);
+  assert.equal(conVentas.length, 1, 'las ventas salen en la misma corrida');
   estado = await cargar(p.archivo);
-  assert.ok(!p.mensajes.includes('EXISTENCIAS_DESCARTADAS'), 'perderia el avance del cursor de cortes');
-  assert.deepEqual(estado.pendiente, pendiente);
-  assert.equal(estado.cortes_cursor, '0');
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.cortes_cursor, '0', 'los cambios del lote descartado no se aplican');
+  assert.deepEqual(estado.cortes_enviados, []);
+  assert.deepEqual(JSON.parse(estado.pendiente.bytes).cortes.map(x => x.cor_id), ['1'], 'se volvio a leer y a intentar');
+  assert.equal(estado.detenido, null);
   p.deps.fetch = fetch;
-  p.fuente.ventas = async () => vacia();
+  p.lotes.length = 0;
   await ejecutar(p.archivo, { cortes: true }, p.deps);
   estado = await cargar(p.archivo);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1']]);
   assert.equal(estado.cortes_cursor, '1');
+  assert.deepEqual(estado.cortes_enviados, ['1']);
   assert.equal(estado.pendiente, null);
 });
-test('cortes: pendiente con cortes y existencias juntos tampoco se descarta con 503', async t => {
+test('cortes: pendiente con cortes y existencias juntos tambien se descarta con 503 y avisa ambos', async t => {
   const pendiente = pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }], cortes: [{ cor_id: '1' }] });
   pendiente.cambios.cortes_cursor = '1';
-  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' }, pendiente });
+  pendiente.cambios.cortes_enviados = ['1'];
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000', 2: '3.0000' }, pendiente });
   p.deps.reloj = DE_DIA;
-  p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
-  p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).ventas.length ? fetch(...args) : { status: 503, json: async () => ({}) };
   await ejecutar(p.archivo, {}, p.deps);
-  assert.ok(!p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.ok(p.mensajes.includes('CORTES_DESCARTADOS'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
   const estado = await cargar(p.archivo);
-  assert.deepEqual(estado.pendiente, pendiente);
+  assert.equal(estado.pendiente, null);
   assert.equal(estado.cortes_cursor, '0');
+  assert.deepEqual(estado.cortes_enviados, []);
+  assert.deepEqual(estado.existencias, { 2: '3.0000' });
+});
+test('cortes: pendiente con cortes y ventas, clientes, articulos o proveedores no se descarta con 503', async t => {
+  for (const otra of [{ ventas: [{ ven_id: '5', estado: 'excluida' }] }, { clientes: [{ cli_id: '42', nombre: 'José' }] },
+    { articulos: [{ art_id: '1' }] }, { proveedores: [{ prv_id: '4' }] }]) {
+    const pendiente = pendienteDe({ cortes: [{ cor_id: '1' }], ...otra });
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', pendiente });
+    p.deps.reloj = DE_DIA;
+    p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
+    p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+    await ejecutar(p.archivo, {}, p.deps);
+    assert.ok(!p.mensajes.includes('CORTES_DESCARTADOS'));
+    assert.deepEqual((await cargar(p.archivo)).pendiente, pendiente);
+  }
 });
 test('cortes: interruptor apagado no los lee y los lotes no llevan la llave; ventas igual', async t => {
   for (const config of [{}, { cortes: false }, { cortes: 'true' }, { cortes: 1 }]) {
