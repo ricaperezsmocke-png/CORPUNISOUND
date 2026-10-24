@@ -125,6 +125,7 @@ test('respaldo viejo sin seguimiento restaura vacio sobre estados posteriores', 
   delete m.conteos.sicar_internas_historial;
   delete m.conteos.sicar_articulos;
   delete m.conteos.sicar_proveedores;
+  delete m.conteos.sicar_existencias;
   f.repo.guardarEstadoCliente({ sucursal_id: 1, cli_id: '123', estado: 'contactado', usuario_id: 9, fecha_hora: '2026-10-15T20:00:00Z' });
   const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   p.aplicar(); p.liberar();
@@ -141,6 +142,7 @@ for (const generacion of [12, 14]) {
       delete m.conteos[tabla];
     }
     delete m.conteos.sicar_proveedores;
+    delete m.conteos.sicar_existencias;
     f.sqlite.prepare(`INSERT INTO sicar_articulos
       (sucursal_id, art_id, clave, descripcion, categoria, departamento, actualizado_en)
       VALUES (1, '9', 'SKU-9', 'Artículo pendiente', 'Cuerdas', 'Accesorios', 'hoy')`).run();
@@ -272,7 +274,7 @@ test('snapshot y restauración recuperan compra, detalle, enlace deshecho y reci
   const utilidad = reporteUtilidad(f.DB, {}, { verTodas: true, sucursalId: null });
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   assert.equal(m.version_esquema, 2);
-  assert.equal(Object.keys(m.conteos).length, 16);
+  assert.equal(Object.keys(m.conteos).length, 17);
   f.repo.aplicarLote({ sucursalId: 1, lote: lote('2'), hash: 'hash-2' });
   const preparado = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   assert.equal(f.repo.estado(1).siguiente_secuencia, '3');
@@ -612,8 +614,8 @@ test('respaldo viejo de 15 tablas (sin proveedores) sigue abriendo y deja los pr
   const f = preparar(t), s = api();
   sembrar(f);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  delete m.conteos.sicar_proveedores;
-  m.trozos = m.trozos.filter(c => c.tabla !== 'sicar_proveedores');
+  for (const tabla of ['sicar_proveedores', 'sicar_existencias']) delete m.conteos[tabla];
+  m.trozos = m.trozos.filter(c => !['sicar_proveedores', 'sicar_existencias'].includes(c.tabla));
   assert.deepEqual(Object.keys(m.conteos), TABLAS_15, 'misma forma que los respaldos que ya estan en Drive');
   await s.verificarSnapshotSicar(f.repo, f.drive, m);
   conProveedor(f);
@@ -623,16 +625,61 @@ test('respaldo viejo de 15 tablas (sin proveedores) sigue abriendo y deja los pr
   assert.equal(f.sqlite.prepare('SELECT nombre FROM sicar_clientes').get().nombre, 'José 1');
 });
 
-test('respaldo nuevo de 16 tablas trae y devuelve los proveedores', async t => {
+test('respaldo de 17 tablas trae y devuelve los proveedores', async t => {
   const f = preparar(t), g = preparar(t), s = api();
   sembrar(f);
   conProveedor(f);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.deepEqual(Object.keys(m.conteos), [...TABLAS_15, 'sicar_proveedores']);
+  assert.deepEqual(Object.keys(m.conteos), [...TABLAS_15, 'sicar_proveedores', 'sicar_existencias']);
   assert.equal(m.conteos.sicar_proveedores, 1);
   s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
   const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
   p.aplicar(); p.liberar();
   assert.deepEqual(g.sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores').all(),
     [{ sucursal_id: 1, prv_id: '7', nombre: 'Casa Veerkamp' }]);
+});
+
+const conExistencia = (f, sequence = '2') => f.repo.aplicarLote({ sucursalId: 1, hash: 'hash-e', lote: { batch_id: 'lote-e', sequence,
+  mapping_version: 'v1', clientes: [], ventas: [], existencias: [{ art_id: '7', existencia: '-1.5000' }] } });
+const sinExistencias = m => {
+  delete m.conteos.sicar_existencias;
+  m.trozos = m.trozos.filter(c => c.tabla !== 'sicar_existencias');
+  return m;
+};
+
+test('respaldo viejo de 16 tablas (con proveedores, sin existencias) abre y deja las existencias vacias', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  conProveedor(f);
+  const m = sinExistencias(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }));
+  assert.deepEqual(Object.keys(m.conteos), [...TABLAS_15, 'sicar_proveedores']);
+  await s.verificarSnapshotSicar(f.repo, f.drive, m);
+  conExistencia(f, '3');
+  const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_existencias').get().n, 0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_proveedores').get().n, 1);
+});
+
+test('respaldo nuevo de 17 tablas conserva las existencias, tambien las negativas', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  sembrar(f);
+  conExistencia(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(Object.keys(m.conteos).at(-1), 'sicar_existencias');
+  assert.equal(m.conteos.sicar_existencias, 1);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.deepEqual(g.sqlite.prepare('SELECT sucursal_id, art_id, existencia_diezmilesimas n FROM sicar_existencias').all(),
+    [{ sucursal_id: 1, art_id: '7', n: -15000 }]);
+});
+
+test('un manifiesto con existencias pero sin proveedores no es una generacion conocida', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  delete m.conteos.sicar_proveedores;
+  m.trozos = m.trozos.filter(c => c.tabla !== 'sicar_proveedores');
+  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
 });
