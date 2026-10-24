@@ -93,6 +93,7 @@ lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente
 Igual que los artículos, el agente manda **una vez al día, de noche (20:00-07:00)**, la lista de proveedores de SICAR
 (solo su número y su nombre). El Radar de Demanda la usa para que el vendedor diga con qué proveedor se consigue lo
 que pidió el cliente, y Compras ve lo pendiente agrupado por proveedor. Va en lotes aparte, después de los artículos.
+Los proveedores borrados en SICAR (`status` -1) no se mandan. En SICAR la tabla es `proveedor` y su número `pro_id`.
 
 - **Viene apagada.** Se prende poniendo `"proveedores": true` en `config.json`, y solo después de dos cosas: que el
   servidor de CORPUNISOUND ya tenga esta versión (uno viejo rechaza la lista y el agente se detendría, ventas

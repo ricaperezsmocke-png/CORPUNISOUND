@@ -11,10 +11,10 @@ const COLUMNAS = {
 const COLUMNAS_ARTICULOS = {
   articulo: ['art_id', 'clave', 'descripcion', 'cat_id'], categoria: ['cat_id', 'nombre', 'dep_id'], departamento: ['dep_id', 'nombre'],
 };
-// Proveedores con los que la tienda consigue la mercancía (Radar de Demanda, 2026-10-23). Esquema supuesto: se confirma
-// con --verificar. Opcionales igual que los artículos: si falta una columna, se sigue con todo lo demás y no se mandan.
-// Si SICAR los nombra distinto, se cambian aquí los dos nombres: [id, nombre].
-const COLUMNAS_PROVEEDORES = { proveedor: ['prv_id', 'nombre'] };
+// Proveedores con los que la tienda consigue la mercancía (Radar de Demanda, 2026-10-23). Esquema confirmado con
+// --verificar en Ocosingo el 2026-10-23: el id es pro_id (PRIMARY) y status -1 es proveedor borrado. Opcionales igual
+// que los artículos: si falta una columna, se sigue con todo lo demás y no se mandan. Orden: [id, nombre, status].
+const COLUMNAS_PROVEEDORES = { proveedor: ['pro_id', 'nombre', 'status'] };
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -32,7 +32,9 @@ function crearFuente(lector, config = {}) {
   let proveedoresFaltantes = null;
   let columnasProveedores = [];
   const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
-  const [idProveedor, nombreProveedor] = COLUMNAS_PROVEEDORES[tablaProveedor].map(identificador);
+  const [idProveedor, nombreProveedor, estadoProveedor] = COLUMNAS_PROVEEDORES[tablaProveedor].map(identificador);
+  // Los borrados en SICAR (status -1) no se ofrecen al vendedor.
+  const proveedorVigente = `${estadoProveedor} <> -1`;
   const desdeVenta = 'FROM `venta` v LEFT JOIN `ticket` t ON t.`tic_id` = v.`tic_id` '
     + 'LEFT JOIN `nota` n ON n.`not_id` = v.`not_id` LEFT JOIN `remision` r ON r.`rem_id` = v.`rem_id`';
   const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
@@ -78,7 +80,7 @@ function crearFuente(lector, config = {}) {
       if (proveedoresFaltantes.length) throw new Error('PROVEEDORES_NO_DISPONIBLES');
       // Se renombran a prv_id y nombre: el contrato no cambia aunque SICAR use otros nombres de columna.
       return lector.pagina(leer => leer(`SELECT p.${idProveedor} AS prv_id, p.${nombreProveedor} AS nombre `
-        + `FROM ${identificador(tablaProveedor)} p WHERE p.${idProveedor} > ? ORDER BY p.${idProveedor} LIMIT ?`,
+        + `FROM ${identificador(tablaProveedor)} p WHERE p.${idProveedor} > ? AND p.${proveedorVigente} ORDER BY p.${idProveedor} LIMIT ?`,
       [cursor, Math.min(limite, lector.tamano * 5)]));
     },
     async validar() {
@@ -162,7 +164,7 @@ function crearFuente(lector, config = {}) {
         articulos: { columnas: columnasArticulos, faltantes: articulosFaltantes,
           total: articulosFaltantes.length ? null : String((await leer('SELECT COUNT(*) AS total FROM `articulo`'))[0].total) },
         proveedores: { columnas: columnasProveedores, faltantes: proveedoresFaltantes, total: proveedoresFaltantes.length ? null
-          : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)}`))[0].total) },
+          : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)} WHERE ${proveedorVigente}`))[0].total) },
       }));
     },
   };
