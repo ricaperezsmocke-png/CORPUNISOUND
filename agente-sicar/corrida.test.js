@@ -282,3 +282,593 @@ test('proveedores: --proveedores-ahora vuelve a mandar la lista aunque hoy ya se
   await ejecutar(p.archivo, { proveedores: true }, { ...p.deps, proveedoresAhora: true });
   assert.deepEqual(p.lotes.map(l => l.proveedores?.length), [1], 'con la bandera a mano si se repite');
 });
+
+// Existencias: la fuente falsa lee de un arreglo que la prueba puede cambiar entre corridas.
+function conExistencias(p, filas) {
+  p.fuente.existenciasDisponibles = true;
+  const leidos = [];
+  p.fuente.existencias = async (cursor, limite) => {
+    leidos.push(cursor);
+    return filas.filter(x => BigInt(x.art_id) > BigInt(cursor)).slice(0, Math.min(limite, 500));
+  };
+  return leidos;
+}
+const existencia = (n, valor = '3.0000') => ({ art_id: String(n), existencia: valor });
+const DE_DIA = () => Date.parse('2026-10-15T18:00:00Z');
+const mandadas = p => p.lotes.filter(l => l.existencias).map(l => l.existencias);
+test('existencias: la primera corrida de dia manda todas las vigentes y el mapa queda igual a lo leido', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1), existencia(2, '-1.0000'), existencia(3, '0')]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '3.0000' }, { art_id: '2', existencia: '-1.0000' },
+    { art_id: '3', existencia: '0.0000' }]]);
+  assert.ok(p.lotes.filter(l => l.existencias).every(l => l.mode === 'incremental' && !l.clientes.length && !l.ventas.length));
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '-1.0000', 3: '0.0000' });
+  assert.equal(estado.pendiente, null);
+});
+test('existencias: sin cambios no manda nada; un cambio y un no vigente mandan exactamente esos dos', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const filas = [existencia(1), existencia(2), existencia(3)];
+  conExistencias(p, filas);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'sin cambios no gasta envio');
+  filas[0] = existencia(1, '5.0000');
+  filas.splice(1, 1);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '5.0000' }, { art_id: '2', existencia: null }]]);
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '5.0000', 3: '3.0000' });
+});
+test('existencias: si el envio falla el mapa no cambia y la siguiente corrida reenvia lo mismo', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-15',
+    existencias: { 1: '3.0000', 2: '3.0000' } });
+  p.deps.reloj = DE_DIA;
+  const filas = [existencia(1, '4.0000'), existencia(2)];
+  conExistencias(p, filas);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).existencias ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { existencias: true }, { ...p.deps, intentos: 1 });
+  const atorado = await cargar(p.archivo);
+  assert.deepEqual(atorado.existencias, { 1: '3.0000', 2: '3.0000' });
+  assert.deepEqual(JSON.parse(atorado.pendiente.bytes).existencias, [{ art_id: '1', existencia: '4.0000' }]);
+  p.deps.fetch = fetch;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '4.0000' }]], 'el mismo lote, una sola vez');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '4.0000', 2: '3.0000' });
+  assert.equal(estado.pendiente, null);
+});
+test('existencias: de noche una vez al dia, o a mano con existenciasAhora, manda todas aunque no cambiaran', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000', 2: '3.0000', 9: '1.0000' } });
+  conExistencias(p, [existencia(1), existencia(2)]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[existencia(1), existencia(2), { art_id: '9', existencia: null }]]);
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.existencias_dia, '2026-10-14');
+  assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '3.0000' });
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'la misma noche no se repite');
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'de dia solo cambios');
+  await ejecutar(p.archivo, { existencias: true }, { ...p.deps, articulosAhora: true, proveedoresAhora: true });
+  assert.equal(p.lotes.length, 0, 'las banderas de otras listas no prenden la vuelta completa');
+  await ejecutar(p.archivo, { existencias: true }, { ...p.deps, existenciasAhora: true });
+  assert.deepEqual(mandadas(p), [[existencia(1), existencia(2)]]);
+  estado = await cargar(p.archivo);
+  assert.equal(estado.existencias_dia, '2026-10-15');
+});
+test('existencias: interruptor apagado no las lee y los lotes no llevan la llave; ventas igual', async t => {
+  for (const config of [{}, { existencias: false }, { existencias: 'true' }, { existencias: 1 }]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+    const leidos = conExistencias(p, [existencia(1)]);
+    p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+    await ejecutar(p.archivo, config, { ...p.deps, existenciasAhora: true });
+    assert.equal(leidos.length, 0);
+    assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+    assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'existencias')), 'un servidor viejo rechazaria la llave');
+    assert.equal(p.mensajes.includes('EXISTENCIAS_NO_DISPONIBLES'), false);
+    assert.deepEqual((await cargar(p.archivo)).existencias, {});
+  }
+});
+test('existencias: sin columnas avisa, no las lee y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.existenciasDisponibles = false;
+  p.fuente.existencias = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_NO_DISPONIBLES'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+  assert.equal((await cargar(p.archivo)).existencias_dia, null);
+});
+test('existencias: 1,200 vigentes van en 3 lotes y cada lote confirmado actualiza el mapa con sus filas', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conExistencias(p, Array.from({ length: 1200 }, (_, i) => existencia(i + 1)));
+  const fetch = p.deps.fetch, mapaAlEnviar = [];
+  p.deps.fetch = async (...args) => {
+    if (JSON.parse(args[1].body).existencias) mapaAlEnviar.push(Object.keys((await cargar(p.archivo)).existencias).length);
+    return fetch(...args);
+  };
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p).map(l => l.length), [500, 500, 200]);
+  assert.deepEqual(mandadas(p).flat().map(x => x.art_id), Array.from({ length: 1200 }, (_, i) => String(i + 1)));
+  assert.deepEqual(mapaAlEnviar, [0, 500, 1000]);
+  const estado = await cargar(p.archivo);
+  assert.equal(Object.keys(estado.existencias).length, 1200);
+  assert.equal(estado.existencias_dia, '2026-10-14');
+});
+test('existencias: una rara se omite con su id, no se manda ni se borra, y lo demas sigue', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 2: '1.0000' } });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1), existencia(2, '1.12345'), existencia(3, 4)]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIA_OMITIDA'));
+  assert.deepEqual(mandadas(p), [[existencia(1)]]);
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '3.0000', 2: '1.0000' }, 'la rara conserva lo ultimo confirmado');
+});
+test('existencias: van despues de articulos y proveedores, y no antes de terminar la carga historica', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conArticulos(p, [articulo(1)]);
+  conProveedores(p, [proveedor(4)]);
+  conExistencias(p, [existencia(1)]);
+  await ejecutar(p.archivo, { articulos: true, proveedores: true, existencias: true }, p.deps);
+  assert.deepEqual(p.lotes.map(l => l.articulos ? 'articulos' : l.proveedores ? 'proveedores' : l.existencias ? 'existencias' : 'otro'),
+    ['articulos', 'proveedores', 'existencias']);
+  const q = await preparar(t);
+  const leidos = conExistencias(q, [existencia(1)]);
+  await ejecutar(q.archivo, { existencias: true }, { ...q.deps, existenciasAhora: true });
+  assert.equal(leidos.length, 0);
+});
+// Un lote de solo existencias atorado por 5xx o red no frena las ventas: se descarta y la corrida sigue.
+function pendienteDe(contenido) {
+  const lote = { ...sobre('1', 'incremental', new Date('2026-10-15T18:00:00Z')), ...contenido };
+  return { bytes: JSON.stringify(lote), cambios: { enviadas: {}, existencias: { 1: '9.0000' } } };
+}
+test('existencias: pendiente de solo existencias con 503 persistente se descarta y las ventas nuevas se mandan', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' },
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }] }) });
+  p.deps.reloj = DE_DIA;
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).existencias ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  const conVentas = p.lotes.filter(l => l.ventas.length);
+  assert.equal(conVentas.length, 1, 'las ventas salen en la misma corrida');
+  assert.equal(conVentas[0].sequence, '1', 'el servidor no lo acepto: se reutiliza el numero');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, {}, 'los cambios no se aplican y el articulo que traia valor se olvida para reenviarse');
+  assert.equal(estado.pendiente, null);
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.siguiente_secuencia, '2');
+  assert.equal(estado.detenido, null);
+});
+test('existencias: pendiente que trae otra coleccion ademas de existencias no se descarta con 503', async t => {
+  for (const otra of [{ ventas: [{ ven_id: '5', estado: 'excluida' }] }, { clientes: [{ cli_id: '42', nombre: 'José' }] },
+    { articulos: [{ art_id: '1' }] }, { proveedores: [{ prv_id: '4' }] }]) {
+    const pendiente = pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }], ...otra });
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' }, pendiente });
+    p.deps.reloj = DE_DIA;
+    p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
+    p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+    await ejecutar(p.archivo, {}, p.deps);
+    assert.ok(!p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+    const estado = await cargar(p.archivo);
+    assert.deepEqual(estado.pendiente, pendiente);
+    assert.deepEqual(estado.existencias, { 1: '3.0000' });
+  }
+});
+test('existencias: si el servidor si acepto el lote descartado, el 409 del siguiente lote se resuelve renumerando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' },
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }] }) });
+  p.deps.reloj = DE_DIA;
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  let servidor = 1n;
+  const aceptados = [];
+  p.deps.fetch = async (_, { body }) => {
+    const lote = JSON.parse(body);
+    if (lote.existencias) {
+      // Lo acepta, pero la respuesta se pierde en el camino.
+      if (BigInt(lote.sequence) === servidor) servidor++;
+      throw new Error('socket hang up');
+    }
+    if (BigInt(lote.sequence) !== servidor) {
+      return { status: 409, json: async () => ({ codigo: 'SECUENCIA_INCORRECTA', siguiente_secuencia: String(servidor) }) };
+    }
+    aceptados.push(lote);
+    servidor++;
+    return { status: 200, json: async () => ({ next_sequence: String(servidor) }) };
+  };
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.equal(aceptados.length, 1);
+  assert.equal(aceptados[0].sequence, '2');
+  assert.equal(aceptados[0].ventas.length, 1);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.siguiente_secuencia, '3');
+  assert.equal(estado.detenido, null);
+  assert.equal(estado.pendiente, null);
+  assert.deepEqual(estado.existencias, {});
+});
+// Al descartar, los articulos que el lote traia con valor se olvidan del mapa: si el servidor si lo habia aceptado y
+// SICAR regresa al valor viejo, la siguiente corrida lo vuelve a mandar. Las bajas (null) se quedan para recalcularse.
+test('existencias: lote descartado que el servidor si acepto; SICAR regresa al valor viejo y se reenvia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-15', existencias: { 1: '3.0000', 2: '3.0000' },
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }] }) });
+  p.deps.reloj = DE_DIA;
+  // Mientras tanto, en SICAR el articulo 1 regreso a 3.
+  conExistencias(p, [existencia(1, '3.0000'), existencia(2)]);
+  let servidor = 1n;
+  const servidorVe = {};
+  p.deps.fetch = async (_, { body }) => {
+    const lote = JSON.parse(body);
+    if (BigInt(lote.sequence) !== servidor) {
+      return { status: 409, json: async () => ({ codigo: 'SECUENCIA_INCORRECTA', siguiente_secuencia: String(servidor) }) };
+    }
+    for (const e of lote.existencias || []) servidorVe[e.art_id] = e.existencia;
+    servidor++;
+    // El servidor acepta el 9, pero la respuesta se pierde en el camino.
+    if (lote.existencias?.[0]?.existencia === '9.0000') throw new Error('socket hang up');
+    return { status: 200, json: async () => ({ next_sequence: String(servidor) }) };
+  };
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.equal(servidorVe[1], '3.0000', 'el valor viejo se vuelve a mandar');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '3.0000' });
+  assert.equal(estado.pendiente, null);
+  assert.equal(estado.detenido, null);
+});
+test('existencias: una baja descartada se vuelve a mandar como null', async t => {
+  const pendiente = pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }, { art_id: '7', existencia: null }] });
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-15',
+    existencias: { 1: '3.0000', 7: '2.0000' }, pendiente });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1, '9.0000')]);
+  const fetch = p.deps.fetch;
+  let caido = true;
+  p.deps.fetch = async (...args) => caido ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, {}, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 7: '2.0000' }, 'la baja se queda para recalcularse');
+  caido = false;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[{ art_id: '1', existencia: '9.0000' }, { art_id: '7', existencia: null }]]);
+  assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '9.0000' });
+});
+// Tiendas que apagan la PC de noche: de día también toca la vuelta completa si la última fue antes de ayer.
+test('existencias: de dia con la ultima vuelta completa de anteayer manda todas y marca hoy', async t => {
+  for (const dia of ['2026-10-13', null]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: dia,
+      existencias: { 1: '3.0000', 2: '3.0000', 9: '1.0000' } });
+    p.deps.reloj = DE_DIA;
+    conExistencias(p, [existencia(1), existencia(2)]);
+    await ejecutar(p.archivo, { existencias: true }, p.deps);
+    assert.deepEqual(mandadas(p), [[existencia(1), existencia(2), { art_id: '9', existencia: null }]]);
+    const estado = await cargar(p.archivo);
+    assert.equal(estado.existencias_dia, '2026-10-15');
+    assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '3.0000' });
+  }
+});
+test('existencias: de dia con la ultima vuelta completa de ayer manda solo cambios', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-14',
+    existencias: { 1: '3.0000', 2: '3.0000' } });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1, '4.0000'), existencia(2)]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[existencia(1, '4.0000')]]);
+  assert.equal((await cargar(p.archivo)).existencias_dia, '2026-10-14');
+});
+
+// Cortes de caja: la fuente falsa lee de arreglos que la prueba puede cambiar entre corridas.
+function conCortes(p, datos) {
+  p.fuente.cortesDisponibles = true;
+  const leidos = [];
+  p.fuente.cortes = async (cursor, limite) => {
+    leidos.push(cursor);
+    const cortes = datos.cortes.filter(x => BigInt(x.cor_id) > BigInt(cursor)).slice(0, Math.min(limite, 100));
+    const ids = new Set(cortes.map(x => x.cor_id));
+    // Sin lista de resumenes, cada corte tiene el suyo (el caso normal).
+    const resumenes = datos.resumenes || datos.cortes.map(x => ({ cor_id: x.cor_id, rcc_id: x.cor_id }));
+    return { cortes, pagos: (datos.pagos || []).filter(x => ids.has(x.cor_id)), cajeros: datos.cajeros.filter(x => ids.has(x.id)),
+      resumenes: resumenes.filter(x => ids.has(x.cor_id)), ventas: (datos.ventas || []).filter(x => ids.has(x.cor_id)) };
+  };
+  return leidos;
+}
+const corteDe = (n, fecha = '2026-10-14 09:00:00') => ({ cor_id: String(n), fecha, contado: '10.00', calculado: '10.00',
+  diferencia: '0.00', retiro: '10.00', caj_id: '1' });
+const cerroDe = (n, usu_id = '7') => ({ id: String(n), usu_id });
+const cortesMandados = p => p.lotes.filter(l => l.cortes).map(l => l.cortes);
+test('cortes: van en lotes de hasta 100 y el cursor avanza solo con cada lote confirmado', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const n = Array.from({ length: 250 }, (_, i) => i + 1);
+  conCortes(p, { cortes: n.map(i => corteDe(i)), cajeros: n.map(i => cerroDe(i)),
+    ventas: [{ cor_id: '1', ven_id: '5', total: '10.00', status: '1', usu_id: '52' }] });
+  const fetch = p.deps.fetch, cursorAlEnviar = [];
+  p.deps.fetch = async (...args) => {
+    if (JSON.parse(args[1].body).cortes) cursorAlEnviar.push((await cargar(p.archivo)).cortes_cursor);
+    return fetch(...args);
+  };
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.length), [100, 100, 50]);
+  assert.deepEqual(cursorAlEnviar, ['0', '100', '200']);
+  assert.ok(p.lotes.filter(l => l.cortes).every(l => l.mode === 'incremental' && !l.clientes.length && !l.ventas.length));
+  assert.deepEqual(cortesMandados(p)[0][0], { cor_id: '1', caj_id: '1', fecha_local: '2026-10-14T09:00:00', usu_id: '7',
+    contado: '10.00', calculado: '10.00', diferencia: '0.00', retiro: '10.00', pagos: [],
+    cobros: [{ usu_id: '52', ventas: 1, total: '10.00', canceladas: 0, total_canceladas: '0.00' }] });
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.cortes_cursor, '250');
+  assert.equal(estado.pendiente, null);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'sin cortes nuevos no gasta envio');
+});
+test('cortes: uno sin cajero de hace 3 minutos espera; 15 minutos despues sale con usu_id null y queda en el registro', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA; // 12:00:00 en la tienda
+  const registro = [];
+  p.deps.log = (evento, datos) => registro.push(require('./estado').registrar(x => x)(evento, datos));
+  conCortes(p, { cortes: [corteDe(1), corteDe(2), corteDe(3, '2026-10-15 11:57:00'), corteDe(4, '2026-10-15 11:58:00')],
+    cajeros: [cerroDe(1), cerroDe(2), cerroDe(4)] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1', '2']]);
+  assert.equal((await cargar(p.archivo)).cortes_cursor, '2', 'queda en el anterior al que espera');
+  assert.equal(registro.some(r => r.startsWith('CORTE_SIN_CAJERO')), false);
+  p.lotes.length = 0;
+  p.deps.reloj = () => DE_DIA() + 15 * 60000;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.usu_id])), [[['3', null], ['4', '7']]]);
+  assert.ok(registro.includes('CORTE_SIN_CAJERO cor_id=3'));
+  assert.equal((await cargar(p.archivo)).cortes_cursor, '4');
+});
+test('cortes: lote de solo cortes con 503 persistente se descarta, salen las ventas, el cursor no se mueve y se reenvian despues', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).cortes ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { cortes: true }, { ...p.deps, intentos: 1 });
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.cortes_cursor, '0');
+  assert.deepEqual(JSON.parse(estado.pendiente.bytes).cortes.map(x => x.cor_id), ['1']);
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { cortes: true }, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('CORTES_DESCARTADOS'));
+  assert.ok(!p.mensajes.includes('EXISTENCIAS_DESCARTADAS'), 'no traia existencias');
+  const conVentas = p.lotes.filter(l => l.ventas.length);
+  assert.equal(conVentas.length, 1, 'las ventas salen en la misma corrida');
+  estado = await cargar(p.archivo);
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.cortes_cursor, '0', 'los cambios del lote descartado no se aplican');
+  assert.deepEqual(estado.cortes_enviados, []);
+  assert.deepEqual(JSON.parse(estado.pendiente.bytes).cortes.map(x => x.cor_id), ['1'], 'se volvio a leer y a intentar');
+  assert.equal(estado.detenido, null);
+  p.deps.fetch = fetch;
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  estado = await cargar(p.archivo);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1']]);
+  assert.equal(estado.cortes_cursor, '1');
+  assert.deepEqual(estado.cortes_enviados, ['1']);
+  assert.equal(estado.pendiente, null);
+});
+test('cortes: pendiente con cortes y existencias juntos tambien se descarta con 503 y avisa ambos', async t => {
+  const pendiente = pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }], cortes: [{ cor_id: '1' }] });
+  pendiente.cambios.cortes_cursor = '1';
+  pendiente.cambios.cortes_enviados = ['1'];
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000', 2: '3.0000' }, pendiente });
+  p.deps.reloj = DE_DIA;
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).ventas.length ? fetch(...args) : { status: 503, json: async () => ({}) };
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.ok(p.mensajes.includes('CORTES_DESCARTADOS'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.pendiente, null);
+  assert.equal(estado.cortes_cursor, '0');
+  assert.deepEqual(estado.cortes_enviados, []);
+  assert.deepEqual(estado.existencias, { 2: '3.0000' });
+});
+test('cortes: pendiente con cortes y ventas, clientes, articulos o proveedores no se descarta con 503', async t => {
+  for (const otra of [{ ventas: [{ ven_id: '5', estado: 'excluida' }] }, { clientes: [{ cli_id: '42', nombre: 'José' }] },
+    { articulos: [{ art_id: '1' }] }, { proveedores: [{ prv_id: '4' }] }]) {
+    const pendiente = pendienteDe({ cortes: [{ cor_id: '1' }], ...otra });
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', pendiente });
+    p.deps.reloj = DE_DIA;
+    p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
+    p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+    await ejecutar(p.archivo, {}, p.deps);
+    assert.ok(!p.mensajes.includes('CORTES_DESCARTADOS'));
+    assert.deepEqual((await cargar(p.archivo)).pendiente, pendiente);
+  }
+});
+test('cortes: interruptor apagado no los lee y los lotes no llevan la llave; ventas igual', async t => {
+  for (const config of [{}, { cortes: false }, { cortes: 'true' }, { cortes: 1 }]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+    const leidos = conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+    p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+    await ejecutar(p.archivo, config, p.deps);
+    assert.equal(leidos.length, 0);
+    assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+    assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'cortes')), 'un servidor viejo rechazaria la llave');
+    assert.equal(p.mensajes.includes('CORTES_NO_DISPONIBLES'), false);
+    assert.equal((await cargar(p.archivo)).cortes_cursor, '0');
+  }
+});
+test('cortes: sin columnas avisa, no los lee y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.cortesDisponibles = false;
+  p.fuente.cortes = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.ok(p.mensajes.includes('CORTES_NO_DISPONIBLES'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+});
+test('cortes: van despues de existencias, tambien con existencias apagadas o sin cambios, y no antes de la carga historica', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conExistencias(p, [existencia(1)]);
+  conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+  await ejecutar(p.archivo, { existencias: true, cortes: true }, p.deps);
+  assert.deepEqual(p.lotes.map(l => l.existencias ? 'existencias' : l.cortes ? 'cortes' : 'otro'), ['existencias', 'cortes']);
+  for (const config of [{ cortes: true }, { existencias: true, cortes: true }]) {
+    const q = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' }, existencias_dia: '2026-10-15' });
+    q.deps.reloj = DE_DIA;
+    conExistencias(q, [existencia(1)]);
+    conCortes(q, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+    await ejecutar(q.archivo, config, q.deps);
+    assert.deepEqual(cortesMandados(q).map(l => l.length), [1]);
+  }
+  const h = await preparar(t);
+  const leidos = conCortes(h, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+  await ejecutar(h.archivo, { cortes: true }, h.deps);
+  assert.equal(leidos.length, 0);
+});
+test('cortes: uno raro se omite con su cor_id, el cursor lo pasa y los demas se mandan', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = [];
+  p.deps.log = (evento, datos) => registro.push(require('./estado').registrar(x => x)(evento, datos));
+  conCortes(p, { cortes: [corteDe(1), { ...corteDe(2), contado: '1.001' }, corteDe(3)], cajeros: [cerroDe(1), cerroDe(2), cerroDe(3)] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.ok(registro.includes('CORTE_OMITIDO cor_id=2 codigo=PRECISION_NO_PACTADA'));
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1', '3']]);
+  assert.equal((await cargar(p.archivo)).cortes_cursor, '3');
+});
+// Fix round 1: usu_id raro, fecha adelantada y cortes confirmados tarde (margen como MARGEN_VENTAS).
+function registroDe(p) {
+  const registro = [];
+  p.deps.log = (evento, datos) => registro.push(require('./estado').registrar(x => x)(evento, datos));
+  return registro;
+}
+test('cortes: quien cerro con usu_id raro se manda con null y CORTE_SIN_CAJERO; no se omite', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [corteDe(1), corteDe(2)], cajeros: [cerroDe(1, '0'), cerroDe(2)] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.usu_id])), [[['1', null], ['2', '7']]]);
+  assert.ok(registro.includes('CORTE_SIN_CAJERO cor_id=1'));
+  assert.equal(registro.some(r => r.startsWith('CORTE_OMITIDO')), false);
+});
+test('cortes: uno sin cajero con fecha mas de 10 minutos adelantada no congela los siguientes', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA; // 12:00:00 en la tienda
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [corteDe(1, '2099-01-01 00:00:00'), corteDe(2, '2026-10-15 12:11:00'), corteDe(3)],
+    cajeros: [cerroDe(2), cerroDe(3)] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.usu_id])), [[['1', null], ['2', '7'], ['3', '7']]]);
+  assert.ok(registro.includes('CORTE_FECHA_FUTURA cor_id=1'));
+  assert.equal((await cargar(p.archivo)).cortes_cursor, '3');
+  const q = await preparar(t, { ...inicial(), fase: 'incremental' });
+  q.deps.reloj = DE_DIA;
+  conCortes(q, { cortes: [corteDe(1, '2026-10-15 12:09:00'), corteDe(2)], cajeros: [cerroDe(2)] });
+  await ejecutar(q.archivo, { cortes: true }, q.deps);
+  assert.equal(q.lotes.length, 0, 'adelantado 9 minutos todavia se espera');
+});
+test('cortes: uno de numero menor que aparece despues de que el cursor lo paso se manda en la siguiente corrida, sin reenviar', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const datos = { cortes: [corteDe(1), corteDe(2), corteDe(4)], cajeros: [cerroDe(1), cerroDe(2), cerroDe(3), cerroDe(4)] };
+  conCortes(p, datos);
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.cortes_cursor, '4');
+  assert.deepEqual(estado.cortes_enviados, ['1', '2', '4']);
+  datos.cortes.splice(2, 0, corteDe(3));
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['3']]);
+  estado = await cargar(p.archivo);
+  assert.equal(estado.cortes_cursor, '4');
+  assert.deepEqual(estado.cortes_enviados, ['1', '2', '3', '4']);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'los confirmados no se reenvian');
+});
+test('cortes: el tardio solo queda como enviado cuando el servidor confirma', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', cortes_cursor: '4', cortes_enviados: ['1', '2', '4'] });
+  p.deps.reloj = DE_DIA;
+  conCortes(p, { cortes: [corteDe(1), corteDe(2), corteDe(3), corteDe(4)], cajeros: [1, 2, 3, 4].map(n => cerroDe(n)) });
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+  await ejecutar(p.archivo, { cortes: true }, { ...p.deps, intentos: 1 });
+  assert.deepEqual((await cargar(p.archivo)).cortes_enviados, ['1', '2', '4']);
+  p.deps.fetch = fetch;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual((await cargar(p.archivo)).cortes_enviados, ['1', '2', '3', '4']);
+});
+test('cortes: uno omitido no se vuelve a leer como tardio ni a registrar', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [corteDe(1), { ...corteDe(2), contado: '1.001' }], cajeros: [cerroDe(1), cerroDe(2)] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(registro.filter(r => r.startsWith('CORTE_OMITIDO')).length, 1);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(registro.filter(r => r.startsWith('CORTE_OMITIDO')).length, 1);
+  assert.equal(p.lotes.length, 0);
+});
+test('cortes: se recuerdan solo los 50 mas altos y la relectura empieza 50 abajo del cursor', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const n = Array.from({ length: 120 }, (_, i) => i + 1);
+  const leidos = conCortes(p, { cortes: n.map(i => corteDe(i)), cajeros: n.map(i => cerroDe(i)) });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.cortes_enviados, n.slice(70).map(String));
+  leidos.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(leidos[0], '70');
+});
+// Item 6: SICAR escribe el renglón CorteCaja de historial y enseguida el resumen; un corte de segundos puede estar a medias.
+test('cortes: ninguno de menos de 2 minutos se manda aunque ya tenga cajero y resumen; sale en la siguiente corrida', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA; // 12:00:00 en la tienda
+  conCortes(p, { cortes: [corteDe(1), corteDe(2, '2026-10-15 11:59:00'), corteDe(3)], cajeros: [1, 2, 3].map(n => cerroDe(n)) });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1']]);
+  assert.equal((await cargar(p.archivo)).cortes_cursor, '1');
+  p.lotes.length = 0;
+  p.deps.reloj = () => DE_DIA() + 5 * 60000;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['2', '3']]);
+});
+test('cortes: sin resumen y de menos de 10 minutos se espera; pasado eso sale con cobros vacios y CORTE_SIN_RESUMEN', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [corteDe(1), corteDe(2, '2026-10-15 11:55:00'), corteDe(3)], cajeros: [1, 2, 3].map(n => cerroDe(n)),
+    resumenes: [{ cor_id: '1', rcc_id: '10' }, { cor_id: '3', rcc_id: '30' }],
+    ventas: [{ cor_id: '1', ven_id: '5', total: '10.00', status: '1', usu_id: '52' }] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1']]);
+  assert.equal(registro.some(r => r.startsWith('CORTE_SIN_RESUMEN')), false);
+  p.lotes.length = 0;
+  p.deps.reloj = () => DE_DIA() + 15 * 60000;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  const [lote] = cortesMandados(p);
+  assert.deepEqual(lote.map(x => [x.cor_id, x.cobros]), [['2', []], ['3', []]]);
+  assert.ok(registro.includes('CORTE_SIN_RESUMEN cor_id=2'));
+  assert.equal(registro.includes('CORTE_SIN_RESUMEN cor_id=3'), false, 'con resumen y sin ventas no es falta de resumen');
+});
+test('cortes: fechado mas de 10 minutos en el futuro no se espera ni por la regla de 2 minutos ni por falta de resumen', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [corteDe(1, '2026-10-15 12:30:00'), corteDe(2)], cajeros: [cerroDe(1), cerroDe(2)],
+    resumenes: [{ cor_id: '2', rcc_id: '20' }] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => x.cor_id)), [['1', '2']]);
+  assert.ok(registro.includes('CORTE_FECHA_FUTURA cor_id=1'));
+  assert.ok(registro.includes('CORTE_SIN_RESUMEN cor_id=1'));
+});

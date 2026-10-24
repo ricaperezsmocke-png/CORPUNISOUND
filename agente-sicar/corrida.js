@@ -1,7 +1,7 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { cargar, guardar, bloquear } = require('./estado');
 const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro } = require('./formato');
+  proveedorSeguro, existenciaSegura, corteSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
@@ -24,6 +24,9 @@ function agregar(lote, elemento) {
   // La colección solo aparece cuando hay artículos: un lote sin ellos queda idéntico al de antes.
   if (elemento.articulo) (lote.articulos ??= []).push(elemento.articulo);
   if (elemento.proveedor) (lote.proveedores ??= []).push(elemento.proveedor);
+  // La fila nunca es null (su existencia sí puede serlo: artículo que dejó de ser vigente).
+  if (elemento.existencia) (lote.existencias ??= []).push(elemento.existencia);
+  if (elemento.corte) (lote.cortes ??= []).push(elemento.corte);
 }
 // Un prv_id repetido en el lote lo rechaza el servidor (ID_DUPLICADO, 422) y eso detendría el agente entero, con clientes
 // y ventas. La lista de proveedores es opcional: se conserva la primera aparición de cada id y se sigue.
@@ -31,7 +34,21 @@ function sinIdsRepetidos(filas) {
   const vistos = new Set();
   return filas.filter(p => !vistos.has(String(p.prv_id)) && vistos.add(String(p.prv_id)));
 }
-const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length;
+const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
+  && !lote.existencias?.length && !lote.cortes?.length;
+// Solo un lote de existencias y/o cortes se puede descartar; nunca uno que traiga clientes, ventas, artículos o proveedores.
+const descartable = lote => (!!lote.existencias?.length || !!lote.cortes?.length) && !lote.clientes?.length
+  && !lote.ventas?.length && !lote.articulos?.length && !lote.proveedores?.length;
+const EXISTENCIAS_POR_LOTE = 500;
+const CORTES_POR_LOTE = 100;
+// SICAR escribe el corte, luego el renglón de historial de quién lo cerró (0-22 s) y enseguida el resumen (1 s): un
+// corte leído en esos segundos puede estar a medias. Ninguno se manda antes de 2 minutos; sin quién lo cerró o sin
+// resumen se espera hasta 10. Uno fechado más de 10 minutos en el futuro (reloj de SICAR adelantado) no se espera.
+const ESPERA_CORTE_MS = 2 * 60000;
+const ESPERA_INCOMPLETO_MS = 10 * 60000;
+// Cortes bajo el cursor que se releen por si otra caja los guardó tarde (como MARGEN_VENTAS) y cuántos se recuerdan.
+const MARGEN_CORTES = 50;
+const FECHA_SICAR = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -64,7 +81,23 @@ async function ejecutar(archivo, config, deps) {
     }
     if (estado.pendiente) {
       if (!permitido(JSON.parse(estado.pendiente.bytes).mode)) return;
-      if (!await enviarPendiente(archivo, estado, config, deps)) return;
+      if (!await enviarPendiente(archivo, estado, config, deps)) {
+        // Lo más importante del agente son las ventas: un lote de SOLO existencias y/o cortes que agotó sus intentos (5xx,
+        // red, 409) se descarta sin aplicar sus cambios: cortes_cursor y cortes_enviados quedan como estaban y esos cortes
+        // se vuelven a leer y mandar. Si el servidor sí lo había aceptado, el siguiente lote recibe 409 SECUENCIA_INCORRECTA
+        // y se renumera solo; por eso los artículos que el lote traía con valor se olvidan del mapa: si SICAR regresa al
+        // valor anterior, se vuelve a mandar. Las bajas (null) se quedan en el mapa para recalcularse y mandarse otra vez.
+        if (!estado.pendiente) return;
+        const atorado = JSON.parse(estado.pendiente.bytes);
+        if (!descartable(atorado)) return;
+        estado.pendiente = null;
+        for (const { art_id, existencia } of atorado.existencias || []) {
+          if (existencia !== null) delete estado.existencias[art_id];
+        }
+        await guardar(archivo, estado);
+        if (atorado.existencias?.length) log('EXISTENCIAS_DESCARTADAS');
+        if (atorado.cortes?.length) log('CORTES_DESCARTADOS');
+      }
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
     if (!permitido(mode)) return;
@@ -196,10 +229,112 @@ async function ejecutar(archivo, config, deps) {
       aviso: 'ARTICULOS_NO_DISPONIBLES', leer: (cursor, n) => fuente.articulos(cursor, n), idDe: a => a.art_id,
       seguro: a => { const r = articuloSeguro(a); return { item: { articulo: r.articulo }, omitido: r.omitido }; },
       evento: 'ARTICULO_OMITIDO' })) return;
-    await listaDiaria('proveedores', { ahora: deps.proveedoresAhora, disponible: fuente.proveedoresDisponibles,
+    if (!await listaDiaria('proveedores', { ahora: deps.proveedoresAhora, disponible: fuente.proveedoresDisponibles,
       aviso: 'PROVEEDORES_NO_DISPONIBLES', leer: async (cursor, n) => sinIdsRepetidos(await fuente.proveedores(cursor, n)), idDe: p => p.prv_id,
       seguro: p => { const r = proveedorSeguro(p); return { item: { proveedor: r.proveedor }, omitido: r.omitido }; },
-      evento: 'PROVEEDOR_OMITIDO' });
+      evento: 'PROVEEDOR_OMITIDO' })) return;
+    // Existencias: en cada corrida, al final. Se leen todas las vigentes y se comparan contra lo último que el servidor
+    // CONFIRMÓ (estado.existencias); se mandan solo las que cambiaron y, con null, las que dejaron de ser vigentes. Una
+    // vez al día (de noche, de día si la última fue antes de ayer, o a mano con --existencias-ahora) se mandan todas. Apagadas mientras el
+    // interruptor no sea true: un servidor viejo rechaza la colección y detendría las ventas.
+    async function mandarExistencias() {
+      if (config.existencias !== true) return true;
+      if (!fuente.existenciasDisponibles) { log('EXISTENCIAS_NO_DISPONIBLES'); return true; }
+      // De día también toca si la última vuelta completa fue antes de ayer (o nunca): tiendas que apagan la PC de noche.
+      const ayer = horaLocal(reloj() - 24 * 3600000).slice(0, 10);
+      const atrasada = !estado.existencias_dia || estado.existencias_dia < ayer;
+      const completa = deps.existenciasAhora ? true
+        : estado.existencias_dia !== hoy && (esHorarioHistorico(new Date(reloj())) || atrasada);
+      const actuales = new Map();
+      const omitidas = new Set();
+      for (let cursor = '0'; ;) {
+        const filas = await fuente.existencias(cursor, EXISTENCIAS_POR_LOTE);
+        if (!filas.length) break;
+        const siguiente = id(filas.at(-1).art_id);
+        // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+        if (BigInt(siguiente) <= BigInt(cursor)) throw new Error('ID_INVALIDO');
+        cursor = siguiente;
+        for (const fila of filas) {
+          const { existencia, omitido } = existenciaSegura(fila);
+          if (omitido) { omitir('EXISTENCIA_OMITIDA', omitido); omitidas.add(omitido.art_id); continue; }
+          // Un art_id repetido lo rechaza el servidor (ID_DUPLICADO, 422) y detendría el agente: se queda el primero.
+          if (!actuales.has(existencia.art_id)) actuales.set(existencia.art_id, existencia.existencia);
+        }
+      }
+      const confirmadas = estado.existencias;
+      const items = [...actuales].filter(([art_id, valor]) => completa || confirmadas[art_id] !== valor)
+        .map(([art_id, existencia]) => ({ art_id, existencia }));
+      // Una omitida (dato que no se sabe leer) no se borra: el servidor conserva lo último confirmado y, si no se vuelve a
+      // confirmar, la pantalla la muestra en gris tras 36 h.
+      const bajas = Object.keys(confirmadas).filter(art_id => !actuales.has(art_id) && !omitidas.has(art_id))
+        .sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+      items.push(...bajas.map(art_id => ({ art_id, existencia: null })));
+      if (!items.length && !completa) return true;
+      // Un tramo = un lote: transmitir() aplica sus cambios solo cuando el servidor confirma el último grupo de la llamada,
+      // así el mapa local nunca guarda algo que el servidor no recibió.
+      let mapa = { ...confirmadas };
+      for (let i = 0; i < items.length || (i === 0 && completa); i += EXISTENCIAS_POR_LOTE) {
+        const tramo = items.slice(i, i + EXISTENCIAS_POR_LOTE);
+        mapa = { ...mapa };
+        for (const { art_id, existencia } of tramo) {
+          if (existencia === null) delete mapa[art_id];
+          else mapa[art_id] = existencia;
+        }
+        const ultimo = i + EXISTENCIAS_POR_LOTE >= items.length;
+        const cambios = { existencias: mapa, ...(ultimo && completa ? { existencias_dia: hoy } : {}) };
+        if (!await transmitir(tramo.map(existencia => ({ existencia })), cambios, 'incremental')) return false;
+      }
+      return true;
+    }
+    if (!await mandarExistencias()) return;
+    // Cortes de caja: en cada corrida, después de las existencias, por cor_id (nunca se editan y crecen con el tiempo).
+    // cortes_cursor avanza solo cuando el servidor confirma el lote. Apagados mientras el interruptor no sea true.
+    if (config.cortes !== true) return;
+    if (!fuente.cortesDisponibles) { log('CORTES_NO_DISPONIBLES'); return; }
+    const posterior = (a, b) => BigInt(a) > BigInt(b);
+    // Se empieza 50 abajo del cursor: un corte de número menor guardado tarde también sale. Los ya resueltos se saltan.
+    let lectura = posterior(estado.cortes_cursor, MARGEN_CORTES) ? String(BigInt(estado.cortes_cursor) - BigInt(MARGEN_CORTES)) : '0';
+    while (true) {
+      const pagina = await fuente.cortes(lectura, CORTES_POR_LOTE);
+      if (!pagina.cortes.length) return;
+      // Horas de la tienda, en el mismo formato que la fecha de SICAR.
+      const hace2 = horaLocal(reloj() - ESPERA_CORTE_MS), hace10 = horaLocal(reloj() - ESPERA_INCOMPLETO_MS);
+      const futuro = horaLocal(reloj() + ESPERA_INCOMPLETO_MS);
+      const resueltos = new Set(estado.cortes_enviados);
+      let cursor = estado.cortes_cursor, espera = false;
+      const items = [], nuevos = [];
+      for (const fila of pagina.cortes) {
+        const cor_id = id(fila.cor_id);
+        // La lectura solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+        if (!posterior(cor_id, lectura)) throw new Error('ID_INVALIDO');
+        lectura = cor_id;
+        if (!posterior(cor_id, estado.cortes_cursor) && resueltos.has(cor_id)) continue;
+        const fecha = String(fila.fecha).replace(' ', 'T');
+        const conCajero = pagina.cajeros.some(h => String(h.id) === cor_id);
+        const conResumen = pagina.resumenes.some(r => String(r.cor_id) === cor_id);
+        const adelantado = FECHA_SICAR.test(fecha) && fecha > futuro;
+        // Recién cerrado o a medias: se espera a la siguiente corrida, junto con todos los posteriores.
+        if (FECHA_SICAR.test(fecha) && !adelantado && (fecha > hace2 || ((!conCajero || !conResumen) && fecha > hace10))) {
+          espera = true;
+          break;
+        }
+        const { corte, omitido } = corteSeguro({ corte: fila, pagos: pagina.pagos, cajeros: pagina.cajeros, ventas: pagina.ventas });
+        if (omitido) omitir('CORTE_OMITIDO', omitido);
+        else {
+          if (adelantado) log('CORTE_FECHA_FUTURA', { cor_id });
+          if (corte.usu_id === null) log('CORTE_SIN_CAJERO', { cor_id });
+          if (!conResumen) log('CORTE_SIN_RESUMEN', { cor_id });
+          items.push({ corte });
+        }
+        nuevos.push(cor_id);
+        if (posterior(cor_id, cursor)) cursor = cor_id;
+      }
+      if (nuevos.length) {
+        const enviados = [...new Set([...estado.cortes_enviados, ...nuevos])].sort((x, y) => (posterior(x, y) ? 1 : -1)).slice(-MARGEN_CORTES);
+        if (!await transmitir(items, { cortes_cursor: cursor, cortes_enviados: enviados }, 'incremental')) return;
+      }
+      if (espera) return;
+    }
   } finally { await liberar(); }
 }
 module.exports = { ejecutar };

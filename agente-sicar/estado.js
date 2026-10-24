@@ -4,7 +4,9 @@ const { randomUUID } = require('node:crypto');
 function inicial() {
   return { version: 1, siguiente_secuencia: '1', fase: 'clientes', cli_id: '0', ven_id: '0', his_id: '0',
     tope: null, enviadas: {}, ventana: {}, pendiente: null, detenido: null, ultimo_envio: null,
-    articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null };
+    articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null,
+    existencias: {}, existencias_dia: null, cortes_cursor: '0',
+    cortes_enviados: [] };
 }
 async function guardar(archivo, estado) {
   const temporal = `${archivo}.${randomUUID()}.tmp`;
@@ -32,6 +34,28 @@ async function cargar(archivo) {
     if (typeof estado[`${lista}_cursor`] !== 'string' || !/^\d+$/.test(estado[`${lista}_cursor`])) throw new Error('ESTADO_INVALIDO');
     const dia = estado[`${lista}_dia`];
     if (dia !== null && (typeof dia !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dia))) throw new Error('ESTADO_INVALIDO');
+  }
+  // Existencias: lo último que el servidor CONFIRMÓ por artículo. Un estado.json de antes arranca con el mapa vacío (la
+  // primera corrida manda todas). Un mapa raro detiene: compararía contra basura y dejaría de mandar cambios.
+  estado.existencias ??= {};
+  estado.existencias_dia ??= null;
+  const mapa = estado.existencias;
+  if (typeof mapa !== 'object' || Array.isArray(mapa)
+    || Object.entries(mapa).some(([k, x]) => !/^[1-9]\d*$/.test(k) || typeof x !== 'string' || !/^-?\d{1,16}\.\d{4}$/.test(x))) {
+    throw new Error('ESTADO_INVALIDO');
+  }
+  const diaExistencias = estado.existencias_dia;
+  if (diaExistencias !== null && (typeof diaExistencias !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(diaExistencias))) {
+    throw new Error('ESTADO_INVALIDO');
+  }
+  // Cortes: el último cor_id que el servidor confirmó. Un estado.json de antes arranca desde el primero.
+  estado.cortes_cursor ??= '0';
+  if (typeof estado.cortes_cursor !== 'string' || !/^\d+$/.test(estado.cortes_cursor)) throw new Error('ESTADO_INVALIDO');
+  // Los 50 cor_id más altos ya resueltos (confirmados u omitidos): la relectura bajo el cursor no los repite.
+  estado.cortes_enviados ??= [];
+  const enviados = estado.cortes_enviados;
+  if (!Array.isArray(enviados) || enviados.length > 50 || enviados.some(x => typeof x !== 'string' || !/^[1-9]\d*$/.test(x))) {
+    throw new Error('ESTADO_INVALIDO');
   }
   return estado;
 }
@@ -73,10 +97,12 @@ const EVENTOS = new Set([
   'SECUENCIA_RETROCEDIO', 'HTTP_5XX', 'VENTA_OMITIDA', 'CLIENTE_OMITIDO', 'HISTORICO_AUTORIZADO_DE_DIA',
   'ARTICULO_OMITIDO', 'ARTICULOS_NO_DISPONIBLES', 'ARTICULOS_AUTORIZADOS_DE_DIA',
   'PROVEEDOR_OMITIDO', 'PROVEEDORES_NO_DISPONIBLES', 'PROVEEDORES_AUTORIZADOS_DE_DIA',
+  'EXISTENCIA_OMITIDA', 'EXISTENCIAS_NO_DISPONIBLES', 'EXISTENCIAS_AUTORIZADAS_DE_DIA', 'EXISTENCIAS_DESCARTADAS',
+  'CORTE_OMITIDO', 'CORTE_SIN_CAJERO', 'CORTES_NO_DISPONIBLES', 'CORTE_FECHA_FUTURA', 'CORTE_SIN_RESUMEN', 'CORTES_DESCARTADOS',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,
-  prv_id: /^\d{1,20}$/,
+  prv_id: /^\d{1,20}$/, cor_id: /^\d{1,20}$/,
   campo: /^(telefono|celular|email|rfc)$/, codigo: { test: x => DATOS_RAROS.has(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
 function detalle(datos) {
   if (!datos || typeof datos !== 'object' || datos instanceof Error) return '';
@@ -91,7 +117,8 @@ function registrar(escribir = console.log) {
 const FALLOS = new Set([...EVENTOS, 'ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO',
   'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE',
   'ENTIDAD_EXCEDE_LOTE', 'COLUMNA_NO_PERMITIDA', 'ESQUEMA_NO_VALIDADO', 'DETALLE_SIN_PK', 'PK_DETALLE_INVALIDA',
-  'PAGINA_EXCESIVA', 'SQL_NO_PERMITIDO', 'ARTICULOS_NO_DISPONIBLES', 'PROVEEDORES_NO_DISPONIBLES', 'MYSQL_HOST_NO_LOCAL', 'PAGINA_SIMULTANEA', 'CONFIGURACION_DENTRO_DEL_REPO']);
+  'PAGINA_EXCESIVA', 'SQL_NO_PERMITIDO', 'ARTICULOS_NO_DISPONIBLES', 'PROVEEDORES_NO_DISPONIBLES',
+  'EXISTENCIAS_NO_DISPONIBLES', 'CORTES_NO_DISPONIBLES', 'MYSQL_HOST_NO_LOCAL', 'PAGINA_SIMULTANEA', 'CONFIGURACION_DENTRO_DEL_REPO']);
 const MYSQL = { ER_ACCESS_DENIED_ERROR: 'MYSQL_ACCESO_DENEGADO', ER_DBACCESS_DENIED_ERROR: 'MYSQL_ACCESO_DENEGADO',
   ER_BAD_DB_ERROR: 'MYSQL_BASE_INEXISTENTE', ECONNREFUSED: 'MYSQL_NO_DISPONIBLE', ETIMEDOUT: 'MYSQL_NO_DISPONIBLE',
   PROTOCOL_CONNECTION_LOST: 'MYSQL_NO_DISPONIBLE', ER_TABLEACCESS_DENIED_ERROR: 'MYSQL_ACCESO_DENEGADO' };

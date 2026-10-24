@@ -75,6 +75,7 @@ const PERMISOS = [
   { clave: "eliminar_producto", etiqueta: "Eliminar Artículo", modulo: "inventario", implementado: true },
   { clave: "clonar_producto", etiqueta: "Clonar Artículo", modulo: "inventario", implementado: true },
   { clave: "ajustar_existencia", etiqueta: "Ajustar Inventario", modulo: "inventario", implementado: true },
+  { clave: "ver_existencias_sicar", etiqueta: "Ver Existencias SICAR", modulo: "inventario", implementado: true },
   { clave: "realizar_traspasos", etiqueta: "Realizar Traspasos entre Sucursales", modulo: "inventario", implementado: true },
   { clave: "recibir_compra", etiqueta: "Recibir Compras a Proveedor", modulo: "inventario", implementado: true },
   { clave: "gestionar_garantias", etiqueta: "Gestionar Garantías", modulo: "inventario", implementado: true },
@@ -128,6 +129,10 @@ const PERMISOS = [
   { clave: "ver_todas_las_sucursales", etiqueta: "Ver Todas las Sucursales", modulo: "admin", implementado: true },
   { clave: "conectar_cuenta_drive", etiqueta: "Conectar / Desconectar Google Drive", modulo: "admin", implementado: true },
   { clave: "gestionar_expedientes", etiqueta: "Gestionar Expedientes de Personal (Google Drive)", modulo: "admin", implementado: true },
+  // Auditoría de los cortes que cerró SICAR. Ver no da para cambiar a quién se le atribuye una diferencia:
+  // asignar el nombre de un usuario SICAR va con permiso propio y deja historial.
+  { clave: "ver_cortes_sicar", etiqueta: "Ver Cortes de Caja SICAR", modulo: "admin", implementado: true },
+  { clave: "asignar_cajeros_sicar", etiqueta: "Asignar Nombres al Personal de SICAR", modulo: "admin", implementado: true },
 
   // ---- MercadoLibre ----
   { clave: "gestionar_publicaciones_ml", etiqueta: "Publicar y Editar en MercadoLibre", modulo: "ml", implementado: true },

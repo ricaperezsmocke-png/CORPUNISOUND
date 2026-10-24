@@ -84,3 +84,112 @@ test('proveedor seguro recorta el relleno de SICAR y omite los que no cumplen el
   }
   assert.throws(() => proveedorSeguro({ prv_id: 'x', nombre: 'Casa' }), /ID_INVALIDO/);
 });
+test('existencia segura conserva el signo, normaliza a 4 decimales y omite lo que el contrato no acepta', () => {
+  const { existenciaSegura } = require('./formato');
+  for (const [entrada, salida] of [['3.0000', '3.0000'], ['-1.0000', '-1.0000'], ['-0.0000', '0.0000'], ['3', '3.0000'],
+    ['-2.5', '-2.5000'], ['0', '0.0000']]) {
+    assert.deepEqual(existenciaSegura({ art_id: '7', existencia: entrada }), { existencia: { art_id: '7', existencia: salida }, omitido: null });
+  }
+  for (const [entrada, codigo] of [['3.12345', 'PRECISION_NO_PACTADA'], [3, 'DECIMAL_INVALIDO'], [null, 'DECIMAL_INVALIDO'],
+    ['--1', 'DECIMAL_INVALIDO'], ['+1', 'DECIMAL_INVALIDO'], ['-', 'DECIMAL_INVALIDO']]) {
+    assert.deepEqual(existenciaSegura({ art_id: 7, existencia: entrada }), { existencia: null, omitido: { art_id: '7', codigo } });
+  }
+  assert.throws(() => existenciaSegura({ art_id: 'x', existencia: '1.0000' }), /ID_INVALIDO/);
+});
+test('un lote cabe con hasta 500 existencias', () => {
+  const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));
+  lote.existencias = Array.from({ length: 500 }, (_, i) => ({ art_id: String(i + 1), existencia: '1.0000' }));
+  assert.equal(cabe(lote), true);
+  lote.existencias.push({ art_id: '501', existencia: null });
+  assert.equal(cabe(lote), false);
+});
+
+// Cortes de caja: corte real de Ocosingo (cor 8006). Los importes llegan como texto (decimalNumbers: false).
+const { corteSeguro } = require('./formato');
+const { validarLoteSicar } = require('../backend/sicarIngesta');
+const corte8006 = { cor_id: '8006', fecha: '2026-10-22 20:41:07', contado: '18242.59', calculado: '18242.590000', diferencia: '0.00',
+  retiro: '18242.59', caj_id: '1' };
+const pago = (tpa_id, monto = '0.00', retiro = monto) => ({ cor_id: '8006', tpa_id, contado: monto, calculado: monto,
+  diferencia: '0.00', retiro });
+const pagos8006 = [pago('1', '12486.85'), pago('2'), pago('3'), pago('4', '5755.74'), pago('5'), pago('6'), pago('7')];
+const venta8006 = (ven_id, usu_id, total, status) => ({ cor_id: '8006', ven_id, total, status, usu_id });
+const ventas8006 = [venta8006('11', '52', '100.00', '1'), venta8006('12', '7', '50.50', '-1'), venta8006('13', '52', '100.00', 1),
+  venta8006('14', '52', '100', '1')];
+const cierre = [{ id: '8006', usu_id: '7' }];
+test('corte real de Ocosingo: totales con signo, solo pagos con importe y cobros por usuario', () => {
+  const { corte, omitido } = corteSeguro({ corte: corte8006, pagos: pagos8006, cajeros: cierre, ventas: ventas8006 });
+  assert.equal(omitido, null);
+  assert.deepEqual(corte, { cor_id: '8006', caj_id: '1', fecha_local: '2026-10-22T20:41:07', usu_id: '7',
+    contado: '18242.59', calculado: '18242.59', diferencia: '0.00', retiro: '18242.59',
+    pagos: [{ tpa_id: '1', contado: '12486.85', calculado: '12486.85', diferencia: '0.00', retiro: '12486.85' },
+      { tpa_id: '4', contado: '5755.74', calculado: '5755.74', diferencia: '0.00', retiro: '5755.74' }],
+    cobros: [{ usu_id: '52', ventas: 3, total: '300.00', canceladas: 0, total_canceladas: '0.00' },
+      { usu_id: '7', ventas: 0, total: '0.00', canceladas: 1, total_canceladas: '50.50' }] });
+  const lote = sobre('1', 'incremental', new Date('2026-10-23T03:00:00Z'));
+  lote.cortes = [corte];
+  assert.doesNotThrow(() => validarLoteSicar(lote), 'el servidor acepta la fila tal cual');
+});
+test('corte: venta sin alta en historial va con usu_id null; solo cuenta lo de su corte', () => {
+  const ventas = [venta8006('11', null, '100.00', '1'), venta8006('12', '52', '20.00', '1'),
+    { ...venta8006('99', '52', '1.00', '1'), cor_id: '8007' }];
+  const { corte } = corteSeguro({ corte: corte8006, pagos: [], cajeros: cierre, ventas });
+  assert.deepEqual(corte.cobros, [{ usu_id: '52', ventas: 1, total: '20.00', canceladas: 0, total_canceladas: '0.00' },
+    { usu_id: null, ventas: 1, total: '100.00', canceladas: 0, total_canceladas: '0.00' }]);
+  assert.deepEqual(corte.pagos, []);
+});
+test('corte: quien cerro sale de su unico renglon CorteCaja; con cero o dos renglones va null', () => {
+  assert.equal(corteSeguro({ corte: corte8006, pagos: [], cajeros: [], ventas: [] }).corte.usu_id, null);
+  assert.equal(corteSeguro({ corte: corte8006, pagos: [], cajeros: [...cierre, { id: '8006', usu_id: '52' }], ventas: [] }).corte.usu_id, null);
+  assert.equal(corteSeguro({ corte: corte8006, pagos: [], cajeros: [{ id: '8005', usu_id: '52' }], ventas: [] }).corte.usu_id, null);
+  assert.equal(corteSeguro({ corte: corte8006, pagos: [], cajeros: [{ id: 8006, usu_id: 52 }], ventas: [] }).corte.usu_id, '52');
+});
+test('corte: diferencia negativa se conserva tal cual la guardo SICAR; -0 va como 0.00', () => {
+  const faltante = { ...corte8006, contado: '18242.26', diferencia: '-0.33' };
+  const pagos = [{ ...pago('1', '12486.52'), calculado: '12486.85', diferencia: '-0.330000' }, pago('2', '-0.00')];
+  const { corte } = corteSeguro({ corte: faltante, pagos, cajeros: cierre, ventas: [] });
+  assert.equal(corte.diferencia, '-0.33');
+  assert.equal(corte.contado, '18242.26');
+  assert.deepEqual(corte.pagos, [{ tpa_id: '1', contado: '12486.52', calculado: '12486.85', diferencia: '-0.33', retiro: '12486.52' }]);
+});
+test('corte: una venta repetida por el JOIN cuenta una vez; con dos altas distintas va a null', () => {
+  const ventas = [venta8006('11', '52', '100.00', '1'), venta8006('11', '52', '100.00', '1'),
+    venta8006('12', '52', '10.00', '1'), venta8006('12', '7', '10.00', '1')];
+  assert.deepEqual(corteSeguro({ corte: corte8006, pagos: [], cajeros: cierre, ventas }).corte.cobros, [
+    { usu_id: '52', ventas: 1, total: '100.00', canceladas: 0, total_canceladas: '0.00' },
+    { usu_id: null, ventas: 1, total: '10.00', canceladas: 0, total_canceladas: '0.00' }]);
+});
+test('corte: dato que el contrato no acepta se omite con su cor_id; un cor_id invalido detiene', () => {
+  for (const [entrada, codigo] of [
+    [{ corte: { ...corte8006, contado: '1.001' } }, 'PRECISION_NO_PACTADA'],
+    [{ corte: { ...corte8006, retiro: null } }, 'DECIMAL_INVALIDO'],
+    [{ corte: { ...corte8006, fecha: '0000-00-00 00:00:00' } }, 'FECHA_INVALIDA'],
+    [{ corte: { ...corte8006, fecha: '2026-02-30 10:00:00' } }, 'FECHA_INVALIDA'],
+    [{ corte: { ...corte8006, caj_id: '0' } }, 'ID_INVALIDO'],
+    [{ ventas: [venta8006('11', '52', '100.00', '2')] }, 'ESTADO_VENTA_DESCONOCIDO'],
+    [{ ventas: [venta8006('11', '52', 'x', '1')] }, 'DECIMAL_INVALIDO'],
+    [{ pagos: [pago('1', '1.00'), pago('1', '2.00')] }, 'ID_INVALIDO'],
+    [{ pagos: Array.from({ length: 9 }, (_, i) => pago(String(i + 1), '1.00')) }, 'DETALLE_FUERA_DE_LIMITE'],
+  ]) {
+    const datos = { corte: corte8006, pagos: [], cajeros: cierre, ventas: [], ...entrada };
+    assert.deepEqual(corteSeguro(datos), { corte: null, omitido: { cor_id: '8006', codigo } }, codigo);
+  }
+  assert.throws(() => corteSeguro({ corte: { ...corte8006, cor_id: 'x' }, pagos: [], cajeros: [], ventas: [] }), /ID_INVALIDO/);
+});
+test('corte: usu_id invalido no omite el corte: quien cerro va null y la venta cuenta con usu_id null', () => {
+  for (const raro of ['0', 'abc', '-3', 1.5]) {
+    const { corte, omitido } = corteSeguro({ corte: corte8006, pagos: [], cajeros: [{ id: '8006', usu_id: raro }],
+      ventas: [venta8006('11', raro, '100.00', '1'), venta8006('12', '52', '5.00', '-1')] });
+    assert.equal(omitido, null, String(raro));
+    assert.equal(corte.usu_id, null);
+    assert.deepEqual(corte.cobros, [{ usu_id: '52', ventas: 0, total: '0.00', canceladas: 1, total_canceladas: '5.00' },
+      { usu_id: null, ventas: 1, total: '100.00', canceladas: 0, total_canceladas: '0.00' }]);
+  }
+});
+test('un lote cabe con hasta 100 cortes', () => {
+  const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));
+  const { corte } = corteSeguro({ corte: corte8006, pagos: pagos8006, cajeros: cierre, ventas: ventas8006 });
+  lote.cortes = Array.from({ length: 100 }, (_, i) => ({ ...corte, cor_id: String(i + 1) }));
+  assert.equal(cabe(lote), true);
+  lote.cortes.push({ ...corte, cor_id: '101' });
+  assert.equal(cabe(lote), false);
+});

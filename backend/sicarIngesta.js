@@ -86,6 +86,47 @@ function validarProveedor(p) {
   }
 }
 
+// Existencia de SICAR para la pantalla Existencias SICAR: art_id y cantidad como texto exacto con cuatro decimales; null = ya no vigente.
+function validarExistencia(e) {
+  objeto(e, ['art_id', 'existencia']);
+  if (!esId(e.art_id)) fallar('ID_INVALIDO');
+  if (e.existencia === null) return;
+  if (typeof e.existencia !== 'string' || !/^-?\d{1,16}\.\d{4}$/.test(e.existencia)) fallar('IMPORTE_INVALIDO');
+  if (BigInt(e.existencia.replace('-', '').replace('.', '')) > BigInt(Number.MAX_SAFE_INTEGER)) fallar('IMPORTE_INVALIDO');
+}
+
+// Importe con signo para cortes: texto con dos decimales exactos; el valor sin punto no pasa del entero seguro.
+function importeConSigno(valor) {
+  if (typeof valor !== 'string' || !/^-?\d{1,16}\.\d{2}$/.test(valor)) fallar('IMPORTE_INVALIDO');
+  if (BigInt(valor.replace('-', '').replace('.', '')) > BigInt(Number.MAX_SAFE_INTEGER)) fallar('IMPORTE_INVALIDO');
+}
+const conteo = valor => { if (!Number.isInteger(valor) || valor < 0 || valor > 100000) fallar(); };
+
+// Corte de caja de SICAR con sus pagos por forma de pago y sus cobros por usuario (usu_id null = ventas sin alta en historial).
+function validarCorte(c) {
+  objeto(c, ['cor_id', 'caj_id', 'fecha_local', 'usu_id', 'contado', 'calculado', 'diferencia', 'retiro', 'pagos', 'cobros']);
+  if (!esId(c.cor_id) || !esId(c.caj_id) || (c.usu_id !== null && !esId(c.usu_id))) fallar('ID_INVALIDO');
+  fecha(c.fecha_local, true);
+  for (const campo of ['contado', 'calculado', 'diferencia', 'retiro']) importeConSigno(c[campo]);
+  arreglo(c.pagos, 8, 'tpa_id');
+  for (const p of c.pagos) {
+    objeto(p, ['tpa_id', 'contado', 'calculado', 'diferencia', 'retiro']);
+    for (const campo of ['contado', 'calculado', 'diferencia', 'retiro']) importeConSigno(p[campo]);
+  }
+  if (!Array.isArray(c.cobros) || c.cobros.length > 50) fallar('LIMITE_ENTIDADES');
+  const usuarios = new Set();
+  for (const b of c.cobros) {
+    objeto(b, ['usu_id', 'ventas', 'total', 'canceladas', 'total_canceladas']);
+    if (b.usu_id !== null && !esId(b.usu_id)) fallar('ID_INVALIDO');
+    if (usuarios.has(b.usu_id)) fallar('ID_DUPLICADO');
+    usuarios.add(b.usu_id);
+    conteo(b.ventas);
+    conteo(b.canceladas);
+    importeConSigno(b.total);
+    importeConSigno(b.total_canceladas);
+  }
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -105,7 +146,7 @@ function validarVenta(v, indice) {
 
 function validarSobreSicar(body) {
   objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
-    'proveedores']);
+    'proveedores', 'existencias', 'cortes']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -129,6 +170,14 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
   if (body.proveedores !== undefined) {
     arreglo(body.proveedores, 500, 'prv_id');
     body.proveedores.forEach((p, i) => enReferencia(`proveedores[${i}]`, () => validarProveedor(p)));
+  }
+  if (body.existencias !== undefined) {
+    arreglo(body.existencias, 500, 'art_id');
+    body.existencias.forEach((e, i) => enReferencia(`existencias[${i}]`, () => validarExistencia(e)));
+  }
+  if (body.cortes !== undefined) {
+    arreglo(body.cortes, 100, 'cor_id');
+    body.cortes.forEach((c, i) => enReferencia(`cortes[${i}]`, () => validarCorte(c)));
   }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);

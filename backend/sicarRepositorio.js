@@ -97,6 +97,49 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, prv_id),
     FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_existencias (
+    sucursal_id INTEGER NOT NULL, art_id TEXT NOT NULL,
+    existencia_diezmilesimas INTEGER NOT NULL CHECK (typeof(existencia_diezmilesimas) = 'integer'),
+    actualizado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, art_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_cortes (
+    sucursal_id INTEGER NOT NULL, cor_id TEXT NOT NULL, caj_id TEXT NOT NULL, fecha_local TEXT NOT NULL, usu_id TEXT,
+    contado_centavos INTEGER NOT NULL CHECK (typeof(contado_centavos) = 'integer'),
+    calculado_centavos INTEGER NOT NULL CHECK (typeof(calculado_centavos) = 'integer'),
+    diferencia_centavos INTEGER NOT NULL CHECK (typeof(diferencia_centavos) = 'integer'),
+    retiro_centavos INTEGER NOT NULL CHECK (typeof(retiro_centavos) = 'integer'),
+    actualizado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, cor_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_cortes_pagos (
+    sucursal_id INTEGER NOT NULL, cor_id TEXT NOT NULL, tpa_id TEXT NOT NULL,
+    contado_centavos INTEGER NOT NULL CHECK (typeof(contado_centavos) = 'integer'),
+    calculado_centavos INTEGER NOT NULL CHECK (typeof(calculado_centavos) = 'integer'),
+    diferencia_centavos INTEGER NOT NULL CHECK (typeof(diferencia_centavos) = 'integer'),
+    retiro_centavos INTEGER NOT NULL CHECK (typeof(retiro_centavos) = 'integer'),
+    PRIMARY KEY (sucursal_id, cor_id, tpa_id),
+    FOREIGN KEY (sucursal_id, cor_id) REFERENCES sicar_cortes(sucursal_id, cor_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_cortes_cobros (
+    sucursal_id INTEGER NOT NULL, cor_id TEXT NOT NULL, usu_id TEXT NOT NULL DEFAULT '',
+    ventas INTEGER NOT NULL, total_centavos INTEGER NOT NULL CHECK (typeof(total_centavos) = 'integer'),
+    canceladas INTEGER NOT NULL, total_canceladas_centavos INTEGER NOT NULL CHECK (typeof(total_canceladas_centavos) = 'integer'),
+    PRIMARY KEY (sucursal_id, cor_id, usu_id),
+    FOREIGN KEY (sucursal_id, cor_id) REFERENCES sicar_cortes(sucursal_id, cor_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_cajeros (
+    sucursal_id INTEGER NOT NULL, usu_id TEXT NOT NULL, nombre TEXT NOT NULL, asignado_por TEXT, asignado_en TEXT,
+    PRIMARY KEY (sucursal_id, usu_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_cajeros_historial (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, usu_id TEXT NOT NULL,
+    nombre_anterior TEXT, nombre_nuevo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -131,6 +174,17 @@ function centavos(decimal) {
   return Number(valor);
 }
 
+// Texto validado (signo opcional, enteros y cuatro decimales) a enteros de diezmilesimas, con BigInt sobre el texto sin punto (nunca parseFloat). "-0.0000" es 0.
+function diezmilesimas(texto) {
+  const valor = BigInt(texto.replace('.', ''));
+  return Number(valor);
+}
+
+// Importe con signo y dos decimales a centavos enteros, con BigInt sobre el texto sin punto (nunca parseFloat). "-0.00" es 0.
+function centavosConSigno(texto) {
+  return Number(BigInt(texto.replace('.', '')));
+}
+
 function prepararEscrituras(sqlite) {
   return {
     tienda: sqlite.prepare('INSERT OR IGNORE INTO sicar_tiendas(sucursal_id) VALUES (?)'),
@@ -159,6 +213,25 @@ function prepararEscrituras(sqlite) {
     proveedor: sqlite.prepare(`INSERT INTO sicar_proveedores (sucursal_id, prv_id, nombre, actualizado_en)
       VALUES (@sucursal_id, @prv_id, @nombre, @actualizado_en)
       ON CONFLICT(sucursal_id, prv_id) DO UPDATE SET nombre=excluded.nombre, actualizado_en=excluded.actualizado_en`),
+    existencia: sqlite.prepare(`INSERT INTO sicar_existencias (sucursal_id, art_id, existencia_diezmilesimas, actualizado_en)
+      VALUES (@sucursal_id, @art_id, @existencia_diezmilesimas, @actualizado_en)
+      ON CONFLICT(sucursal_id, art_id) DO UPDATE SET existencia_diezmilesimas=excluded.existencia_diezmilesimas,
+        actualizado_en=excluded.actualizado_en`),
+    borrarExistencia: sqlite.prepare('DELETE FROM sicar_existencias WHERE sucursal_id=? AND art_id=?'),
+    corte: sqlite.prepare(`INSERT INTO sicar_cortes (sucursal_id, cor_id, caj_id, fecha_local, usu_id, contado_centavos,
+        calculado_centavos, diferencia_centavos, retiro_centavos, actualizado_en)
+      VALUES (@sucursal_id, @cor_id, @caj_id, @fecha_local, @usu_id, @contado, @calculado, @diferencia, @retiro, @actualizado_en)
+      ON CONFLICT(sucursal_id, cor_id) DO UPDATE SET caj_id=excluded.caj_id, fecha_local=excluded.fecha_local, usu_id=excluded.usu_id,
+        contado_centavos=excluded.contado_centavos, calculado_centavos=excluded.calculado_centavos,
+        diferencia_centavos=excluded.diferencia_centavos, retiro_centavos=excluded.retiro_centavos, actualizado_en=excluded.actualizado_en`),
+    borrarCortePagos: sqlite.prepare('DELETE FROM sicar_cortes_pagos WHERE sucursal_id=? AND cor_id=?'),
+    borrarCorteCobros: sqlite.prepare('DELETE FROM sicar_cortes_cobros WHERE sucursal_id=? AND cor_id=?'),
+    cortePago: sqlite.prepare(`INSERT INTO sicar_cortes_pagos (sucursal_id, cor_id, tpa_id, contado_centavos, calculado_centavos,
+        diferencia_centavos, retiro_centavos)
+      VALUES (@sucursal_id, @cor_id, @tpa_id, @contado, @calculado, @diferencia, @retiro)`),
+    corteCobro: sqlite.prepare(`INSERT INTO sicar_cortes_cobros (sucursal_id, cor_id, usu_id, ventas, total_centavos, canceladas,
+        total_canceladas_centavos)
+      VALUES (@sucursal_id, @cor_id, @usu_id, @ventas, @total, @canceladas, @total_canceladas)`),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -292,11 +365,36 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     for (const proveedor of lote.proveedores || []) {
       sentencias.proveedor.run({ sucursal_id: sucursalId, prv_id: proveedor.prv_id, nombre: limpiarTexto(proveedor.nombre), actualizado_en });
     }
+    for (const e of lote.existencias || []) {
+      if (e.existencia === null) sentencias.borrarExistencia.run(sucursalId, e.art_id);
+      else {
+        sentencias.existencia.run({ sucursal_id: sucursalId, art_id: e.art_id,
+          existencia_diezmilesimas: diezmilesimas(e.existencia), actualizado_en });
+      }
+    }
+    for (const c of lote.cortes || []) {
+      const ids = { sucursal_id: sucursalId, cor_id: c.cor_id };
+      sentencias.corte.run({ ...ids, caj_id: c.caj_id, fecha_local: c.fecha_local, usu_id: c.usu_id, actualizado_en,
+        contado: centavosConSigno(c.contado), calculado: centavosConSigno(c.calculado),
+        diferencia: centavosConSigno(c.diferencia), retiro: centavosConSigno(c.retiro) });
+      sentencias.borrarCortePagos.run(sucursalId, c.cor_id);
+      sentencias.borrarCorteCobros.run(sucursalId, c.cor_id);
+      for (const p of c.pagos) {
+        sentencias.cortePago.run({ ...ids, tpa_id: p.tpa_id, contado: centavosConSigno(p.contado),
+          calculado: centavosConSigno(p.calculado), diferencia: centavosConSigno(p.diferencia), retiro: centavosConSigno(p.retiro) });
+      }
+      for (const b of c.cobros) {
+        sentencias.corteCobro.run({ ...ids, usu_id: b.usu_id ?? '', ventas: b.ventas, total: centavosConSigno(b.total),
+          canceladas: b.canceladas, total_canceladas: centavosConSigno(b.total_canceladas) });
+      }
+    }
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
       aceptados: { clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas,
         ...(lote.articulos !== undefined ? { articulos: lote.articulos.length } : {}),
-        ...(lote.proveedores !== undefined ? { proveedores: lote.proveedores.length } : {}) }, rechazados: 0,
+        ...(lote.proveedores !== undefined ? { proveedores: lote.proveedores.length } : {}),
+        ...(lote.existencias !== undefined ? { existencias: lote.existencias.length } : {}),
+        ...(lote.cortes !== undefined ? { cortes: lote.cortes.length } : {}) }, rechazados: 0,
       ...(descartados.clientes || descartados.ventas ? { descartados } : {}),
       next_sequence: (BigInt(lote.sequence) + 1n).toString(), received_at: new Date().toISOString(),
     };
@@ -357,6 +455,16 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
       WHERE (? IS NULL OR sucursal_id=?) ORDER BY id DESC LIMIT 100`).all(sucursalId, sucursalId),
     // Lista cruda de todas las tiendas para el Radar de Demanda; la pantalla la junta por nombre.
     listarProveedores: () => sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores ORDER BY sucursal_id, prv_id').all(),
+    consultarExistencias: (params, ahora, nombres) => require('./sicarExistencias')
+      .consultarExistenciasSicar(sqlite, params, ahora, nombres),
+    listarExistencias: () => sqlite.prepare(`SELECT sucursal_id, art_id, existencia_diezmilesimas, actualizado_en
+      FROM sicar_existencias ORDER BY sucursal_id, art_id`).all(),
+    // Lista simple de cortes para pruebas; las pantallas la leen con sus propias consultas.
+    listarCortes: () => sqlite.prepare(`SELECT sucursal_id, cor_id, caj_id, fecha_local, usu_id, contado_centavos, calculado_centavos,
+      diferencia_centavos, retiro_centavos, actualizado_en FROM sicar_cortes ORDER BY sucursal_id, cor_id`).all(),
+    consultarCortes: (filtros, alcance) => require('./sicarCortes').consultarCortesSicar(sqlite, filtros, alcance),
+    listarPersonal: alcance => require('./sicarCortes').listarPersonalSicar(sqlite, alcance),
+    asignarNombre: (datos, actor, alcance) => require('./sicarCortes').asignarNombreSicar(sqlite, datos, actor, alcance),
     registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
       (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
       VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),

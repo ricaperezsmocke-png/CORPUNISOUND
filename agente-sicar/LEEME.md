@@ -106,6 +106,78 @@ Los proveedores borrados en SICAR (`status` -1) no se mandan. En SICAR la tabla 
 - Un proveedor sin nombre o con un nombre de más de 250 letras se salta y queda `PROVEEDOR_OMITIDO prv_id=...` en
   el registro. No detiene nada.
 
+### Existencias
+
+El agente manda cuántas piezas hay de cada artículo **vigente** de SICAR (`articulo.status` = 1 y que no sea servicio,
+`articulo.servicio` = 0), para verlas en CORPUNISOUND → Inventario → Existencias SICAR. Solo número de artículo y
+existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se manda negativa).
+
+- **En cada corrida (cada 5 min), al final**, después de ventas y listas: lee todas las vigentes (~6,400 en Ocosingo,
+  unos 10 ms) y las compara con lo último que el servidor **confirmó** (guardado en `estado.json`). Manda solo las que
+  cambiaron y, como "sin existencia" (`null`), las que dejaron de ser vigentes (borradas o vueltas servicio): el
+  servidor borra esa fila. Si no cambió nada, no manda nada. Si el envío falla, la copia local no cambia y la
+  siguiente corrida reenvía lo mismo: no se pierde un cambio. Si ese reenvío también falla (servidor caído, sin
+  internet), el paquete de existencias se descarta (`EXISTENCIAS_DESCARTADAS`) para no frenar las ventas, y las
+  existencias se vuelven a comparar y mandar cuando el servidor responda. Los artículos de ese paquete se vuelven a
+  mandar aunque en SICAR hayan regresado al valor de antes (por si el servidor sí alcanzó a recibirlo).
+- **Una vez al día, de noche (20:00-07:00)**, manda todas aunque no hayan cambiado, para que el servidor sepa que
+  siguen al día. La primera vez manda todas (~13 paquetes). En una tienda que apaga la PC de noche, si la última
+  vuelta completa fue antes de ayer, la manda de día en la primera corrida.
+- **Viene apagada.** Se prende poniendo `"existencias": true` en `config.json`, solo después de que el servidor de
+  CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de
+  que `--verificar` confirme las columnas. Es independiente de `"articulos"` y `"proveedores"`.
+- `--verificar` dice `Existencias: N artículos vigentes, lectura en X ms`. Si dice `Existencias APAGADAS, faltan
+  columnas`, el agente sigue con todo lo demás pero no manda existencias: hay que ajustar `COLUMNAS_EXISTENCIAS` en
+  `mapeo.js`.
+- A mano, de día: `C:\UnisoundSICAR\agente-sicar\correr.cmd --existencias-ahora` manda la vuelta completa en ese
+  momento (sirve tras restaurar un respaldo en CORPUNISOUND o tras borrar `estado.json`).
+- Una existencia que el agente no sabe leer (más de 4 decimales, vacía) se salta y queda
+  `EXISTENCIA_OMITIDA art_id=...` en el registro. Ese artículo conserva en CORPUNISOUND lo último que se confirmó y, si
+  no se vuelve a confirmar, la pantalla lo muestra en gris pasadas 36 horas. No detiene nada.
+
+### Cortes de caja
+
+El agente manda cada corte de caja de SICAR para verlo en CORPUNISOUND con la etiqueta "Cifras según SICAR": caja,
+fecha y hora, contado, calculado, diferencia (contado − calculado, tal cual la guardó SICAR: negativa es faltante) y
+retiro; las formas de pago que tuvieron algún importe; quién lo **cerró** y, por cada usuario que dio de alta ventas en
+ese turno, cuántas ventas y cuánto, y cuántas canceladas y cuánto. Solo números de usuario (`usu_id`): **el agente no
+lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISOUND.
+
+- **En cada corrida (cada 5 min), al final**, después de las existencias: lee los cortes nuevos (por número de corte)
+  y los manda en paquetes de hasta 100. Lo que ya se mandó lo recuerda `estado.json` (`cortes_cursor`) y solo avanza
+  cuando el servidor confirma: si el envío falla, la siguiente corrida reenvía los mismos cortes. Si ese reenvío
+  también falla (servidor caído, sin internet), el paquete de cortes se descarta (`CORTES_DESCARTADOS`) **para no
+  frenar las ventas**, igual que las existencias. No se pierde ningún corte: como el servidor no confirmó, el cursor
+  no avanzó y esos cortes se vuelven a leer y mandar en las siguientes corridas. Un paquete que trae clientes, ventas,
+  artículos o proveedores nunca se descarta.
+- Cada corrida relee también los últimos 50 números de corte bajo el cursor: si otra caja guardó tarde un corte de
+  número menor, sale en la siguiente corrida. Los ya mandados no se repiten (`estado.json` recuerda los 50 más altos,
+  `cortes_enviados`, solo cuando el servidor confirma).
+- SICAR guarda el corte en varios pasos: primero el corte, luego quién lo cerró (0-22 s) y enseguida el resumen del
+  turno (1 s). Por eso **ningún corte se manda antes de 2 minutos** de cerrado (va en la siguiente corrida). Si a un
+  corte de menos de 10 minutos todavía le falta quién lo cerró o el resumen, el agente lo espera (y con él los que
+  vengan después). Pasados 10 minutos se manda como esté: sin quién lo cerró queda `CORTE_SIN_CAJERO cor_id=...`; sin
+  resumen se manda sin ventas por usuario y queda `CORTE_SIN_RESUMEN cor_id=...`. Un número de usuario raro (por
+  ejemplo 0) se manda como "sin persona", nunca se le carga a otra.
+- Si la fecha del corte va más de 10 minutos adelantada respecto al reloj de esta PC (reloj de SICAR mal puesto), no
+  se espera: se manda como esté y queda `CORTE_FECHA_FUTURA cor_id=...`, para que no congele los cortes siguientes.
+- **Revisar que el reloj de las PCs de SICAR esté bien** (fecha, hora y zona horaria), el de esta PC incluido. Las
+  esperas de 2 y 10 minutos se miden comparando la hora que SICAR guardó en el corte con la de esta PC: un reloj
+  atrasado hace que un corte a medias (sin quién lo cerró o sin resumen) salga antes de tiempo, y uno adelantado
+  hace que los cortes esperen de más.
+- **Tras restaurar un respaldo del servidor de CORPUNISOUND**, para volver a mandar todos los cortes: con la tarea
+  pausada, en `estado.json` poner `"cortes_cursor": "0"` y `"cortes_enviados": []`, y volver a prender la tarea. La
+  siguiente corrida manda toda la historia de cortes otra vez (el servidor no los duplica). Para las existencias, lo
+  equivalente es correr a mano `correr.cmd --existencias-ahora`.
+- **Vienen apagados.** Se prenden poniendo `"cortes": true` en `config.json`, solo después de que el servidor de
+  CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de que
+  `--verificar` confirme las columnas. Es independiente de las demás listas. La primera vez manda todos los cortes de
+  la historia de SICAR, 100 por paquete y 6 segundos entre paquetes (Ocosingo va en el corte 8,006: unos 80 paquetes, **estimado**, no medido).
+- `--verificar` dice `Cortes en SICAR: N, lectura de ventas de 100 cortes en X ms`. Si dice `Cortes APAGADOS, faltan columnas`, el agente sigue con todo lo
+  demás pero no manda cortes: hay que ajustar `COLUMNAS_CORTES` en `mapeo.js`.
+- Un corte con un dato que el agente no sabe leer (importe con 3 decimales, fecha imposible) se salta y queda
+  `CORTE_OMITIDO cor_id=... codigo=...` en el registro. Ese corte **no se vuelve a intentar**: hay que avisar.
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
@@ -128,7 +200,7 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `FUERA_DE_HORARIO` | La carga inicial espera a las 20:00. | Nada. |
 | `TOPE_DE_CORRIDA` | Ya mandó 300 paquetes en esta corrida. | Nada: la siguiente sigue donde se quedó. |
 | `OTRA_CORRIDA_ACTIVA` | La anterior no ha terminado. | Nada. Si dura más de 6 horas, el agente la da por muerta solo. |
-| `RED_NO_DISPONIBLE`, `HTTP_429`, `HTTP_503`, `HTTP_5XX` | Internet o el servidor (por ejemplo, Render reiniciando). | Nada: reenvía lo mismo sin duplicar. Si dura más de un día, avisar. |
+| `RED_NO_DISPONIBLE`, `HTTP_429`, `HTTP_503`, `HTTP_5XX` | Internet o el servidor (por ejemplo, Render reiniciando). | Nada: reenvía lo mismo sin duplicar. Si dura más de un día, avisar. Si `HTTP_503` se repite por más de una hora, apagar `existencias` en `config.json` (`"existencias": false`) para que las ventas salgan sin estorbo, y avisar. |
 | `CAMPO_OMITIDO cli_id=… campo=…` | Un teléfono, correo o RFC mal capturado en SICAR. Se mandó el cliente sin ese dato. | Corregirlo en SICAR si importa. |
 | `HISTORIAL_SIN_CONFIGURAR` / `cancelaciones antiguas sin vigilar` | Falta la sección 3. | Configurar `historial`. |
 | `HTTP_401` | Llave incorrecta o revocada. **El agente se detiene.** | Pedir llave nueva y avisar a quien mantiene el sistema. |
@@ -139,6 +211,16 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `ARTICULOS_NO_DISPONIBLES` | No encontró las columnas de artículo, categoría o departamento. Clientes y ventas siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_ARTICULOS`. |
 | `PROVEEDOR_OMITIDO prv_id=… codigo=…` | Un proveedor de SICAR sin nombre o con nombre muy largo. **Se salta**; no aparece en la lista del Radar. | Revisar ese proveedor en SICAR. |
 | `PROVEEDORES_NO_DISPONIBLES` | No encontró las columnas de la tabla de proveedores. Clientes, ventas y artículos siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_PROVEEDORES`. |
+| `EXISTENCIA_OMITIDA art_id=… codigo=…` | Un artículo con una existencia que el agente no sabe leer (por ejemplo, más de 4 decimales). **Se salta**; en CORPUNISOUND queda lo último confirmado. | Revisar ese artículo en SICAR. |
+| `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
+| `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias (o de existencias y cortes) no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `CORTES_DESCARTADOS` | Un paquete de solo cortes (o de cortes y existencias) no se pudo mandar tras sus reintentos. Se tiró **para que las ventas sigan saliendo**; no se pierde ningún corte: el cursor no avanzó y se vuelven a mandar en las siguientes corridas. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
+| `CORTE_SIN_CAJERO cor_id=…` | SICAR no anotó quién cerró ese corte (o anotó a dos). Se mandó igual, sin quién lo cerró. | Nada si es raro. Si sale en todos los cortes, avisar. |
+| `CORTE_SIN_RESUMEN cor_id=…` | Pasados 10 minutos, SICAR no tenía el resumen de ese corte. Se mandó sin las ventas por usuario. | Revisar ese corte en SICAR; si sale seguido, avisar. |
+| `CORTE_FECHA_FUTURA cor_id=…` | La fecha del corte va más de 10 minutos adelantada respecto a esta PC. Se mandó sin esperar. | Revisar la hora de la PC de SICAR y la de esta PC. |
+| `CORTE_OMITIDO cor_id=… codigo=…` | Un corte con un dato que el agente no sabe leer. **Se saltó** y no aparece en CORPUNISOUND. | Avisar con la línea del registro. |
+| `CORTES_NO_DISPONIBLES` | `"cortes": true` pero no encontró las columnas de cortes. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_CORTES`, o apagar `"cortes"`. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
 | `FALLO ...` | Algo que no es un dato raro (configuración, MySQL, servidor). La corrida termina sin avanzar. | Avisar con la línea completa. |
 | `FALLO MYSQL_ACCESO_DENEGADO` / `MYSQL_NO_DISPONIBLE` | Contraseña de MySQL o MySQL apagado. | Revisar `config.json` y que SICAR esté abierto. |

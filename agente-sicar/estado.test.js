@@ -148,3 +148,64 @@ test('un estado.json de antes de los proveedores arranca su lista desde cero y r
   assert.equal(registrar(x => x)('PROVEEDOR_OMITIDO', { prv_id: '7', codigo: 'TEXTO_VACIO' }), 'PROVEEDOR_OMITIDO prv_id=7 codigo=TEXTO_VACIO');
   assert.equal(registrar(x => x)('PROVEEDORES_NO_DISPONIBLES'), 'PROVEEDORES_NO_DISPONIBLES');
 });
+test('un estado.json de antes de las existencias arranca con el mapa vacio y rechaza mapas raros', async t => {
+  const archivo = await entorno(t);
+  const viejo = inicial();
+  delete viejo.existencias;
+  delete viejo.existencias_dia;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const estado = await cargar(archivo);
+  assert.deepEqual(estado.existencias, {});
+  assert.equal(estado.existencias_dia, null);
+  const bueno = { ...viejo, existencias: { 7: '3.0000', 8: '-1.0000' }, existencias_dia: '2026-10-14' };
+  await fs.writeFile(archivo, JSON.stringify(bueno));
+  assert.deepEqual((await cargar(archivo)).existencias, { 7: '3.0000', 8: '-1.0000' });
+  for (const raro of [{ existencias: { 7: 'x' } }, { existencias: { a: '1.0000' } }, { existencias: { 7: null } }, { existencias: { 7: 3 } },
+    { existencias: [] }, { existencias: 'x' }, { existencias_dia: 'ayer' }, { existencias: { '07': '1.0000' } }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('EXISTENCIA_OMITIDA', { art_id: '7', codigo: 'PRECISION_NO_PACTADA' }),
+    'EXISTENCIA_OMITIDA art_id=7 codigo=PRECISION_NO_PACTADA');
+  assert.equal(registrar(x => x)('EXISTENCIAS_NO_DISPONIBLES'), 'EXISTENCIAS_NO_DISPONIBLES');
+  assert.equal(registrar(x => x)('EXISTENCIAS_AUTORIZADAS_DE_DIA'), 'EXISTENCIAS_AUTORIZADAS_DE_DIA');
+});
+test('un estado.json de antes de los cortes arranca con cortes_cursor en 0 y rechaza cursores raros', async t => {
+  const archivo = await entorno(t);
+  assert.equal(inicial().cortes_cursor, '0');
+  const viejo = inicial();
+  delete viejo.cortes_cursor;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  assert.equal((await cargar(archivo)).cortes_cursor, '0');
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, cortes_cursor: '8006' }));
+  assert.equal((await cargar(archivo)).cortes_cursor, '8006');
+  for (const raro of [{ cortes_cursor: 'x' }, { cortes_cursor: 5 }, { cortes_cursor: '-1' }, { cortes_cursor: '1.5' }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('CORTE_OMITIDO', { cor_id: '8006', codigo: 'FECHA_INVALIDA' }), 'CORTE_OMITIDO cor_id=8006 codigo=FECHA_INVALIDA');
+  assert.equal(registrar(x => x)('CORTE_SIN_CAJERO', { cor_id: '8006' }), 'CORTE_SIN_CAJERO cor_id=8006');
+  assert.equal(registrar(x => x)('CORTES_NO_DISPONIBLES'), 'CORTES_NO_DISPONIBLES');
+});
+test('cortes_enviados: arranca vacio, acepta hasta 50 ids y rechaza listas raras', async t => {
+  const archivo = await entorno(t);
+  assert.deepEqual(inicial().cortes_enviados, []);
+  const viejo = inicial();
+  delete viejo.cortes_enviados;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  assert.deepEqual((await cargar(archivo)).cortes_enviados, []);
+  const cincuenta = Array.from({ length: 50 }, (_, i) => String(i + 1));
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, cortes_enviados: cincuenta }));
+  assert.deepEqual((await cargar(archivo)).cortes_enviados, cincuenta);
+  for (const raro of [{ cortes_enviados: 'x' }, { cortes_enviados: {} }, { cortes_enviados: [1] }, { cortes_enviados: ['0'] },
+    { cortes_enviados: ['07'] }, { cortes_enviados: [...cincuenta, '51'] }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('CORTE_FECHA_FUTURA', { cor_id: '8006' }), 'CORTE_FECHA_FUTURA cor_id=8006');
+});
+test('registro reconoce los avisos de paquetes descartados', () => {
+  const linea = registrar(x => x);
+  assert.equal(linea('EXISTENCIAS_DESCARTADAS'), 'EXISTENCIAS_DESCARTADAS');
+  assert.equal(linea('CORTES_DESCARTADOS'), 'CORTES_DESCARTADOS');
+});

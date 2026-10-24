@@ -32,6 +32,7 @@ export const CATEGORIAS = [
         hijos: [{ id: "recepcion", nombre: "Recepción de Compras" }],
       },
       { id: "traspasos", nombre: "Traspasos entre Sucursales", modulo: "inventario", permiso: "realizar_traspasos" },
+      { id: "existencias_sicar", nombre: "Existencias SICAR", modulo: "inventario", permiso: "ver_existencias_sicar" },
     ],
   },
   {
@@ -59,6 +60,7 @@ export const CATEGORIAS = [
       { id: "garantias", nombre: "Garantías", modulo: "inventario", permiso: "gestionar_garantias" },
       { id: "supervision", nombre: "Supervisión", modulo: "supervision",
         permiso: ["realizar_visitas_tienda", "administrar_checklist_visitas", "atender_fallas_visita", "ver_supervision"] },
+      { id: "cortes_sicar", nombre: "Cortes SICAR", modulo: "admin", permiso: "ver_cortes_sicar" },
       { id: "roles", nombre: "Roles y Personal", modulo: "admin" },
       { id: "respaldos", nombre: "Respaldos", modulo: "respaldos", permiso: "ver_respaldos" },
       { id: "configuracion", nombre: "Configuración", modulo: "pos", permiso: ["editar_configuracion_pos", "activar_pantallas_caja"] },
