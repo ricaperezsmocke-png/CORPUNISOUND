@@ -19,12 +19,12 @@ const { diaDeRegistro } = require("./fechaRegistro");
 
 const MINIMO_OTRO = 2;
 const MAXIMO_OTRO = 120;
-// \p{Cf} son los invisibles (espacio de ancho cero, guion suave, marcas de dirección): un nombre que en pantalla
-// sale en blanco caería junto a las demandas viejas "Sin proveedor".
-const CONTROLES = /[\u0000-\u001f\u007f�\p{Cf}]/u;
-// Lista de lo permitido: letras o números de verdad. Los rellenos coreanos cuentan como letra y se ven en blanco.
+// Lo que no se ve: controles (Cc), invisibles de formato (Cf), uso privado (Co), sin asignar (Cn), los rellenos
+// coreanos (que Unicode cuenta como letra) y el blanco Braille. Un nombre así sale en blanco o parte a un proveedor
+// en dos grupos que se ven idénticos.
+const CONTROLES = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}ᅟᅠㅤﾠ⠀�]/u;
+// Lista de lo permitido: al menos MINIMO_OTRO letras o números de verdad.
 const SIGNIFICATIVO = /[\p{L}\p{N}]/gu;
-const RELLENOS = /[ᅟᅠㅤﾠ]/gu;
 
 const limpiar = (valor) => String(valor ?? "").replace(/\s+/g, " ").trim();
 
@@ -73,7 +73,7 @@ function resolverProveedor(datos, proveedores = []) {
     if (nombre.length < MINIMO_OTRO || nombre.length > MAXIMO_OTRO) {
       throw new ErrorRadar(`El otro proveedor debe tener entre ${MINIMO_OTRO} y ${MAXIMO_OTRO} caracteres`, 400);
     }
-    if ((nombre.replace(RELLENOS, "").match(SIGNIFICATIVO) || []).length < MINIMO_OTRO) {
+    if ((nombre.match(SIGNIFICATIVO) || []).length < MINIMO_OTRO) {
       throw new ErrorRadar(`El otro proveedor debe llevar al menos ${MINIMO_OTRO} letras o números`, 400);
     }
     const normalizado = normalizarNombreProveedor(nombre);

@@ -60,7 +60,12 @@ test("el proveedor que manda el navegador no es de fiar: falla cerrando", () => 
     [{ proveedor_texto: "​​" }, /no es válido/],
     [{ proveedor_texto: "Casa​Rara" }, /no es válido/],
     [{ proveedor_texto: "⁠­‮" }, /no es válido/],
-    [{ proveedor_texto: "ㅤㅤ" }, /al menos 2 letras o números/],
+    [{ proveedor_texto: "ㅤㅤ" }, /no es válido/],
+    // Invisibles pegados a un nombre real: partirían a "Yamaha" en dos grupos que se ven idénticos.
+    [{ proveedor_texto: "Yamaha\u0085" }, /no es válido/],
+    [{ proveedor_texto: "Yamaha⠀" }, /no es válido/],
+    [{ proveedor_texto: "Yamaha" }, /no es válido/],
+    [{ proveedor_texto: "ᅠᅠAB" }, /no es válido/],
     [{ proveedor_texto: "-- .." }, /al menos 2 letras o números/],
     [{ proveedor_texto: "a ." }, /al menos 2 letras o números/],
   ];
