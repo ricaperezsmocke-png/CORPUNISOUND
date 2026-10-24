@@ -150,7 +150,7 @@ function App() {
           <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "existencias_sicar" && <ExistenciasSicar />}
-        {vista === "cortes_sicar" && <CortesSicar permisos={usuario.permisos} />}
+        {vista === "cortes_sicar" && <CortesSicar permisos={usuario.permisos} usuario={usuario} />}
         {vista === "garantias" && (
           <Garantias onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} pantallas={pantallas} />
         )}

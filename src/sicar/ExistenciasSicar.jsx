@@ -1,6 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
-import { haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar } from "./existenciasSicar.js";
+import {
+  haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar, paginaDelServidor,
+} from "./existenciasSicar.js";
+import { contadorDePeticiones } from "./cortesSicar.js";
 
 const FILTROS = [
   { id: "con", nombre: "Con existencia" },
@@ -28,25 +31,39 @@ export default function ExistenciasSicar() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
+  const peticiones = useRef(contadorDePeticiones());
 
   useEffect(() => {
     const t = setTimeout(() => { setQ(texto.trim()); setPagina(1); }, 300);
     return () => clearTimeout(t);
   }, [texto]);
 
+  // Solo la respuesta de la última petición se muestra: una vieja que llega tarde no tapa la búsqueda actual. Si una
+  // carga falla, la tabla se vacía: no se queda mostrando cifras de otra búsqueda como si fueran de esta.
   const cargar = useCallback(async () => {
+    const numero = peticiones.current.nueva();
     setCargando(true);
     setError("");
     try {
       const params = new URLSearchParams({ q, solo, pagina: String(pagina) });
       const respuesta = await apiFetch(`/sicar/existencias?${params}`);
+      if (!peticiones.current.vigente(numero)) return;
+      if (!respuesta.ok) {
+        const cuerpo = await respuesta.json().catch(() => ({}));
+        throw new Error(cuerpo.error || "No se pudieron cargar las existencias.");
+      }
       const cuerpo = await respuesta.json();
-      if (!respuesta.ok) throw new Error(cuerpo.error || "No se pudieron cargar las existencias.");
+      if (!peticiones.current.vigente(numero)) return;
       setDatos(cuerpo);
+      // El servidor puede recortar una página que ya no existe: la local se alinea con la que mostró.
+      const servida = paginaDelServidor(pagina, cuerpo);
+      if (servida !== pagina) setPagina(servida);
     } catch (e) {
+      if (!peticiones.current.vigente(numero)) return;
+      setDatos(null);
       setError(e.message || "No se pudieron cargar las existencias.");
     } finally {
-      setCargando(false);
+      if (peticiones.current.vigente(numero)) setCargando(false);
     }
   }, [q, solo, pagina]);
 

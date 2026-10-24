@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
-import { fechaHoraCorte } from "./cortesSicar.js";
+import { fechaHoraCorte, textoHechoPor } from "./cortesSicar.js";
 
 const CAJA = "rounded-lg border border-slate-300 bg-white";
 const ENCABEZADO = "border-b border-slate-300 bg-slate-100 px-3 py-2 text-left font-semibold";
@@ -17,7 +17,7 @@ function Historial({ cambios }) {
     <ul className={HISTORIAL}>
       {cambios.map((h, i) => (
         <li key={`${h.fecha}-${i}`}>
-          {fechaHoraCorte(h.fecha)}: {h.nombre_anterior ? `"${h.nombre_anterior}"` : "sin nombre"} a "{h.nombre_nuevo}" (hecho por usuario {h.actor})
+          {fechaHoraCorte(h.fecha)}: {h.nombre_anterior ? `"${h.nombre_anterior}"` : "sin nombre"} a "{h.nombre_nuevo}" (hecho por {textoHechoPor(h)})
         </li>
       ))}
     </ul>

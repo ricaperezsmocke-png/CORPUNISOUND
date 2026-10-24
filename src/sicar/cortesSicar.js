@@ -91,3 +91,21 @@ export function parametrosCortes({ sucursal, desde, hasta, caja, persona }) {
   if ((persona || "").trim()) p.set("usu_id", persona.trim());
   return p.toString();
 }
+
+/** Quién hizo un cambio de nombre: "Ana Pérez (usuario 993)"; si el servidor no encontró su nombre, "usuario 993". */
+export function textoHechoPor(h) {
+  const id = `usuario ${h?.actor ?? "?"}`;
+  const nombre = h?.actor_nombre;
+  return nombre && nombre !== id ? `${nombre} (${id})` : id;
+}
+
+/**
+ * Tiendas del selector de Cortes SICAR. Quien ve todas las tiendas recibe todas (y la opción "Todas"); los demás,
+ * solo la de su sesión. Es solo la lista que se ofrece: el alcance real lo pone el servidor con el token.
+ */
+export function tiendasDelSelector(tiendas, permisos = [], usuario = null) {
+  const todas = (permisos || []).includes("ver_todas_las_sucursales") || !!usuario?.ver_todas;
+  if (todas) return { todas, tiendas };
+  const propia = usuario?.sucursal_id;
+  return { todas, tiendas: tiendas.filter((t) => propia !== undefined && propia !== null && String(t.id) === String(propia)) };
+}

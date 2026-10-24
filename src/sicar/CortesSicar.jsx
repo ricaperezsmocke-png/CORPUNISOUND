@@ -3,7 +3,7 @@ import { apiFetch } from "../api";
 import PersonalSicar from "./PersonalSicar.jsx";
 import {
   textoPersona, claseDiferencia, textoAtribucion, formatoDinero, nombreFormaPago, fechaHoraCorte, parametrosCortes, fechaRelativa,
-  contadorDePeticiones,
+  contadorDePeticiones, tiendasDelSelector,
 } from "./cortesSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -162,10 +162,13 @@ function ResumenPersonas({ resumen, umbral, tiendas }) {
   );
 }
 
-export default function CortesSicar({ permisos = [] }) {
+export default function CortesSicar({ permisos = [], usuario = null }) {
   const [pestana, setPestana] = useState("cortes");
   const [tiendas, setTiendas] = useState([]);
-  const [filtros, setFiltros] = useState({ sucursal: "", desde: fechaRelativa(29), hasta: fechaRelativa(0), caja: "", persona: "" });
+  // El selector ofrece solo las tiendas del alcance: quien no ve todas, solo la suya (el servidor la impone igual).
+  const selector = tiendasDelSelector(tiendas, permisos, usuario);
+  const propia = selector.todas ? "" : String(usuario?.sucursal_id ?? "");
+  const [filtros, setFiltros] = useState({ sucursal: propia, desde: fechaRelativa(29), hasta: fechaRelativa(0), caja: "", persona: "" });
   // Los filtros se consultan 300 ms después de la última tecla, como en Existencias SICAR.
   const [consulta, setConsulta] = useState(filtros);
   const peticiones = useRef(contadorDePeticiones());
@@ -228,8 +231,9 @@ export default function CortesSicar({ permisos = [] }) {
           <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <label className={ETIQUETA}>Tienda
               <select className={CAMPO} value={filtros.sucursal} onChange={cambiar("sucursal")}>
-                <option value="">Todas</option>
-                {tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+                {selector.todas && <option value="">Todas</option>}
+                {selector.tiendas.length === 0 && !selector.todas && <option value={propia}>Mi tienda</option>}
+                {selector.tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
               </select>
             </label>
             <label className={ETIQUETA}>Desde

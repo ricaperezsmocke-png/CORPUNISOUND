@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar } from "./existenciasSicar.js";
+import {
+  haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar, paginaDelServidor,
+} from "./existenciasSicar.js";
 
 const AHORA = new Date("2026-10-23T18:00:00.000Z");
 
@@ -46,4 +48,13 @@ test("textoSinConfirmar: texto visible bajo la cantidad con dia y hora; nada si 
   assert.equal(textoSinConfirmar(null), null);
   assert.equal(textoSinConfirmar(undefined), null);
   assert.equal(textoSinConfirmar("basura"), null);
+});
+
+test("paginaDelServidor: se queda con la pagina que el servidor dice que mostro", () => {
+  assert.equal(paginaDelServidor(5, { pagina: 3 }), 3);
+  assert.equal(paginaDelServidor(2, { pagina: "2" }), 2);
+  assert.equal(paginaDelServidor(4, null), 4);
+  assert.equal(paginaDelServidor(4, { pagina: 0 }), 4);
+  assert.equal(paginaDelServidor(4, { pagina: "x" }), 4);
+  assert.equal(paginaDelServidor(4, {}), 4);
 });
