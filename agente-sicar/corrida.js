@@ -216,11 +216,15 @@ async function ejecutar(archivo, config, deps) {
       evento: 'PROVEEDOR_OMITIDO' })) return;
     // Existencias: en cada corrida, al final. Se leen todas las vigentes y se comparan contra lo último que el servidor
     // CONFIRMÓ (estado.existencias); se mandan solo las que cambiaron y, con null, las que dejaron de ser vigentes. Una
-    // vez al día (de noche, o a mano con --existencias-ahora) se mandan todas aunque no cambiaran. Apagadas mientras el
+    // vez al día (de noche, de día si la última fue antes de ayer, o a mano con --existencias-ahora) se mandan todas. Apagadas mientras el
     // interruptor no sea true: un servidor viejo rechaza la colección y detendría las ventas.
     if (config.existencias !== true) return;
     if (!fuente.existenciasDisponibles) { log('EXISTENCIAS_NO_DISPONIBLES'); return; }
-    const completa = deps.existenciasAhora ? true : estado.existencias_dia !== hoy && esHorarioHistorico(new Date(reloj()));
+    // De día también toca si la última vuelta completa fue antes de ayer (o nunca): tiendas que apagan la PC de noche.
+    const ayer = horaLocal(reloj() - 24 * 3600000).slice(0, 10);
+    const atrasada = !estado.existencias_dia || estado.existencias_dia < ayer;
+    const completa = deps.existenciasAhora ? true
+      : estado.existencias_dia !== hoy && (esHorarioHistorico(new Date(reloj())) || atrasada);
     const actuales = new Map();
     const omitidas = new Set();
     for (let cursor = '0'; ;) {

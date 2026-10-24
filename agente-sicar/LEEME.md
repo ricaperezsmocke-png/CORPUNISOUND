@@ -120,7 +120,8 @@ existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se m
   internet), el paquete de existencias se descarta (`EXISTENCIAS_DESCARTADAS`) para no frenar las ventas, y las
   existencias se vuelven a comparar y mandar cuando el servidor responda.
 - **Una vez al día, de noche (20:00-07:00)**, manda todas aunque no hayan cambiado, para que el servidor sepa que
-  siguen al día. La primera vez manda todas (~13 paquetes).
+  siguen al día. La primera vez manda todas (~13 paquetes). En una tienda que apaga la PC de noche, si la última
+  vuelta completa fue antes de ayer, la manda de día en la primera corrida.
 - **Viene apagada.** Se prende poniendo `"existencias": true` en `config.json`, solo después de que el servidor de
   CORPUNISOUND tenga esta versión (uno viejo rechaza la colección y el agente se detendría, ventas incluidas) y de
   que `--verificar` confirme las columnas. Es independiente de `"articulos"` y `"proveedores"`.

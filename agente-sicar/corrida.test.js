@@ -324,7 +324,8 @@ test('existencias: sin cambios no manda nada; un cambio y un no vigente mandan e
   assert.deepEqual((await cargar(p.archivo)).existencias, { 1: '5.0000', 3: '3.0000' });
 });
 test('existencias: si el envio falla el mapa no cambia y la siguiente corrida reenvia lo mismo', async t => {
-  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000', 2: '3.0000' } });
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-15',
+    existencias: { 1: '3.0000', 2: '3.0000' } });
   p.deps.reloj = DE_DIA;
   const filas = [existencia(1, '4.0000'), existencia(2)];
   conExistencias(p, filas);
@@ -493,4 +494,27 @@ test('existencias: si el servidor si acepto el lote descartado, el 409 del sigui
   assert.equal(estado.detenido, null);
   assert.equal(estado.pendiente, null);
   assert.deepEqual(estado.existencias, { 1: '3.0000' });
+});
+// Tiendas que apagan la PC de noche: de día también toca la vuelta completa si la última fue antes de ayer.
+test('existencias: de dia con la ultima vuelta completa de anteayer manda todas y marca hoy', async t => {
+  for (const dia of ['2026-10-13', null]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: dia,
+      existencias: { 1: '3.0000', 2: '3.0000', 9: '1.0000' } });
+    p.deps.reloj = DE_DIA;
+    conExistencias(p, [existencia(1), existencia(2)]);
+    await ejecutar(p.archivo, { existencias: true }, p.deps);
+    assert.deepEqual(mandadas(p), [[existencia(1), existencia(2), { art_id: '9', existencia: null }]]);
+    const estado = await cargar(p.archivo);
+    assert.equal(estado.existencias_dia, '2026-10-15');
+    assert.deepEqual(estado.existencias, { 1: '3.0000', 2: '3.0000' });
+  }
+});
+test('existencias: de dia con la ultima vuelta completa de ayer manda solo cambios', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias_dia: '2026-10-14',
+    existencias: { 1: '3.0000', 2: '3.0000' } });
+  p.deps.reloj = DE_DIA;
+  conExistencias(p, [existencia(1, '4.0000'), existencia(2)]);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.deepEqual(mandadas(p), [[existencia(1, '4.0000')]]);
+  assert.equal((await cargar(p.archivo)).existencias_dia, '2026-10-14');
 });
