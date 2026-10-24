@@ -122,7 +122,7 @@ function registrarRutasSicar(app, opciones) {
   const ejecutar = fn => (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      if (req.method === 'POST' && mantenimiento.estaActivo()) return res.status(503).json({ codigo: 'MANTENIMIENTO' });
+      if (req.method !== 'GET' && mantenimiento.estaActivo()) return res.status(503).json({ codigo: 'MANTENIMIENTO' });
       return fn(req, res, resolverAlcanceAutorizado(req));
     } catch (e) {
       return res.status(e.status || 503).json({ error: e.status ? e.message : 'No se pudo completar la operación SICAR.' });
@@ -171,6 +171,19 @@ function registrarRutasSicar(app, opciones) {
     const nombres = Object.fromEntries(tiendas().map(t => [t.id, t.nombre]));
     const { q, solo, pagina } = req.query;
     res.json(repo.consultarExistencias({ q: String(q ?? ''), solo, pagina }, new Date(), nombres));
+  }));
+  // Cortes SICAR: el alcance sale solo del token (ver todas o su tienda); ?sucursal_id= es un filtro que lo recorta.
+  app.get('/api/sicar/cortes', ...permiso('ver_cortes_sicar'), ejecutar((req, res, alcance) => {
+    const { desde, hasta, sucursal_id, caj_id, usu_id } = req.query;
+    res.json(repo.consultarCortes({ desde, hasta, sucursal_id, caj_id, usu_id }, alcance));
+  }));
+  app.get('/api/sicar/personal', ...permiso('ver_cortes_sicar'), ejecutar((req, res, alcance) => {
+    res.json(repo.listarPersonal(alcance));
+  }));
+  // Ver los cortes no da para cambiar a quién se le atribuye una diferencia: permiso propio y historial.
+  app.put('/api/sicar/personal/:sucursal_id/:usu_id', ...permiso('asignar_cajeros_sicar'), ejecutar((req, res, alcance) => {
+    const datos = { sucursal_id: req.params.sucursal_id, usu_id: req.params.usu_id, nombre: req.body?.nombre };
+    res.json(repo.asignarNombre(datos, String(req.usuarioToken.id), alcance));
   }));
 }
 

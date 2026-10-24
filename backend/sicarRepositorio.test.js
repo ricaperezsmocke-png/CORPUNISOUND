@@ -107,7 +107,7 @@ test('la migración es idempotente, activa FK y crea las catorce tablas aisladas
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 20);
+  assert.equal(Object.keys(antes).length, 22);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);

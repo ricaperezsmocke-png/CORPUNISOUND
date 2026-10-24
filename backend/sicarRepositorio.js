@@ -130,6 +130,16 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, cor_id, usu_id),
     FOREIGN KEY (sucursal_id, cor_id) REFERENCES sicar_cortes(sucursal_id, cor_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_cajeros (
+    sucursal_id INTEGER NOT NULL, usu_id TEXT NOT NULL, nombre TEXT NOT NULL, asignado_por TEXT, asignado_en TEXT,
+    PRIMARY KEY (sucursal_id, usu_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_cajeros_historial (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, usu_id TEXT NOT NULL,
+    nombre_anterior TEXT, nombre_nuevo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -452,6 +462,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     // Lista simple de cortes para pruebas; las pantallas la leen con sus propias consultas.
     listarCortes: () => sqlite.prepare(`SELECT sucursal_id, cor_id, caj_id, fecha_local, usu_id, contado_centavos, calculado_centavos,
       diferencia_centavos, retiro_centavos, actualizado_en FROM sicar_cortes ORDER BY sucursal_id, cor_id`).all(),
+    consultarCortes: (filtros, alcance) => require('./sicarCortes').consultarCortesSicar(sqlite, filtros, alcance),
+    listarPersonal: alcance => require('./sicarCortes').listarPersonalSicar(sqlite, alcance),
+    asignarNombre: (datos, actor, alcance) => require('./sicarCortes').asignarNombreSicar(sqlite, datos, actor, alcance),
     registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
       (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
       VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),
