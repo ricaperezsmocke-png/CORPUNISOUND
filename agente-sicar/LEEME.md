@@ -130,7 +130,8 @@ existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se m
   columnas`, el agente sigue con todo lo demás pero no manda existencias: hay que ajustar `COLUMNAS_EXISTENCIAS` en
   `mapeo.js`.
 - A mano, de día: `C:\UnisoundSICAR\agente-sicar\correr.cmd --existencias-ahora` manda la vuelta completa en ese
-  momento (sirve tras restaurar un respaldo en CORPUNISOUND o tras borrar `estado.json`).
+  momento (sirve tras restaurar un respaldo en CORPUNISOUND —una vez quitado el alto de `SECUENCIA_RETROCEDIO`— o tras
+  borrar `estado.json`).
 - Una existencia que el agente no sabe leer (más de 4 decimales, vacía) se salta y queda
   `EXISTENCIA_OMITIDA art_id=...` en el registro. Ese artículo conserva en CORPUNISOUND lo último que se confirmó y, si
   no se vuelve a confirmar, la pantalla lo muestra en gris pasadas 36 horas. No detiene nada.
@@ -165,7 +166,10 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
   esperas de 2 y 10 minutos se miden comparando la hora que SICAR guardó en el corte con la de esta PC: un reloj
   atrasado hace que un corte a medias (sin quién lo cerró o sin resumen) salga antes de tiempo, y uno adelantado
   hace que los cortes esperen de más.
-- **Tras restaurar un respaldo del servidor de CORPUNISOUND**, para volver a mandar todos los cortes: con la tarea
+- **Tras restaurar un respaldo del servidor de CORPUNISOUND**, el agente **primero va a estar detenido** por
+  `SECUENCIA_RETROCEDIO` (el servidor perdió paquetes que ya había confirmado) y no manda nada, ventas incluidas, hasta
+  que quien mantiene el sistema le quite el alto (campo `detenido` en `estado.json`, ver la sección de errores). Eso va
+  antes que lo demás. Luego, para volver a mandar todos los cortes: con la tarea
   pausada, en `estado.json` poner `"cortes_cursor": "0"` y `"cortes_enviados": []`, y volver a prender la tarea. La
   siguiente corrida manda toda la historia de cortes otra vez (el servidor no los duplica). Para las existencias, lo
   equivalente es correr a mano `correr.cmd --existencias-ahora`.

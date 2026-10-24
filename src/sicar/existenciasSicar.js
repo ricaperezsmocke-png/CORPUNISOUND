@@ -56,3 +56,9 @@ export function avisoTienda(tienda, ahora = new Date()) {
   const desde = haceCuanto(tienda.ultimo_contacto, ahora);
   return `El agente de esta tienda no ha enviado nada desde ${desde === "nunca" ? "que se registró" : desde}.`;
 }
+
+/** La página que el servidor dice que mostró (puede recortar una que ya no existe); si no la manda bien, la local. */
+export function paginaDelServidor(local, datos) {
+  const n = Number(datos?.pagina);
+  return Number.isSafeInteger(n) && n >= 1 ? n : local;
+}

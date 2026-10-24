@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   textoPersona, claseDiferencia, textoAtribucion, formatoDinero, nombreFormaPago, fechaHoraCorte, parametrosCortes, contadorDePeticiones,
+  textoHechoPor, tiendasDelSelector,
 } from "./cortesSicar.js";
 
 test("textoPersona: sin nombre, con nombre y ventas sin usuario", () => {
@@ -67,4 +68,19 @@ test("contadorDePeticiones: solo la respuesta de la ultima peticion se muestra",
   assert.equal(contador.vigente(nueva), true);
   contador.nueva();
   assert.equal(contador.vigente(nueva), false);
+});
+
+test("textoHechoPor: nombre de CORPUNISOUND con su id; sin nombre, solo el id", () => {
+  assert.equal(textoHechoPor({ actor: "993", actor_nombre: "Ana Pérez" }), "Ana Pérez (usuario 993)");
+  assert.equal(textoHechoPor({ actor: "993", actor_nombre: "usuario 993" }), "usuario 993");
+  assert.equal(textoHechoPor({ actor: "7" }), "usuario 7");
+});
+
+test("tiendasDelSelector: quien ve todas recibe todas; los demas, solo su tienda", () => {
+  const tiendas = [{ id: 1, nombre: "Ocosingo" }, { id: 2, nombre: "Yajalón" }, { id: 3, nombre: "San Cristóbal" }];
+  assert.deepEqual(tiendasDelSelector(tiendas, ["ver_todas_las_sucursales"], { sucursal_id: 2 }), { todas: true, tiendas });
+  assert.deepEqual(tiendasDelSelector(tiendas, [], { sucursal_id: "2" }), { todas: false, tiendas: [tiendas[1]] });
+  assert.deepEqual(tiendasDelSelector(tiendas, ["ver_cortes_sicar"], { sucursal_id: 2, ver_todas: true }), { todas: true, tiendas });
+  assert.deepEqual(tiendasDelSelector(tiendas, [], null), { todas: false, tiendas: [] });
+  assert.deepEqual(tiendasDelSelector(tiendas, [], { sucursal_id: 9 }), { todas: false, tiendas: [] });
 });
