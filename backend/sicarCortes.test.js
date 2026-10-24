@@ -204,7 +204,8 @@ test('asignar nombre: valida, exige que el usuario exista en esa tienda, alcance
   sembrar(repo, 1, [corte('1', { usu_id: '14', diferencia: '-3.00', cobros: [cobro('52')] })]);
   sembrar(repo, 2, [corte('1', { usu_id: '3' })]);
   const asignar = (datos, alcance = TODAS) => asignarNombreSicar(sqlite, datos, '9', alcance);
-  const invisibles = ['\u200B', '\u200D', '\u200F', '\u202A', '\u202C', '\u202E', '\u2066', '\u2069'].map(x => `Ana${x}Ruiz`);
+  const invisibles = ['\u200B', '\u200D', '\u200F', '\u202A', '\u202C', '\u202E', '\u2066', '\u2069',
+    '\u00ad', '\u180e', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\ufeff'].map(x => `Ana${x}Ruiz`);
   for (const nombre of ['a', ' a ', 'x\u0000y', 'Ana\u0007', 'An\uFFFDa', 'A\u2028b', ...invisibles, 'x'.repeat(81), '', 5, null, undefined]) {
     assert.throws(() => asignar({ sucursal_id: 1, usu_id: '52', nombre }), errorCon(400), JSON.stringify(nombre));
   }
@@ -229,6 +230,10 @@ test('asignar nombre: valida, exige que el usuario exista en esa tienda, alcance
   assert.equal(c.cerro.nombre, 'x'.repeat(80));
   const p = listarPersonalSicar(sqlite, SOLO_1).find(x => x.usu_id === '52');
   assert.deepEqual(p.historial.map(h => h.nombre_nuevo), ['Ana María López', 'Ana López']);
+  // Quien hizo el cambio: su nombre en CORPUNISOUND; si no se encuentra, "usuario N".
+  assert.deepEqual(p.historial.map(h => h.actor_nombre), ['usuario 9', 'usuario 9']);
+  const conNombre = listarPersonalSicar(sqlite, SOLO_1, id => (id === '9' ? 'Victor Pérez' : null)).find(x => x.usu_id === '52');
+  assert.deepEqual(conNombre.historial.map(h => [h.actor, h.actor_nombre]), [['9', 'Victor Pérez'], ['9', 'Victor Pérez']]);
 });
 
 test('rutas: permisos separados, alcance del token y nunca del filtro', async t => {
@@ -255,7 +260,7 @@ test('rutas: permisos separados, alcance del token y nunca del filtro', async t 
   };
   for (const [id, permisos] of Object.entries(roles)) {
     app.DB.admin.roles.push({ id: Number(id), nombre: `Cortes ${id}`, permisos, modulos: ['admin'] });
-    app.DB.admin.usuarios.push({ id: Number(id), nombre: 'Prueba', usuario: `cor${id}`, rol_id: Number(id), sucursal_id: 1, activo: true });
+    app.DB.admin.usuarios.push({ id: Number(id), nombre: `Prueba ${id}`, usuario: `cor${id}`, rol_id: Number(id), sucursal_id: 1, activo: true });
   }
   const token = id => firmarToken({ id, rol_id: id, sucursal_id: 1 });
   const servidor = app.listen(0, '127.0.0.1');
@@ -297,6 +302,14 @@ test('rutas: permisos separados, alcance del token y nunca del filtro', async t 
   assert.equal(cortes.find(c => c.sucursal_id === 2).cerro.nombre, 'Beto');
   const hist = sqlite.prepare('SELECT actor, nombre_nuevo FROM sicar_cajeros_historial ORDER BY id').all();
   assert.deepEqual(hist, [{ actor: '993', nombre_nuevo: 'Ana' }, { actor: '994', nombre_nuevo: 'Beto' }]);
+  // El historial trae el nombre de quien hizo el cambio, resuelto de la base principal de usuarios.
+  const personal = (await pedir('/api/sicar/personal', 994)).datos;
+  const historialDe = (s, u) => personal.find(p => p.sucursal_id === s && p.usu_id === u).historial;
+  assert.deepEqual(historialDe(1, '52').map(h => [h.actor, h.actor_nombre]), [['993', 'Prueba 993']]);
+  assert.deepEqual(historialDe(2, '3').map(h => [h.actor, h.actor_nombre]), [['994', 'Prueba 994']]);
+  sqlite.prepare("UPDATE sicar_cajeros_historial SET actor = '123456' WHERE actor = '993'").run();
+  const sinCuenta = (await pedir('/api/sicar/personal', 994)).datos.find(p => p.usu_id === '52').historial;
+  assert.equal(sinCuenta[0].actor_nombre, 'usuario 123456');
 });
 
 test('permisos nuevos en el catalogo, modulo admin', () => {

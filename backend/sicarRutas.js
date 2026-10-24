@@ -115,7 +115,7 @@ function registrarAgenteSicar(app, { repo, mantenimiento }) {
 
 function registrarRutasSicar(app, opciones) {
   const { repo, requiereLogin, requierePermiso, resolverPermisos, resolverAlcanceAutorizado, tiendas, mantenimiento,
-    esAdministrador = () => false } = opciones;
+    esAdministrador = () => false, usuarios = () => [] } = opciones;
   const permiso = clave => [requiereLogin, requierePermiso(clave, resolverPermisos)];
   const visible = (alcance, sucursalId) => alcance.verTodas || alcance.sucursalId === Number(sucursalId);
   const tiendasVisibles = alcance => tiendas().filter(t => visible(alcance, t.id)).map(t => ({ id: t.id, nombre: t.nombre }));
@@ -178,7 +178,9 @@ function registrarRutasSicar(app, opciones) {
     res.json(repo.consultarCortes({ desde, hasta, sucursal_id, caj_id, usu_id }, alcance));
   }));
   app.get('/api/sicar/personal', ...permiso('ver_cortes_sicar'), ejecutar((req, res, alcance) => {
-    res.json(repo.listarPersonal(alcance));
+    // El nombre de quien hizo cada cambio sale de la base principal de usuarios, como el de las tiendas.
+    const nombres = new Map((usuarios() || []).map(u => [String(u.id), u.nombre]));
+    res.json(repo.listarPersonal(alcance, id => nombres.get(String(id)) || null));
   }));
   // Ver los cortes no da para cambiar a quién se le atribuye una diferencia: permiso propio y historial.
   app.put('/api/sicar/personal/:sucursal_id/:usu_id', ...permiso('asignar_cajeros_sicar'), ejecutar((req, res, alcance) => {

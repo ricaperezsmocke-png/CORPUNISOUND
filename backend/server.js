@@ -698,7 +698,7 @@ if (repoSicar) app.get('/api/sicar/respaldo', requiereLogin,
   });
 if (repoSicar) registrarRutasSicar(app, {
   repo: repoSicar, requiereLogin, requierePermiso, resolverPermisos: resolverPermisosDeRol,
-  resolverAlcanceAutorizado, tiendas: () => DB.pos.sucursales, mantenimiento,
+  resolverAlcanceAutorizado, tiendas: () => DB.pos.sucursales, usuarios: () => DB.admin.usuarios, mantenimiento,
   esAdministrador: token => DB.admin.roles.find(r => Number(r.id) === Number(token.rol_id))?.nombre === "Administrador",
 });
 

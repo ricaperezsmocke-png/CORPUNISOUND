@@ -463,7 +463,7 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     listarCortes: () => sqlite.prepare(`SELECT sucursal_id, cor_id, caj_id, fecha_local, usu_id, contado_centavos, calculado_centavos,
       diferencia_centavos, retiro_centavos, actualizado_en FROM sicar_cortes ORDER BY sucursal_id, cor_id`).all(),
     consultarCortes: (filtros, alcance) => require('./sicarCortes').consultarCortesSicar(sqlite, filtros, alcance),
-    listarPersonal: alcance => require('./sicarCortes').listarPersonalSicar(sqlite, alcance),
+    listarPersonal: (alcance, nombreUsuario) => require('./sicarCortes').listarPersonalSicar(sqlite, alcance, nombreUsuario),
     asignarNombre: (datos, actor, alcance) => require('./sicarCortes').asignarNombreSicar(sqlite, datos, actor, alcance),
     registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
       (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)

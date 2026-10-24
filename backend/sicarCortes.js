@@ -8,8 +8,9 @@ const UMBRAL_CENTAVOS = 100n;
 const DIAS_POR_DEFECTO = 30;
 const DIA = 86400000;
 // Controles, separadores de l\u00EDnea, el car\u00E1cter de reemplazo y los invisibles que esconden o voltean texto
-// (ancho cero, marcas y forzados de direcci\u00F3n): un nombre con ellos puede verse igual a otro.
-const CONTROLES = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2066-\u2069\uFFFD]/;
+// (ancho cero, marcas y forzados de direcci\u00F3n, gui\u00F3n suave, separador mongol, unidor de palabras, operadores
+// invisibles y BOM): un nombre con ellos puede verse igual a otro.
+const CONTROLES = /[\u0000-\u001F\u007F-\u009F\u00AD\u180E\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\uFFFD]/;
 
 const fallo = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
@@ -151,7 +152,8 @@ function consultarCortesSicar(sqlite, filtros = {}, alcance, hoy = fechaLocal())
 }
 
 // Usuarios de SICAR vistos en cortes (quien cerró) o en cobros, sin las ventas sin usuario registrado.
-function listarPersonalSicar(sqlite, alcance) {
+// nombreUsuario(id) da el nombre en CORPUNISOUND de quien hizo cada cambio; si no se encuentra, "usuario N".
+function listarPersonalSicar(sqlite, alcance, nombreUsuario = () => null) {
   const tienda = tiendaDelAlcance(alcance);
   const historial = sqlite.prepare(`SELECT nombre_anterior, nombre_nuevo, actor, fecha FROM sicar_cajeros_historial
     WHERE sucursal_id = ? AND usu_id = ? ORDER BY id DESC`);
@@ -165,7 +167,8 @@ function listarPersonalSicar(sqlite, alcance) {
     WHERE (@tienda IS NULL OR v.sucursal_id = @tienda)
     GROUP BY v.sucursal_id, v.usu_id
     ORDER BY v.sucursal_id, length(v.usu_id), v.usu_id`).all({ tienda })
-    .map(p => ({ ...p, nombre: p.nombre ?? null, historial: historial.all(p.sucursal_id, p.usu_id) }));
+    .map(p => ({ ...p, nombre: p.nombre ?? null, historial: historial.all(p.sucursal_id, p.usu_id)
+      .map(h => ({ ...h, actor_nombre: nombreUsuario(h.actor) || `usuario ${h.actor}` })) }));
 }
 
 function validarNombre(valor) {
