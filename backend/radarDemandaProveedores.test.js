@@ -103,7 +103,7 @@ test("sin proveedores de SICAR todavía la lista es vacía y se puede registrar 
 
 test("registrar exige proveedor y valida en el servidor lo que manda el navegador", async () => {
   const casos = [
-    [{}, /proveedor/],
+    [{}, /^Campo obligatorio: elige el proveedor \(si no aparece la opción, recarga la página\)$/],
     [{ proveedor_clave: "inventado" }, /lista de SICAR/],
     [{ proveedor_clave: 7 }, /no es válido/],
     [{ proveedor_texto: "x" }, /entre 2 y 120/],

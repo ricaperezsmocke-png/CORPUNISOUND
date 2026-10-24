@@ -19,7 +19,12 @@ const { diaDeRegistro } = require("./fechaRegistro");
 
 const MINIMO_OTRO = 2;
 const MAXIMO_OTRO = 120;
-const CONTROLES = /[\u0000-\u001f\u007f�]/u;
+// \p{Cf} son los invisibles (espacio de ancho cero, guion suave, marcas de dirección): un nombre que en pantalla
+// sale en blanco caería junto a las demandas viejas "Sin proveedor".
+const CONTROLES = /[\u0000-\u001f\u007f�\p{Cf}]/u;
+// Lista de lo permitido: letras o números de verdad. Los rellenos coreanos cuentan como letra y se ven en blanco.
+const SIGNIFICATIVO = /[\p{L}\p{N}]/gu;
+const RELLENOS = /[ᅟᅠㅤﾠ]/gu;
 
 const limpiar = (valor) => String(valor ?? "").replace(/\s+/g, " ").trim();
 
@@ -68,13 +73,17 @@ function resolverProveedor(datos, proveedores = []) {
     if (nombre.length < MINIMO_OTRO || nombre.length > MAXIMO_OTRO) {
       throw new ErrorRadar(`El otro proveedor debe tener entre ${MINIMO_OTRO} y ${MAXIMO_OTRO} caracteres`, 400);
     }
+    if ((nombre.replace(RELLENOS, "").match(SIGNIFICATIVO) || []).length < MINIMO_OTRO) {
+      throw new ErrorRadar(`El otro proveedor debe llevar al menos ${MINIMO_OTRO} letras o números`, 400);
+    }
     const normalizado = normalizarNombreProveedor(nombre);
     // Si lo escribió a mano pero sí está en la lista, se toma de la lista: no hay nada que revisar.
     const conocido = proveedores.find((p) => p.clave === normalizado);
     if (conocido) return { proveedor_clave: conocido.clave, proveedor_nombre: conocido.nombre, proveedor_por_revisar: false };
     return { proveedor_clave: normalizado, proveedor_nombre: nombre, proveedor_por_revisar: true };
   }
-  throw new ErrorRadar("Indica con qué proveedor se consigue el producto", 400);
+  // Sin "producto", "motivo" ni "describe": una pestaña abierta antes del despliegue los traduciría a otro aviso.
+  throw new ErrorRadar("Campo obligatorio: elige el proveedor (si no aparece la opción, recarga la página)", 400);
 }
 
 function diasEntre(desde, hasta) {

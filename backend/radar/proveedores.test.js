@@ -56,6 +56,13 @@ test("el proveedor que manda el navegador no es de fiar: falla cerrando", () => 
     [{ proveedor_texto: "Casa �" }, /no es válido/],
     [{ proveedor_texto: { nombre: "x" } }, /no es válido/],
     [{ proveedor_clave: "yamaha", proveedor_texto: "Otro" }, /no los dos/],
+    // Un nombre que en pantalla sale en blanco caería junto a las demandas viejas "Sin proveedor".
+    [{ proveedor_texto: "​​" }, /no es válido/],
+    [{ proveedor_texto: "Casa​Rara" }, /no es válido/],
+    [{ proveedor_texto: "⁠­‮" }, /no es válido/],
+    [{ proveedor_texto: "ㅤㅤ" }, /al menos 2 letras o números/],
+    [{ proveedor_texto: "-- .." }, /al menos 2 letras o números/],
+    [{ proveedor_texto: "a ." }, /al menos 2 letras o números/],
   ];
   for (const [datos, mensaje] of casos) {
     assert.throws(() => resolverProveedor(datos, LISTA), (e) => e.estatus === 400 && mensaje.test(e.message), JSON.stringify(datos));
@@ -63,6 +70,19 @@ test("el proveedor que manda el navegador no es de fiar: falla cerrando", () => 
   assert.throws(() => resolverProveedor({ proveedor_clave: "yamaha" }, []), /no está en la lista/);
   assert.equal(resolverProveedor({ proveedor_texto: "ab" }, []).proveedor_nombre, "ab");
   assert.equal(resolverProveedor({ proveedor_texto: "a".repeat(120) }, []).proveedor_nombre.length, 120);
+});
+
+// Una pestaña abierta antes del despliegue traduce cualquier mensaje con "producto" a "Indica qué producto pidió el
+// cliente." (y "motivo"/"describe" a otros avisos): el de proveedor faltante no puede llevar esas palabras.
+test("sin proveedor, el mensaje se entiende solo y no lo confunde una pantalla vieja", () => {
+  for (const datos of [{}, { proveedor_clave: "", proveedor_texto: "" }, { proveedor_clave: null }]) {
+    assert.throws(() => resolverProveedor(datos, LISTA), (e) => {
+      assert.equal(e.estatus, 400);
+      assert.equal(e.message, "Campo obligatorio: elige el proveedor (si no aparece la opción, recarga la página)");
+      assert.doesNotMatch(e.message, /producto|motivo|describe/i);
+      return true;
+    });
+  }
 });
 
 function registro(id, cambios = {}) {

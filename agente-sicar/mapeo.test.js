@@ -110,7 +110,8 @@ test('articulos: sin tablas de articulos tambien sigue y no los consulta', async
   assert.equal(fuente.articulosDisponibles, false);
 });
 
-function prepararProveedores(sinColumna) {
+const indicePrimario = [{ Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'prv_id' }];
+function prepararProveedores(sinColumna, indicesProveedor = indicePrimario) {
   const consultas = [];
   const leer = async (sql, parametros) => {
     validarSQL(sql);
@@ -118,6 +119,10 @@ function prepararProveedores(sinColumna) {
     if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
       return Object.entries({ ...columnas, proveedor: 'prv_id nombre rfc' }).flatMap(([TABLE_NAME, campos]) => campos.split(' ')
         .filter(c => `${TABLE_NAME}.${c}` !== sinColumna).map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql === 'SHOW INDEX FROM `proveedor`') {
+      if (indicesProveedor instanceof Error) throw indicesProveedor;
+      return indicesProveedor;
     }
     if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
     if (sql.includes('COUNT(*)')) return [{ total: '3' }];
@@ -155,3 +160,39 @@ test('proveedores: sin la tabla tambien sigue y no la consulta', async () => {
   await fuente.validar();
   assert.equal(fuente.proveedoresDisponibles, false);
 });
+test('proveedores: sin la tabla no se consulta su indice', async () => {
+  const { fuente, consultas } = preparar();
+  await fuente.validar();
+  assert.equal(consultas.some(q => q.sql.includes('`proveedor`')), false);
+});
+test('proveedores: prv_id con indice UNIQUE de una sola columna tambien los habilita', async () => {
+  const { fuente } = prepararProveedores(undefined, [{ Non_unique: 1, Key_name: 'otro', Seq_in_index: 1, Column_name: 'nombre' },
+    { Non_unique: '0', Key_name: 'prv_unico', Seq_in_index: 1, Column_name: 'prv_id' }]);
+  await fuente.validar();
+  assert.equal(fuente.proveedoresDisponibles, true);
+});
+// Si prv_id se puede repetir, el servidor rechaza el lote entero (ID_DUPLICADO, 422) y el agente se detendria con todo y
+// clientes y ventas. La lista es opcional: sin unicidad garantizada se apaga, igual que cuando falta una columna.
+const indicesSinUnicidad = {
+  'sin indices': [],
+  'indice no unico': [{ Non_unique: 1, Key_name: 'por_prv', Seq_in_index: 1, Column_name: 'prv_id' }],
+  'PRIMARY compuesta': [{ Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'prv_id' },
+    { Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 2, Column_name: 'suc_id' }],
+  'UNIQUE compuesto': [{ Non_unique: 0, Key_name: 'u', Seq_in_index: 1, Column_name: 'prv_id' },
+    { Non_unique: 0, Key_name: 'u', Seq_in_index: 2, Column_name: 'nombre' }],
+  'UNIQUE de prefijo': [{ Non_unique: 0, Key_name: 'u', Seq_in_index: 1, Column_name: 'prv_id', Sub_part: 3 }],
+  'PRIMARY en otra columna': [{ Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'rfc' }],
+  'SHOW INDEX falla': new Error('ER_TABLEACCESS_DENIED_ERROR'),
+};
+for (const [caso, indices] of Object.entries(indicesSinUnicidad)) {
+  test(`proveedores: ${caso} no detiene la validacion y deja los proveedores apagados`, async () => {
+    const { fuente, consultas } = prepararProveedores(undefined, indices);
+    await fuente.validar();
+    assert.equal(fuente.proveedoresDisponibles, false);
+    await assert.rejects(fuente.proveedores('0', 500), /PROVEEDORES_NO_DISPONIBLES/);
+    assert.equal(consultas.some(q => q.sql.includes('FROM `proveedor` p')), false);
+    const info = await fuente.verificar();
+    assert.equal(info.proveedores.total, null);
+    assert.ok(info.proveedores.faltantes.length > 0);
+  });
+}
