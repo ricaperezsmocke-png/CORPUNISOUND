@@ -85,14 +85,15 @@ async function ejecutar(archivo, config, deps) {
         // Lo más importante del agente son las ventas: un lote de SOLO existencias y/o cortes que agotó sus intentos (5xx,
         // red, 409) se descarta sin aplicar sus cambios: cortes_cursor y cortes_enviados quedan como estaban y esos cortes
         // se vuelven a leer y mandar. Si el servidor sí lo había aceptado, el siguiente lote recibe 409 SECUENCIA_INCORRECTA
-        // y se renumera solo; por eso los artículos que el lote traía con valor se olvidan del mapa: si SICAR regresa al
-        // valor anterior, se vuelve a mandar. Las bajas (null) se quedan en el mapa para recalcularse y mandarse otra vez.
+        // y se renumera solo; por eso los artículos que el lote traía con valor quedan marcados con '?', que nunca coincide
+        // con un valor real: si siguen vigentes se reenvía su valor y si dejaron de serlo se manda su baja (null). Las bajas
+        // (null) se quedan en el mapa para recalcularse y mandarse otra vez.
         if (!estado.pendiente) return;
         const atorado = JSON.parse(estado.pendiente.bytes);
         if (!descartable(atorado)) return;
         estado.pendiente = null;
         for (const { art_id, existencia } of atorado.existencias || []) {
-          if (existencia !== null) delete estado.existencias[art_id];
+          if (existencia !== null) estado.existencias[art_id] = '?';
         }
         await guardar(archivo, estado);
         if (atorado.existencias?.length) log('EXISTENCIAS_DESCARTADAS');

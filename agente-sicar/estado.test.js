@@ -160,7 +160,11 @@ test('un estado.json de antes de las existencias arranca con el mapa vacio y rec
   const bueno = { ...viejo, existencias: { 7: '3.0000', 8: '-1.0000' }, existencias_dia: '2026-10-14' };
   await fs.writeFile(archivo, JSON.stringify(bueno));
   assert.deepEqual((await cargar(archivo)).existencias, { 7: '3.0000', 8: '-1.0000' });
-  for (const raro of [{ existencias: { 7: 'x' } }, { existencias: { a: '1.0000' } }, { existencias: { 7: null } }, { existencias: { 7: 3 } },
+  // La marca '?' de un lote descartado se acepta; cualquier otro texto no.
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, existencias: { 7: '?', 8: '1.0000' } }));
+  assert.deepEqual((await cargar(archivo)).existencias, { 7: '?', 8: '1.0000' });
+  for (const raro of [{ existencias: { 7: '??' } }, { existencias: { 7: ' ?' } }, { existencias: { 7: '' } }, { existencias: { 7: '!' } },
+    { existencias: { 7: 'x' } }, { existencias: { a: '1.0000' } }, { existencias: { 7: null } }, { existencias: { 7: 3 } },
     { existencias: [] }, { existencias: 'x' }, { existencias_dia: 'ayer' }, { existencias: { '07': '1.0000' } }]) {
     await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
     await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));

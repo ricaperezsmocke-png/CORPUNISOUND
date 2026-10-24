@@ -36,12 +36,14 @@ async function cargar(archivo) {
     if (dia !== null && (typeof dia !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dia))) throw new Error('ESTADO_INVALIDO');
   }
   // Existencias: lo último que el servidor CONFIRMÓ por artículo. Un estado.json de antes arranca con el mapa vacío (la
-  // primera corrida manda todas). Un mapa raro detiene: compararía contra basura y dejaría de mandar cambios.
+  // primera corrida manda todas). Un mapa raro detiene: compararía contra basura y dejaría de mandar cambios. La única
+  // excepción es '?': la marca de un artículo de un lote descartado, que nunca coincide con un valor real.
   estado.existencias ??= {};
   estado.existencias_dia ??= null;
   const mapa = estado.existencias;
+  const valorValido = x => x === '?' || (typeof x === 'string' && /^-?\d{1,16}\.\d{4}$/.test(x));
   if (typeof mapa !== 'object' || Array.isArray(mapa)
-    || Object.entries(mapa).some(([k, x]) => !/^[1-9]\d*$/.test(k) || typeof x !== 'string' || !/^-?\d{1,16}\.\d{4}$/.test(x))) {
+    || Object.entries(mapa).some(([k, x]) => !/^[1-9]\d*$/.test(k) || !valorValido(x))) {
     throw new Error('ESTADO_INVALIDO');
   }
   const diaExistencias = estado.existencias_dia;
