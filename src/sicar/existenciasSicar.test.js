@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { haceCuanto, claseExistencia, formatoExistencia, avisoTienda } from "./existenciasSicar.js";
+import { haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar } from "./existenciasSicar.js";
 
 const AHORA = new Date("2026-10-23T18:00:00.000Z");
 
@@ -37,4 +37,13 @@ test("avisoTienda: ambar solo si el agente lleva mas de 24 h sin enviar", () => 
   assert.match(avisoTienda(mal, AHORA), /^El agente de esta tienda no ha enviado nada desde el 21\/10/);
   const nunca = { nombre: "X", sin_contacto_24h: true, ultimo_contacto: null };
   assert.match(avisoTienda(nunca, AHORA), /no ha enviado nada/);
+});
+
+test("textoSinConfirmar: texto visible bajo la cantidad con dia y hora; nada si esta confirmada", () => {
+  assert.match(textoSinConfirmar("2026-10-21T18:04:00.000Z"), /^sin confirmar desde el 21\/10 \d{2}:\d{2}$/);
+  const local = new Date(2026, 9, 22, 7, 5);
+  assert.equal(textoSinConfirmar(local.toISOString()), "sin confirmar desde el 22/10 07:05");
+  assert.equal(textoSinConfirmar(null), null);
+  assert.equal(textoSinConfirmar(undefined), null);
+  assert.equal(textoSinConfirmar("basura"), null);
 });

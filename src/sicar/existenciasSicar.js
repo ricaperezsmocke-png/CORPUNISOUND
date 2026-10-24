@@ -16,8 +16,20 @@ export function haceCuanto(iso, ahora = new Date()) {
   if (dif < MIN) return "hace unos segundos";
   if (dif < HORA) return `hace ${Math.floor(dif / MIN)} min`;
   if (dif < 24 * HORA) return `hace ${Math.floor(dif / HORA)} h`;
+  return fechaCorta(t);
+}
+
+/** "el 21/10 18:04" en la hora local del navegador. */
+function fechaCorta(t) {
   const d = new Date(t);
   return `el ${dos(d.getDate())}/${dos(d.getMonth() + 1)} ${dos(d.getHours())}:${dos(d.getMinutes())}`;
+}
+
+/** Texto visible bajo una existencia vencida: "sin confirmar desde el 21/10 18:04"; null si está confirmada. */
+export function textoSinConfirmar(desde) {
+  const t = desde ? Date.parse(desde) : NaN;
+  if (Number.isNaN(t)) return null;
+  return `sin confirmar desde ${fechaCorta(t)}`;
 }
 
 /** Clase de color de una celda: gris si no está confirmada, rojo si es negativa, gris claro si es cero. */

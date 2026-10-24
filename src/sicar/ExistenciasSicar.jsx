@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
-import { haceCuanto, claseExistencia, formatoExistencia, avisoTienda } from "./existenciasSicar.js";
+import { haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar } from "./existenciasSicar.js";
 
 const FILTROS = [
   { id: "con", nombre: "Con existencia" },
@@ -18,6 +18,7 @@ const BTN_PAG = "rounded-md border border-slate-400 px-3 py-2 text-sm disabled:o
 const ENCABEZADO = "border-b border-slate-300 bg-slate-100 px-3 py-2 text-left font-semibold";
 const CELDA = "border-b border-slate-200 px-3 py-2";
 const NOTA_ROJA = "mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800";
+const NOTA_VENCIDA = "block text-xs font-normal text-slate-500";
 
 export default function ExistenciasSicar() {
   const [texto, setTexto] = useState("");
@@ -111,13 +112,15 @@ export default function ExistenciasSicar() {
                 <td className={CELDA}>{[r.departamento, r.categoria].filter(Boolean).join(" / ") || "—"}</td>
                 {tiendas.map((t) => {
                   const c = r.por_tienda[t.id];
+                  const vencida = c ? textoSinConfirmar(c.sin_confirmar_desde) : null;
                   return (
                     <td
                       key={t.id}
                       className={`${CELDA} text-right ${c ? claseExistencia(c.existencia, c.sin_confirmar_desde) : "text-slate-400"}`}
-                      title={c?.sin_confirmar_desde ? `Sin confirmar desde ${haceCuanto(c.sin_confirmar_desde, ahora)}` : undefined}
+                      title={vencida || undefined}
                     >
                       {c ? formatoExistencia(c.existencia) : "—"}
+                      {vencida && <span className={NOTA_VENCIDA}>{vencida}</span>}
                     </td>
                   );
                 })}
