@@ -25,7 +25,7 @@ async function verificar(fuente, imprimir, esperar, log) {
   if (proveedores.faltantes.length) {
     imprimir('Proveedores APAGADOS, faltan columnas: ' + JSON.stringify(proveedores.faltantes));
     log('PROVEEDORES_NO_DISPONIBLES');
-  } else imprimir(`Proveedores en SICAR: ${proveedores.total}`);
+  } else imprimir(`Proveedores vigentes en SICAR (sin los borrados): ${proveedores.total}`);
   let cursor = '0', clientes = 0, ventas = 0;
   const clientesRaros = [];
   while (true) {

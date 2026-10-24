@@ -62,7 +62,7 @@ test('--verificar dice que columnas de proveedor encontro y cuantos hay, o que e
     ventas: async () => ({ filas: [], clientes: [], detalles: [] }) };
   const info = proveedores => async () => ({ grants: [], columnas: [], ventas: [], clientes: [], proveedores });
   for (const [proveedores, esperado, aviso] of [
-    [{ columnas: ['proveedor.prv_id', 'proveedor.nombre'], faltantes: [], total: '42' }, /Proveedores en SICAR: 42/, false],
+    [{ columnas: ['proveedor.prv_id', 'proveedor.nombre'], faltantes: [], total: '42' }, /Proveedores vigentes en SICAR \(sin los borrados\): 42/, false],
     [{ columnas: ['proveedor.prv_id'], faltantes: ['proveedor.nombre'], total: null }, /Proveedores APAGADOS, faltan columnas: \["proveedor.nombre"\]/, true],
   ]) {
     const salida = [], registros = [];
