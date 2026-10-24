@@ -204,3 +204,18 @@ test('12. un lote solo de proveedores avanza la secuencia, se guarda por tienda 
     proveedores: [{ prv_id: '10', nombre: '' }] });
   assert.equal((await enviar(malo)).status, 422);
 });
+
+test('13. un lote solo de existencias avanza la secuencia, se guarda por tienda y el reenvio no duplica', async () => {
+  const existencias = [{ art_id: '7', existencia: '-1.0000' }, { art_id: '9', existencia: null }];
+  const cuerpo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000014', sequence: '9', clientes: [], ventas: [], existencias });
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  assert.deepEqual(r.datos.aceptados, { clientes: 0, ventas: 0, existencias: 2 });
+  assert.equal(r.datos.next_sequence, '10');
+  assert.deepEqual(await enviar(cuerpo), r);
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, art_id, existencia_diezmilesimas FROM sicar_existencias').all(),
+    [{ sucursal_id: 1, art_id: '7', existencia_diezmilesimas: -10000 }]);
+  const malo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000015', sequence: '10', clientes: [], ventas: [],
+    existencias: [{ art_id: '10', existencia: '3' }] });
+  assert.equal((await enviar(malo)).status, 422);
+});

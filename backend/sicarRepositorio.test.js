@@ -107,7 +107,7 @@ test('la migración es idempotente, activa FK y crea las catorce tablas aisladas
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 16);
+  assert.equal(Object.keys(antes).length, 17);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -332,4 +332,30 @@ test('guarda proveedores por tienda, recorta el nombre, los reemplaza y los list
   ]);
   const sinProveedores = aplicar(repo, { ...lote('3'), clientes: [], ventas: [] });
   assert.equal(Object.hasOwn(sinProveedores.aceptados, 'proveedores'), false, 'un lote sin la llave no la reporta');
+});
+
+test('guarda existencias en diezmilesimas por tienda, las renueva, borra con null y las lista', t => {
+  const { sqlite, repo } = prepararDB(t);
+  assert.deepEqual(repo.listarExistencias(), []);
+  const base = { ...lote(), clientes: [], ventas: [] };
+  const recibo = aplicar(repo, { ...base, existencias: [{ art_id: '7', existencia: '-1.0000' }, { art_id: '8', existencia: '0.0001' }] });
+  assert.deepEqual(recibo.aceptados, { clientes: 0, ventas: 0, existencias: 2 });
+  const fila = () => sqlite.prepare("SELECT existencia_diezmilesimas AS n, actualizado_en FROM sicar_existencias WHERE art_id='7'").get();
+  assert.equal(fila().n, -10000);
+  sqlite.prepare("UPDATE sicar_existencias SET actualizado_en='2000-01-01T00:00:00.000Z' WHERE art_id='7'").run();
+  aplicar(repo, { ...base, batch_id: 'lote-2', sequence: '2', existencias: [{ art_id: '7', existencia: '2.5000' }] });
+  assert.equal(fila().n, 25000);
+  assert.notEqual(fila().actualizado_en, '2000-01-01T00:00:00.000Z');
+  aplicar(repo, { ...base, batch_id: 'lote-3', sequence: '3', existencias: [{ art_id: '7', existencia: null }, { art_id: '99', existencia: null }] });
+  assert.equal(fila(), undefined);
+  aplicar(repo, { ...base, batch_id: 'lote-4', sequence: '4', existencias: [{ art_id: '5', existencia: '-0.0000' }] });
+  assert.equal(sqlite.prepare("SELECT existencia_diezmilesimas AS n FROM sicar_existencias WHERE art_id='5'").get().n, 0);
+  assert.equal(sqlite.prepare("SELECT typeof(existencia_diezmilesimas) AS t FROM sicar_existencias WHERE art_id='5'").get().t, 'integer');
+  aplicar(repo, { ...base, batch_id: 'lote-5', sequence: '1', existencias: [{ art_id: '8', existencia: '3.0000' }] }, 2);
+  assert.deepEqual(repo.listarExistencias().map(({ sucursal_id, art_id, existencia_diezmilesimas }) =>
+    ({ sucursal_id, art_id, existencia_diezmilesimas })), [
+    { sucursal_id: 1, art_id: '5', existencia_diezmilesimas: 0 }, { sucursal_id: 1, art_id: '8', existencia_diezmilesimas: 1 },
+    { sucursal_id: 2, art_id: '8', existencia_diezmilesimas: 30000 }]);
+  const sin = aplicar(repo, { ...base, batch_id: 'lote-6', sequence: '5' });
+  assert.equal(Object.hasOwn(sin.aceptados, 'existencias'), false, 'un lote sin la llave no la reporta');
 });

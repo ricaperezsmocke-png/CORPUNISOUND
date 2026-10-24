@@ -11,6 +11,8 @@ const Database = backend('better-sqlite3');
 const { crearRepositorioSicar } = require('../backend/sicarRepositorio');
 const { crearLlaveSicar } = require('../backend/sicarIngesta');
 const { registrarAgenteSicar } = require('../backend/sicarRutas');
+const crypto = require('node:crypto');
+const { enviarPendiente } = require('./envio');
 const { ejecutar } = require('./corrida');
 const { cargar, guardar, inicial } = require('./estado');
 
@@ -117,4 +119,38 @@ test('agente → ruta real: la lista de proveedores entra a sicar_proveedores y 
   assert.deepEqual(sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores ORDER BY prv_id').all(),
     [{ sucursal_id: 1, prv_id: '7', nombre: 'Casa Veerkamp' }, { sucursal_id: 1, prv_id: '9', nombre: 'Fender México' }]);
   assert.equal((await cargar(archivo)).proveedores_dia, '2026-10-14');
+});
+
+test('agente → ruta real: un lote de existencias entra a sicar_existencias en diezmilesimas y el null la borra', async t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const llave = crearLlaveSicar(repo, 1, 961).llave;
+  let ruta;
+  registrarAgenteSicar({ use: (_, handler) => { ruta = handler; } }, { repo, mantenimiento: { estaActivo: () => false } });
+  const transportar = (_, opciones) => new Promise(resolve => {
+    const req = Readable.from([Buffer.from(opciones.body, 'utf8')]);
+    Object.assign(req, { method: 'POST', path: '/v1/lotes', socket: { remoteAddress: '127.0.0.1' },
+      headers: { authorization: opciones.headers.Authorization, 'content-type': opciones.headers['Content-Type'] } });
+    const res = new EventEmitter();
+    res.set = () => res;
+    res.status = status => { res.codigo = status; return res; };
+    res.json = datos => { res.emit('close'); resolve({ status: res.codigo, json: async () => datos }); };
+    ruta(req, res);
+  });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sicar-existencias-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const archivo = path.join(dir, 'estado.json');
+  const enviar = async (sequence, existencias) => {
+    const bytes = JSON.stringify({ schema_version: 1, mapping_version: 'ocosingo-f0-v1', batch_id: crypto.randomUUID(), sequence,
+      captured_at: '2026-10-15T03:00:00Z', mode: 'incremental', window: { from: '2026-10-14T00:00:00-06:00', to: '2026-10-15T00:00:00-06:00' },
+      clientes: [], ventas: [], existencias });
+    const estado = { ...inicial(), fase: 'incremental', siguiente_secuencia: sequence, pendiente: { bytes, cambios: {} } };
+    await guardar(archivo, estado);
+    return enviarPendiente(archivo, estado, { llave }, { fetch: transportar, esperar: async () => {}, reloj: () => 1 });
+  };
+  assert.equal(await enviar('1', [{ art_id: '7', existencia: '-1.5000' }, { art_id: '8', existencia: '12.0000' }]), true);
+  assert.deepEqual(repo.listarExistencias().map(f => [f.art_id, f.existencia_diezmilesimas]), [['7', -15000], ['8', 120000]]);
+  assert.equal(await enviar('2', [{ art_id: '7', existencia: null }]), true);
+  assert.deepEqual(repo.listarExistencias().map(f => f.art_id), ['8']);
 });

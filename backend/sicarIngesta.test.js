@@ -184,3 +184,31 @@ test('proveedores opcionales aceptan lote exclusivo y rechazan limites, duplicad
     assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
   }
 });
+
+test('existencias opcionales aceptan lote exclusivo, nulos y rechazan formatos, limites, duplicados y propiedades', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const soloExistencias = { ...lote(), clientes: [], ventas: [],
+    existencias: [{ art_id: '7', existencia: '-1.0000' }, { art_id: '8', existencia: null }] };
+  assert.deepEqual(validarLoteSicar(soloExistencias), soloExistencias);
+  for (const [nombre, cambiar, codigo] of [
+    ['entero', b => { b.existencias[0].existencia = '3'; }, 'IMPORTE_INVALIDO'],
+    ['cinco decimales', b => { b.existencias[0].existencia = '3.12345'; }, 'IMPORTE_INVALIDO'],
+    ['tres decimales', b => { b.existencias[0].existencia = '1.000'; }, 'IMPORTE_INVALIDO'],
+    ['numero', b => { b.existencias[0].existencia = 3; }, 'IMPORTE_INVALIDO'],
+    ['signo mas', b => { b.existencias[0].existencia = '+1.0000'; }, 'IMPORTE_INVALIDO'],
+    ['espacio', b => { b.existencias[0].existencia = ' 1.0000'; }, 'IMPORTE_INVALIDO'],
+    ['17 enteros', b => { b.existencias[0].existencia = '99999999999999999.0000'; }, 'IMPORTE_INVALIDO'],
+    ['mayor a safe integer', b => { b.existencias[0].existencia = '9999999999999999.0000'; }, 'IMPORTE_INVALIDO'],
+    ['duplicado', b => { b.existencias.push({ art_id: '7', existencia: '1.0000' }); }, 'ID_DUPLICADO'],
+    ['limite', b => { b.existencias = Array.from({ length: 501 }, (_, i) => ({ art_id: String(i + 1), existencia: '1.0000' })); }, 'LIMITE_ENTIDADES'],
+    ['propiedad extra', b => { b.existencias[0].clave = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['id invalido', b => { b.existencias[0].art_id = 7; }, 'ID_INVALIDO'],
+  ]) {
+    const entrada = structuredClone(soloExistencias);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+  const cero = structuredClone(soloExistencias);
+  cero.existencias[0].existencia = '-0.0000';
+  assert.deepEqual(validarLoteSicar(cero), cero);
+});

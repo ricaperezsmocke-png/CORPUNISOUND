@@ -64,6 +64,15 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   hasta 250 caracteres, sin U+FFFD. El servidor lo recorta y lo guarda por tienda (la de la llave). El recibo incluye
   `aceptados.proveedores` cuando el lote trae esta colección. Un servidor anterior a esta versión rechaza la llave
   `proveedores` con 400: el agente la manda solo con `"proveedores": true` en su configuración.
+- `existencias` es otra colección opcional independiente (Cortes por existencia, 2026-10-23), con las mismas reglas:
+  puede ser el único contenido del lote, no cambia `schema_version`, hasta 500 por lote y el mismo `art_id` no se
+  repite. Cada fila es exactamente `{ "art_id": "7", "existencia": "-1.0000" }`; `existencia` es texto con signo
+  opcional, de 1 a 16 enteros y exactamente 4 decimales (sin `+`, sin espacios, nunca número JSON) y su valor sin el
+  punto no pasa de 9007199254740991; `"-0.0000"` se acepta y se guarda como 0. `null` significa que el artículo ya
+  no está vigente y el servidor borra su fila (si no existía, no pasa nada). El servidor guarda enteros en
+  diezmilésimas por tienda (la de la llave). El recibo incluye `aceptados.existencias` (cuenta todas las filas,
+  incluidas las `null`) cuando el lote trae esta colección. Un servidor anterior a esta versión rechaza la llave
+  `existencias` con 400: el agente la manda solo con `"existencias": true` en su configuración.
 
 ## 3. Qué venta mandar y con qué estado
 

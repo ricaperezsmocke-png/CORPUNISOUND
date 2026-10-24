@@ -86,6 +86,15 @@ function validarProveedor(p) {
   }
 }
 
+// Existencia de SICAR para cortes: art_id y cantidad como texto exacto con cuatro decimales; null = ya no vigente.
+function validarExistencia(e) {
+  objeto(e, ['art_id', 'existencia']);
+  if (!esId(e.art_id)) fallar('ID_INVALIDO');
+  if (e.existencia === null) return;
+  if (typeof e.existencia !== 'string' || !/^-?\d{1,16}\.\d{4}$/.test(e.existencia)) fallar('IMPORTE_INVALIDO');
+  if (BigInt(e.existencia.replace('-', '').replace('.', '')) > BigInt(Number.MAX_SAFE_INTEGER)) fallar('IMPORTE_INVALIDO');
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -105,7 +114,7 @@ function validarVenta(v, indice) {
 
 function validarSobreSicar(body) {
   objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
-    'proveedores']);
+    'proveedores', 'existencias']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -129,6 +138,10 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
   if (body.proveedores !== undefined) {
     arreglo(body.proveedores, 500, 'prv_id');
     body.proveedores.forEach((p, i) => enReferencia(`proveedores[${i}]`, () => validarProveedor(p)));
+  }
+  if (body.existencias !== undefined) {
+    arreglo(body.existencias, 500, 'art_id');
+    body.existencias.forEach((e, i) => enReferencia(`existencias[${i}]`, () => validarExistencia(e)));
   }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);
