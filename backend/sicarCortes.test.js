@@ -80,7 +80,7 @@ test('dos cobros con ventas: compartida, nadie con faltante, ambos con diferenci
   assert.equal(persona(r, 1, '52').turnos_cerro, 1);
 });
 
-test('cobro sin usuario registrado mas uno con usuario: compartida', t => {
+test('cobro sin usuario registrado mas uno con usuario: compartida; solo ventas sin usuario: sin_usuario', t => {
   const { sqlite, repo } = prepararDB(t);
   sembrar(repo, 1, [corte('1', { cobros: [cobro(null, 2, '80.00'), cobro('52')] }), corte('2', { cobros: [cobro(null, 2, '80.00')] })]);
   const r = consulta(sqlite);
@@ -89,8 +89,15 @@ test('cobro sin usuario registrado mas uno con usuario: compartida', t => {
   assert.ok(c1.cobraron.some(p => p.usu_id === '' && p.nombre === null));
   assert.equal(persona(r, 1, '52').faltantes_propios, 0);
   assert.equal(persona(r, 1, '52').diferencia_compartida, '-5.00');
-  assert.equal(c2.atribucion, 'compartida', 'solo ventas sin usuario: no hay a quien atribuir');
+  assert.equal(c2.atribucion, 'sin_usuario', 'solo ventas sin usuario: no hay a quien atribuir');
   assert.equal(c2.atribuida_a, null);
+  assert.equal(persona(r, 1, '52').diferencia_compartida, '-5.00', 'el turno sin usuario no se le suma a nadie con usu_id');
+  assert.equal(persona(r, 1, '52').diferencia_propia, '0.00');
+  const sinUsuario = persona(r, 1, '');
+  assert.equal(sinUsuario.diferencia_compartida, '-10.00', 'solo en la fila de ventas sin usuario registrado');
+  assert.equal(sinUsuario.diferencia_propia, '0.00');
+  assert.equal(sinUsuario.faltantes_propios, 0);
+  assert.equal(sinUsuario.turnos_cobro, 2);
 });
 
 test('sin ventas: sin_ventas, aunque haya un renglon con solo canceladas', t => {
@@ -197,7 +204,8 @@ test('asignar nombre: valida, exige que el usuario exista en esa tienda, alcance
   sembrar(repo, 1, [corte('1', { usu_id: '14', diferencia: '-3.00', cobros: [cobro('52')] })]);
   sembrar(repo, 2, [corte('1', { usu_id: '3' })]);
   const asignar = (datos, alcance = TODAS) => asignarNombreSicar(sqlite, datos, '9', alcance);
-  for (const nombre of ['a', ' a ', 'x\u0000y', 'Ana\u0007', 'An\uFFFDa', 'A\u2028b', 'x'.repeat(81), '', 5, null, undefined]) {
+  const invisibles = ['\u200B', '\u200D', '\u200F', '\u202A', '\u202C', '\u202E', '\u2066', '\u2069'].map(x => `Ana${x}Ruiz`);
+  for (const nombre of ['a', ' a ', 'x\u0000y', 'Ana\u0007', 'An\uFFFDa', 'A\u2028b', ...invisibles, 'x'.repeat(81), '', 5, null, undefined]) {
     assert.throws(() => asignar({ sucursal_id: 1, usu_id: '52', nombre }), errorCon(400), JSON.stringify(nombre));
   }
   assert.throws(() => asignar({ sucursal_id: 'x', usu_id: '52', nombre: 'Ana' }), errorCon(400));

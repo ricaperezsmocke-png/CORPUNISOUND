@@ -7,7 +7,9 @@ const { fechaLocal } = require('./fechas');
 const UMBRAL_CENTAVOS = 100n;
 const DIAS_POR_DEFECTO = 30;
 const DIA = 86400000;
-const CONTROLES = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\uFFFD]/;
+// Controles, separadores de l\u00EDnea, el car\u00E1cter de reemplazo y los invisibles que esconden o voltean texto
+// (ancho cero, marcas y forzados de direcci\u00F3n): un nombre con ellos puede verse igual a otro.
+const CONTROLES = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2066-\u2069\uFFFD]/;
 
 const fallo = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
@@ -102,9 +104,10 @@ function consultarCortesSicar(sqlite, filtros = {}, alcance, hoy = fechaLocal())
     const diferencia = BigInt(c.diferencia_centavos);
     const cobros = leerCobros.all(s, c.cor_id);
     const conVentas = cobros.filter(b => b.ventas > 0);
+    // sin_usuario: el único que cobró son las ventas sin usuario registrado en SICAR; no hay a quién atribuir.
     let atribucion = 'compartida';
     if (conVentas.length === 0) atribucion = 'sin_ventas';
-    else if (conVentas.length === 1 && conVentas[0].usu_id !== '') atribucion = 'propia';
+    else if (conVentas.length === 1) atribucion = conVentas[0].usu_id === '' ? 'sin_usuario' : 'propia';
     const atribuida = atribucion === 'propia' ? conVentas[0].usu_id : null;
 
     if (c.usu_id !== null) acumulado(s, c.usu_id).turnos_cerro += 1;
@@ -114,7 +117,8 @@ function consultarCortesSicar(sqlite, filtros = {}, alcance, hoy = fechaLocal())
       r.turnos_cobro += 1;
       r.ventas += b.ventas;
       r.total += BigInt(b.total_centavos);
-      if (atribucion === 'compartida') r.diferencia_compartida += diferencia;
+      // En sin_usuario el único con ventas es la fila "Ventas sin usuario registrado": a nadie con usu_id se le suma.
+      if (atribucion === 'compartida' || atribucion === 'sin_usuario') r.diferencia_compartida += diferencia;
     }
     if (atribuida !== null) {
       const r = acumulado(s, atribuida);
