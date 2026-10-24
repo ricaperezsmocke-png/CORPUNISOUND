@@ -32,13 +32,24 @@ export function claseDiferencia(texto) {
   return grande ? "text-blue-700 font-semibold" : "text-blue-400";
 }
 
-/** Frase fija sobre de quién es la diferencia del turno. */
+/** Frase fija sobre de quién es la diferencia del turno: dice solo lo que se sabe; ante la duda, no culpa a nadie. */
 export function textoAtribucion(corte) {
-  if (corte?.atribucion === "propia") {
-    return `Del turno de ${textoPersona(corte.atribuida_a)}, que fue la única que cobró`;
+  switch (corte?.atribucion) {
+    case "propia": return `Del turno de ${textoPersona(corte.atribuida_a)}, que fue la única persona que cobró`;
+    case "compartida": return "Cobraron varias personas o hay ventas sin usuario registrado: no se atribuye a nadie";
+    case "sin_usuario": return "Las ventas del turno no tienen usuario registrado en SICAR: no se atribuye a nadie";
+    case "sin_ventas": return "SICAR no registró cobros para este turno: no se atribuye a nadie";
+    default: return "No se atribuye a nadie";
   }
-  if (corte?.atribucion === "sin_ventas") return "Turno sin ventas: no se atribuye a nadie";
-  return "Compartida: cobraron varias personas, no se atribuye a nadie";
+}
+
+/**
+ * Numera las peticiones de la pantalla: una respuesta solo se muestra si sigue siendo la de la última petición.
+ * Así una consulta vieja que llega tarde no tapa la de los filtros actuales.
+ */
+export function contadorDePeticiones() {
+  let ultima = 0;
+  return { nueva: () => ++ultima, vigente: (n) => n === ultima };
 }
 
 /** "-1234.50" -> "-$1,234.50". Texto con dos decimales, sin pasar por números binarios. */

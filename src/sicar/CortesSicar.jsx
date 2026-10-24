@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import PersonalSicar from "./PersonalSicar.jsx";
 import {
   textoPersona, claseDiferencia, textoAtribucion, formatoDinero, nombreFormaPago, fechaHoraCorte, parametrosCortes, fechaRelativa,
+  contadorDePeticiones,
 } from "./cortesSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -134,7 +135,7 @@ function ResumenPersonas({ resumen, umbral, tiendas }) {
               <th className={`${ENCABEZADO} text-right`}>Diferencia propia</th>
               <th className={`${ENCABEZADO} text-right`}>Faltantes de {monto} o más</th>
               <th className={`${ENCABEZADO} text-right`}>Sobrantes de {monto} o más</th>
-              <th className={`${ENCABEZADO} text-right`}>Diferencia compartida (sin atribuir)</th>
+              <th className={`${ENCABEZADO} text-right`}>Diferencias de turnos compartidos en que participó (no se le atribuyen)</th>
             </tr>
           </thead>
           <tbody>
@@ -165,6 +166,9 @@ export default function CortesSicar({ permisos = [] }) {
   const [pestana, setPestana] = useState("cortes");
   const [tiendas, setTiendas] = useState([]);
   const [filtros, setFiltros] = useState({ sucursal: "", desde: fechaRelativa(29), hasta: fechaRelativa(0), caja: "", persona: "" });
+  // Los filtros se consultan 300 ms después de la última tecla, como en Existencias SICAR.
+  const [consulta, setConsulta] = useState(filtros);
+  const peticiones = useRef(contadorDePeticiones());
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
@@ -181,20 +185,28 @@ export default function CortesSicar({ permisos = [] }) {
     })();
   }, []);
 
+  useEffect(() => {
+    const t = setTimeout(() => setConsulta(filtros), 300);
+    return () => clearTimeout(t);
+  }, [filtros]);
+
+  // Solo la respuesta de la última petición se muestra: una vieja que llega tarde no tapa los filtros actuales.
   const cargar = useCallback(async () => {
+    const numero = peticiones.current.nueva();
     setCargando(true);
     setError("");
     try {
-      const respuesta = await apiFetch(`/sicar/cortes?${parametrosCortes(filtros)}`);
+      const respuesta = await apiFetch(`/sicar/cortes?${parametrosCortes(consulta)}`);
       const cuerpo = await respuesta.json();
+      if (!peticiones.current.vigente(numero)) return;
       if (!respuesta.ok) throw new Error(cuerpo.error || "No se pudieron cargar los cortes.");
       setDatos(cuerpo);
     } catch (e) {
-      setError(e.message || "No se pudieron cargar los cortes.");
+      if (peticiones.current.vigente(numero)) setError(e.message || "No se pudieron cargar los cortes.");
     } finally {
-      setCargando(false);
+      if (peticiones.current.vigente(numero)) setCargando(false);
     }
-  }, [filtros]);
+  }, [consulta]);
 
   useEffect(() => { if (pestana === "cortes") cargar(); }, [cargar, pestana]);
 
