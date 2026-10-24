@@ -10,6 +10,7 @@ import {
   marcarPedidoProveedor, quitarPedidoProveedor,
 } from "./radarDemandaApi";
 import FamiliasDemanda from "./FamiliasDemanda";
+import ProveedoresDemanda from "./ProveedoresDemanda";
 import GraficosCompras from "./GraficosCompras";
 import { repartirOportunidades } from "./seccionesCompras";
 
@@ -304,6 +305,7 @@ export default function InteligenciaCompras({ permisos = [] }) {
       )}
       <GraficosCompras filas={compras} hayCostos={hayCostos} />
       <FamiliasDemanda datos={datos.familias} periodo={datos.periodo} />
+      <ProveedoresDemanda datos={datos.por_proveedor} />
       <Seccion titulo="Atención prioritaria" icono={BrainCircuit} descripcion="Vista combinada de oportunidades para revisar por traspaso o compra." vacio="No hay oportunidades prioritarias en este momento." tieneDatos={prioritarias.length}><Tabla columnas={columnasPrioridad} filas={prioritarias} onExplicar={setExplicacion} minWidth="1100px" /></Seccion>
       <Seccion
         titulo="Revisar para compra"

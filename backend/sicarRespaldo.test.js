@@ -124,6 +124,7 @@ test('respaldo viejo sin seguimiento restaura vacio sobre estados posteriores', 
   delete m.conteos.sicar_internas;
   delete m.conteos.sicar_internas_historial;
   delete m.conteos.sicar_articulos;
+  delete m.conteos.sicar_proveedores;
   f.repo.guardarEstadoCliente({ sucursal_id: 1, cli_id: '123', estado: 'contactado', usuario_id: 9, fecha_hora: '2026-10-15T20:00:00Z' });
   const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   p.aplicar(); p.liberar();
@@ -139,6 +140,7 @@ for (const generacion of [12, 14]) {
     for (const tabla of ['sicar_internas', 'sicar_internas_historial', 'sicar_articulos'].slice(generacion === 12 ? 0 : 2)) {
       delete m.conteos[tabla];
     }
+    delete m.conteos.sicar_proveedores;
     f.sqlite.prepare(`INSERT INTO sicar_articulos
       (sucursal_id, art_id, clave, descripcion, categoria, departamento, actualizado_en)
       VALUES (1, '9', 'SKU-9', 'Artículo pendiente', 'Cuerdas', 'Accesorios', 'hoy')`).run();
@@ -270,7 +272,7 @@ test('snapshot y restauración recuperan compra, detalle, enlace deshecho y reci
   const utilidad = reporteUtilidad(f.DB, {}, { verTodas: true, sucursalId: null });
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   assert.equal(m.version_esquema, 2);
-  assert.equal(Object.keys(m.conteos).length, 15);
+  assert.equal(Object.keys(m.conteos).length, 16);
   f.repo.aplicarLote({ sucursalId: 1, lote: lote('2'), hash: 'hash-2' });
   const preparado = await s.prepararRestauracionSicar(f.repo, f.drive, m);
   assert.equal(f.repo.estado(1).siguiente_secuencia, '3');
@@ -597,4 +599,40 @@ test('un borrado de huérfanos detenido no retiene el lector ni impide el respal
   assert.equal(c.sicar_estado, 'parcial');
   assert.equal(c.sicar_archivos.length, 1);
   assert.equal(f.sqlite.pragma('wal_checkpoint(TRUNCATE)')[0].busy, 0);
+});
+
+// Forma exacta de los respaldos que ya están en Drive antes de los proveedores del Radar (2026-10-23).
+const TABLAS_15 = ['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes', 'sicar_vinculos', 'sicar_decisiones',
+  'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos', 'sicar_estados', 'sicar_estados_historial',
+  'sicar_internas', 'sicar_internas_historial', 'sicar_articulos'];
+const conProveedor = f => f.repo.aplicarLote({ sucursalId: 1, hash: 'hash-p', lote: { batch_id: 'lote-p', sequence: '2',
+  mapping_version: 'v1', clientes: [], ventas: [], proveedores: [{ prv_id: '7', nombre: 'Casa Veerkamp' }] } });
+
+test('respaldo viejo de 15 tablas (sin proveedores) sigue abriendo y deja los proveedores vacios', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  delete m.conteos.sicar_proveedores;
+  m.trozos = m.trozos.filter(c => c.tabla !== 'sicar_proveedores');
+  assert.deepEqual(Object.keys(m.conteos), TABLAS_15, 'misma forma que los respaldos que ya estan en Drive');
+  await s.verificarSnapshotSicar(f.repo, f.drive, m);
+  conProveedor(f);
+  const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM sicar_proveedores').get().n, 0);
+  assert.equal(f.sqlite.prepare('SELECT nombre FROM sicar_clientes').get().nombre, 'José 1');
+});
+
+test('respaldo nuevo de 16 tablas trae y devuelve los proveedores', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  sembrar(f);
+  conProveedor(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.deepEqual(Object.keys(m.conteos), [...TABLAS_15, 'sicar_proveedores']);
+  assert.equal(m.conteos.sicar_proveedores, 1);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.deepEqual(g.sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores').all(),
+    [{ sucursal_id: 1, prv_id: '7', nombre: 'Casa Veerkamp' }]);
 });

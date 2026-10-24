@@ -21,7 +21,7 @@ function datos(extra = {}) {
   return {
     producto_id: 30,
     cantidad: 1,
-    motivo_no_venta: "SIN_EXISTENCIA",
+    motivo_no_venta: "SIN_EXISTENCIA", proveedor_texto: "Proveedor de prueba",
     ...extra,
   };
 }

@@ -109,3 +109,90 @@ test('articulos: sin tablas de articulos tambien sigue y no los consulta', async
   await fuente.validar();
   assert.equal(fuente.articulosDisponibles, false);
 });
+
+const indicePrimario = [{ Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'prv_id' }];
+function prepararProveedores(sinColumna, indicesProveedor = indicePrimario) {
+  const consultas = [];
+  const leer = async (sql, parametros) => {
+    validarSQL(sql);
+    consultas.push({ sql, parametros });
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries({ ...columnas, proveedor: 'prv_id nombre rfc' }).flatMap(([TABLE_NAME, campos]) => campos.split(' ')
+        .filter(c => `${TABLE_NAME}.${c}` !== sinColumna).map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql === 'SHOW INDEX FROM `proveedor`') {
+      if (indicesProveedor instanceof Error) throw indicesProveedor;
+      return indicesProveedor;
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('COUNT(*)')) return [{ total: '3' }];
+    if (sql.includes('FROM `proveedor`')) return [{ prv_id: '7', nombre: 'Casa Veerkamp' }];
+    return [];
+  };
+  return { fuente: crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {}), consultas };
+}
+test('proveedores: lee id y nombre por prv_id con consulta que pasa la guardia', async () => {
+  const { fuente, consultas } = prepararProveedores();
+  await fuente.validar();
+  assert.equal(fuente.proveedoresDisponibles, true);
+  assert.deepEqual(await fuente.proveedores('5', 500), [{ prv_id: '7', nombre: 'Casa Veerkamp' }]);
+  const q = consultas.at(-1);
+  assert.match(q.sql, /FROM `proveedor`/);
+  assert.match(q.sql, /`prv_id` > \? ORDER BY p\.`prv_id` LIMIT \?/);
+  assert.deepEqual(q.parametros, ['5', 500]);
+  const info = await fuente.verificar();
+  assert.equal(info.proveedores.total, '3');
+  assert.deepEqual(info.proveedores.columnas, ['proveedor.prv_id', 'proveedor.nombre', 'proveedor.rfc']);
+  assert.deepEqual(info.proveedores.faltantes, []);
+});
+test('proveedores: columna faltante no detiene la validacion y deja los proveedores apagados', async () => {
+  const { fuente, consultas } = prepararProveedores('proveedor.nombre');
+  await fuente.validar();
+  assert.equal(fuente.proveedoresDisponibles, false);
+  await assert.rejects(fuente.proveedores('0', 500), /PROVEEDORES_NO_DISPONIBLES/);
+  assert.equal(consultas.some(q => q.sql.includes('FROM `proveedor`')), false);
+  const info = await fuente.verificar();
+  assert.deepEqual(info.proveedores.faltantes, ['proveedor.nombre']);
+  assert.equal(info.proveedores.total, null);
+});
+test('proveedores: sin la tabla tambien sigue y no la consulta', async () => {
+  const { fuente } = preparar();
+  await fuente.validar();
+  assert.equal(fuente.proveedoresDisponibles, false);
+});
+test('proveedores: sin la tabla no se consulta su indice', async () => {
+  const { fuente, consultas } = preparar();
+  await fuente.validar();
+  assert.equal(consultas.some(q => q.sql.includes('`proveedor`')), false);
+});
+test('proveedores: prv_id con indice UNIQUE de una sola columna tambien los habilita', async () => {
+  const { fuente } = prepararProveedores(undefined, [{ Non_unique: 1, Key_name: 'otro', Seq_in_index: 1, Column_name: 'nombre' },
+    { Non_unique: '0', Key_name: 'prv_unico', Seq_in_index: 1, Column_name: 'prv_id' }]);
+  await fuente.validar();
+  assert.equal(fuente.proveedoresDisponibles, true);
+});
+// Si prv_id se puede repetir, el servidor rechaza el lote entero (ID_DUPLICADO, 422) y el agente se detendria con todo y
+// clientes y ventas. La lista es opcional: sin unicidad garantizada se apaga, igual que cuando falta una columna.
+const indicesSinUnicidad = {
+  'sin indices': [],
+  'indice no unico': [{ Non_unique: 1, Key_name: 'por_prv', Seq_in_index: 1, Column_name: 'prv_id' }],
+  'PRIMARY compuesta': [{ Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'prv_id' },
+    { Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 2, Column_name: 'suc_id' }],
+  'UNIQUE compuesto': [{ Non_unique: 0, Key_name: 'u', Seq_in_index: 1, Column_name: 'prv_id' },
+    { Non_unique: 0, Key_name: 'u', Seq_in_index: 2, Column_name: 'nombre' }],
+  'UNIQUE de prefijo': [{ Non_unique: 0, Key_name: 'u', Seq_in_index: 1, Column_name: 'prv_id', Sub_part: 3 }],
+  'PRIMARY en otra columna': [{ Non_unique: 0, Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'rfc' }],
+  'SHOW INDEX falla': new Error('ER_TABLEACCESS_DENIED_ERROR'),
+};
+for (const [caso, indices] of Object.entries(indicesSinUnicidad)) {
+  test(`proveedores: ${caso} no detiene la validacion y deja los proveedores apagados`, async () => {
+    const { fuente, consultas } = prepararProveedores(undefined, indices);
+    await fuente.validar();
+    assert.equal(fuente.proveedoresDisponibles, false);
+    await assert.rejects(fuente.proveedores('0', 500), /PROVEEDORES_NO_DISPONIBLES/);
+    assert.equal(consultas.some(q => q.sql.includes('FROM `proveedor` p')), false);
+    const info = await fuente.verificar();
+    assert.equal(info.proveedores.total, null);
+    assert.ok(info.proveedores.faltantes.length > 0);
+  });
+}

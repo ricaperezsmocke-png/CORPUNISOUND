@@ -163,3 +163,24 @@ test('articulos opcionales aceptan lote exclusivo y rechazan limites, duplicados
     assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
   }
 });
+
+test('proveedores opcionales aceptan lote exclusivo y rechazan limites, duplicados, propiedades y texto invalido', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const proveedor = { prv_id: '7', nombre: ' Casa Veerkamp ' };
+  const soloProveedores = { ...lote(), clientes: [], ventas: [], proveedores: [proveedor] };
+  assert.deepEqual(validarLoteSicar(soloProveedores), soloProveedores);
+  for (const [nombre, cambiar, codigo] of [
+    ['limite', b => { b.proveedores = Array.from({ length: 501 }, (_, i) => ({ ...proveedor, prv_id: String(i + 1) })); }, 'LIMITE_ENTIDADES'],
+    ['duplicado', b => { b.proveedores.push({ ...proveedor }); }, 'ID_DUPLICADO'],
+    ['id invalido', b => { b.proveedores[0].prv_id = 7; }, 'ID_INVALIDO'],
+    ['propiedad extra', b => { b.proveedores[0].rfc = 'XAXX010101000'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['sin nombre', b => { b.proveedores[0].nombre = '  '; }, 'TEXTO_INVALIDO'],
+    ['nombre largo', b => { b.proveedores[0].nombre = 'a'.repeat(251); }, 'TEXTO_INVALIDO'],
+    ['utf8 invalido', b => { b.proveedores[0].nombre = 'Casa �'; }, 'TEXTO_INVALIDO'],
+    ['no es lista', b => { b.proveedores = 'SELECT * FROM proveedor'; }, 'LIMITE_ENTIDADES'],
+  ]) {
+    const entrada = structuredClone(soloProveedores);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+});

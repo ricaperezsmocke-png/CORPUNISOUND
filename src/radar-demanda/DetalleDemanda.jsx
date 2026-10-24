@@ -8,6 +8,7 @@ import {
   obtenerDemanda, obtenerHistorialDemanda, registrarSeguimiento,
 } from "./radarDemandaApi";
 import { fechaCorta, nombreProducto } from "./MisDemandas";
+import { etiquetaProveedor } from "./proveedorRadar";
 
 const input = "w-full rounded-xl neu-campo px-3 py-2.5 text-sm outline-none";
 const terminales = new Set(["CONVERTIDA", "NO_CONVERTIDA", "CANCELADA"]);
@@ -116,6 +117,7 @@ export default function DetalleDemanda({ id, clientes, meta, permisos, onVolver,
     <section className="neu rounded-2xl p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase text-blue-600">Demanda #{demanda.id}</p><h1 className="mt-1 text-2xl font-extrabold text-slate-900">{nombreProducto(demanda)}</h1><p className="mt-1 text-sm text-slate-500">SKU: {demanda.producto_sku_registrado || "Sin SKU"}</p></div><span className="w-fit rounded-full bg-blue-100 px-3 py-1.5 text-xs font-bold text-blue-800">{etiquetas[demanda.estado] || demanda.estado}</span></div>
       <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-4">
+        <Campo etiqueta="Proveedor" valor={etiquetaProveedor(demanda)} />
         <Campo etiqueta="Producto libre" valor={demanda.producto_buscado} /><Campo etiqueta="Marca" valor={demanda.marca_solicitada} /><Campo etiqueta="Modelo" valor={demanda.modelo_solicitado} /><Campo etiqueta="Variante" valor={demanda.variante_solicitada} />
         <Campo etiqueta="Cantidad" valor={demanda.cantidad} /><Campo etiqueta="Motivo" valor={demanda.motivo_no_venta?.replaceAll("_", " ")} /><Campo etiqueta="Sucursal" valor={demanda.sucursal_nombre} /><Campo etiqueta="Fecha" valor={fechaCorta(demanda.fecha_registro)} />
         <Campo etiqueta="Cliente / contacto" valor={contacto} /><Campo etiqueta="Teléfono" valor={telefono} /><Campo etiqueta="Vendedor" valor={demanda.vendedor_nombre} /><Campo etiqueta="Registró" valor={demanda.usuario_nombre} />

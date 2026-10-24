@@ -43,6 +43,8 @@ const TRANSICIONES_PERMITIDAS = Object.freeze({
 const CAMPOS_INMUTABLES = new Set([
   "id", "usuario_id", "vendedor_id", "sucursal_id", "fecha_registro",
   "producto_nombre_registrado", "producto_sku_registrado", "estado",
+  // Se fija al registrar, validado contra la lista de SICAR; corregirlo será otra entrega.
+  "proveedor_clave", "proveedor_nombre", "proveedor_por_revisar",
 ]);
 
 const CAMPOS_EDITABLES = new Set([

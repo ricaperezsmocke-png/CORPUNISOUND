@@ -11,6 +11,10 @@ const COLUMNAS = {
 const COLUMNAS_ARTICULOS = {
   articulo: ['art_id', 'clave', 'descripcion', 'cat_id'], categoria: ['cat_id', 'nombre', 'dep_id'], departamento: ['dep_id', 'nombre'],
 };
+// Proveedores con los que la tienda consigue la mercancía (Radar de Demanda, 2026-10-23). Esquema supuesto: se confirma
+// con --verificar. Opcionales igual que los artículos: si falta una columna, se sigue con todo lo demás y no se mandan.
+// Si SICAR los nombra distinto, se cambian aquí los dos nombres: [id, nombre].
+const COLUMNAS_PROVEEDORES = { proveedor: ['prv_id', 'nombre'] };
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -25,11 +29,27 @@ function crearFuente(lector, config = {}) {
   let validado = false;
   let articulosFaltantes = null;
   let columnasArticulos = [];
+  let proveedoresFaltantes = null;
+  let columnasProveedores = [];
+  const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
+  const [idProveedor, nombreProveedor] = COLUMNAS_PROVEEDORES[tablaProveedor].map(identificador);
   const desdeVenta = 'FROM `venta` v LEFT JOIN `ticket` t ON t.`tic_id` = v.`tic_id` '
     + 'LEFT JOIN `nota` n ON n.`not_id` = v.`not_id` LEFT JOIN `remision` r ON r.`rem_id` = v.`rem_id`';
   const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
     + ', COALESCE(t.`cli_id`, n.`cli_id`, r.`cli_id`) AS cli_id ' + desdeVenta;
   function comprobar() { if (!validado) throw new Error('ESQUEMA_NO_VALIDADO'); }
+  // Con un id que se puede repetir, el servidor rechaza el lote (ID_DUPLICADO) y el agente se detendría con todo y
+  // clientes y ventas. Solo se habilitan si el id es PRIMARY o UNIQUE de una sola columna completa; si no, o si el
+  // índice no se puede leer, la lista queda apagada (falla cerrando) sin tumbar la validación.
+  async function idProveedorUnico(leer) {
+    let indices;
+    try { indices = await leer(`SHOW INDEX FROM ${identificador(tablaProveedor)}`); } catch { return false; }
+    const columnaId = COLUMNAS_PROVEEDORES[tablaProveedor][0];
+    const porIndice = new Map();
+    for (const i of indices) porIndice.set(i.Key_name, [...(porIndice.get(i.Key_name) || []), i]);
+    return [...porIndice.values()].some(partes => partes.length === 1 && String(partes[0].Non_unique) === '0'
+      && partes[0].Column_name === columnaId && partes[0].Sub_part == null);
+  }
   async function clientesIds(leer, ids) {
     if (!ids.length) return [];
     return leer(`SELECT ${lista(COLUMNAS.cliente)} FROM \`cliente\` WHERE \`cli_id\` IN (${huecos(ids)})`, ids);
@@ -51,6 +71,15 @@ function crearFuente(lector, config = {}) {
         + 'FROM `articulo` a LEFT JOIN `categoria` c ON c.`cat_id` = a.`cat_id` LEFT JOIN `departamento` d ON d.`dep_id` = c.`dep_id` '
         // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
         + 'WHERE a.`art_id` > ? ORDER BY a.`art_id` LIMIT ?', [cursor, Math.min(limite, lector.tamano * 5)]));
+    },
+    get proveedoresDisponibles() { return Array.isArray(proveedoresFaltantes) && !proveedoresFaltantes.length; },
+    async proveedores(cursor, limite) {
+      comprobar();
+      if (proveedoresFaltantes.length) throw new Error('PROVEEDORES_NO_DISPONIBLES');
+      // Se renombran a prv_id y nombre: el contrato no cambia aunque SICAR use otros nombres de columna.
+      return lector.pagina(leer => leer(`SELECT p.${idProveedor} AS prv_id, p.${nombreProveedor} AS nombre `
+        + `FROM ${identificador(tablaProveedor)} p WHERE p.${idProveedor} > ? ORDER BY p.${idProveedor} LIMIT ?`,
+      [cursor, Math.min(limite, lector.tamano * 5)]));
     },
     async validar() {
       await lector.pagina(async leer => {
@@ -79,6 +108,13 @@ function crearFuente(lector, config = {}) {
           .filter(c => Object.keys(COLUMNAS_ARTICULOS).includes(c.split('.')[0]) && !/\.(huella|muestra|foto)$/i.test(c));
         articulosFaltantes = Object.entries(COLUMNAS_ARTICULOS).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`))
           .filter(c => !presentes.has(c));
+        columnasProveedores = columnas.map(c => `${c.TABLE_NAME}.${c.COLUMN_NAME}`)
+          .filter(c => c.split('.')[0] === tablaProveedor && !/\.(huella|muestra|foto)$/i.test(c));
+        proveedoresFaltantes = Object.entries(COLUMNAS_PROVEEDORES).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`))
+          .filter(c => !presentes.has(c));
+        if (!proveedoresFaltantes.length && !await idProveedorUnico(leer)) {
+          proveedoresFaltantes = [`${tablaProveedor}.${COLUMNAS_PROVEEDORES[tablaProveedor][0]} (sin índice único)`];
+        }
         validado = true;
       });
     },
@@ -125,6 +161,8 @@ function crearFuente(lector, config = {}) {
           + 'WHERE `tabla` = ? ORDER BY `his_id` DESC LIMIT 3', ['Cliente']),
         articulos: { columnas: columnasArticulos, faltantes: articulosFaltantes,
           total: articulosFaltantes.length ? null : String((await leer('SELECT COUNT(*) AS total FROM `articulo`'))[0].total) },
+        proveedores: { columnas: columnasProveedores, faltantes: proveedoresFaltantes, total: proveedoresFaltantes.length ? null
+          : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)}`))[0].total) },
       }));
     },
   };

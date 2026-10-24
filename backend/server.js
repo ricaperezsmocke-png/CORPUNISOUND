@@ -117,6 +117,7 @@ const {
   enriquecerDemanda, enriquecerHistorial, listarVentasCandidatas,
 } = require("./radarDemanda");
 const { booleanoEstricto } = require("./radar/entrada");
+const { listaProveedoresRadar } = require("./radar/proveedores");
 const { obtenerEvidenciaCompras } = require("./radarDemandaInteligencia");
 const { marcarPedido, quitarMarcaPedido, listarPedidosMarcados } = require("./radar/pedidosMarcados");
 const {
@@ -763,6 +764,36 @@ function requierePermisoPatchRadar(req, res, next) {
   return requierePermiso(permiso, resolverPermisosDeRol)(req, res, next);
 }
 
+/**
+ * Proveedores de SICAR de todas las tiendas, una sola entrada por nombre. Si la
+ * tabla todavía no existe (sin SQLite o sin la versión nueva) la lista es vacía:
+ * el vendedor puede seguir registrando con "Otro proveedor".
+ */
+function proveedoresRadar() {
+  if (!repoSicar) return [];
+  try { return listaProveedoresRadar(repoSicar.listarProveedores()); }
+  catch (e) {
+    if (/no such table/i.test(String(e?.message))) return [];
+    throw e;
+  }
+}
+
+// Quien registra necesita la lista; quien solo consulta el Radar también la ve en el detalle.
+function requiereVerProveedoresRadar(req, res, next) {
+  if (!req.usuarioToken) return res.status(401).json({ error: "No autenticado" });
+  const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+  if (!["registrar_demanda", "ver_radar_demanda"].some((clave) => permisos.includes(clave))) {
+    return res.status(403).json({ error: "No tienes el permiso requerido: registrar_demanda o ver_radar_demanda" });
+  }
+  next();
+}
+
+// Va ANTES de las rutas `/:id` para que Express no lea "proveedores" como un id.
+app.get("/api/radar-demanda/proveedores", requiereLogin, requiereVerProveedoresRadar, (req, res) => {
+  try { res.json(proveedoresRadar()); }
+  catch (e) { responderErrorRadar(res, e); }
+});
+
 app.get("/api/radar-demanda", requiereLogin, requierePermiso("ver_radar_demanda", resolverPermisosDeRol), (req, res) => {
   try { res.json(listarDemandas(DB, resolverAlcance(req), req.query)); }
   catch (e) { responderErrorRadar(res, e); }
@@ -792,6 +823,7 @@ app.post("/api/radar-demanda", requiereLogin, requierePermiso("registrar_demanda
     const resultado = crearNativoConVinculos(repoSicar, DB, guardar, () => registrar(DB, req.body || {}, {
       usuarioId: req.usuarioToken.id,
       sucursalId,
+      proveedores: proveedoresRadar(),
     }));
     if (repoSicar) res.type("json").send(JSON.stringify(resultado));
     else res.json(resultado);
@@ -919,6 +951,8 @@ function proyectarInteligenciaCompras(evidencia, puedeVerCostos) {
     // Demanda agrupada por familia, solo PENDIENTE: es la unica que debe
     // orientar una compra. Se pasa tal cual, sin recalcular nada aqui.
     familias: evidencia.familias,
+    // Lo pendiente agrupado por el proveedor que puso el vendedor: con esto Compras arma el pedido de un jalón.
+    por_proveedor: evidencia.por_proveedor,
     capacidades: evidencia.capacidades,
   };
 }

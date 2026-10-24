@@ -42,7 +42,7 @@ function demandaValida(sucursalId, extra = {}) {
   return {
     producto_buscado: `Producto solicitado S${sucursalId}`,
     cantidad: 1,
-    motivo_no_venta: "NO_MANEJAMOS",
+    motivo_no_venta: "NO_MANEJAMOS", proveedor_texto: "Proveedor de prueba",
     ...extra,
   };
 }

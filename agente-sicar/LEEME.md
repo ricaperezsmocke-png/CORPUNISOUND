@@ -88,6 +88,23 @@ lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente
 - Un artículo con datos que el CRM no acepta (sin descripción, texto demasiado largo) se salta y queda
   `ARTICULO_OMITIDO art_id=...` en el registro. No detiene nada.
 
+### Lista de proveedores (Radar de Demanda)
+
+Igual que los artículos, el agente manda **una vez al día, de noche (20:00-07:00)**, la lista de proveedores de SICAR
+(solo su número y su nombre). El Radar de Demanda la usa para que el vendedor diga con qué proveedor se consigue lo
+que pidió el cliente, y Compras ve lo pendiente agrupado por proveedor. Va en lotes aparte, después de los artículos.
+
+- **Viene apagada.** Se prende poniendo `"proveedores": true` en `config.json`, y solo después de dos cosas: que el
+  servidor de CORPUNISOUND ya tenga esta versión (uno viejo rechaza la lista y el agente se detendría, ventas
+  incluidas) y que `--verificar` confirme las columnas. Es independiente de `"articulos"`.
+- `--verificar` muestra qué columnas encontró en la tabla `proveedor` y cuántos proveedores hay. Si dice
+  `Proveedores APAGADOS, faltan columnas`, el agente sigue mandando clientes, ventas y artículos, pero no
+  proveedores: hay que ajustar `COLUMNAS_PROVEEDORES` en `mapeo.js` con el nombre real de la tabla, de su número
+  y de su nombre.
+- La primera vez se puede mandar de día, a mano: `C:\UnisoundSICAR\agente-sicar\correr.cmd --proveedores-ahora`.
+- Un proveedor sin nombre o con un nombre de más de 250 letras se salta y queda `PROVEEDOR_OMITIDO prv_id=...` en
+  el registro. No detiene nada.
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
@@ -119,6 +136,8 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `VENTA_OMITIDA ven_id=… codigo=…` | Una venta de SICAR trae un dato que el agente no sabe leer (importe con 3 decimales, negativo, sin artículos…). **Se salta**, la carga sigue y esa venta no aparece en el CRM (si ya estaba, se quita). | Revisar esa venta en SICAR. `--verificar` dice cuántas hay antes de la carga. |
 | `ARTICULO_OMITIDO art_id=… codigo=…` | Un artículo de SICAR sin descripción o con texto muy largo. **Se salta**; sus ventas salen como "Sin departamento". | Revisar ese artículo en SICAR. |
 | `ARTICULOS_NO_DISPONIBLES` | No encontró las columnas de artículo, categoría o departamento. Clientes y ventas siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_ARTICULOS`. |
+| `PROVEEDOR_OMITIDO prv_id=… codigo=…` | Un proveedor de SICAR sin nombre o con nombre muy largo. **Se salta**; no aparece en la lista del Radar. | Revisar ese proveedor en SICAR. |
+| `PROVEEDORES_NO_DISPONIBLES` | No encontró las columnas de la tabla de proveedores. Clientes, ventas y artículos siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_PROVEEDORES`. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
 | `FALLO ...` | Algo que no es un dato raro (configuración, MySQL, servidor). La corrida termina sin avanzar. | Avisar con la línea completa. |
 | `FALLO MYSQL_ACCESO_DENEGADO` / `MYSQL_NO_DISPONIBLE` | Contraseña de MySQL o MySQL apagado. | Revisar `config.json` y que SICAR esté abierto. |

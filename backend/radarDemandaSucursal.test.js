@@ -30,7 +30,7 @@ function construirDB() {
 }
 
 function datos(nombre) {
-  return { producto_buscado: nombre, cantidad: 1, motivo_no_venta: "NO_MANEJAMOS" };
+  return { producto_buscado: nombre, cantidad: 1, motivo_no_venta: "NO_MANEJAMOS", proveedor_texto: "Proveedor de prueba" };
 }
 
 const SUCURSAL_1 = { verTodas: false, sucursalId: 1 };

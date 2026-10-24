@@ -9,6 +9,7 @@
 const { fechaLocal, diaLocal } = require("./fechas");
 const { agruparRegistrosLibres } = require("./radar/identidad");
 const { agruparFamilias } = require("./radar/familias");
+const { agruparPorProveedor } = require("./radar/proveedores");
 const { clasificarEstadoDemanda } = require("./radar/metricas");
 const { diaDeRegistro } = require("./radar/fechaRegistro");
 const { indicePedidos, estadoDesdeIndice } = require("./radar/pedidosMarcados");
@@ -417,6 +418,7 @@ function obtenerEvidenciaCompras(DB, alcance, filtros = {}) {
     productos: expedientes.sort((a, b) => a.producto.producto_id - b.producto.producto_id || a.sucursal.sucursal_id - b.sucursal.sucursal_id),
     productos_no_manejados: productosNoManejados.sort((a, b) => b.solicitudes - a.solicitudes || a.identidad_textual.localeCompare(b.identidad_textual)),
     familias: agruparFamilias(registrosVentana, { universo: "PENDIENTE" }),
+    por_proveedor: agruparPorProveedor(registrosVentana, { fechaFin, sucursales, productos: productosLista }),
     // Cuantos faltantes detecto el inventario y cuantos no caben en esta
     // respuesta. Va aqui para que la pantalla pueda decirlo en voz alta.
     candidatos_inventario: {

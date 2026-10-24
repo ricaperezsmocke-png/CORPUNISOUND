@@ -92,6 +92,11 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, art_id),
     FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_proveedores (
+    sucursal_id INTEGER NOT NULL, prv_id TEXT NOT NULL, nombre TEXT NOT NULL, actualizado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, prv_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -151,6 +156,9 @@ function prepararEscrituras(sqlite) {
       VALUES (@sucursal_id, @art_id, @clave, @descripcion, @categoria, @departamento, @actualizado_en)
       ON CONFLICT(sucursal_id, art_id) DO UPDATE SET clave=excluded.clave, descripcion=excluded.descripcion,
         categoria=excluded.categoria, departamento=excluded.departamento, actualizado_en=excluded.actualizado_en`),
+    proveedor: sqlite.prepare(`INSERT INTO sicar_proveedores (sucursal_id, prv_id, nombre, actualizado_en)
+      VALUES (@sucursal_id, @prv_id, @nombre, @actualizado_en)
+      ON CONFLICT(sucursal_id, prv_id) DO UPDATE SET nombre=excluded.nombre, actualizado_en=excluded.actualizado_en`),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -281,10 +289,14 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
         clave: limpiarTexto(articulo.clave), descripcion: limpiarTexto(articulo.descripcion),
         categoria: limpiarTexto(articulo.categoria), departamento: limpiarTexto(articulo.departamento), actualizado_en });
     }
+    for (const proveedor of lote.proveedores || []) {
+      sentencias.proveedor.run({ sucursal_id: sucursalId, prv_id: proveedor.prv_id, nombre: limpiarTexto(proveedor.nombre), actualizado_en });
+    }
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
       aceptados: { clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas,
-        ...(lote.articulos !== undefined ? { articulos: lote.articulos.length } : {}) }, rechazados: 0,
+        ...(lote.articulos !== undefined ? { articulos: lote.articulos.length } : {}),
+        ...(lote.proveedores !== undefined ? { proveedores: lote.proveedores.length } : {}) }, rechazados: 0,
       ...(descartados.clientes || descartados.ventas ? { descartados } : {}),
       next_sequence: (BigInt(lote.sequence) + 1n).toString(), received_at: new Date().toISOString(),
     };
@@ -343,6 +355,8 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
       FROM sicar_envios WHERE (? IS NULL OR sucursal_id=?) ORDER BY fecha DESC, rowid DESC LIMIT 100`).all(sucursalId, sucursalId),
     listarIntentos: sucursalId => sqlite.prepare(`SELECT * FROM sicar_intentos
       WHERE (? IS NULL OR sucursal_id=?) ORDER BY id DESC LIMIT 100`).all(sucursalId, sucursalId),
+    // Lista cruda de todas las tiendas para el Radar de Demanda; la pantalla la junta por nombre.
+    listarProveedores: () => sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores ORDER BY sucursal_id, prv_id').all(),
     registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
       (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
       VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),

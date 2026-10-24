@@ -1,6 +1,8 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Minus, PackageSearch, Plus, Search, UserRound, X } from "lucide-react";
-import { MOTIVOS, mensajeErrorRadar, registrarDemanda } from "./radarDemandaApi";
+import { MOTIVOS, cargarProveedoresRadar, mensajeErrorRadar, registrarDemanda } from "./radarDemandaApi";
+import SelectorProveedor from "./SelectorProveedor";
+import { PROVEEDOR_VACIO, datosProveedor, validarProveedorFormulario } from "./proveedorRadar";
 
 const VACIO = {
   producto_id: null, producto_buscado: "", marca_solicitada: "", modelo_solicitado: "",
@@ -10,6 +12,7 @@ const VACIO = {
 };
 
 const input = "w-full rounded-xl neu-campo px-3 py-2.5 text-sm outline-none transition";
+const inicialProveedor = (lista) => (lista.length ? PROVEEDOR_VACIO : { ...PROVEEDOR_VACIO, modo: "otro" });
 const RESULTADOS_POR_PAGINA = 8;
 
 export default function RegistrarDemanda({ productos, clientes, catalogosProducto = {}, puedeRegistrar, puedeEnviarCRM, sinSucursal, onRegistrada }) {
@@ -29,6 +32,24 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
   const [exito, setExito] = useState(false);
   const [avisoSicar, setAvisoSicar] = useState("");
   const envioEnCurso = useRef(false);
+  // Proveedor obligatorio (Victor, 2026-10-23). Sin lista de SICAR todavía, se escribe a mano.
+  const [proveedores, setProveedores] = useState([]);
+  const [cargandoProveedores, setCargandoProveedores] = useState(true);
+  const [errorProveedores, setErrorProveedores] = useState("");
+  const [proveedor, setProveedor] = useState(PROVEEDOR_VACIO);
+
+  useEffect(() => {
+    let vigente = true;
+    cargarProveedoresRadar()
+      .then((lista) => { if (vigente) { setProveedores(lista || []); setProveedor(inicialProveedor(lista || [])); } })
+      .catch(() => {
+        if (!vigente) return;
+        setErrorProveedores("No se pudo cargar la lista de proveedores: escribe el proveedor a mano.");
+        setProveedor(inicialProveedor([]));
+      })
+      .finally(() => { if (vigente) setCargandoProveedores(false); });
+    return () => { vigente = false; };
+  }, []);
 
   const coincidencias = useMemo(() => {
     const q = busqueda.trim().toLocaleLowerCase("es");
@@ -51,6 +72,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
   const reiniciar = () => {
     setForm(VACIO); setBusqueda(""); setBusquedaCliente(""); setModoProducto("catalogo");
     setModoCliente("anonimo"); setObservacionAbierta(false); setError(""); setExito(false); setAvisoSicar("");
+    setProveedor(inicialProveedor(proveedores));
   };
 
   const elegirProducto = (producto) => {
@@ -88,6 +110,8 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
     setError("");
     const cantidad = Number(form.cantidad);
     if (!form.producto_id && !form.producto_buscado.trim()) return setError("Indica qué producto pidió el cliente.");
+    const errorProveedor = cargandoProveedores ? "Espera a que cargue la lista de proveedores." : validarProveedorFormulario(proveedor);
+    if (errorProveedor) return setError(errorProveedor);
     if (!form.motivo_no_venta) return setError("Selecciona el motivo por el que no se realizó la venta.");
     if (!Number.isInteger(cantidad) || cantidad < 1) return setError("La cantidad debe ser mayor que cero.");
     if (!puedeRegistrar) return setError("No tienes permiso para registrar demandas.");
@@ -98,7 +122,7 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
     envioEnCurso.current = true;
     setGuardando(true);
     try {
-      const payload = { ...form, cantidad, fecha_seguimiento: form.fecha_seguimiento || null };
+      const payload = { ...form, ...datosProveedor(proveedor), cantidad, fecha_seguimiento: form.fecha_seguimiento || null };
       const respuesta = await registrarDemanda(payload);
       setAvisoSicar(respuesta?.aviso_sicar || "");
       setExito(true);
@@ -137,6 +161,8 @@ export default function RegistrarDemanda({ productos, clientes, catalogosProduct
           <input className={input} value={form.producto_buscado} onChange={(e) => actualizar("producto_buscado", e.target.value)} placeholder="Producto solicitado *" autoFocus />
           <div className="grid gap-3 sm:grid-cols-2"><input className={input} value={form.marca_solicitada} onChange={(e) => actualizar("marca_solicitada", e.target.value)} placeholder="Marca" /><input className={input} value={form.modelo_solicitado} onChange={(e) => actualizar("modelo_solicitado", e.target.value)} placeholder="Modelo" /><input className={input} value={form.variante_solicitada} onChange={(e) => actualizar("variante_solicitada", e.target.value)} placeholder="Variante" /><input className={input} value={form.categoria_solicitada} onChange={(e) => actualizar("categoria_solicitada", e.target.value)} placeholder="Categoría" /></div>
         </div>}
+        <SelectorProveedor proveedores={proveedores} cargando={cargandoProveedores} errorLista={errorProveedores}
+          valor={proveedor} onChange={setProveedor} />
       </section>
 
       <section><label className="mb-2 block font-semibold text-slate-800">2. ¿Por qué no se vendió?</label><div className="flex flex-wrap gap-2">{MOTIVOS.map(([valor, etiqueta]) => <button type="button" key={valor} onClick={() => actualizar("motivo_no_venta", valor)} className={`min-h-11 rounded-xl border px-3 text-sm font-medium transition ${form.motivo_no_venta === valor ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 neu-panel text-slate-700 hover:border-blue-400 hover:bg-blue-50"}`}>{etiqueta}</button>)}</div></section>

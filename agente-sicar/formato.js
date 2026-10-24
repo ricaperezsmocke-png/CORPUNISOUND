@@ -71,6 +71,7 @@ function sobre(sequence, mode, ahora) {
 }
 function cabe(lote) {
   return lote.clientes.length <= 100 && lote.ventas.length <= 100 && (lote.articulos?.length || 0) <= 500
+    && (lote.proveedores?.length || 0) <= 500
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
     && Buffer.byteLength(JSON.stringify(lote), 'utf8') <= 1024 * 1024;
@@ -110,6 +111,15 @@ function articuloSeguro(a) {
     return { articulo: null, omitido: { art_id, codigo: error.message } };
   }
 }
+// Proveedor de SICAR para el Radar de Demanda: id y nombre, nada más. Mismo máximo que el nombre del cliente (250).
+function proveedorSeguro(p) {
+  const prv_id = id(p?.prv_id);
+  try { return { proveedor: { prv_id, nombre: texto(String(p.nombre ?? '').trim(), 250, false) }, omitido: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message)) throw error;
+    return { proveedor: null, omitido: { prv_id, codigo: error.message } };
+  }
+}
 function ventaSegura(v, c, detalles, enviada, avisar) {
   try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
   catch (error) {
@@ -122,4 +132,5 @@ function ventaSegura(v, c, detalles, enviada, avisar) {
     return { venta: enviada ? { ven_id: error.ven_id, estado: 'excluida' } : null, omitida };
   }
 }
-module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro };
+module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
+  proveedorSeguro };

@@ -22,7 +22,7 @@ function construirDB() {
 
 const contexto = { usuarioId: 100, sucursalId: 1 };
 const alcance = { verTodas: true };
-const datos = { producto_id: 30, cantidad: 1, motivo_no_venta: "SIN_EXISTENCIA" };
+const datos = { producto_id: 30, cantidad: 1, motivo_no_venta: "SIN_EXISTENCIA", proveedor_texto: "Proveedor de prueba" };
 
 function crearConvertida(DB, ventaId = 500) {
   const demanda = crearDemanda(DB, datos, contexto);

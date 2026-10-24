@@ -189,3 +189,18 @@ test('11. un lote solo de articulos avanza la secuencia y clasifica por departam
   assert.deepEqual(q.departamentos.find(d => d.nombre === 'Accesorios').categorias.map(c => c.nombre), ['Sin categoría']);
   assert.equal(q.departamentos.reduce((n, d) => n + d.monto_centavos, q.ajustes_centavos), q.total_centavos);
 });
+
+test('12. un lote solo de proveedores avanza la secuencia, se guarda por tienda y el reenvio no duplica', async () => {
+  const proveedores = [{ prv_id: '7', nombre: 'Casa Veerkamp' }, { prv_id: '9', nombre: 'Fender México' }];
+  const cuerpo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000012', sequence: '8', clientes: [], ventas: [], proveedores });
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  assert.deepEqual(r.datos.aceptados, { clientes: 0, ventas: 0, proveedores: 2 });
+  assert.equal(r.datos.next_sequence, '9');
+  assert.deepEqual(await enviar(cuerpo), r);
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, prv_id, nombre FROM sicar_proveedores ORDER BY prv_id').all(),
+    proveedores.map(p => ({ sucursal_id: 1, ...p })));
+  const malo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000013', sequence: '9', clientes: [], ventas: [],
+    proveedores: [{ prv_id: '10', nombre: '' }] });
+  assert.equal((await enviar(malo)).status, 422);
+});
