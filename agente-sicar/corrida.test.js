@@ -423,3 +423,74 @@ test('existencias: van despues de articulos y proveedores, y no antes de termina
   await ejecutar(q.archivo, { existencias: true }, { ...q.deps, existenciasAhora: true });
   assert.equal(leidos.length, 0);
 });
+// Un lote de solo existencias atorado por 5xx o red no frena las ventas: se descarta y la corrida sigue.
+function pendienteDe(contenido) {
+  const lote = { ...sobre('1', 'incremental', new Date('2026-10-15T18:00:00Z')), ...contenido };
+  return { bytes: JSON.stringify(lote), cambios: { enviadas: {}, existencias: { 1: '9.0000' } } };
+}
+test('existencias: pendiente de solo existencias con 503 persistente se descarta y las ventas nuevas se mandan', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' },
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }] }) });
+  p.deps.reloj = DE_DIA;
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).existencias ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  const conVentas = p.lotes.filter(l => l.ventas.length);
+  assert.equal(conVentas.length, 1, 'las ventas salen en la misma corrida');
+  assert.equal(conVentas[0].sequence, '1', 'el servidor no lo acepto: se reutiliza el numero');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.existencias, { 1: '3.0000' }, 'los cambios del lote descartado no se aplican');
+  assert.equal(estado.pendiente, null);
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.siguiente_secuencia, '2');
+  assert.equal(estado.detenido, null);
+});
+test('existencias: pendiente que trae otra coleccion ademas de existencias no se descarta con 503', async t => {
+  for (const otra of [{ ventas: [{ ven_id: '5', estado: 'excluida' }] }, { clientes: [{ cli_id: '42', nombre: 'José' }] },
+    { articulos: [{ art_id: '1' }] }, { proveedores: [{ prv_id: '4' }] }]) {
+    const pendiente = pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }], ...otra });
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' }, pendiente });
+    p.deps.reloj = DE_DIA;
+    p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
+    p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+    await ejecutar(p.archivo, {}, p.deps);
+    assert.ok(!p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+    const estado = await cargar(p.archivo);
+    assert.deepEqual(estado.pendiente, pendiente);
+    assert.deepEqual(estado.existencias, { 1: '3.0000' });
+  }
+});
+test('existencias: si el servidor si acepto el lote descartado, el 409 del siguiente lote se resuelve renumerando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', existencias: { 1: '3.0000' },
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }] }) });
+  p.deps.reloj = DE_DIA;
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  let servidor = 1n;
+  const aceptados = [];
+  p.deps.fetch = async (_, { body }) => {
+    const lote = JSON.parse(body);
+    if (lote.existencias) {
+      // Lo acepta, pero la respuesta se pierde en el camino.
+      if (BigInt(lote.sequence) === servidor) servidor++;
+      throw new Error('socket hang up');
+    }
+    if (BigInt(lote.sequence) !== servidor) {
+      return { status: 409, json: async () => ({ codigo: 'SECUENCIA_INCORRECTA', siguiente_secuencia: String(servidor) }) };
+    }
+    aceptados.push(lote);
+    servidor++;
+    return { status: 200, json: async () => ({ next_sequence: String(servidor) }) };
+  };
+  await ejecutar(p.archivo, {}, p.deps);
+  assert.ok(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.equal(aceptados.length, 1);
+  assert.equal(aceptados[0].sequence, '2');
+  assert.equal(aceptados[0].ventas.length, 1);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.siguiente_secuencia, '3');
+  assert.equal(estado.detenido, null);
+  assert.equal(estado.pendiente, null);
+  assert.deepEqual(estado.existencias, { 1: '3.0000' });
+});

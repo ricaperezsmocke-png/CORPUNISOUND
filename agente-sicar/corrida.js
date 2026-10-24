@@ -35,6 +35,8 @@ function sinIdsRepetidos(filas) {
 }
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
   && !lote.existencias?.length;
+const soloExistencias = lote => !!lote.existencias?.length && !lote.clientes?.length && !lote.ventas?.length
+  && !lote.articulos?.length && !lote.proveedores?.length;
 const EXISTENCIAS_POR_LOTE = 500;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
@@ -68,7 +70,15 @@ async function ejecutar(archivo, config, deps) {
     }
     if (estado.pendiente) {
       if (!permitido(JSON.parse(estado.pendiente.bytes).mode)) return;
-      if (!await enviarPendiente(archivo, estado, config, deps)) return;
+      if (!await enviarPendiente(archivo, estado, config, deps)) {
+        // Lo más importante del agente son las ventas: un lote de SOLO existencias que agotó sus intentos (5xx, red) se
+        // descarta sin aplicar sus cambios. El mapa queda como estaba y la siguiente corrida vuelve a mandar la diferencia.
+        // Si el servidor sí lo había aceptado, el siguiente lote recibe 409 SECUENCIA_INCORRECTA y se renumera solo.
+        if (!estado.pendiente || !soloExistencias(JSON.parse(estado.pendiente.bytes))) return;
+        estado.pendiente = null;
+        await guardar(archivo, estado);
+        log('EXISTENCIAS_DESCARTADAS');
+      }
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
     if (!permitido(mode)) return;

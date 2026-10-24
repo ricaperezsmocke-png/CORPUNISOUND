@@ -116,7 +116,9 @@ existencia, con signo y 4 decimales tal cual las guarda SICAR (una negativa se m
   unos 10 ms) y las compara con lo último que el servidor **confirmó** (guardado en `estado.json`). Manda solo las que
   cambiaron y, como "sin existencia" (`null`), las que dejaron de ser vigentes (borradas o vueltas servicio): el
   servidor borra esa fila. Si no cambió nada, no manda nada. Si el envío falla, la copia local no cambia y la
-  siguiente corrida reenvía lo mismo: no se pierde un cambio.
+  siguiente corrida reenvía lo mismo: no se pierde un cambio. Si ese reenvío también falla (servidor caído, sin
+  internet), el paquete de existencias se descarta (`EXISTENCIAS_DESCARTADAS`) para no frenar las ventas, y las
+  existencias se vuelven a comparar y mandar cuando el servidor responda.
 - **Una vez al día, de noche (20:00-07:00)**, manda todas aunque no hayan cambiado, para que el servidor sepa que
   siguen al día. La primera vez manda todas (~13 paquetes).
 - **Viene apagada.** Se prende poniendo `"existencias": true` en `config.json`, solo después de que el servidor de
@@ -166,6 +168,7 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `PROVEEDORES_NO_DISPONIBLES` | No encontró las columnas de la tabla de proveedores. Clientes, ventas y artículos siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_PROVEEDORES`. |
 | `EXISTENCIA_OMITIDA art_id=… codigo=…` | Un artículo con una existencia que el agente no sabe leer (por ejemplo, más de 4 decimales). **Se salta**; en CORPUNISOUND queda lo último confirmado. | Revisar ese artículo en SICAR. |
 | `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
+| `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
 | `CLIENTE_OMITIDO cli_id=… codigo=…` | Igual, con un cliente (por ejemplo, un nombre de más de 250 letras). | Revisar ese cliente en SICAR. |
 | `FALLO ...` | Algo que no es un dato raro (configuración, MySQL, servidor). La corrida termina sin avanzar. | Avisar con la línea completa. |
