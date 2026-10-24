@@ -7,7 +7,7 @@ const { empaquetar, desempaquetar } = require('./respaldoCifrado');
 const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes',
   'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos',
   'sicar_estados', 'sicar_estados_historial', 'sicar_internas', 'sicar_internas_historial', 'sicar_articulos',
-  'sicar_proveedores', 'sicar_existencias']);
+  'sicar_proveedores', 'sicar_existencias', 'sicar_cortes', 'sicar_cortes_pagos', 'sicar_cortes_cobros']);
 // Bandeja de clientes (spec 2026-10-18 §4.7): sus tablas viajan en la misma copia y se restauran en la misma transacción
 // que los datos del negocio, porque sus cliente_id apuntan a clientes del JSON. Solo si la base ya las tiene.
 const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes', 'lead_contenidos', 'lead_eventos_externos',
@@ -17,11 +17,13 @@ const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes
   'lead_enlaces_rastreados']);
 const TODAS = Object.freeze([...TABLAS, ...TABLAS_LEADS]);
 // Cada forma de copia que ya existe en Drive se queda escrita tal cual; las nuevas van al final. Una copia vieja deja
-// vacías las tablas que todavía no existían cuando se tomó (por ejemplo, los proveedores del Radar y las existencias, 2026-10-23).
+// vacías las tablas que todavía no existían cuando se tomó (por ejemplo, los proveedores del Radar y las existencias, 2026-10-23, y los cortes de caja).
 const TABLAS_15 = Object.freeze(TABLAS.slice(0, 15));
 const TABLAS_16 = Object.freeze(TABLAS.slice(0, 16));
+const TABLAS_17 = Object.freeze(TABLAS.slice(0, 17));
 const GENERACIONES = Object.freeze([TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS.slice(0, 14), TABLAS_15,
-  Object.freeze([...TABLAS_15, ...TABLAS_LEADS]), TABLAS_16, Object.freeze([...TABLAS_16, ...TABLAS_LEADS]), TABLAS, TODAS]);
+  Object.freeze([...TABLAS_15, ...TABLAS_LEADS]), TABLAS_16, Object.freeze([...TABLAS_16, ...TABLAS_LEADS]),
+  TABLAS_17, Object.freeze([...TABLAS_17, ...TABLAS_LEADS]), TABLAS, TODAS]);
 const CON_BANDEJA = new Set(GENERACIONES.filter(tablas => tablas.includes(TABLAS_LEADS[0])));
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.

@@ -102,6 +102,7 @@ const foto = (sqlite, tabla) => sqlite.prepare(`SELECT * FROM ${tabla} ORDER BY 
 const TABLAS_LEADS = ['lead_fuentes', 'lead_identidades_externas', 'lead_conversaciones', 'leads', 'lead_interacciones',
   'lead_eventos_externos', 'lead_asignaciones', 'lead_historial'];
 
+const CORTES = ['sicar_cortes', 'sicar_cortes_pagos', 'sicar_cortes_cobros'];
 test('las conversaciones viajan en la copia y se restauran idénticas junto con los datos del negocio', async t => {
   const f = conBandeja(t), g = preparar(t), s = api();
   inicializarPersistenciaCentroLeads(g.sqlite);
@@ -127,11 +128,11 @@ test('una base solo con conversaciones (sin SICAR) también entra al respaldo', 
   assert.equal(s.tieneDatosSicar(f.repo), true);
 });
 
-test('sin tablas de la bandeja el respaldo sigue con la generación de 17 tablas', async t => {
+test('sin tablas de la bandeja el respaldo sigue con la generación de 20 tablas', async t => {
   const f = preparar(t), s = api();
   sembrar(f);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 17);
+  assert.equal(Object.keys(m.conteos).length, 20);
   assert.equal(m.version_leads, undefined);
 });
 
@@ -207,11 +208,12 @@ test('respaldo viejo de 36 tablas (bandeja sin proveedores) sigue abriendo y tra
   const f = conBandeja(t), g = preparar(t), s = api();
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 38);
-  assert.deepEqual(Object.keys(m.conteos).slice(15, 18), ['sicar_proveedores', 'sicar_existencias', 'centro_leads_schema_version']);
+  assert.equal(Object.keys(m.conteos).length, 41);
+  assert.deepEqual(Object.keys(m.conteos).slice(15, 21), ['sicar_proveedores', 'sicar_existencias', ...CORTES, 'centro_leads_schema_version']);
   const viejo = structuredClone(m);
-  for (const tabla of ['sicar_proveedores', 'sicar_existencias']) delete viejo.conteos[tabla];
-  viejo.trozos = viejo.trozos.filter(c => !['sicar_proveedores', 'sicar_existencias'].includes(c.tabla));
+  const quitadas = ['sicar_proveedores', 'sicar_existencias', ...CORTES];
+  for (const tabla of quitadas) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => !quitadas.includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 36);
   assert.equal(viejo.trozos.some(c => c.tabla === 'sicar_proveedores'), false);
   g.repo.aplicarLote({ sucursalId: 1, hash: 'hash-p', lote: { batch_id: 'lote-p', sequence: '1', mapping_version: 'v1',
@@ -229,8 +231,9 @@ test('respaldo viejo de 37 tablas (bandeja con proveedores, sin existencias) sig
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   const viejo = structuredClone(m);
-  delete viejo.conteos.sicar_existencias;
-  viejo.trozos = viejo.trozos.filter(c => c.tabla !== 'sicar_existencias');
+  const quitadas = ['sicar_existencias', ...CORTES];
+  for (const tabla of quitadas) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => !quitadas.includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 37);
   g.repo.aplicarLote({ sucursalId: 1, hash: 'hash-e', lote: { batch_id: 'lote-e', sequence: '1', mapping_version: 'v1',
     clientes: [], ventas: [], existencias: [{ art_id: '7', existencia: '3.0000' }] } });
@@ -240,4 +243,21 @@ test('respaldo viejo de 37 tablas (bandeja con proveedores, sin existencias) sig
   p.liberar();
   for (const tabla of TABLAS_LEADS) assert.deepEqual(foto(g.sqlite, tabla), foto(f.sqlite, tabla), tabla);
   assert.equal(g.sqlite.prepare('SELECT count(*) n FROM sicar_existencias').get().n, 0);
+});
+
+test('respaldo viejo de 38 tablas (bandeja con existencias, sin cortes) sigue abriendo y deja los cortes vacios', async t => {
+  const f = conBandeja(t), g = preparar(t), s = api();
+  inicializarPersistenciaCentroLeads(g.sqlite);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(Object.keys(m.conteos).length, 41);
+  const viejo = structuredClone(m);
+  for (const tabla of CORTES) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => !CORTES.includes(c.tabla));
+  assert.equal(Object.keys(viejo.conteos).length, 38);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, viejo);
+  p.aplicar(() => {}, { clientes: f.DB.crm.clientes, fechaFoto: m.generado_en });
+  p.liberar();
+  for (const tabla of TABLAS_LEADS) assert.deepEqual(foto(g.sqlite, tabla), foto(f.sqlite, tabla), tabla);
+  for (const tabla of CORTES) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0, tabla);
 });
