@@ -114,7 +114,7 @@ test('una venta ya recibida que pasa a público se quita de la ficha del cliente
   assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
 });
 
-test('la migración es idempotente, activa FK y crea las catorce tablas aisladas', t => {
+test('la migración es idempotente, activa FK y crea las 24 tablas aisladas', t => {
   const { sqlite } = prepararDB(t);
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);

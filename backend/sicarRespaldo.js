@@ -26,7 +26,8 @@ const TABLAS_17 = Object.freeze(TABLAS.slice(0, 17));
 const TABLAS_20 = Object.freeze(TABLAS.slice(0, 20));
 // Generación de los nombres del personal (2026-10-24), antes de las ventas de mostrador.
 const TABLAS_22 = Object.freeze(TABLAS.slice(0, 22));
-const GENERACIONES = Object.freeze([TABLAS.slice(0, 10), TABLAS.slice(0, 12), TABLAS.slice(0, 14), TABLAS_15,
+const GENERACIONES = Object.freeze([Object.freeze(TABLAS.slice(0, 10)), Object.freeze(TABLAS.slice(0, 12)),
+  Object.freeze(TABLAS.slice(0, 14)), TABLAS_15,
   Object.freeze([...TABLAS_15, ...TABLAS_LEADS]), TABLAS_16, Object.freeze([...TABLAS_16, ...TABLAS_LEADS]),
   TABLAS_17, Object.freeze([...TABLAS_17, ...TABLAS_LEADS]), TABLAS_20, Object.freeze([...TABLAS_20, ...TABLAS_LEADS]),
   TABLAS_22, Object.freeze([...TABLAS_22, ...TABLAS_LEADS]), TABLAS, TODAS]);
@@ -356,4 +357,4 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
 }
 
 module.exports = { crearSnapshotSicar, prepararRestauracionSicar, verificarSnapshotSicar, configurarContexto, tieneDatosSicar,
-  desligarLeadsParciales, TABLAS, TABLAS_LEADS, MAX_TROZO };
+  desligarLeadsParciales, TABLAS, TABLAS_15, TABLAS_LEADS, MAX_TROZO };

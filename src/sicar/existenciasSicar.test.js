@@ -50,6 +50,12 @@ test("fechaTienda: hoy / ayer / fecha, siempre en hora de Chiapas", () => {
   assert.equal(fechaTienda("basura", ahora), "nunca");
 });
 
+test("fechaTienda: la misma fecha de hace un año no se muestra como hoy ni ayer", () => {
+  const ahora = new Date("2026-10-26T18:00:00.000Z");
+  assert.equal(fechaTienda("2025-10-26T16:42:00.000Z", ahora), "el 26/10 10:42");
+  assert.equal(fechaTienda("2025-10-25T16:42:00.000Z", ahora), "el 25/10 10:42");
+});
+
 test("fechaTienda: el dia UTC y el de Chiapas no coinciden", () => {
   // 2026-10-26T03:00Z es el 25/10 21:00 en Chiapas
   const ahora = new Date("2026-10-26T03:30:00.000Z");

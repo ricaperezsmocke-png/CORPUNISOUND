@@ -7,10 +7,10 @@ const MIN = 60000;
 const HORA = 60 * MIN;
 
 const FORMATO_TIENDA = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "America/Mexico_City", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  timeZone: "America/Mexico_City", year: "numeric", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 
-/** Día, mes, hora y minuto de un instante en America/Mexico_City (Chiapas), sin depender de la zona del navegador. */
+/** Año, día, mes, hora y minuto de un instante en America/Mexico_City (Chiapas), sin depender de la zona del navegador. */
 function partesTienda(t) {
   const p = {};
   for (const x of FORMATO_TIENDA.formatToParts(new Date(t))) p[x.type] = x.value;
@@ -40,10 +40,11 @@ export function fechaTienda(iso, ahora = new Date()) {
   if (Number.isNaN(t)) return "nunca";
   const p = partesTienda(t);
   const hoy = partesTienda(ahora.getTime());
+  // "ayer" usa ahora - 24 h: vale porque Ciudad de México ya no tiene horario de verano.
   const ayer = partesTienda(ahora.getTime() - 24 * HORA);
   const hora = `${p.hour}:${p.minute}`;
-  if (p.day === hoy.day && p.month === hoy.month) return `hoy ${hora}`;
-  if (p.day === ayer.day && p.month === ayer.month) return `ayer ${hora}`;
+  if (p.year === hoy.year && p.day === hoy.day && p.month === hoy.month) return `hoy ${hora}`;
+  if (p.year === ayer.year && p.day === ayer.day && p.month === ayer.month) return `ayer ${hora}`;
   return `el ${p.day}/${p.month} ${hora}`;
 }
 

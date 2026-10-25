@@ -2,6 +2,8 @@ const HORA = 3600000;
 const POR_PAGINA = 50;
 const VENCE_FILA_HORAS = 36;
 const SIN_CONTACTO_HORAS = 24;
+// Va despues de cualquier clave real al ordenar: los articulos sin clave quedan al final.
+const DESPUES_DE_TODA_CLAVE = '\uFFFF';
 
 // Entero en diezmilesimas -> texto con 4 decimales, sin aritmetica binaria.
 function diezmilesimasATexto(valor) {
@@ -57,7 +59,7 @@ function consultarExistenciasSicar(sqlite, { q, solo, pagina } = {}, ahora = new
     if (modo === 'negativas' && !g.negativa) return false;
     return !busqueda || normalizar(g.clave).includes(busqueda) || normalizar(g.descripcion).includes(busqueda);
   });
-  renglones.sort((a, b) => (a.clave ?? '￿').localeCompare(b.clave ?? '￿') || a.descripcion.localeCompare(b.descripcion));
+  renglones.sort((a, b) => (a.clave ?? DESPUES_DE_TODA_CLAVE).localeCompare(b.clave ?? DESPUES_DE_TODA_CLAVE) || a.descripcion.localeCompare(b.descripcion));
   const paginas = Math.max(1, Math.ceil(renglones.length / POR_PAGINA));
   const pedida = Number.parseInt(pagina, 10);
   const actual = Math.min(paginas, Number.isSafeInteger(pedida) && pedida > 0 ? pedida : 1);

@@ -184,7 +184,7 @@ test('mantenimiento: HEAD pasa como GET y un PUT de personal devuelve 503', asyn
     assert.equal(put.status, 503);
     assert.equal(put.datos.codigo, 'MANTENIMIENTO');
     const head = await fetch(`${base}/api/sicar/cortes`, { method: 'HEAD', headers: { Authorization: `Bearer ${t995}` } });
-    assert.notEqual(head.status, 503);
+    assert.equal(head.status, 200);
   } finally { mantenimiento.desactivar(); }
 });
 
