@@ -170,10 +170,11 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, tra_id, art_id),
     FOREIGN KEY (sucursal_id, tra_id) REFERENCES sicar_traspasos(sucursal_id, tra_id)
   );
+  -- Sin llave foranea a sicar_tiendas a proposito: no va en el respaldo SICAR y la restauracion borra sicar_tiendas con las
+  -- llaves activas; los omitidos tienen que sobrevivir a una restauracion (la vuelta semanal del agente los vuelve a mandar).
   CREATE TABLE IF NOT EXISTS sicar_traspasos_omitidos (
     sucursal_id INTEGER NOT NULL, tra_id TEXT NOT NULL, codigo TEXT NOT NULL, primera_vez TEXT NOT NULL, ultima_vez TEXT NOT NULL,
-    PRIMARY KEY (sucursal_id, tra_id),
-    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+    PRIMARY KEY (sucursal_id, tra_id)
   );
   CREATE INDEX IF NOT EXISTS sicar_traspasos_punta ON sicar_traspasos (folio, suc_origen, suc_destino);
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa (

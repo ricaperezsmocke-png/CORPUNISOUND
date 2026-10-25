@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import {
-  formatoDinero, fechaHoraCorte, fechaRelativa, contadorDePeticiones, tiendasDelSelector,
+  formatoDinero, fechaRelativa, contadorDePeticiones, tiendasDelSelector,
 } from "./cortesSicar.js";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso, textoOmitido,
+  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso, textoOmitido, fechaTraspaso,
 } from "./traspasosSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -114,7 +114,7 @@ function TablaTraspasos({ traspasos, tiendas, desde, hasta }) {
             return (
               <React.Fragment key={llave}>
                 <tr>
-                  <td className={CELDA}>{fechaHoraCorte(t.fecha)}</td>
+                  <td className={CELDA}>{fechaTraspaso(t.fecha)}</td>
                   <td className={CELDA}>
                     {t.folio}
                     <span className="block text-xs text-slate-500">Registro de {nombreDeTienda(tiendas, t.sucursal_id)}</span>

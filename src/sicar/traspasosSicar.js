@@ -9,6 +9,12 @@ export const nombreEstado = (estado) => ESTADOS[estado] || String(estado ?? "—
 
 export const llaveTraspaso = (t) => `${t.sucursal_id}-${t.tra_id}`;
 
+/** La fecha del traspaso es día solo (AAAA-MM-DD) en el servidor; también acepta día con hora. Sale DD/MM/AAAA. */
+export function fechaTraspaso(texto) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.exec(String(texto ?? ""));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+}
+
 /** `sucursal_id` va SIEMPRE (vacío = todas): el selector del encabezado no recorta el resultado en silencio. */
 export function parametrosTraspasos({ sucursal, desde, hasta, estado }) {
   const p = new URLSearchParams();

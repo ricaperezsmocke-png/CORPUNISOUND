@@ -885,3 +885,16 @@ test('un manifiesto con detalle de traspasos pero sin traspasos no es una genera
   const m = sinTablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }), ['sicar_traspasos']);
   await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
 });
+
+test('restaurar con traspasos omitidos guardados no choca con sicar_tiendas y los omitidos siguen ahi', async t => {
+  const f = preparar(t), s = api();
+  sembrar(f);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  f.repo.aplicarLote({ sucursalId: 1, hash: 'hash-o', lote: { batch_id: 'lote-o', sequence: '2', mapping_version: 'v1',
+    clientes: [], ventas: [], traspasos_omitidos: [{ tra_id: '41', codigo: 'DETALLE_FUERA_DE_LIMITE' }] } });
+  const antes = f.sqlite.prepare('SELECT * FROM sicar_traspasos_omitidos').all();
+  const p = await s.prepararRestauracionSicar(f.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.deepEqual(f.sqlite.prepare('SELECT * FROM sicar_traspasos_omitidos').all(), antes);
+  assert.equal(antes.length, 1);
+});

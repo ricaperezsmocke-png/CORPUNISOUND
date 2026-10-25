@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso, filtrarPorTienda, textoOmitido,
+  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso, filtrarPorTienda, textoOmitido, fechaTraspaso,
 } from "./traspasosSicar.js";
 
 const BASE = {
@@ -142,4 +142,11 @@ test("filtrarPorTienda tambien filtra los omitidos por la tienda dueña", () => 
   const lista = [OMITIDO, { ...OMITIDO, sucursal_id: 2, tra_id: "9" }];
   assert.deepEqual(filtrarPorTienda(lista, "2").map((o) => o.tra_id), ["9"]);
   assert.equal(filtrarPorTienda(lista, "").length, 2);
+});
+
+test("fechaTraspaso muestra DD/MM/AAAA con el dia solo (como lo guarda el servidor) o con hora", () => {
+  assert.equal(fechaTraspaso("2026-10-18"), "18/10/2026");
+  assert.equal(fechaTraspaso("2026-10-18 09:30:00"), "18/10/2026");
+  assert.equal(fechaTraspaso("2026-10-18T09:30:00"), "18/10/2026");
+  for (const malo of [null, undefined, "", "18/10/2026", "2026-10", "basura"]) assert.equal(fechaTraspaso(malo), "—", String(malo));
 });

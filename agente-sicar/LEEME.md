@@ -265,6 +265,8 @@ recibió o se canceló, total y, por artículo, cantidad y precio sin y con impu
   queda la lista como estaba antes de restaurar; la siguiente vuelta semanal (o `--traspasos-ahora`) vuelve a mandar
   **todos** los omitidos, porque recorre toda la historia desde el traspaso 1 sin importar estado ni fecha.
 - De día, con `"traspasos": true` y sin la primera carga hecha, queda `TRASPASOS_ESPERANDO_NOCHE` una vez al día.
+- **Orden de despliegue: primero el servidor, después el agente. Un agente nuevo contra un servidor viejo detiene TODO
+  el envío, ventas incluidas.**
 - **Viene apagado.** Se prende poniendo `"traspasos": true` en `config.json`, **solo después** de que el servidor de
   CORPUNISOUND tenga esta versión (uno viejo rechaza el paquete con `HTTP_400` y **el agente se detendría, ventas
   incluidas**) y de que `--verificar` diga `Traspasos en SICAR: N, M enviados sin recibir`. Si además dice
