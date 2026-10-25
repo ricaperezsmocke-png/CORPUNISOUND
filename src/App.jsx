@@ -21,12 +21,15 @@ import Configuracion from "./Configuracion.jsx";
 import Supervision from "./supervision/Supervision.jsx";
 import ExistenciasSicar from "./sicar/ExistenciasSicar.jsx";
 import CortesSicar from "./sicar/CortesSicar.jsx";
+import TraspasosSicar from "./sicar/TraspasosSicar.jsx";
+import FacturasPorLlegar from "./compras/FacturasPorLlegar.jsx";
 import { apiFetch } from "./api";
 import { vistaApagada } from "./menuCategorias.js";
 
 const MODULOS = [
   "pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta",
   "respaldos", "gerencia_ventas", "radar_demanda", "configuracion", "supervision", "existencias_sicar", "cortes_sicar",
+  "traspasos_sicar", "facturas_por_llegar",
 ];
 
 async function seleccionarCajaPredeterminada() {
@@ -150,6 +153,8 @@ function App() {
           <Traspasos onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} />
         )}
         {vista === "existencias_sicar" && <ExistenciasSicar />}
+        {vista === "traspasos_sicar" && <TraspasosSicar permisos={usuario.permisos} usuario={usuario} />}
+        {vista === "facturas_por_llegar" && <FacturasPorLlegar permisos={usuario.permisos} />}
         {vista === "cortes_sicar" && <CortesSicar permisos={usuario.permisos} usuario={usuario} />}
         {vista === "garantias" && (
           <Garantias onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} pantallas={pantallas} />
