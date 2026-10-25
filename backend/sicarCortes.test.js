@@ -159,6 +159,10 @@ test('filtros: ultimos 30 dias por defecto, desde/hasta, caja y persona', t => {
   assert.deepEqual(ids({ desde: '2026-09-01', usu_id: '52' }), ['1', '2']);
   assert.deepEqual(ids({ desde: '', hasta: '' }), ['2', '3']);
   assert.throws(() => consulta(sqlite, { desde: '2026-13-01' }), errorCon(400));
+  // Tope de rango: 366 dias de diferencia pasa (2025-10-22), 367 no; tambien con solo desde (hasta = hoy).
+  assert.doesNotThrow(() => consulta(sqlite, { desde: '2025-10-22', hasta: '2026-10-23' }));
+  assert.throws(() => consulta(sqlite, { desde: '2025-10-21', hasta: '2026-10-23' }), /366 d/);
+  assert.throws(() => consulta(sqlite, { desde: '2020-01-01' }), errorCon(400));
   assert.throws(() => consulta(sqlite, { hasta: 'ayer' }), errorCon(400));
   assert.throws(() => consulta(sqlite, { sucursal_id: 'x' }), errorCon(400));
   assert.throws(() => consulta(sqlite, { caj_id: ['1', '2'] }), errorCon(400));
@@ -285,6 +289,9 @@ test('rutas: permisos separados, alcance del token y nunca del filtro', async t 
   assert.deepEqual((await pedir('/api/sicar/cortes?sucursal_id=2', 994)).datos.cortes.map(c => c.cor_id), ['7']);
   assert.equal((await pedir('/api/sicar/cortes', 994)).datos.cortes.length, 2);
   assert.equal((await pedir('/api/sicar/cortes?desde=basura', 994)).status, 400);
+  const largo = await pedir('/api/sicar/cortes?desde=2020-01-01&hasta=2026-01-01', 994);
+  assert.equal(largo.status, 400);
+  assert.match(largo.datos.error, /366 d/);
   assert.deepEqual((await pedir('/api/sicar/personal', 991)).datos.map(p => p.sucursal_id), [1, 1]);
 
   assert.equal((await poner('/api/sicar/personal/1/52', 991, { nombre: 'Ana' })).status, 403, 'ver no da para asignar');

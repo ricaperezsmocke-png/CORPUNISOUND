@@ -174,6 +174,20 @@ test('mantenimiento bloquea agente y creación de llaves con 503', async () => {
   } finally { mantenimiento.desactivar(); }
 });
 
+test('mantenimiento: HEAD pasa como GET y un PUT de personal devuelve 503', async () => {
+  app.DB.admin.roles.push({ id: 995, nombre: 'Prueba 995', permisos: ['asignar_cajeros_sicar', 'ver_cortes_sicar'], modulos: ['sicar'] });
+  app.DB.admin.usuarios.push({ id: 995, nombre: 'Prueba SICAR', usuario: 'sicar995', rol_id: 995, sucursal_id: 1, activo: true });
+  const t995 = firmarToken({ id: 995, rol_id: 995, sucursal_id: 1 });
+  mantenimiento.activar('Prueba');
+  try {
+    const put = await pedir('/api/sicar/personal/1/52', t995, { nombre: 'Ana' }, 'PUT');
+    assert.equal(put.status, 503);
+    assert.equal(put.datos.codigo, 'MANTENIMIENTO');
+    const head = await fetch(`${base}/api/sicar/cortes`, { method: 'HEAD', headers: { Authorization: `Bearer ${t995}` } });
+    assert.notEqual(head.status, 503);
+  } finally { mantenimiento.desactivar(); }
+});
+
 test('doce solicitudes por llave; la decimotercera responde 429', async () => {
   const k = await llave();
   for (let i = 0; i < 12; i++) assert.equal((await pedir(`${ruta}/estado`, k.llave)).status, 200);
