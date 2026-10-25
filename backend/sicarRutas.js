@@ -172,6 +172,21 @@ function registrarRutasSicar(app, opciones) {
     const { q, solo, pagina } = req.query;
     res.json(repo.consultarExistencias({ q: String(q ?? ''), solo, pagina }, new Date(), nombres));
   }));
+  // Traspasos SICAR: el alcance sale solo del token. El mapa es de toda la empresa: verlo con el permiso, cambiarlo con alcance total.
+  const nombresTiendas = () => Object.fromEntries(tiendas().map(t => [t.id, t.nombre]));
+  const traspasos = require('./sicarTraspasos');
+  app.get('/api/sicar/traspasos', ...permiso('ver_traspasos_sicar'), ejecutar((req, res, alcance) => {
+    const { desde, hasta, estado } = req.query;
+    res.json(traspasos.consultarTraspasosSicar(repo.conexionParaVinculos(), { desde, hasta, estado }, alcance, nombresTiendas()));
+  }));
+  app.get('/api/sicar/sucursales-mapa', ...permiso('ver_traspasos_sicar'), ejecutar((req, res) => {
+    res.json({ tiendas: tiendas().map(t => ({ id: t.id, nombre: t.nombre })),
+      mapa: traspasos.listarMapaSicar(repo.conexionParaVinculos(), nombresTiendas()) });
+  }));
+  app.put('/api/sicar/sucursales-mapa', ...permiso('administrar_sucursales'), ejecutar((req, res, alcance) => {
+    const existe = id => tiendas().some(t => Number(t.id) === id);
+    res.json(traspasos.asignarMapaSicar(repo.conexionParaVinculos(), req.body, String(req.usuarioToken.id), alcance, existe));
+  }));
   // Cortes SICAR: el alcance sale solo del token (ver todas o su tienda); ?sucursal_id= es un filtro que lo recorta.
   app.get('/api/sicar/cortes', ...permiso('ver_cortes_sicar'), ejecutar((req, res, alcance) => {
     const { desde, hasta, sucursal_id, caj_id, usu_id } = req.query;

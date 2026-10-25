@@ -78,6 +78,7 @@ const PERMISOS = [
   { clave: "ver_existencias_sicar", etiqueta: "Ver Existencias SICAR", modulo: "inventario", implementado: true },
   { clave: "realizar_traspasos", etiqueta: "Realizar Traspasos entre Sucursales", modulo: "inventario", implementado: true },
   { clave: "recibir_compra", etiqueta: "Recibir Compras a Proveedor", modulo: "inventario", implementado: true },
+  { clave: "ver_traspasos_sicar", etiqueta: "Ver Traspasos SICAR", modulo: "inventario", implementado: true },
   { clave: "ver_facturas_por_llegar", etiqueta: "Ver Facturas por Llegar", modulo: "inventario", implementado: true },
   { clave: "registrar_facturas_por_llegar", etiqueta: "Registrar Facturas por Llegar", modulo: "inventario", implementado: true },
   { clave: "gestionar_garantias", etiqueta: "Gestionar Garantías", modulo: "inventario", implementado: true },
