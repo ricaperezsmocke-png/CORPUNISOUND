@@ -72,6 +72,6 @@ test('SENTRY_ENABLED="false" permite arrancar el backend con operaciones no-op',
   try {
     assert.strictEqual(resultado.status, 0, resultado.stderr || resultado.stdout);
   } finally {
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

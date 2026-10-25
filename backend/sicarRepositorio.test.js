@@ -275,7 +275,7 @@ test('reiniciar desde archivo temporal conserva recibo, estado y secuencia', () 
     assert.equal(repo.estado(1).siguiente_secuencia, '3');
   } finally {
     if (sqlite?.open) sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 

@@ -24,7 +24,7 @@ function conBase(fn) {
     return fn(sqlite, temporal);
   } finally {
     sqlite.close();
-    fs.rmSync(temporal.carpeta, { recursive: true, force: true });
+    fs.rmSync(temporal.carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }
 
@@ -190,7 +190,7 @@ test("los datos relacionales permanecen después de cerrar y volver a abrir SQLi
     );
     sqlite.close();
   } finally {
-    fs.rmSync(temporal.carpeta, { recursive: true, force: true });
+    fs.rmSync(temporal.carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -308,7 +308,7 @@ test("persistencia.js inicializa Centro de Leads en el mismo archivo DB_PATH", (
     );
     sqlite.close();
   } finally {
-    fs.rmSync(temporal.carpeta, { recursive: true, force: true });
+    fs.rmSync(temporal.carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 

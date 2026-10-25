@@ -38,7 +38,7 @@ function conBase(fn) {
     return fn(sqlite, { carpeta, ruta });
   } finally {
     sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }
 
@@ -418,7 +418,7 @@ test("migración V2 actualiza una base V1, es idempotente y conserva datos", () 
     assert.strictEqual(MIGRACIONES[1].version, 2);
   } finally {
     sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -438,7 +438,7 @@ test("lead e historial permanecen después de cerrar y reabrir SQLite", () => {
     assert.strictEqual(obtenerHistorialLead(sqlite, 1).length, 2);
     sqlite.close();
   } finally {
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
