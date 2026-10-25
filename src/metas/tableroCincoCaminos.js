@@ -148,3 +148,15 @@ export function filasCategorias(disponibles = [], reglas = []) {
 export function reglasDesdeFilas(filas) {
   return filas.filter((f) => f.tipo).map((f) => ({ departamento: f.departamento, categoria: f.categoria, tipo: f.tipo }));
 }
+
+const FORMATO_DIA = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Día de la tienda (America/Mexico_City) de un instante, sin depender de la zona del navegador. */
+export function diaDeLaTienda(ahora = new Date()) {
+  return FORMATO_DIA.format(ahora);
+}
+
+/** Lunes de la última semana completa según el reloj de la tienda. */
+export function semanaPorDefecto(ahora = new Date()) {
+  return ultimaSemanaCompleta(diaDeLaTienda(ahora));
+}

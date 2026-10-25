@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
-import { filasCategorias, reglasDesdeFilas } from "./cincoCaminos.js";
+import { filasCategorias, reglasDesdeFilas } from "./tableroCincoCaminos.js";
 
 const CAMPO = "neu-campo rounded-lg px-2 py-1 text-sm";
 const CELDA = "border-b border-slate-200 px-3 py-2";

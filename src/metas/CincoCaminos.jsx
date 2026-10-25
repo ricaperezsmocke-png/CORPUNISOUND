@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, RefreshCw } from "lucide-react";
 import { apiFetch } from "../api";
-import { contadorDePeticiones, fechaRelativa, tiendasDelSelector } from "../sicar/cortesSicar";
-import { opcionesSemanas, tarjetasDelTablero } from "./cincoCaminos.js";
+import { contadorDePeticiones, tiendasDelSelector } from "../sicar/cortesSicar";
+import { diaDeLaTienda, opcionesSemanas, tarjetasDelTablero } from "./tableroCincoCaminos.js";
 import CategoriasCincoCaminos from "./CategoriasCincoCaminos.jsx";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
@@ -50,7 +50,7 @@ function Tarjeta({ t }) {
 export default function CincoCaminos({ permisos = [], usuario = null }) {
   const [tiendas, setTiendas] = useState([]);
   const selector = tiendasDelSelector(tiendas, permisos, usuario);
-  const hoy = fechaRelativa(0);
+  const hoy = diaDeLaTienda();
   const semanas = useMemo(() => opcionesSemanas(hoy), [hoy]);
   const [sucursal, setSucursal] = useState(String(usuario?.sucursal_id ?? ""));
   const [semana, setSemana] = useState(semanas[0].lunes);
@@ -105,19 +105,19 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
     <div className="space-y-4 min-w-0 max-w-full">
       <div className="flex flex-wrap gap-3 items-end">
         <h2 className="text-lg font-bold text-slate-900 mr-auto">Cinco caminos</h2>
-        {selector.todas && (
+        {!verCategorias && selector.todas && (
           <label className={ETIQUETA}>Tienda
             <select className={CAMPO} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
               {selector.tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </select>
           </label>
         )}
-        <label className={ETIQUETA}>Semana
+        {!verCategorias && <label className={ETIQUETA}>Semana
           <select className={CAMPO} value={semana} onChange={(e) => setSemana(e.target.value)}>
             {semanas.map((s) => <option key={s.lunes} value={s.lunes}>{s.etiqueta}</option>)}
           </select>
-        </label>
-        <button type="button" className={BOTON} onClick={cargar}><RefreshCw size={16} aria-hidden="true" />Actualizar</button>
+        </label>}
+        {!verCategorias && <button type="button" className={BOTON} onClick={cargar}><RefreshCw size={16} aria-hidden="true" />Actualizar</button>}
         {puedeConfigurar && (
           <button type="button" className={BOTON} aria-pressed={verCategorias} onClick={() => setVerCategorias((v) => !v)}>
             {verCategorias ? "Volver al tablero" : "Categorías"}

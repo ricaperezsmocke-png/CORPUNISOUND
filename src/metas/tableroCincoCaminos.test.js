@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  semaforo, flecha, formatoNumero, tarjetasDelTablero, ultimaSemanaCompleta, opcionesSemanas, filasCategorias, reglasDesdeFilas,
-} from "./cincoCaminos.js";
+  semanaPorDefecto, diaDeLaTienda, semaforo, flecha, formatoNumero, tarjetasDelTablero, ultimaSemanaCompleta, opcionesSemanas, filasCategorias, reglasDesdeFilas,
+} from "./tableroCincoCaminos.js";
 
 test("semaforo: verde si alcanza la base, ámbar hasta -5%, rojo peor, null sin base", () => {
   assert.equal(semaforo(50, 50), "verde");
@@ -108,4 +108,10 @@ test("categorias: filas por departamento y categoría con la regla vigente, y re
   assert.ok(filas.some((f) => f.departamento === "VIEJO" && f.tipo === "accesorio"));
   assert.deepEqual(reglasDesdeFilas(filas), [
     { departamento: "CUERDAS", categoria: "GUITARRA", tipo: "instrumento" }, { departamento: "VIEJO", categoria: null, tipo: "accesorio" }]);
+});
+
+test("semana por defecto sigue el reloj de México, no el del navegador", () => {
+  assert.equal(diaDeLaTienda(new Date("2026-10-26T03:00:00Z")), "2026-10-25");
+  assert.equal(semanaPorDefecto(new Date("2026-10-26T03:00:00Z")), "2026-10-12");
+  assert.equal(semanaPorDefecto(new Date("2026-10-26T07:00:00Z")), "2026-10-19");
 });
