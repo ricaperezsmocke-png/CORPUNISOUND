@@ -73,19 +73,21 @@ function horaLocal(ms) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit',
     day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(ms)).replace(' ', 'T');
 }
-// Olvida de enviadas (y de mostrador_enviadas) las ventas fechadas hace más de 90 días que ya quedaron fuera del margen de
-// relectura: ninguna corrida normal las vuelve a leer y el estado.json crecería para siempre. Nunca se olvida una venta
-// sin fecha válida en la ventana, ni una de las 200 bajo el cursor, ni nada mientras la carga de mostrador desde 2025
-// está prendida y sin terminar (decide la tumba 'excluida' de ventas viejas). Devuelve true si quitó algo.
+// Olvida de enviadas, mostrador_enviadas y ventana las ventas fechadas hace más de 90 días que ya quedaron fuera del
+// margen de relectura: ninguna corrida normal las vuelve a leer y el estado.json crecería para siempre. Nunca se olvida
+// una venta sin fecha válida en la ventana, ni una de las 200 bajo el cursor, ni nada mientras la carga de mostrador
+// desde 2025 está prendida y sin terminar (decide la tumba 'excluida' de ventas viejas). La regla se decide con la ventana
+// de antes de podar, igual para los tres mapas. Devuelve true si quitó algo.
 function podar(estado, config, ahora) {
   if (estado.fase !== 'incremental' || (config.mostrador === true && !estado.mostrador_terminado)) return false;
   const limite = horaLocal(ahora - DIAS_RECUERDO_VENTAS * 86400000);
   const piso = BigInt(estado.ven_id) - BigInt(MARGEN_VENTAS);
-  const fecha = ven => estado.ventana[ven];
+  const ventana = estado.ventana;
+  const fecha = ven => ventana[ven];
   const olvidable = ven => /^[1-9]\d*$/.test(ven) && BigInt(ven) <= piso && typeof fecha(ven) === 'string'
     && FECHA_SICAR.test(fecha(ven)) && fecha(ven) < limite;
   let quito = false;
-  for (const mapa of ['enviadas', 'mostrador_enviadas']) {
+  for (const mapa of ['enviadas', 'mostrador_enviadas', 'ventana']) {
     const quedan = Object.entries(estado[mapa]).filter(([ven]) => !olvidable(ven));
     if (quedan.length === Object.keys(estado[mapa]).length) continue;
     estado[mapa] = Object.fromEntries(quedan);

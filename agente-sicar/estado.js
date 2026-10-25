@@ -83,7 +83,7 @@ async function cargar(archivo) {
   const dia = estado.avisos_dia ?? null, avisos = estado.avisos ?? [];
   const avisosValidos = (dia === null || (typeof dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dia)))
     && Array.isArray(avisos) && avisos.length <= LIMITE_AVISOS
-    && avisos.every(x => typeof x === 'string' && /^[A-Z_]{1,40}(:[1-9]\d{0,19})?$/.test(x));
+    && avisos.every(x => typeof x === 'string' && /^[A-Z_]{1,40}(:[1-9]\d{0,127})?$/.test(x));
   estado.avisos_dia = avisosValidos ? dia : null;
   estado.avisos = avisosValidos ? avisos : [];
   return estado;

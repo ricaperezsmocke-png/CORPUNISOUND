@@ -221,11 +221,14 @@ descripción ni clave del artículo. No llegan al CRM ni a la lista de clientes.
   números de público y la fecha; la segunda (la regla del agente) también cuenta al cliente sin nombre y al llamado
   "PÚBLICO EN GENERAL", y va por número de venta (una venta con la fecha de SICAR mal puesta cae distinto). Si las dos
   cifras se alejan mucho, hay clientes llamados "PÚBLICO EN GENERAL" con otro número: avisar para agregarlo a la lista.
-- **`estado.json` no crece para siempre**: recuerda qué ventas ya se mandaron (`enviadas`, `mostrador_enviadas`) y
-  olvida las fechadas hace más de 90 días que ya quedaron fuera de las 200 que se releen bajo el cursor. Nunca olvida
-  una de la relectura de 48 horas, una sin fecha válida, ni nada mientras la carga desde 2025 esté prendida y sin
-  terminar. Una venta olvidada que se cancela después todavía sale cancelada si SICAR la tiene completa; solo una
-  cancelada con datos raros o una que pasó a público, de hace más de 90 días, ya no saca su aviso corto.
+- **`estado.json` no crece para siempre**: recuerda qué ventas ya se mandaron (`enviadas`, `mostrador_enviadas`) y la
+  fecha de cada venta leída (`ventana`). De los tres olvida, con la misma regla, solo las ventas que cumplen todo esto:
+  fechadas hace más de 90 días (con fecha válida en `ventana`), con número igual o menor que el cursor de ventas menos
+  200 (fuera de las que se releen bajo el cursor), con el agente ya en la fase incremental y sin la carga desde 2025
+  prendida y sin terminar. Por eso nunca olvida una de la relectura de 48 horas, una de las 200 bajo el cursor ni una
+  sin fecha válida. Una venta olvidada que se cancela después todavía sale cancelada, completa, si SICAR la tiene
+  completa (y vuelve a quedar anotada); solo una cancelada con datos raros o una que pasó a público, de hace más de 90
+  días, ya no saca su aviso corto.
 - Si se apaga y se vuelve a prender, las ventas de público del tiempo apagado no se mandan solas: con la tarea
   pausada, en `estado.json` poner `"mostrador_terminado": false` y `"mostrador_cursor": "0"`, y volver a prender la
   tarea (la carga vuelve a pasar desde 2025; el servidor no las duplica).

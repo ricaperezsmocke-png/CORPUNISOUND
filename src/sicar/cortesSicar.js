@@ -52,6 +52,15 @@ export function contadorDePeticiones() {
   return { nueva: () => ++ultima, vigente: (n) => n === ultima };
 }
 
+/**
+ * Qué muestra la pantalla tras una carga: si falló (p. ej. rango de más de 366 días), se limpian los datos para que no
+ * quede visible la tabla ni el resumen del rango anterior; solo el mensaje.
+ */
+export function resultadoDeCarga(ok, cuerpo) {
+  if (!ok) return { datos: null, error: cuerpo?.error || "No se pudieron cargar los cortes." };
+  return { datos: cuerpo, error: "" };
+}
+
 /** "-1234.50" -> "-$1,234.50". Texto con dos decimales, sin pasar por números binarios. */
 export function formatoDinero(texto) {
   const m = /^(-?)(\d+)\.(\d{2})$/.exec(String(texto ?? ""));

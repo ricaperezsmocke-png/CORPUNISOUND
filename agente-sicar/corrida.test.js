@@ -1197,7 +1197,35 @@ test('estado podado: enviadas y mostrador_enviadas olvidan las de mas de 90 dias
   assert.deepEqual(Object.keys(estado.enviadas).sort(), ['12', '13', '14', '850', '999'],
     'se van solo las de mas de 90 dias por fecha y fuera del margen; sin fecha valida no se adivina');
   assert.deepEqual(Object.keys(estado.mostrador_enviadas).sort(), ['12', '14']);
-  assert.deepEqual(estado.ventana, ventana, 'la ventana no se toca');
+  assert.deepEqual(estado.ventana, { 12: '2026-08-01T10:00:00', 850: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00', 13: 'basura' },
+    'la ventana olvida con la misma regla: la de hace 1 dia, la del margen y la sin fecha valida se quedan');
+  assert.equal(p.lotes.length, 0, 'podar no manda nada');
+});
+test('estado podado: la ventana no se poda mientras la carga de mostrador esta prendida y sin terminar', async t => {
+  const ventana = { 10: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00' };
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '1000', ventana, enviadas: { 10: true } });
+  p.fuente.tope = async () => '1000';
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.deepEqual((await cargar(p.archivo)).ventana, ventana);
+});
+test('estado podado: una venta podada de la ventana que se cancela via historial vuelve a mandarse completa', async t => {
+  const ventana = { 9: '2026-01-05T10:00:00' };
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '1000', his_id: '70', ventana, enviadas: { 9: true },
+    mostrador_terminado: true });
+  p.fuente.tope = async () => '1000';
+  p.fuente.historial = async cursor => (cursor === '70' ? [{ his_id: '80', tabla: 'Venta', movimiento: 2, referencia: '9' }] : []);
+  p.fuente.porIds = async ids => (ids.includes('9') ? { filas: [{ ...v, fecha: '2026-01-05 10:00:00' }], clientes: [c], detalles: [d] }
+    : vacia());
+  await ejecutar(p.archivo, { historial: { columna_referencia: 'ref' } }, p.deps);
+  const ventas = p.lotes.flatMap(l => l.ventas);
+  assert.equal(ventas.length, 1);
+  assert.equal(ventas[0].estado, 'cancelada');
+  assert.equal(ventas[0].detalle.length, 1, 'sale completa, con sus renglones, no como cancelacion corta');
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.his_id, '80');
+  assert.equal(estado.ventana['9'], '2026-01-05T10:00:00', 'el historial la vuelve a anotar con su fecha');
+  assert.equal(estado.enviadas['9'], true);
 });
 test('estado podado: la cancelacion de una venta de hace 1 dia sigue saliendo como antes', async t => {
   const ventana = { 10: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00' };
