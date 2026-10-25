@@ -61,6 +61,18 @@ test('el esquema indexa las decisiones por identidad y bloqueo de unión', t => 
   }));
 });
 
+test('el esquema indexa ventas con cliente y de mostrador por tienda, estado y fecha (idempotente)', t => {
+  const { sqlite } = prepararDB(t);
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite); // base ya existente: no truena ni duplica
+  for (const tabla of ['sicar_ventas', 'sicar_ventas_mostrador']) {
+    const indices = sqlite.pragma(`index_list(${tabla})`).filter(i => {
+      const columnas = sqlite.pragma(`index_info(${i.name})`).map(c => c.name);
+      return JSON.stringify(columnas) === JSON.stringify(['sucursal_id', 'estado', 'fecha_local']);
+    });
+    assert.equal(indices.length, 1, tabla);
+  }
+});
+
 test('descarta público por nombre, id y tienda incluso en ventas sin cliente en el lote', t => {
   const { sqlite, repo } = prepararDB(t);
   const datos = lote();

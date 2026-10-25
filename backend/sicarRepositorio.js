@@ -170,6 +170,8 @@ const ESQUEMA = `
     FOREIGN KEY (key_id) REFERENCES sicar_llaves(key_id)
   );
   CREATE INDEX IF NOT EXISTS sicar_ventas_cliente ON sicar_ventas(sucursal_id, cli_id, estado, fecha_local, ven_id);
+  CREATE INDEX IF NOT EXISTS sicar_ventas_fecha ON sicar_ventas(sucursal_id, estado, fecha_local);
+  CREATE INDEX IF NOT EXISTS sicar_ventas_mostrador_fecha ON sicar_ventas_mostrador(sucursal_id, estado, fecha_local);
   CREATE INDEX IF NOT EXISTS sicar_vinculos_cliente ON sicar_vinculos(cliente_id);
   CREATE INDEX IF NOT EXISTS sicar_decisiones_identidad ON sicar_decisiones(sucursal_id, cli_id, bloquear_union);
   CREATE INDEX IF NOT EXISTS sicar_intentos_hora ON sicar_intentos(hora);

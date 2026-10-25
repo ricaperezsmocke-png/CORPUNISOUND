@@ -232,3 +232,78 @@ test('acepta la tienda como texto sin abrir el alcance', t => {
   assert.throws(() => numerosSemana(sqlite, DB, { sucursal_id: 'x', lunes: LUNES }), e => e.status === 400);
   assert.throws(() => numerosSemana(sqlite, DB, { sucursal_id: 1, lunes: '2026-10-13' }), e => e.status === 400, 'no es lunes');
 });
+
+test('cuentas internas: no cuentan como con cliente, ni como nuevas, ni en recompra', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  s.mostrador(1, LUNES, 30);
+  s.venta(1, { cli: 'X', fecha: `${LUNES}T10:00:00` }); // cuenta interna con compra en la semana
+  s.venta(1, { cli: 'X', fecha: `${sumar(LUNES, -20)}T10:00:00` });
+  s.venta(1, { cli: 'Z', fecha: `${LUNES}T11:00:00` }); // interna sin historia: tampoco es nueva
+  s.venta(1, { cli: 'Y', fecha: `${LUNES}T12:00:00` }); // cliente normal, primera compra
+  const interna = sqlite.prepare(`INSERT INTO sicar_internas (sucursal_id, cli_id, motivo, usuario_id, fecha_hora)
+    VALUES (?, ?, 'Cuenta de la tienda', 1, 'x')`);
+  interna.run(1, 'X');
+  interna.run(1, 'Z');
+  // La misma clave interna en OTRA tienda no excluye al cliente de esta.
+  s.tienda(2);
+  sqlite.prepare("INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (2, 'Y', 'Otro')").run();
+  interna.run(2, 'Y');
+  const r = n(sqlite, DB);
+  assert.equal(r.ventas, 33, 'la venta de la cuenta interna sigue siendo venta');
+  assert.equal(r.pct_con_cliente, 3.0); // 1 de 33
+  assert.equal(r.clientes_nuevos, 1);
+  assert.equal(r.recompra_90, 0.0);
+});
+
+test('una venta vigente con cli_id nulo cuenta como sin cliente', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  s.mostrador(1, LUNES, 29);
+  // El esquema lo impide hoy; se fuerza para que el cálculo no dependa solo de esa restricción.
+  sqlite.pragma('ignore_check_constraints = ON');
+  sqlite.prepare(`INSERT INTO sicar_ventas (sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
+    VALUES (1, 'nulo', NULL, '${LUNES}T09:00:00', 'vigente', 100, '1', 'h')`).run();
+  sqlite.pragma('ignore_check_constraints = OFF');
+  const r = n(sqlite, DB);
+  assert.equal(r.ventas, 30);
+  assert.equal(r.pct_con_cliente, 0.0);
+  assert.equal(r.clientes_nuevos, 0);
+  assert.equal(r.recompra_90, null);
+});
+
+test('Radar: los registros cancelados no cuentan en registros por cada 10 tickets (semana ni base)', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  let id = 0;
+  const registrar = (lunes, cuantos, estado) => {
+    for (let i = 0; i < cuantos; i++) {
+      DB.radar_demanda.registros.push({ id: ++id, sucursal_id: 1, estado, fecha_registro: `${sumar(lunes, i % 7)}T18:00:00.000Z` });
+    }
+  };
+  for (let k = 1; k <= 8; k++) {
+    const l = sumar(LUNES, -7 * k);
+    s.mostrador(1, l, 40);
+    registrar(l, 10, 'REGISTRADA');
+  }
+  s.mostrador(1, LUNES, 40);
+  registrar(LUNES, 6, 'CONVERTIDA');
+  registrar(LUNES, 20, 'CANCELADA'); // inflar con cancelados no tapa la caída
+  let r = n(sqlite, DB);
+  assert.equal(r.radar.registros_por_10_tickets, 1.5);
+  assert.equal(r.radar.no_confiable, true);
+  // Y en la base: cancelados de las 8 semanas previas no suben la vara.
+  for (let k = 1; k <= 8; k++) registrar(sumar(LUNES, -7 * k), 30, 'CANCELADA');
+  registrar(LUNES, 2, 'NO_CONVERTIDA');
+  r = n(sqlite, DB);
+  assert.equal(r.radar.registros_por_10_tickets, 2.0);
+  assert.equal(r.radar.no_confiable, false);
+});
+
+test('Radar: sin semanas base no se sabe si es confiable (null, no false)', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  s.mostrador(1, LUNES, 40);
+  DB.radar_demanda.registros = [{ id: 1, sucursal_id: 1, estado: 'REGISTRADA', fecha_registro: `${LUNES}T18:00:00.000Z` }];
+  assert.equal(n(sqlite, DB).radar.no_confiable, null);
+});

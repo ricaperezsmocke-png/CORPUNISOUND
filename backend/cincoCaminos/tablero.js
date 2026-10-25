@@ -44,21 +44,27 @@ const VIGENTES_CLIENTE = `FROM sicar_ventas WHERE sucursal_id = @suc AND estado 
 const VIGENTES_MOSTRADOR = `FROM sicar_ventas_mostrador WHERE sucursal_id = @suc AND estado = 'vigente'
   AND fecha_local >= @desde AND fecha_local < @hasta`;
 
+// "Con cliente" = cliente identificado que NO es cuenta interna de la tienda (`sicar_internas`). La venta de una cuenta
+// interna o una vigente sin cli_id sigue siendo venta, pero cuenta como sin cliente.
+const CON_CLIENTE = `cli_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sicar_internas i
+  WHERE i.sucursal_id = sicar_ventas.sucursal_id AND i.cli_id = sicar_ventas.cli_id)`;
+
 const SQL_TOTALES = `SELECT
   (SELECT COUNT(*) ${VIGENTES_CLIENTE}) AS ventas_cliente,
+  (SELECT COUNT(*) ${VIGENTES_CLIENTE} AND ${CON_CLIENTE}) AS con_cliente,
   (SELECT COALESCE(SUM(total_centavos), 0) ${VIGENTES_CLIENTE}) AS centavos_cliente,
   (SELECT COUNT(*) ${VIGENTES_MOSTRADOR}) AS ventas_mostrador,
   (SELECT COALESCE(SUM(total_centavos), 0) ${VIGENTES_MOSTRADOR}) AS centavos_mostrador,
   EXISTS (SELECT 1 FROM sicar_tiendas WHERE sucursal_id = @suc) AS con_agente`;
 
-// Clientes identificados de la semana (uno por cli_id): nuevos si no tienen venta vigente anterior en toda la
+// Clientes identificados de la semana (uno por cli_id, sin cuentas internas): nuevos si no tienen venta vigente anterior en toda la
 // historia de la tienda; recompra si tienen otra venta vigente en los 90 días previos al lunes.
 const SQL_CLIENTES = `SELECT COUNT(*) AS clientes,
   COALESCE(SUM(NOT EXISTS (SELECT 1 FROM sicar_ventas p WHERE p.sucursal_id = s.sucursal_id AND p.cli_id = s.cli_id
     AND p.estado = 'vigente' AND p.fecha_local < @desde)), 0) AS nuevos,
   COALESCE(SUM(EXISTS (SELECT 1 FROM sicar_ventas p WHERE p.sucursal_id = s.sucursal_id AND p.cli_id = s.cli_id
     AND p.estado = 'vigente' AND p.fecha_local >= @hace90 AND p.fecha_local < @desde)), 0) AS recompra
-  FROM (SELECT DISTINCT sucursal_id, cli_id ${VIGENTES_CLIENTE} AND cli_id IS NOT NULL) s`;
+  FROM (SELECT DISTINCT sucursal_id, cli_id ${VIGENTES_CLIENTE} AND ${CON_CLIENTE}) s`;
 
 // Renglones de las ventas vigentes de la semana (con cliente y de mostrador), tipificados con las reglas del gerente.
 // Una regla con categoría gana a la del departamento entero. La cantidad se suma en diezmilésimas enteras.
@@ -109,10 +115,9 @@ function calcularRadar(sqlite, registrosTienda, { suc, lunes, domingo, ventas, c
   const ventanaDesde = sumarDias(domingo, -60);
   const ventanaHasta = sumarDias(domingo, -30);
   let convertidas = 0, noConvertidas = 0, enSemana = 0;
-  for (const { dia, estado } of registrosTienda) {
-    if (dia >= lunes && dia <= domingo) enSemana += 1;
+  for (const { dia, clase } of registrosTienda) {
+    if (dia >= lunes && dia <= domingo && clase !== 'DESCARTADA') enSemana += 1;
     if (dia < ventanaDesde || dia > ventanaHasta) continue;
-    const clase = clasificarEstadoDemanda(estado);
     if (clase === 'CONVERTIDA') convertidas += 1;
     else if (clase === 'NO_CONVERTIDA') noConvertidas += 1;
   }
@@ -120,7 +125,8 @@ function calcularRadar(sqlite, registrosTienda, { suc, lunes, domingo, ventas, c
   let noConfiable = null;
   if (conBase) {
     const base = basePorDiez(sqlite, registrosTienda, suc, lunes);
-    noConfiable = base !== null && base > 0 && porDiez !== null && porDiez < base * CAIDA_NO_CONFIABLE;
+    // Sin semanas base no hay contra qué medir la caída: no se sabe (null), que no es lo mismo que confiable.
+    noConfiable = base === null || porDiez === null ? null : base > 0 && porDiez < base * CAIDA_NO_CONFIABLE;
   }
   return {
     conversion: pct(convertidas, convertidas + noConvertidas),
@@ -131,6 +137,7 @@ function calcularRadar(sqlite, registrosTienda, { suc, lunes, domingo, ventas, c
 }
 
 // Promedio de registros por cada 10 tickets en las 8 semanas previas; solo semanas con al menos 30 ventas.
+// Los registros cancelados (DESCARTADA) no cuentan: inflarlos no debe tapar ni subir la vara.
 function basePorDiez(sqlite, registrosTienda, suc, lunes) {
   const inicio = sumarDias(lunes, -7 * SEMANAS_BASE);
   const tickets = new Array(SEMANAS_BASE).fill(0);
@@ -140,8 +147,8 @@ function basePorDiez(sqlite, registrosTienda, suc, lunes) {
     }
   }
   const registros = new Array(SEMANAS_BASE).fill(0);
-  for (const { dia } of registrosTienda) {
-    if (dia >= inicio && dia < lunes) registros[Math.floor(diasEntre(inicio, dia) / 7)] += 1;
+  for (const { dia, clase } of registrosTienda) {
+    if (clase !== 'DESCARTADA' && dia >= inicio && dia < lunes) registros[Math.floor(diasEntre(inicio, dia) / 7)] += 1;
   }
   const razones = tickets.flatMap((t, k) => (t >= MINIMO_VENTAS ? [(registros[k] * 10) / t] : []));
   return razones.length ? razones.reduce((a, b) => a + b, 0) / razones.length : null;
@@ -152,7 +159,7 @@ function registrosDeTienda(DB, suc) {
   return lista.flatMap(r => {
     if (Number(r?.sucursal_id) !== suc) return [];
     const dia = diaDeRegistro(r);
-    return dia ? [{ dia, estado: r.estado }] : [];
+    return dia ? [{ dia, clase: clasificarEstadoDemanda(r.estado) }] : [];
   });
 }
 
@@ -177,7 +184,7 @@ function numerosSemana(sqlite, DB, { sucursal_id, lunes }, opciones = {}) {
     sin_dato: !t.con_agente || ventas < MINIMO_VENTAS,
     venta_centavos: ventaCentavos,
     ventas,
-    pct_con_cliente: pct(t.ventas_cliente, ventas),
+    pct_con_cliente: pct(t.con_cliente, ventas),
     clientes_nuevos: c.nuevos,
     recompra_90: pct(c.recompra, c.clientes),
     ticket_promedio_centavos: ventas ? Math.round(ventaCentavos / ventas) : null,

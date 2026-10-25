@@ -3149,7 +3149,7 @@ require("./metasRutas")(app, {
 // Tablero semanal de los cinco caminos por tienda. Solo lee SICAR; el alcance sale del token.
 require("./cincoCaminos/rutas").registrarRutasCincoCaminos(app, {
   DB, sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado,
-  tiendas: () => DB.pos.sucursales,
+  tiendas: () => DB.pos.sucursales, capturarError: (e) => Sentry.captureException(e),
 });
 
 // Supervisión de tiendas: visita mensual y fallas. Ver supervisionRutas.js.

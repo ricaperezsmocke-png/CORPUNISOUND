@@ -40,17 +40,22 @@ function validarCategorias(body) {
 
 function registrarRutasCincoCaminos(app, deps) {
   const { DB, sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, tiendas } = deps;
+  const capturarError = deps.capturarError || (() => {});
   const permiso = clave => [requiereLogin, requierePermiso(clave, resolverPermisosDeRol)];
   const config = () => {
     if (!DB.pos.cinco_caminos || typeof DB.pos.cinco_caminos !== 'object') DB.pos.cinco_caminos = { categorias: [] };
     if (!Array.isArray(DB.pos.cinco_caminos.categorias)) DB.pos.cinco_caminos.categorias = [];
     return DB.pos.cinco_caminos;
   };
-  const ejecutar = fn => (req, res) => {
+  const ejecutar = (ruta, fn) => (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       return fn(req, res);
     } catch (e) {
+      if (!e.status) {
+        console.error(`Error inesperado en ${ruta}:`, e && e.message ? e.message : e);
+        try { capturarError(e); } catch { /* Sentry no debe tumbar la respuesta */ }
+      }
       return res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo calcular el tablero.' });
     }
   };
@@ -60,7 +65,7 @@ function registrarRutasCincoCaminos(app, deps) {
     return c;
   };
 
-  app.get('/api/cinco-caminos/tablero', ...permiso('ver_cinco_caminos'), ejecutar((req, res) => {
+  app.get('/api/cinco-caminos/tablero', ...permiso('ver_cinco_caminos'), ejecutar('/api/cinco-caminos/tablero', (req, res) => {
     const alcance = resolverAlcanceAutorizado(req);
     let sucursalId = alcance.sucursalId;
     if (alcance.verTodas) {
@@ -78,18 +83,18 @@ function registrarRutasCincoCaminos(app, deps) {
     res.json(tableroTienda(c, DB, { sucursal_id: sucursalId, lunes }));
   }));
 
-  app.get('/api/cinco-caminos/categorias', ...permiso('ver_cinco_caminos'), ejecutar((req, res) => {
+  app.get('/api/cinco-caminos/categorias', ...permiso('ver_cinco_caminos'), ejecutar('/api/cinco-caminos/categorias', (req, res) => {
     res.json({ categorias: config().categorias });
   }));
 
-  app.get('/api/cinco-caminos/categorias/disponibles', ...permiso('ver_cinco_caminos'), ejecutar((req, res) => {
+  app.get('/api/cinco-caminos/categorias/disponibles', ...permiso('ver_cinco_caminos'), ejecutar('/api/cinco-caminos/categorias/disponibles', (req, res) => {
     const c = conexion(res);
     if (!c) return;
     res.json({ disponibles: c.prepare(SQL_DISPONIBLES).all() });
   }));
 
   // Cambiar qué es instrumento y qué es accesorio mueve un número del tablero: queda quién y cuándo.
-  app.put('/api/cinco-caminos/categorias', ...permiso('administrar_manual_tacticas'), ejecutar((req, res) => {
+  app.put('/api/cinco-caminos/categorias', ...permiso('administrar_manual_tacticas'), ejecutar('/api/cinco-caminos/categorias', (req, res) => {
     const categorias = validarCategorias(req.body);
     if (!categorias) {
       return res.status(400).json({ error: 'Cada regla lleva departamento (texto de hasta 100), categoría (texto o vacía) '
