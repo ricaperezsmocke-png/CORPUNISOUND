@@ -86,7 +86,14 @@ async function verificar(fuente, imprimir, esperar, log) {
   imprimir(`Ventas con nombre: ${ventas}`);
   imprimir(`Ventas que se saltarían por datos raros: ${raras.length}`);
   for (const r of raras.slice(0, 20)) imprimir(`  ven_id=${r.ven_id} codigo=${r.codigo}`);
-  if (mostrador?.desde_ven_id) imprimir(`Ventas de público en general desde 2025 revisando también el nombre: ${publico}`);
+  if (mostrador?.desde_ven_id) {
+    imprimir(`Ventas de público en general desde 2025 revisando también el nombre: ${publico}`);
+    // Las dos cifras se cuentan distinto a propósito: que no se lea como falla.
+    imprimir('  Las dos cifras de público pueden diferir: la primera cuenta en SICAR solo los números de cliente de público '
+      + 'y las fechas desde 2025; la segunda usa la regla del agente, que además cuenta como público al cliente sin nombre '
+      + 'y al que se llama PÚBLICO EN GENERAL, y toma las ventas desde ese número de venta (una con la '
+      + 'fecha de SICAR mal puesta cae distinto). La segunda es la más cercana a lo que manda el agente.');
+  }
 }
 function rutaRegistro(configPath) {
   return typeof configPath === 'string' && path.isAbsolute(configPath) ? path.join(path.dirname(configPath), 'agente-sicar.log') : null;

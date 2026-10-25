@@ -161,6 +161,9 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
   vengan después). Pasados 10 minutos se manda como esté: sin quién lo cerró queda `CORTE_SIN_CAJERO cor_id=...`; sin
   resumen se manda sin ventas por usuario y queda `CORTE_SIN_RESUMEN cor_id=...`. Un número de usuario raro (por
   ejemplo 0) se manda como "sin persona", nunca se le carga a otra.
+- Un corte que salió **sin quién lo cerró o sin resumen no queda como resuelto**: mientras siga entre los 50 bajo el
+  cursor, cada corrida lo vuelve a leer y lo vuelve a mandar, y en cuanto SICAR ya tiene esos datos sale completo una
+  última vez. El servidor lo reescribe por número de corte (no lo duplica) y el cursor no se mueve hacia atrás.
 - Si la fecha del corte va más de 10 minutos adelantada respecto al reloj de esta PC (reloj de SICAR mal puesto), no
   se espera: se manda como esté y queda `CORTE_FECHA_FUTURA cor_id=...`, para que no congele los cortes siguientes.
 - **Revisar que el reloj de las PCs de SICAR esté bien** (fecha, hora y zona horaria), el de esta PC incluido. Las
@@ -182,6 +185,10 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
   demás pero no manda cortes: hay que ajustar `COLUMNAS_CORTES` en `mapeo.js`.
 - Un corte con un dato que el agente no sabe leer (importe con 3 decimales, fecha imposible) se salta y queda
   `CORTE_OMITIDO cor_id=... codigo=...` en el registro. Ese corte **no se vuelve a intentar**: hay que avisar.
+- **Avisos una vez al día**: `EXISTENCIA_OMITIDA`, `EXISTENCIAS_NO_DISPONIBLES`, `CORTE_OMITIDO`, `CORTE_SIN_CAJERO`,
+  `CORTE_SIN_RESUMEN` y `CORTE_FECHA_FUTURA` quedan en el registro la primera vez de cada día por artículo o corte (o
+  por evento), no en cada corrida. El recuerdo vive en `estado.json` (`avisos_dia`, `avisos`); si se borra o está raro,
+  solo se vuelven a anotar los de hoy. Nada se calla: al día siguiente se vuelven a anotar.
 
 ### Ventas de mostrador (público en general)
 
@@ -210,8 +217,15 @@ descripción ni clave del artículo. No llegan al CRM ni a la lista de clientes.
   CORPUNISOUND tenga esta versión (uno viejo rechaza el paquete con `HTTP_400` y **el agente se detendría, ventas
   incluidas**) y de revisar `--verificar`. Solo `true` lo prende.
 - `--verificar` dice `Ventas de público en general desde 2025: N por número de cliente, desde la venta X` y, al final,
-  cuántas son revisando también el nombre. Si las dos cifras se alejan mucho, hay clientes llamados "PÚBLICO EN
-  GENERAL" con otro número: avisar para agregarlo a la lista.
+  cuántas son revisando también el nombre, con una línea que explica por qué pueden diferir: la primera solo mira los
+  números de público y la fecha; la segunda (la regla del agente) también cuenta al cliente sin nombre y al llamado
+  "PÚBLICO EN GENERAL", y va por número de venta (una venta con la fecha de SICAR mal puesta cae distinto). Si las dos
+  cifras se alejan mucho, hay clientes llamados "PÚBLICO EN GENERAL" con otro número: avisar para agregarlo a la lista.
+- **`estado.json` no crece para siempre**: recuerda qué ventas ya se mandaron (`enviadas`, `mostrador_enviadas`) y
+  olvida las fechadas hace más de 90 días que ya quedaron fuera de las 200 que se releen bajo el cursor. Nunca olvida
+  una de la relectura de 48 horas, una sin fecha válida, ni nada mientras la carga desde 2025 esté prendida y sin
+  terminar. Una venta olvidada que se cancela después todavía sale cancelada si SICAR la tiene completa; solo una
+  cancelada con datos raros o una que pasó a público, de hace más de 90 días, ya no saca su aviso corto.
 - Si se apaga y se vuelve a prender, las ventas de público del tiempo apagado no se mandan solas: con la tarea
   pausada, en `estado.json` poner `"mostrador_terminado": false` y `"mostrador_cursor": "0"`, y volver a prender la
   tarea (la carga vuelve a pasar desde 2025; el servidor no las duplica).
@@ -251,7 +265,7 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `PROVEEDOR_OMITIDO prv_id=… codigo=…` | Un proveedor de SICAR sin nombre o con nombre muy largo. **Se salta**; no aparece en la lista del Radar. | Revisar ese proveedor en SICAR. |
 | `PROVEEDORES_NO_DISPONIBLES` | No encontró las columnas de la tabla de proveedores. Clientes, ventas y artículos siguen normales. | Correr `--verificar` y ajustar `COLUMNAS_PROVEEDORES`. |
 | `EXISTENCIA_OMITIDA art_id=… codigo=…` | Un artículo con una existencia que el agente no sabe leer (por ejemplo, más de 4 decimales). **Se salta**; en CORPUNISOUND queda lo último confirmado. | Revisar ese artículo en SICAR. |
-| `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
+| `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale una vez al día. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
 | `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias (o de existencias y cortes) no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `CORTES_DESCARTADOS` | Un paquete de solo cortes (o de cortes y existencias) no se pudo mandar tras sus reintentos. Se tiró **para que las ventas sigan saliendo**; no se pierde ningún corte: el cursor no avanzó y se vuelven a mandar en las siguientes corridas. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `MOSTRADOR_AUTORIZADO_DE_DIA` | Alguien corrió `--mostrador-ahora`: se adelantó de día un tramo de la carga de mostrador desde 2025. | Nada. |

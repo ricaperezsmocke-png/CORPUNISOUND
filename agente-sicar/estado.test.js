@@ -236,3 +236,24 @@ test('mostrador: un estado.json de antes arranca la carga desde cero y rechaza c
   }
   assert.equal(registrar(x => x)('MOSTRADOR_AUTORIZADO_DE_DIA'), 'MOSTRADOR_AUTORIZADO_DE_DIA');
 });
+test('avisos del dia: un estado.json de antes o con el recuerdo raro arranca sin recuerdo, sin detener nada', async t => {
+  const archivo = await entorno(t);
+  const nuevo = inicial();
+  assert.equal(nuevo.avisos_dia, null);
+  assert.deepEqual(nuevo.avisos, []);
+  const viejo = inicial();
+  delete viejo.avisos_dia;
+  delete viejo.avisos;
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const cargado = await cargar(archivo);
+  assert.deepEqual([cargado.avisos_dia, cargado.avisos], [null, []]);
+  const bueno = { avisos_dia: '2026-10-14', avisos: ['EXISTENCIAS_NO_DISPONIBLES', 'EXISTENCIA_OMITIDA:12', 'CORTE_OMITIDO:3'] };
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...bueno }));
+  assert.deepEqual((await cargar(archivo)).avisos, bueno.avisos);
+  for (const raro of [{ avisos_dia: '14/10/2026' }, { avisos_dia: 7 }, { avisos: {} }, { avisos: [7] }, { avisos: ['x y'] },
+    { avisos: ['EXISTENCIA_OMITIDA:0'] }, { avisos: Array.from({ length: 5001 }, (_, i) => `EXISTENCIA_OMITIDA:${i + 1}`) }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    const raroCargado = await cargar(archivo);
+    assert.deepEqual([raroCargado.avisos_dia, raroCargado.avisos], [null, []], JSON.stringify(raro).slice(0, 80));
+  }
+});

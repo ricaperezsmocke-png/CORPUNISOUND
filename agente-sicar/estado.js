@@ -1,12 +1,15 @@
 const fs = require('node:fs/promises');
 const { DATOS_RAROS } = require('./formato');
 const { randomUUID } = require('node:crypto');
+// Cuántos avisos del día se recuerdan: pasado eso se siguen anotando todos (más ruido, nunca silencio).
+const LIMITE_AVISOS = 5000;
 function inicial() {
   return { version: 1, siguiente_secuencia: '1', fase: 'clientes', cli_id: '0', ven_id: '0', his_id: '0',
     tope: null, enviadas: {}, ventana: {}, pendiente: null, detenido: null, ultimo_envio: null,
     articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null,
     existencias: {}, existencias_dia: null, cortes_cursor: '0',
-    cortes_enviados: [], mostrador_cursor: '0', mostrador_desde_ven_id: null, mostrador_enviadas: {}, mostrador_terminado: false };
+    cortes_enviados: [], mostrador_cursor: '0', mostrador_desde_ven_id: null, mostrador_enviadas: {}, mostrador_terminado: false,
+    avisos_dia: null, avisos: [] };
 }
 async function guardar(archivo, estado) {
   const temporal = `${archivo}.${randomUUID()}.tmp`;
@@ -74,6 +77,15 @@ async function cargar(archivo) {
     || typeof mostrador !== 'object' || Array.isArray(mostrador)
     || Object.entries(mostrador).some(([k, x]) => !/^[1-9]\d*$/.test(k) || x !== true)
     || typeof estado.mostrador_terminado !== 'boolean') throw new Error('ESTADO_INVALIDO');
+  // Avisos del día: qué avisos repetibles (evento o evento:id) ya quedaron en el registro hoy, para no repetirlos en cada
+  // corrida. Un estado.json de antes, o uno con este recuerdo raro, arranca sin recuerdo: es solo para el registro y no
+  // vale detener las ventas por él (lo peor es anotar otra vez lo de hoy).
+  const dia = estado.avisos_dia ?? null, avisos = estado.avisos ?? [];
+  const avisosValidos = (dia === null || (typeof dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dia)))
+    && Array.isArray(avisos) && avisos.length <= LIMITE_AVISOS
+    && avisos.every(x => typeof x === 'string' && /^[A-Z_]{1,40}(:[1-9]\d{0,19})?$/.test(x));
+  estado.avisos_dia = avisosValidos ? dia : null;
+  estado.avisos = avisosValidos ? avisos : [];
   return estado;
 }
 const CANDADO_ABANDONADO_MS = 6 * 3600000;
@@ -164,4 +176,4 @@ function crearEscritor(ruta, reloj = Date.now, eco = console.log) {
   escribir.terminar = () => cola;
   return escribir;
 }
-module.exports = { inicial, guardar, cargar, bloquear, registrar, describirFallo, crearEscritor };
+module.exports = { LIMITE_AVISOS, inicial, guardar, cargar, bloquear, registrar, describirFallo, crearEscritor };
