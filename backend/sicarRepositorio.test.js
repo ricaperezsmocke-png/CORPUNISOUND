@@ -448,3 +448,24 @@ test('mostrador: una venta con cliente (vigente o cancelada) con el mismo ven_id
   aplicar(repo, { ...lote('4'), ventas: [{ ...venta, ven_id: '74' }] });
   assert.deepEqual(repo.listarMostrador().map(f => [f.sucursal_id, f.ven_id]), [[1, '72'], [2, '74']]);
 });
+
+test('mostrador: una venta con cliente publico en general no borra la fila de mostrador, y mostrador no entra si ya hay venta con cliente', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const renglon = { art_id: '1', cantidad: '1.0000', importe_con: '100.00', descuento_total: '0.00' };
+  const fila = ven_id => ({ ven_id, fecha_local: '2026-10-12T16:30:00', estado: 'vigente', total: '100.00', detalle: [renglon] });
+  const venta = lote().ventas[0];
+  const publico = { cli_id: '1', nombre: 'PUBLICO EN GENERAL', telefono: null, celular: null, email: null, rfc: null };
+  aplicar(repo, { ...lote(), clientes: [], ventas: [], mostrador: [fila('80')] });
+  const recibo = aplicar(repo, { ...lote('2'), clientes: [publico], ventas: [{ ...venta, ven_id: '80', cli_id: '1' }] });
+  assert.equal(recibo.descartados.ventas, 1, 'la venta con cliente publico se descarta');
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80']);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_detalles_mostrador').get().n, 1);
+  // Venta con cliente ya guardada: mostrador con el mismo ven_id no entra, pero el recibo lo cuenta.
+  aplicar(repo, lote('3'));
+  const r = aplicar(repo, { ...lote('4'), clientes: [], ventas: [], mostrador: [fila(venta.ven_id), fila('81')] });
+  assert.equal(r.aceptados.mostrador, 2);
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80', '81']);
+  // Una venta excluida (sin cliente) no bloquea mostrador.
+  aplicar(repo, { ...lote('5'), clientes: [], ventas: [{ ven_id: '82', estado: 'excluida' }], mostrador: [fila('82')] });
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80', '81', '82']);
+});

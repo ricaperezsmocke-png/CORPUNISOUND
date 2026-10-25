@@ -254,6 +254,7 @@ function prepararEscrituras(sqlite) {
     cancelarMostrador: sqlite.prepare(`UPDATE sicar_ventas_mostrador SET estado='cancelada', actualizado_en=?
       WHERE sucursal_id=? AND ven_id=?`),
     borrarDetalleMostrador: sqlite.prepare('DELETE FROM sicar_detalles_mostrador WHERE sucursal_id=? AND ven_id=?'),
+    ventaConCliente: sqlite.prepare(`SELECT 1 FROM sicar_ventas WHERE sucursal_id=? AND ven_id=? AND estado IN ('vigente', 'cancelada')`),
     borrarMostrador: sqlite.prepare('DELETE FROM sicar_ventas_mostrador WHERE sucursal_id=? AND ven_id=?'),
     detalleMostrador: sqlite.prepare(`INSERT INTO sicar_detalles_mostrador
       (sucursal_id, ven_id, renglon, art_id, cantidad, importe_centavos, descuento_centavos)
@@ -294,6 +295,8 @@ function escribirMostrador(sentencias, sucursalId, m, actualizado_en) {
     sentencias.cancelarMostrador.run(actualizado_en, sucursalId, m.ven_id);
     return;
   }
+  // Ya llego como venta con cliente: no se cuenta dos veces.
+  if (sentencias.ventaConCliente.get(sucursalId, m.ven_id)) return;
   sentencias.mostrador.run({ sucursal_id: sucursalId, ven_id: m.ven_id, fecha_local: m.fecha_local, estado: m.estado,
     total_centavos: centavos(m.total), actualizado_en });
   sentencias.borrarDetalleMostrador.run(sucursalId, m.ven_id);
@@ -392,17 +395,17 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     // Mostrador va antes que las ventas: si el mismo lote trae la venta con cliente, esa gana y la fila de mostrador se borra.
     for (const m of lote.mostrador || []) escribirMostrador(sentencias, sucursalId, m, actualizadoMostrador);
     for (const venta of lote.ventas) {
-      if (venta.cli_id !== undefined && ['vigente', 'cancelada'].includes(venta.estado)) {
-        // Una venta nunca cuenta dos veces: con cliente deja de ser de mostrador.
-        sentencias.borrarDetalleMostrador.run(sucursalId, venta.ven_id);
-        sentencias.borrarMostrador.run(sucursalId, venta.ven_id);
-      }
       if (venta.cli_id != null && (publicos.has(venta.cli_id) || esPublicoSicar({ sucursal_id: sucursalId, cli_id: venta.cli_id }))) {
         descartados.ventas++;
         descartados.renglones += venta.detalle?.length || 0;
         // Si ya se había recibido a nombre de alguien, se quita de su ficha; si es nueva, no se guarda nada.
         escribirVenta(sentencias, sucursalId, { ven_id: venta.ven_id, estado: 'excluida' }, lote.sequence, hash);
         continue;
+      }
+      if (venta.cli_id !== undefined && ['vigente', 'cancelada'].includes(venta.estado)) {
+        // Una venta nunca cuenta dos veces: guardada con cliente real deja de ser de mostrador (la descartada como publico no).
+        sentencias.borrarDetalleMostrador.run(sucursalId, venta.ven_id);
+        sentencias.borrarMostrador.run(sucursalId, venta.ven_id);
       }
       escribirVenta(sentencias, sucursalId, venta, lote.sequence, hash);
     }
