@@ -8,7 +8,9 @@ const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 
   'sicar_vinculos', 'sicar_decisiones', 'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos',
   'sicar_estados', 'sicar_estados_historial', 'sicar_internas', 'sicar_internas_historial', 'sicar_articulos',
   'sicar_proveedores', 'sicar_existencias', 'sicar_cortes', 'sicar_cortes_pagos', 'sicar_cortes_cobros',
-  'sicar_cajeros', 'sicar_cajeros_historial', 'sicar_ventas_mostrador', 'sicar_detalles_mostrador']);
+  'sicar_cajeros', 'sicar_cajeros_historial', 'sicar_ventas_mostrador', 'sicar_detalles_mostrador',
+  'sicar_traspasos', 'sicar_traspasos_detalle', 'sicar_sucursales_mapa', 'sicar_sucursales_mapa_historial',
+  'facturas_por_llegar', 'facturas_por_llegar_historial']);
 // Bandeja de clientes (spec 2026-10-18 §4.7): sus tablas viajan en la misma copia y se restauran en la misma transacción
 // que los datos del negocio, porque sus cliente_id apuntan a clientes del JSON. Solo si la base ya las tiene.
 const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes', 'lead_contenidos', 'lead_eventos_externos',
@@ -26,11 +28,14 @@ const TABLAS_17 = Object.freeze(TABLAS.slice(0, 17));
 const TABLAS_20 = Object.freeze(TABLAS.slice(0, 20));
 // Generación de los nombres del personal (2026-10-24), antes de las ventas de mostrador.
 const TABLAS_22 = Object.freeze(TABLAS.slice(0, 22));
+// Generación de las ventas de mostrador (2026-10-24), antes de traspasos, mapa de sucursales y facturas por llegar.
+const TABLAS_24 = Object.freeze(TABLAS.slice(0, 24));
 const GENERACIONES = Object.freeze([Object.freeze(TABLAS.slice(0, 10)), Object.freeze(TABLAS.slice(0, 12)),
   Object.freeze(TABLAS.slice(0, 14)), TABLAS_15,
   Object.freeze([...TABLAS_15, ...TABLAS_LEADS]), TABLAS_16, Object.freeze([...TABLAS_16, ...TABLAS_LEADS]),
   TABLAS_17, Object.freeze([...TABLAS_17, ...TABLAS_LEADS]), TABLAS_20, Object.freeze([...TABLAS_20, ...TABLAS_LEADS]),
-  TABLAS_22, Object.freeze([...TABLAS_22, ...TABLAS_LEADS]), TABLAS, TODAS]);
+  TABLAS_22, Object.freeze([...TABLAS_22, ...TABLAS_LEADS]), TABLAS_24, Object.freeze([...TABLAS_24, ...TABLAS_LEADS]),
+  TABLAS, TODAS]);
 const CON_BANDEJA = new Set(GENERACIONES.filter(tablas => tablas.includes(TABLAS_LEADS[0])));
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
@@ -286,7 +291,7 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
     sqlite.transaction(() => {
       for (const tabla of TABLAS) {
         const original = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(tabla).sql;
-        const preparado = original.replace(/\bsicar_[a-z_]+\b/g, nombre => TABLAS.includes(nombre) ? PREFIJO + nombre : nombre);
+        const preparado = original.replace(/\b(?:sicar|facturas)_[a-z_]+\b/g, nombre => TABLAS.includes(nombre) ? PREFIJO + nombre : nombre);
         sqlite.exec(preparado);
       }
     })();

@@ -45,7 +45,7 @@ test('fallo al escribir historial revierte la marca SICAR', t => {
 for (const generacion of [10, 12, 14]) {
   test(`restaura respaldo de ${generacion} tablas y sustituye marcas e historial`, async t => {
     const { sqlite, repo } = preparar(t, true);
-    assert.equal(respaldo.TABLAS.length, 24);
+    assert.equal(respaldo.TABLAS.length, 30);
     const archivos = new Map();
     const drive = {
       asegurarCarpetaRespaldos: async () => 'carpeta',

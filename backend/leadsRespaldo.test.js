@@ -105,6 +105,8 @@ const TABLAS_LEADS = ['lead_fuentes', 'lead_identidades_externas', 'lead_convers
 const CORTES = ['sicar_cortes', 'sicar_cortes_pagos', 'sicar_cortes_cobros'];
 const CAJEROS = ['sicar_cajeros', 'sicar_cajeros_historial'];
 const MOSTRADOR = ['sicar_ventas_mostrador', 'sicar_detalles_mostrador'];
+const NUEVAS = ['sicar_traspasos', 'sicar_traspasos_detalle', 'sicar_sucursales_mapa', 'sicar_sucursales_mapa_historial',
+  'facturas_por_llegar', 'facturas_por_llegar_historial'];
 test('las conversaciones viajan en la copia y se restauran idénticas junto con los datos del negocio', async t => {
   const f = conBandeja(t), g = preparar(t), s = api();
   inicializarPersistenciaCentroLeads(g.sqlite);
@@ -130,19 +132,19 @@ test('una base solo con conversaciones (sin SICAR) también entra al respaldo', 
   assert.equal(s.tieneDatosSicar(f.repo), true);
 });
 
-test('sin tablas de la bandeja el respaldo sigue con la generación de 24 tablas', async t => {
+test('sin tablas de la bandeja el respaldo sigue con la generación de 30 tablas', async t => {
   const f = preparar(t), s = api();
   sembrar(f);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 24);
+  assert.equal(Object.keys(m.conteos).length, 30);
   assert.equal(m.version_leads, undefined);
 });
 
 test('restaurar una copia sin conversaciones conserva los mensajes y suelta las ligas posteriores a la foto', async t => {
   const f = conBandeja(t), s = api();
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  for (const tabla of Object.keys(m.conteos)) if (!tabla.startsWith('sicar_')) delete m.conteos[tabla];
-  m.trozos = m.trozos.filter(c => c.tabla.startsWith('sicar_'));
+  for (const tabla of Object.keys(m.conteos)) if (!/^(sicar|facturas)_/.test(tabla)) delete m.conteos[tabla];
+  m.trozos = m.trozos.filter(c => /^(sicar|facturas)_/.test(c.tabla));
   m.trozos.forEach((c, i) => { c.orden = i; });
   delete m.version_leads;
   // La foto es de antes de la conversación: la liga de Ana ya no se puede confiar.
@@ -210,10 +212,10 @@ test('respaldo viejo de 36 tablas (bandeja sin proveedores) sigue abriendo y tra
   const f = conBandeja(t), g = preparar(t), s = api();
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 45);
-  assert.deepEqual(Object.keys(m.conteos).slice(15, 25), ['sicar_proveedores', 'sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR, 'centro_leads_schema_version']);
+  assert.equal(Object.keys(m.conteos).length, 51);
+  assert.deepEqual(Object.keys(m.conteos).slice(15, 31), ['sicar_proveedores', 'sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR, ...NUEVAS, 'centro_leads_schema_version']);
   const viejo = structuredClone(m);
-  const quitadas = ['sicar_proveedores', 'sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR];
+  const quitadas = ['sicar_proveedores', 'sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR, ...NUEVAS];
   for (const tabla of quitadas) delete viejo.conteos[tabla];
   viejo.trozos = viejo.trozos.filter(c => !quitadas.includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 36);
@@ -233,7 +235,7 @@ test('respaldo viejo de 37 tablas (bandeja con proveedores, sin existencias) sig
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   const viejo = structuredClone(m);
-  const quitadas = ['sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR];
+  const quitadas = ['sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR, ...NUEVAS];
   for (const tabla of quitadas) delete viejo.conteos[tabla];
   viejo.trozos = viejo.trozos.filter(c => !quitadas.includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 37);
@@ -251,10 +253,10 @@ test('respaldo viejo de 38 tablas (bandeja con existencias, sin cortes) sigue ab
   const f = conBandeja(t), g = preparar(t), s = api();
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 45);
+  assert.equal(Object.keys(m.conteos).length, 51);
   const viejo = structuredClone(m);
-  for (const tabla of [...CORTES, ...CAJEROS, ...MOSTRADOR]) delete viejo.conteos[tabla];
-  viejo.trozos = viejo.trozos.filter(c => ![...CORTES, ...CAJEROS, ...MOSTRADOR].includes(c.tabla));
+  for (const tabla of [...CORTES, ...CAJEROS, ...MOSTRADOR, ...NUEVAS]) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => ![...CORTES, ...CAJEROS, ...MOSTRADOR, ...NUEVAS].includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 38);
   s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
   const p = await s.prepararRestauracionSicar(g.repo, f.drive, viejo);
@@ -269,8 +271,8 @@ test('respaldo viejo de 41 tablas (bandeja con cortes, sin nombres del personal)
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   const viejo = structuredClone(m);
-  for (const tabla of [...CAJEROS, ...MOSTRADOR]) delete viejo.conteos[tabla];
-  viejo.trozos = viejo.trozos.filter(c => ![...CAJEROS, ...MOSTRADOR].includes(c.tabla));
+  for (const tabla of [...CAJEROS, ...MOSTRADOR, ...NUEVAS]) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => ![...CAJEROS, ...MOSTRADOR, ...NUEVAS].includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 41);
   g.sqlite.exec(`INSERT INTO sicar_tiendas(sucursal_id) VALUES (1);
     INSERT INTO sicar_cajeros VALUES (1, '52', 'Ana', '9', 'hoy');
@@ -288,8 +290,8 @@ test('respaldo viejo de 43 tablas (bandeja con nombres del personal, sin mostrad
   inicializarPersistenciaCentroLeads(g.sqlite);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   const viejo = structuredClone(m);
-  for (const tabla of MOSTRADOR) delete viejo.conteos[tabla];
-  viejo.trozos = viejo.trozos.filter(c => !MOSTRADOR.includes(c.tabla));
+  for (const tabla of [...MOSTRADOR, ...NUEVAS]) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => ![...MOSTRADOR, ...NUEVAS].includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 43);
   g.sqlite.exec(`INSERT INTO sicar_tiendas(sucursal_id) VALUES (1);
     INSERT INTO sicar_ventas_mostrador VALUES (1, '70', '2026-10-22T10:00:00', 'vigente', 3025, 'hoy');
@@ -300,4 +302,45 @@ test('respaldo viejo de 43 tablas (bandeja con nombres del personal, sin mostrad
   p.liberar();
   for (const tabla of TABLAS_LEADS) assert.deepEqual(foto(g.sqlite, tabla), foto(f.sqlite, tabla), tabla);
   for (const tabla of MOSTRADOR) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0, tabla);
+});
+
+test('respaldo viejo de 45 tablas (bandeja con mostrador, sin traspasos ni facturas) abre y deja las nuevas vacias', async t => {
+  const f = conBandeja(t), g = preparar(t), s = api();
+  inicializarPersistenciaCentroLeads(g.sqlite);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  const viejo = structuredClone(m);
+  for (const tabla of NUEVAS) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => !NUEVAS.includes(c.tabla));
+  assert.equal(Object.keys(viejo.conteos).length, 45);
+  g.sqlite.exec(`INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Prov', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL);
+    INSERT INTO facturas_por_llegar_historial VALUES (1, 7, 'alta', 'Ana', 'hoy', NULL)`);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, viejo);
+  p.aplicar(() => {}, { clientes: f.DB.crm.clientes, fechaFoto: m.generado_en });
+  p.liberar();
+  for (const tabla of TABLAS_LEADS) assert.deepEqual(foto(g.sqlite, tabla), foto(f.sqlite, tabla), tabla);
+  for (const tabla of NUEVAS) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0, tabla);
+});
+
+test('respaldo nuevo de 51 tablas (con bandeja) conserva las facturas por llegar', async t => {
+  const f = conBandeja(t), g = preparar(t), s = api();
+  inicializarPersistenciaCentroLeads(g.sqlite);
+  f.sqlite.exec(`INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Prov', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL);
+    INSERT INTO facturas_por_llegar_historial VALUES (1, 7, 'alta', 'Ana', 'hoy', NULL)`);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(Object.keys(m.conteos).length, 51);
+  assert.deepEqual([m.conteos.facturas_por_llegar, m.conteos.facturas_por_llegar_historial], [1, 1]);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(() => {}, { clientes: f.DB.crm.clientes, fechaFoto: m.generado_en });
+  p.liberar();
+  assert.equal(g.sqlite.prepare('SELECT count(*) n FROM facturas_por_llegar_historial').get().n, 1);
+});
+
+test('un manifiesto de bandeja con historial de facturas pero sin facturas se rechaza', async t => {
+  const f = conBandeja(t), s = api();
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  delete m.conteos.facturas_por_llegar;
+  m.trozos = m.trozos.filter(c => c.tabla !== 'facturas_por_llegar');
+  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
 });
