@@ -1,7 +1,8 @@
 const { setTimeout: pausa } = require('node:timers/promises');
+const { createHash } = require('node:crypto');
 const { cargar, guardar, bloquear, LIMITE_AVISOS } = require('./estado');
 const { cliente, esPublico, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura, corteSeguro } = require('./formato');
+  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
@@ -39,6 +40,7 @@ function agregar(lote, elemento) {
   // Va en el mismo lote que la tumba excluida de su venta: el servidor la acepta solo así. elementos() solo la produce
   // con el interruptor mostrador === true.
   if (elemento.mostrador) (lote.mostrador ??= []).push(elemento.mostrador);
+  if (elemento.traspaso) (lote.traspasos ??= []).push(elemento.traspaso);
 }
 // Un prv_id repetido en el lote lo rechaza el servidor (ID_DUPLICADO, 422) y eso detendría el agente entero, con clientes
 // y ventas. La lista de proveedores es opcional: se conserva la primera aparición de cada id y se sigue.
@@ -47,10 +49,11 @@ function sinIdsRepetidos(filas) {
   return filas.filter(p => !vistos.has(String(p.prv_id)) && vistos.add(String(p.prv_id)));
 }
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
-  && !lote.existencias?.length && !lote.cortes?.length && !lote.mostrador?.length;
-// Solo un lote de existencias y/o cortes se puede descartar; nunca uno que traiga clientes, ventas, artículos, proveedores
-// o mostrador (la carga de mostrador mueve su cursor solo al confirmar, pero sus ventas sí cuentan).
-const descartable = lote => (!!lote.existencias?.length || !!lote.cortes?.length) && !lote.clientes?.length
+  && !lote.existencias?.length && !lote.cortes?.length && !lote.mostrador?.length && !lote.traspasos?.length;
+// Solo un lote de existencias, cortes y/o traspasos se puede descartar; nunca uno que traiga clientes, ventas, artículos,
+// proveedores o mostrador (la carga de mostrador mueve su cursor solo al confirmar, pero sus ventas sí cuentan).
+const descartable = lote => (!!lote.existencias?.length || !!lote.cortes?.length || !!lote.traspasos?.length)
+  && !lote.clientes?.length
   && !lote.ventas?.length && !lote.articulos?.length && !lote.proveedores?.length && !lote.mostrador?.length;
 const EXISTENCIAS_POR_LOTE = 500;
 const CORTES_POR_LOTE = 100;
@@ -64,6 +67,13 @@ const MARGEN_CORTES = 50;
 const FECHA_SICAR = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 // enviadas y mostrador_enviadas olvidan las ventas fechadas hace más de esto que ya están fuera del margen de relectura.
 const DIAS_RECUERDO_VENTAS = 90;
+// Traspasos: hasta 100 por lote (tope del servidor). Cambian después de creados (1 → 2 o -1) y SICAR no guarda cuándo: en
+// cada corrida se releen los abiertos y los de los últimos 30 días; una vez por semana, de noche, se releen todos.
+const TRASPASOS_POR_LOTE = 100;
+const DIAS_RELECTURA_TRASPASOS = 30;
+const DIAS_VUELTA_TRASPASOS = 7;
+// Huella de un traspaso tal como se manda: si no cambió desde lo último confirmado, la relectura no lo reenvía.
+const firma = traspaso => createHash('sha256').update(JSON.stringify(traspaso)).digest('hex').slice(0, 16);
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -152,6 +162,7 @@ async function ejecutar(archivo, config, deps) {
         await guardar(archivo, estado);
         if (atorado.existencias?.length) log('EXISTENCIAS_DESCARTADAS');
         if (atorado.cortes?.length) log('CORTES_DESCARTADOS');
+        if (atorado.traspasos?.length) log('TRASPASOS_DESCARTADOS');
       }
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
@@ -407,27 +418,116 @@ async function ejecutar(archivo, config, deps) {
     // Lee las ventas de (max(mostrador_cursor, desde - 1), cursor de ventas] y manda solo las de público (con su tumba
     // excluida si se habían mandado con cliente); mostrador_cursor avanza solo cuando el servidor confirma. Al alcanzar el
     // cursor de ventas termina y no vuelve a correr: lo nuevo ya sale con el interruptor prendido. Nunca toca ventana.
-    if (config.mostrador !== true || estado.mostrador_terminado) return;
-    if (!deps.mostradorAhora && !esHorarioHistorico(new Date(reloj()))) return;
-    const terminar = () => transmitir([], { mostrador_terminado: true }, 'incremental');
-    if (estado.mostrador_desde_ven_id === null) {
-      const primera = await fuente.mostradorDesde(INICIO_MOSTRADOR);
-      if (primera === null) { await terminar(); return; }
-      estado.mostrador_desde_ven_id = id(primera);
-      await guardar(archivo, estado);
+    // Devuelve false si un envío falló: la corrida se detiene ahí, como en las demás colecciones.
+    async function cargarMostrador() {
+      if (config.mostrador !== true || estado.mostrador_terminado) return true;
+      if (!deps.mostradorAhora && !esHorarioHistorico(new Date(reloj()))) return true;
+      const terminar = () => transmitir([], { mostrador_terminado: true }, 'incremental');
+      if (estado.mostrador_desde_ven_id === null) {
+        const primera = await fuente.mostradorDesde(INICIO_MOSTRADOR);
+        if (primera === null) return terminar();
+        estado.mostrador_desde_ven_id = id(primera);
+        await guardar(archivo, estado);
+      }
+      for (let n = 0; n < PAGINAS_MOSTRADOR_POR_CORRIDA; n++) {
+        const inicio = String(BigInt(estado.mostrador_desde_ven_id) - 1n);
+        const desde = BigInt(estado.mostrador_cursor) > BigInt(inicio) ? estado.mostrador_cursor : inicio;
+        const pagina = BigInt(desde) < BigInt(estado.ven_id) ? await fuente.ventas(desde, estado.ven_id, fuente.tamano) : { filas: [] };
+        if (!pagina.filas.length) return terminar();
+        const ultimo = id(pagina.filas.at(-1).ven_id);
+        // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+        if (BigInt(ultimo) <= BigInt(desde)) throw new Error('ID_INVALIDO');
+        // Solo las fechadas desde 2025: un ven_id mayor no garantiza la fecha (reloj de SICAR mal puesto).
+        const de2025 = { ...pagina, filas: pagina.filas.filter(v => String(v.fecha).replace('T', ' ') >= INICIO_MOSTRADOR) };
+        const items = elementos(de2025, estado, avisar, omitir, config, true);
+        if (!await transmitir(items, { mostrador_cursor: ultimo }, 'incremental')) return false;
+      }
+      return true;
     }
-    for (let n = 0; n < PAGINAS_MOSTRADOR_POR_CORRIDA; n++) {
-      const inicio = String(BigInt(estado.mostrador_desde_ven_id) - 1n);
-      const desde = BigInt(estado.mostrador_cursor) > BigInt(inicio) ? estado.mostrador_cursor : inicio;
-      const pagina = BigInt(desde) < BigInt(estado.ven_id) ? await fuente.ventas(desde, estado.ven_id, fuente.tamano) : { filas: [] };
-      if (!pagina.filas.length) { await terminar(); return; }
-      const ultimo = id(pagina.filas.at(-1).ven_id);
-      // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
-      if (BigInt(ultimo) <= BigInt(desde)) throw new Error('ID_INVALIDO');
-      // Solo las fechadas desde 2025: un ven_id mayor no garantiza la fecha (reloj de SICAR mal puesto).
-      const de2025 = { ...pagina, filas: pagina.filas.filter(v => String(v.fecha).replace('T', ' ') >= INICIO_MOSTRADOR) };
-      if (!await transmitir(elementos(de2025, estado, avisar, omitir, config, true), { mostrador_cursor: ultimo }, 'incremental')) return;
+    if (!await cargarMostrador()) return;
+    // Traspasos entre sucursales: al final de todo, después de cortes y mostrador. Apagados mientras el interruptor no sea
+    // true: un servidor viejo rechaza la colección y detendría las ventas. Tres partes; en las tres el cursor, la vuelta y
+    // las huellas avanzan solo cuando el servidor confirma el lote:
+    // 1. Vuelta completa (todos desde el primero): de noche si la última terminó hace 7 días o más (o nunca), o a mano con
+    //    --traspasos-ahora. Es también la primera carga (unos 2,500 en Ocosingo): mientras no termine, de día no se manda
+    //    nada. Si se corta, la siguiente noche sigue donde iba (traspasos_vuelta).
+    // 2. Nuevos: los de tra_id mayor al cursor.
+    // 3. Relectura: los abiertos (status 1) y los de fecha, aplicado o cancelado en los últimos 30 días; se reenvían solo
+    //    los que cambiaron desde lo último confirmado (huella), y se olvidan las huellas de los que salieron de la relectura.
+    async function mandarTraspasos() {
+      if (config.traspasos !== true) return true;
+      if (!fuente.traspasosDisponibles) { avisarUnaVez('TRASPASOS_NO_DISPONIBLES'); return true; }
+      const posterior = (a, b) => BigInt(a) > BigInt(b);
+      // Una página desde el cursor: los que el contrato acepta y el último tra_id leído (null si no hay más).
+      async function leerPagina(cursor, desde) {
+        const pagina = await fuente.traspasos(cursor, TRASPASOS_POR_LOTE, desde);
+        if (!pagina.traspasos.length) return null;
+        const traspasos = [];
+        let ultimo = cursor;
+        for (const fila of pagina.traspasos) {
+          const tra_id = id(fila.tra_id);
+          // La lectura solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+          if (!posterior(tra_id, ultimo)) throw new Error('ID_INVALIDO');
+          ultimo = tra_id;
+          const { traspaso, omitido } = traspasoSeguro({ traspaso: fila, detalles: pagina.detalles });
+          if (omitido) avisarUnaVez('TRASPASO_OMITIDO', tra_id, omitido);
+          else traspasos.push(traspaso);
+        }
+        return { traspasos, ultimo };
+      }
+      const conFirmas = (base, traspasos) => ({ ...base, ...Object.fromEntries(traspasos.map(t => [t.tra_id, firma(t)])) });
+      const items = traspasos => traspasos.map(traspaso => ({ traspaso }));
+      const noche = esHorarioHistorico(new Date(reloj()));
+      const haceUnaSemana = horaLocal(reloj() - DIAS_VUELTA_TRASPASOS * 86400000).slice(0, 10);
+      const vencida = estado.traspasos_semana === null || estado.traspasos_semana <= haceUnaSemana;
+      if (deps.traspasosAhora || (noche && (vencida || estado.traspasos_vuelta !== null))) {
+        while (true) {
+          const pagina = await leerPagina(estado.traspasos_vuelta ?? '0', null);
+          if (!pagina) {
+            if (!await transmitir([], { traspasos_vuelta: null, traspasos_semana: hoy }, 'incremental')) return false;
+            break;
+          }
+          const cursor = posterior(pagina.ultimo, estado.traspasos_cursor) ? pagina.ultimo : estado.traspasos_cursor;
+          const cambios = { traspasos_vuelta: pagina.ultimo, traspasos_cursor: cursor,
+            traspasos_firmas: conFirmas(estado.traspasos_firmas, pagina.traspasos) };
+          if (!await transmitir(items(pagina.traspasos), cambios, 'incremental')) return false;
+        }
+      }
+      if (estado.traspasos_semana === null) return true;
+      while (true) {
+        const pagina = await leerPagina(estado.traspasos_cursor, null);
+        if (!pagina) break;
+        const cambios = { traspasos_cursor: pagina.ultimo, traspasos_firmas: conFirmas(estado.traspasos_firmas, pagina.traspasos) };
+        if (!await transmitir(items(pagina.traspasos), cambios, 'incremental')) return false;
+      }
+      const desde = horaLocal(reloj() - DIAS_RELECTURA_TRASPASOS * 86400000).slice(0, 10);
+      const releidos = [];
+      for (let cursor = '0'; ;) {
+        const pagina = await leerPagina(cursor, desde);
+        if (!pagina) break;
+        cursor = pagina.ultimo;
+        releidos.push(...pagina.traspasos);
+      }
+      const vigentes = new Set(releidos.map(t => t.tra_id));
+      let mapa = Object.fromEntries(Object.entries(estado.traspasos_firmas).filter(([tra_id]) => vigentes.has(tra_id)));
+      const cambiados = releidos.filter(t => mapa[t.tra_id] !== firma(t));
+      if (!cambiados.length) {
+        // Olvidar huellas es solo local: lo peor que pasa es reenviar un traspaso que no cambió.
+        if (Object.keys(mapa).length !== Object.keys(estado.traspasos_firmas).length) {
+          estado.traspasos_firmas = mapa;
+          await guardar(archivo, estado);
+        }
+        return true;
+      }
+      for (let i = 0; i < cambiados.length; i += TRASPASOS_POR_LOTE) {
+        const tramo = cambiados.slice(i, i + TRASPASOS_POR_LOTE);
+        mapa = conFirmas(mapa, tramo);
+        if (!await transmitir(items(tramo), { traspasos_firmas: mapa }, 'incremental')) return false;
+      }
+      return true;
     }
+    await mandarTraspasos();
+    await guardarAvisos();
   } finally { await liberar(); }
 }
 module.exports = { ejecutar };

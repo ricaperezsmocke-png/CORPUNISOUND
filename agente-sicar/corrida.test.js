@@ -1241,3 +1241,235 @@ test('estado podado: la cancelacion de una venta de hace 1 dia sigue saliendo co
   assert.deepEqual(mostrador, [{ ven_id: '999', estado: 'cancelada' }]);
   assert.deepEqual(Object.keys((await cargar(p.archivo)).enviadas), ['999']);
 });
+
+// Traspasos (Seguimiento de facturas, 2026-10-25). Filas como las devuelve SICAR (dateStrings, decimales en texto).
+const traspasoSicar = (n, extra = {}) => ({ tra_id: String(n), folio: `T-${n}`, sucOri: '6', sucDes: '2', fecha: '2026-10-10',
+  total: '116.00', status: 2, fechaApl: '2026-10-11 09:00:00', fechaCan: null, ...extra });
+const renglonTraspaso = n => ({ tra_id: String(n), art_id: '7', cantidad: '2.0000', precioSin: '50.00', precioCon: '58.00' });
+function conTraspasos(p, filas) {
+  p.fuente.traspasosDisponibles = true;
+  const leidos = [];
+  p.fuente.traspasos = async (cursor, limite, desde) => {
+    leidos.push([cursor, desde ?? null]);
+    const recientes = t => String(t.status) === '1' || [t.fecha, t.fechaApl, t.fechaCan].some(f => f && f >= desde);
+    const traspasos = filas.filter(t => BigInt(t.tra_id) > BigInt(cursor) && (!desde || recientes(t))).slice(0, Math.min(limite, 100));
+    const ids = new Set(traspasos.map(t => t.tra_id));
+    return { traspasos, detalles: filas.filter(t => ids.has(t.tra_id)).map(t => renglonTraspaso(t.tra_id)) };
+  };
+  return leidos;
+}
+const traspasosMandados = p => p.lotes.filter(l => l.traspasos).map(l => l.traspasos);
+const NOCHE = () => Date.parse('2026-10-15T03:00:00Z'); // 21:00 del 14 en la tienda
+test('traspasos: la primera vuelta es de noche, completa, en lotes de 100, y deja cursor, semana y firmas', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  const n = Array.from({ length: 150 }, (_, i) => i + 1);
+  conTraspasos(p, n.map(i => traspasoSicar(i, i === 150 ? { status: 1, fechaApl: null } : {})));
+  const fetch = p.deps.fetch, cursorAlEnviar = [];
+  p.deps.fetch = async (...args) => {
+    if (JSON.parse(args[1].body).traspasos) cursorAlEnviar.push((await cargar(p.archivo)).traspasos_cursor);
+    return fetch(...args);
+  };
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.deepEqual(traspasosMandados(p).map(l => l.length), [100, 50], 'la relectura no repite lo que ya se mando');
+  assert.deepEqual(cursorAlEnviar, ['0', '100']);
+  assert.ok(p.lotes.filter(l => l.traspasos).every(l => l.mode === 'incremental' && !l.clientes.length && !l.ventas.length));
+  assert.deepEqual(traspasosMandados(p)[0][0], { tra_id: '1', folio: 'T-1', suc_origen: '6', suc_destino: '2', fecha: '2026-10-10',
+    estado: 'recibido', fecha_aplicado: '2026-10-11T09:00:00', fecha_cancelado: null, total: '116.00',
+    detalle: [{ art_id: '7', cantidad: '2.0000', precio_sin: '50.00', precio_con: '58.00' }] });
+  assert.equal(traspasosMandados(p)[1].at(-1).estado, 'enviado');
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.traspasos_cursor, '150');
+  assert.equal(estado.traspasos_semana, '2026-10-14');
+  assert.equal(estado.traspasos_vuelta, null);
+  assert.equal(Object.keys(estado.traspasos_firmas).length, 150, 'todos dentro de los 30 dias');
+  assert.equal(estado.pendiente, null);
+  p.lotes.length = 0;
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'sin cambios no gasta envio');
+});
+test('traspasos: de dia sin la primera vuelta no se lee nada; con traspasosAhora si', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const leidos = conTraspasos(p, [traspasoSicar(1)]);
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.deepEqual(leidos, []);
+  assert.equal(p.lotes.length, 0);
+  await ejecutar(p.archivo, { traspasos: true }, { ...p.deps, traspasosAhora: true });
+  assert.deepEqual(traspasosMandados(p).map(l => l.map(x => x.tra_id)), [['1']]);
+  assert.equal((await cargar(p.archivo)).traspasos_semana, '2026-10-15');
+});
+test('traspasos: uno nuevo sale por cursor; uno enviado que pasa a recibido o cancelado se reenvia; el resto no', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  const filas = [traspasoSicar(1), traspasoSicar(2, { status: 1, fechaApl: null }), traspasoSicar(3, { status: 1, fechaApl: null }),
+    traspasoSicar(4, { status: 1, fechaApl: null, fecha: '2025-01-10' })];
+  conTraspasos(p, filas);
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.equal(traspasosMandados(p).flat().length, 4);
+  p.lotes.length = 0;
+  p.deps.reloj = DE_DIA;
+  filas[1] = traspasoSicar(2, { status: 2, fechaApl: '2026-10-15 10:00:00' });
+  filas[2] = traspasoSicar(3, { status: -1, fechaApl: null, fechaCan: '2026-10-15 11:00:00' });
+  filas[3] = traspasoSicar(4, { status: 2, fecha: '2025-01-10', fechaApl: '2026-10-15 11:30:00' });
+  filas.push(traspasoSicar(5, { status: 1, fechaApl: null, fecha: '2026-10-15' }));
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  const mandados = traspasosMandados(p).flat().map(x => [x.tra_id, x.estado, x.fecha_aplicado, x.fecha_cancelado]);
+  assert.deepEqual(mandados, [['5', 'enviado', null, null], ['2', 'recibido', '2026-10-15T10:00:00', null],
+    ['3', 'cancelado', null, '2026-10-15T11:00:00'], ['4', 'recibido', '2026-10-15T11:30:00', null]]);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.traspasos_cursor, '5');
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'ya confirmados no se repiten');
+});
+test('traspasos: la relectura pide los de los ultimos 30 dias y olvida las firmas de los que ya salieron de ella', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '2', traspasos_semana: '2026-10-14',
+    traspasos_firmas: { 1: '0123456789abcdef', 2: '0123456789abcdef' } });
+  p.deps.reloj = DE_DIA;
+  const leidos = conTraspasos(p, [traspasoSicar(1, { fecha: '2026-08-01', fechaApl: '2026-08-02 09:00:00' }), traspasoSicar(2)]);
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.deepEqual(leidos.filter(([, desde]) => desde), [['0', '2026-09-15'], ['2', '2026-09-15']]);
+  assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), ['2'], 'firma distinta: se manda');
+  assert.deepEqual(Object.keys((await cargar(p.archivo)).traspasos_firmas), ['2']);
+});
+test('traspasos: el cursor y las firmas avanzan solo con la confirmacion del servidor', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_semana: '2026-10-14' });
+  p.deps.reloj = DE_DIA;
+  conTraspasos(p, [traspasoSicar(1)]);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).traspasos ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { traspasos: true }, { ...p.deps, intentos: 1 });
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.traspasos_cursor, '0');
+  assert.deepEqual(estado.traspasos_firmas, {});
+  assert.deepEqual(JSON.parse(estado.pendiente.bytes).traspasos.map(x => x.tra_id), ['1']);
+});
+test('traspasos: lote de solo traspasos con 503 persistente se descarta, salen las ventas y se reenvian despues', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_semana: '2026-10-14' });
+  p.deps.reloj = DE_DIA;
+  conTraspasos(p, [traspasoSicar(1)]);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).traspasos ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { traspasos: true }, { ...p.deps, intentos: 1 });
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { traspasos: true }, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('TRASPASOS_DESCARTADOS'));
+  assert.ok(!p.mensajes.includes('CORTES_DESCARTADOS') && !p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1, 'las ventas salen en la misma corrida');
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.traspasos_cursor, '0');
+  assert.equal(estado.detenido, null);
+  p.deps.fetch = fetch;
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  estado = await cargar(p.archivo);
+  assert.deepEqual(traspasosMandados(p).map(l => l.map(x => x.tra_id)), [['1']]);
+  assert.equal(estado.traspasos_cursor, '1');
+  assert.equal(estado.pendiente, null);
+});
+test('traspasos: pendiente con traspasos y ventas, clientes, articulos, proveedores o mostrador no se descarta con 503', async t => {
+  for (const otra of [{ ventas: [{ ven_id: '5', estado: 'excluida' }] }, { clientes: [{ cli_id: '42', nombre: 'José' }] },
+    { articulos: [{ art_id: '1' }] }, { proveedores: [{ prv_id: '4' }] }, { mostrador: [{ ven_id: '5', estado: 'cancelada' }] }]) {
+    const pendiente = pendienteDe({ traspasos: [{ tra_id: '1' }], ...otra });
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', pendiente });
+    p.deps.reloj = DE_DIA;
+    p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
+    p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+    await ejecutar(p.archivo, {}, p.deps);
+    assert.ok(!p.mensajes.includes('TRASPASOS_DESCARTADOS'));
+    assert.deepEqual((await cargar(p.archivo)).pendiente, pendiente);
+  }
+});
+test('traspasos: interruptor apagado no los lee y los lotes no llevan la llave; ventas igual', async t => {
+  for (const config of [{}, { traspasos: false }, { traspasos: 'true' }, { traspasos: 1 }]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+    const leidos = conTraspasos(p, [traspasoSicar(1)]);
+    p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+    await ejecutar(p.archivo, config, p.deps);
+    assert.equal(leidos.length, 0);
+    assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+    assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'traspasos')), 'un servidor viejo rechazaria la llave');
+    assert.equal(p.mensajes.includes('TRASPASOS_NO_DISPONIBLES'), false);
+    const estado = await cargar(p.archivo);
+    assert.deepEqual([estado.traspasos_cursor, estado.traspasos_semana], ['0', null]);
+  }
+});
+test('traspasos: sin columnas avisa una vez, no los lee y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.traspasosDisponibles = false;
+  p.fuente.traspasos = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.equal(p.mensajes.filter(m => m === 'TRASPASOS_NO_DISPONIBLES').length, 1);
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+});
+test('traspasos: fechas imposibles o status raro se omiten con su tra_id, el cursor los pasa y los demas se mandan', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  const registro = [];
+  p.deps.log = (evento, datos) => registro.push(require('./estado').registrar(x => x)(evento, datos));
+  conTraspasos(p, [traspasoSicar(1, { fecha: '0000-00-00' }), traspasoSicar(2, { fechaApl: '2026-02-30 10:00:00' }),
+    traspasoSicar(3, { status: 5 }), traspasoSicar(4)]);
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), ['4']);
+  assert.ok(registro.includes('TRASPASO_OMITIDO tra_id=1 codigo=FECHA_INVALIDA'));
+  assert.ok(registro.includes('TRASPASO_OMITIDO tra_id=2 codigo=FECHA_INVALIDA'));
+  assert.ok(registro.includes('TRASPASO_OMITIDO tra_id=3 codigo=ESTADO_TRASPASO_DESCONOCIDO'));
+  assert.equal(registro.filter(r => r.startsWith('TRASPASO_OMITIDO tra_id=4')).length, 0);
+  assert.equal(registro.filter(r => r.startsWith('TRASPASO_OMITIDO tra_id=3')).length, 1, 'una vez por dia aunque se relea');
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.traspasos_cursor, '4');
+  assert.equal(estado.detenido, null);
+});
+test('traspasos: vuelta completa semanal de noche; antes de 7 dias solo cambios', async t => {
+  const filas = [traspasoSicar(1, { fecha: '2024-05-01', fechaApl: '2024-05-02 09:00:00' }), traspasoSicar(2)];
+  for (const [semana, vuelta] of [['2026-10-07', true], ['2026-10-08', false]]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '2', traspasos_semana: semana });
+    conTraspasos(p, filas);
+    await ejecutar(p.archivo, { traspasos: true }, p.deps);
+    await ejecutar(p.archivo, { traspasos: true }, p.deps);
+    // El 2 esta en los ultimos 30 dias y sin firma: la relectura lo manda si la vuelta no lo hizo.
+    assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), vuelta ? ['1', '2'] : ['2'], semana);
+    assert.equal((await cargar(p.archivo)).traspasos_semana, vuelta ? '2026-10-14' : semana);
+  }
+});
+test('traspasos: una vuelta cortada sigue donde iba la siguiente noche, no de dia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '3', traspasos_semana: '2026-10-01',
+    traspasos_vuelta: '1' });
+  const leidos = conTraspasos(p, [1, 2, 3].map(n => traspasoSicar(n, { fecha: '2024-05-01', fechaApl: '2024-05-02 09:00:00' })));
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.equal(leidos.some(([cursor, desde]) => cursor === '1' && !desde), false);
+  p.deps.reloj = NOCHE;
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), ['2', '3']);
+  const estado = await cargar(p.archivo);
+  assert.deepEqual([estado.traspasos_vuelta, estado.traspasos_semana, estado.traspasos_cursor], [null, '2026-10-14', '3']);
+});
+test('traspasos: van al final, despues de cortes y de la carga de mostrador', async t => {
+  const { p } = await prepararCarga(t);
+  p.fuente.tamano = 10;
+  conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+  conTraspasos(p, [traspasoSicar(1)]);
+  await ejecutar(p.archivo, { mostrador: true, cortes: true, traspasos: true }, p.deps);
+  const orden = p.lotes.map(l => (l.cortes ? 'cortes' : l.mostrador ? 'mostrador' : l.traspasos ? 'traspasos' : 'otro'));
+  assert.equal(orden[0], 'cortes');
+  assert.equal(orden.at(-1), 'traspasos');
+  assert.equal(orden.filter(x => x === 'traspasos').length, 1);
+  assert.ok(orden.includes('mostrador'));
+});
+test('traspasos: un fallo de la carga de mostrador detiene antes de los traspasos', async t => {
+  const { p } = await prepararCarga(t);
+  const leidos = conTraspasos(p, [traspasoSicar(1)]);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).mostrador ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { mostrador: true, traspasos: true }, { ...p.deps, intentos: 1 });
+  assert.deepEqual(leidos, []);
+});
+test('traspasos: una pagina cuyo cursor no avanza detiene con ID_INVALIDO', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '5', traspasos_semana: '2026-10-14' });
+  p.fuente.traspasosDisponibles = true;
+  p.fuente.traspasos = async () => ({ traspasos: [traspasoSicar(5)], detalles: [renglonTraspaso(5)] });
+  await assert.rejects(ejecutar(p.archivo, { traspasos: true }, p.deps), /ID_INVALIDO/);
+});

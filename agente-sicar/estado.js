@@ -9,6 +9,7 @@ function inicial() {
     articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null,
     existencias: {}, existencias_dia: null, cortes_cursor: '0',
     cortes_enviados: [], mostrador_cursor: '0', mostrador_desde_ven_id: null, mostrador_enviadas: {}, mostrador_terminado: false,
+    traspasos_cursor: '0', traspasos_semana: null, traspasos_vuelta: null, traspasos_firmas: {},
     avisos_dia: null, avisos: [] };
 }
 async function guardar(archivo, estado) {
@@ -77,6 +78,22 @@ async function cargar(archivo) {
     || typeof mostrador !== 'object' || Array.isArray(mostrador)
     || Object.entries(mostrador).some(([k, x]) => !/^[1-9]\d*$/.test(k) || x !== true)
     || typeof estado.mostrador_terminado !== 'boolean') throw new Error('ESTADO_INVALIDO');
+  // Traspasos. traspasos_cursor: el tra_id más alto que el servidor confirmó; traspasos_semana: día en que terminó la
+  // última vuelta completa (null = la primera carga no ha terminado); traspasos_vuelta: hasta dónde va una vuelta completa
+  // cortada (null = ninguna en curso); traspasos_firmas: huella de lo último confirmado de cada traspaso de la relectura
+  // (abiertos y de los últimos 30 días), para no reenviar lo que no cambió. Un estado.json de antes arranca desde cero.
+  estado.traspasos_cursor ??= '0';
+  estado.traspasos_semana ??= null;
+  estado.traspasos_vuelta ??= null;
+  estado.traspasos_firmas ??= {};
+  const semana = estado.traspasos_semana, vuelta = estado.traspasos_vuelta, firmas = estado.traspasos_firmas;
+  if (typeof estado.traspasos_cursor !== 'string' || !/^\d+$/.test(estado.traspasos_cursor)
+    || (semana !== null && (typeof semana !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(semana)))
+    || (vuelta !== null && (typeof vuelta !== 'string' || !/^[1-9]\d*$/.test(vuelta)))
+    || typeof firmas !== 'object' || Array.isArray(firmas)
+    || Object.entries(firmas).some(([k, x]) => !/^[1-9]\d*$/.test(k) || typeof x !== 'string' || !/^[0-9a-f]{16}$/.test(x))) {
+    throw new Error('ESTADO_INVALIDO');
+  }
   // Avisos del día: qué avisos repetibles (evento o evento:id) ya quedaron en el registro hoy, para no repetirlos en cada
   // corrida. Un estado.json de antes, o uno con este recuerdo raro, arranca sin recuerdo: es solo para el registro y no
   // vale detener las ventas por él (lo peor es anotar otra vez lo de hoy).
@@ -129,10 +146,11 @@ const EVENTOS = new Set([
   'EXISTENCIA_OMITIDA', 'EXISTENCIAS_NO_DISPONIBLES', 'EXISTENCIAS_AUTORIZADAS_DE_DIA', 'EXISTENCIAS_DESCARTADAS',
   'CORTE_OMITIDO', 'CORTE_SIN_CAJERO', 'CORTES_NO_DISPONIBLES', 'CORTE_FECHA_FUTURA', 'CORTE_SIN_RESUMEN', 'CORTES_DESCARTADOS',
   'MOSTRADOR_AUTORIZADO_DE_DIA',
+  'TRASPASO_OMITIDO', 'TRASPASOS_NO_DISPONIBLES', 'TRASPASOS_DESCARTADOS', 'TRASPASOS_AUTORIZADOS_DE_DIA',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,
-  prv_id: /^\d{1,20}$/, cor_id: /^\d{1,20}$/,
+  prv_id: /^\d{1,20}$/, cor_id: /^\d{1,20}$/, tra_id: /^\d{1,20}$/,
   campo: /^(telefono|celular|email|rfc)$/, codigo: { test: x => DATOS_RAROS.has(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
 function detalle(datos) {
   if (!datos || typeof datos !== 'object' || datos instanceof Error) return '';
@@ -148,7 +166,8 @@ const FALLOS = new Set([...EVENTOS, 'ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISIO
   'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE',
   'ENTIDAD_EXCEDE_LOTE', 'COLUMNA_NO_PERMITIDA', 'ESQUEMA_NO_VALIDADO', 'DETALLE_SIN_PK', 'PK_DETALLE_INVALIDA',
   'PAGINA_EXCESIVA', 'SQL_NO_PERMITIDO', 'ARTICULOS_NO_DISPONIBLES', 'PROVEEDORES_NO_DISPONIBLES',
-  'EXISTENCIAS_NO_DISPONIBLES', 'CORTES_NO_DISPONIBLES', 'MYSQL_HOST_NO_LOCAL', 'PAGINA_SIMULTANEA', 'CONFIGURACION_DENTRO_DEL_REPO']);
+  'EXISTENCIAS_NO_DISPONIBLES', 'CORTES_NO_DISPONIBLES', 'TRASPASOS_NO_DISPONIBLES', 'ESTADO_TRASPASO_DESCONOCIDO', 'MYSQL_HOST_NO_LOCAL',
+  'PAGINA_SIMULTANEA', 'CONFIGURACION_DENTRO_DEL_REPO']);
 const MYSQL = { ER_ACCESS_DENIED_ERROR: 'MYSQL_ACCESO_DENEGADO', ER_DBACCESS_DENIED_ERROR: 'MYSQL_ACCESO_DENEGADO',
   ER_BAD_DB_ERROR: 'MYSQL_BASE_INEXISTENTE', ECONNREFUSED: 'MYSQL_NO_DISPONIBLE', ETIMEDOUT: 'MYSQL_NO_DISPONIBLE',
   PROTOCOL_CONNECTION_LOST: 'MYSQL_NO_DISPONIBLE', ER_TABLEACCESS_DENIED_ERROR: 'MYSQL_ACCESO_DENEGADO' };

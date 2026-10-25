@@ -270,3 +270,64 @@ test('fecha imposible (30 de febrero, 0000-00-00) es dato raro en venta de clien
   assert.equal(ventaSegura({ ...vPublico, fecha: '2024-02-29 23:59:59' }, publico, [dPublico], false, undefined, { enviada: false })
     .mostrador.fecha_local, '2024-02-29T23:59:59', 'un 29 de febrero bisiesto si es fecha');
 });
+
+// Traspasos de SICAR (Seguimiento de facturas, 2026-10-25). fecha es date; fechaApl y fechaCan, datetime (dateStrings).
+const { traspasoSeguro } = require('./formato');
+const traspasoDe = (extra = {}) => ({ tra_id: '41', folio: 'T-41', sucOri: 6, sucDes: '2', fecha: '2026-10-22', total: '100.3300',
+  status: 2, fechaApl: '2026-10-23 09:30:00', fechaCan: null, aliasOri: 'CEDIS', aliasDes: 'OCOSINGO', ...extra });
+const renglonT = (art_id, extra = {}) => ({ tra_id: '41', art_id, cantidad: '2.0000', precioSin: '50.00', precioCon: '58.00', ...extra });
+test('traspaso: recibido con su detalle, sin nombres de sucursal, y el servidor lo acepta tal cual', () => {
+  const { traspaso, omitido } = traspasoSeguro({ traspaso: traspasoDe(), detalles: [renglonT('7'), renglonT('8'), renglonT('9', { tra_id: '42' })] });
+  assert.equal(omitido, null);
+  assert.deepEqual(traspaso, { tra_id: '41', folio: 'T-41', suc_origen: '6', suc_destino: '2', fecha: '2026-10-22', estado: 'recibido',
+    fecha_aplicado: '2026-10-23T09:30:00', fecha_cancelado: null, total: '100.33',
+    detalle: [{ art_id: '7', cantidad: '2.0000', precio_sin: '50.00', precio_con: '58.00' },
+      { art_id: '8', cantidad: '2.0000', precio_sin: '50.00', precio_con: '58.00' }] });
+  const lote = sobre('1', 'incremental', new Date('2026-10-23T03:00:00Z'));
+  lote.traspasos = [traspaso];
+  assert.doesNotThrow(() => validarLoteSicar(lote));
+});
+test('traspaso: status 1 es enviado, -1 cancelado; la fecha cero de MySQL va como null', () => {
+  const enviado = traspasoSeguro({ traspaso: traspasoDe({ status: '1', fechaApl: '0000-00-00 00:00:00' }), detalles: [renglonT('7')] });
+  assert.deepEqual([enviado.traspaso.estado, enviado.traspaso.fecha_aplicado], ['enviado', null]);
+  const cancelado = traspasoSeguro({ traspaso: traspasoDe({ status: -1, fechaApl: null, fechaCan: '2026-10-24 10:00:00' }),
+    detalles: [renglonT('7')] });
+  assert.deepEqual([cancelado.traspaso.estado, cancelado.traspaso.fecha_cancelado], ['cancelado', '2026-10-24T10:00:00']);
+});
+test('traspaso: datos raros se omiten con su tra_id y su motivo, sin detener', () => {
+  for (const [extra, detalles, codigo] of [
+    [{ status: 0 }, [renglonT('7')], 'ESTADO_TRASPASO_DESCONOCIDO'],
+    [{ status: 3 }, [renglonT('7')], 'ESTADO_TRASPASO_DESCONOCIDO'],
+    [{ fecha: '2026-02-30' }, [renglonT('7')], 'FECHA_INVALIDA'],
+    [{ fecha: '0000-00-00' }, [renglonT('7')], 'FECHA_INVALIDA'],
+    [{ fechaApl: '2026-13-01 00:00:00' }, [renglonT('7')], 'FECHA_INVALIDA'],
+    [{ fechaCan: '2026-02-30 10:00:00' }, [renglonT('7')], 'FECHA_INVALIDA'],
+    [{}, [], 'DETALLE_FUERA_DE_LIMITE'],
+    [{}, [renglonT('7'), renglonT('7')], 'ID_INVALIDO'],
+    [{ sucDes: 0 }, [renglonT('7')], 'ID_INVALIDO'],
+    [{ folio: '  ' }, [renglonT('7')], 'TEXTO_VACIO'],
+    [{ folio: 'x'.repeat(46) }, [renglonT('7')], 'TEXTO_INVALIDO'],
+    [{ total: '-5.00' }, [renglonT('7')], 'DECIMAL_INVALIDO'],
+    [{ total: '1.005' }, [renglonT('7')], 'PRECISION_NO_PACTADA'],
+    [{}, [renglonT('7', { cantidad: '1.00001' })], 'PRECISION_NO_PACTADA'],
+  ]) {
+    assert.deepEqual(traspasoSeguro({ traspaso: traspasoDe(extra), detalles }), { traspaso: null, omitido: { tra_id: '41', codigo } },
+      JSON.stringify(extra));
+  }
+  assert.throws(() => traspasoSeguro({ traspaso: traspasoDe({ tra_id: '0' }), detalles: [] }), /ID_INVALIDO/, 'sin tra_id si detiene');
+});
+test('un lote cabe con hasta 100 traspasos y 1,000 renglones', () => {
+  const { traspaso } = traspasoSeguro({ traspaso: traspasoDe(), detalles: [renglonT('7')] });
+  const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));
+  lote.traspasos = Array.from({ length: 100 }, (_, i) => ({ ...traspaso, tra_id: String(i + 1) }));
+  assert.equal(cabe(lote), true);
+  lote.traspasos.push({ ...traspaso, tra_id: '101' });
+  assert.equal(cabe(lote), false);
+  const renglones = n => Array.from({ length: n }, (_, i) => ({ ...traspaso.detalle[0], art_id: String(i + 1) }));
+  lote.traspasos = [{ ...traspaso, detalle: renglones(500) }, { ...traspaso, tra_id: '2', detalle: renglones(500) }];
+  assert.equal(cabe(lote), true);
+  lote.traspasos.push({ ...traspaso, tra_id: '3' });
+  assert.equal(cabe(lote), false);
+  lote.traspasos = [{ ...traspaso, detalle: renglones(501) }];
+  assert.equal(cabe(lote), false);
+});

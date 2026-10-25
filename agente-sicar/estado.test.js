@@ -261,3 +261,32 @@ test('avisos del dia: un estado.json de antes o con el recuerdo raro arranca sin
     assert.deepEqual([raroCargado.avisos_dia, raroCargado.avisos], [null, []], JSON.stringify(raro).slice(0, 80));
   }
 });
+test('traspasos: un estado.json de antes arranca sin cursor, sin vuelta y sin firmas; rechaza valores raros', async t => {
+  const archivo = await entorno(t);
+  const nuevo = inicial();
+  assert.equal(nuevo.traspasos_cursor, '0');
+  assert.equal(nuevo.traspasos_semana, null);
+  assert.equal(nuevo.traspasos_vuelta, null);
+  assert.deepEqual(nuevo.traspasos_firmas, {});
+  const viejo = inicial();
+  for (const campo of ['traspasos_cursor', 'traspasos_semana', 'traspasos_vuelta', 'traspasos_firmas']) delete viejo[campo];
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const cargado = await cargar(archivo);
+  assert.deepEqual([cargado.traspasos_cursor, cargado.traspasos_semana, cargado.traspasos_vuelta, cargado.traspasos_firmas], ['0', null, null, {}]);
+  const bueno = { traspasos_cursor: '2500', traspasos_semana: '2026-10-20', traspasos_vuelta: '1200', traspasos_firmas: { 41: '0123456789abcdef' } };
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...bueno }));
+  const leido = await cargar(archivo);
+  assert.deepEqual([leido.traspasos_cursor, leido.traspasos_semana, leido.traspasos_vuelta, leido.traspasos_firmas],
+    ['2500', '2026-10-20', '1200', { 41: '0123456789abcdef' }]);
+  for (const raro of [{ traspasos_cursor: 'x' }, { traspasos_cursor: 5 }, { traspasos_semana: '20-10-2026' }, { traspasos_semana: 7 },
+    { traspasos_vuelta: '0' }, { traspasos_vuelta: 'x' }, { traspasos_firmas: [] }, { traspasos_firmas: { 0: '0123456789abcdef' } },
+    { traspasos_firmas: { 41: 'zz' } }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('TRASPASO_OMITIDO', { tra_id: '41', codigo: 'ESTADO_TRASPASO_DESCONOCIDO' }),
+    'TRASPASO_OMITIDO tra_id=41 codigo=ESTADO_TRASPASO_DESCONOCIDO');
+  for (const evento of ['TRASPASOS_NO_DISPONIBLES', 'TRASPASOS_DESCARTADOS', 'TRASPASOS_AUTORIZADOS_DE_DIA']) {
+    assert.equal(registrar(x => x)(evento), evento);
+  }
+});

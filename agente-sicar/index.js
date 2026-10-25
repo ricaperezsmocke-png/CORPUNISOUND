@@ -38,6 +38,12 @@ async function verificar(fuente, imprimir, esperar, log) {
     imprimir('Cortes APAGADOS, faltan columnas: ' + JSON.stringify(cortes.faltantes));
     log('CORTES_NO_DISPONIBLES');
   } else imprimir(`Cortes en SICAR: ${cortes.total}, lectura de ventas de 100 cortes en ${cortes.ms} ms`);
+  const traspasos = info.traspasos || { columnas: [], faltantes: ['traspaso'], total: null, abiertos: null };
+  imprimir('Columnas de traspasos: ' + JSON.stringify(traspasos.columnas));
+  if (traspasos.faltantes.length) {
+    imprimir('Traspasos APAGADOS, faltan columnas: ' + JSON.stringify(traspasos.faltantes));
+    log('TRASPASOS_NO_DISPONIBLES');
+  } else imprimir(`Traspasos en SICAR: ${traspasos.total}, ${traspasos.abiertos} enviados sin recibir`);
   // Ventas de mostrador (público en general) desde 2025: por número de cliente en SQL y, abajo, con la regla completa.
   const mostrador = info.mostrador;
   if (!mostrador) imprimir('Ventas de público en general desde 2025: sin dato');
@@ -108,7 +114,7 @@ async function main(args = process.argv.slice(2), deps = {}) {
   let liberar = null, conexion;
   try {
     const conocidos = ['--verificar', '--historico-ahora', '--articulos-ahora', '--proveedores-ahora', '--existencias-ahora',
-      '--mostrador-ahora'];
+      '--mostrador-ahora', '--traspasos-ahora'];
     if (args.some(a => !conocidos.includes(a)) || args.length > 1) throw new Error('CONFIGURACION_INVALIDA');
     // Carga histórica fuera de 20:00-07:00: solo a mano y solo esta corrida (Victor, 2026-10-15). La tarea programada no la usa.
     const historicoAhora = args.includes('--historico-ahora');
@@ -125,6 +131,9 @@ async function main(args = process.argv.slice(2), deps = {}) {
     // Y la carga de ventas de mostrador desde 2025, de día y solo esta corrida.
     const mostradorAhora = args.includes('--mostrador-ahora');
     if (mostradorAhora) log('MOSTRADOR_AUTORIZADO_DE_DIA');
+    // Y la vuelta completa de traspasos (la primera carga o tras restaurar un respaldo), de día y solo esta corrida.
+    const traspasosAhora = args.includes('--traspasos-ahora');
+    if (traspasosAhora) log('TRASPASOS_AUTORIZADOS_DE_DIA');
     const config = await leerConfiguracion(configPath);
     liberar = await bloquear(config.estado);
     if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
@@ -135,7 +144,7 @@ async function main(args = process.argv.slice(2), deps = {}) {
       if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
       await verificar(fuente, imprimir, esperar, log);
     } else await ejecutar(config.estado, config, { ...deps, fuente, esperar, log, bloqueado: true, historicoAhora, articulosAhora,
-      proveedoresAhora, existenciasAhora, mostradorAhora });
+      proveedoresAhora, existenciasAhora, mostradorAhora, traspasosAhora });
   } catch (e) {
     // Solo códigos conocidos, ids y nombres de columna: nunca el mensaje de MySQL (puede traer usuario o datos).
     escribir(describirFallo(e));

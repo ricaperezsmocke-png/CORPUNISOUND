@@ -12,5 +12,6 @@
   "proveedores": false,
   "existencias": false,
   "cortes": false,
-  "mostrador": false
+  "mostrador": false,
+  "traspasos": false
 }

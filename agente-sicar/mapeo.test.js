@@ -404,3 +404,86 @@ test('mostrador: si el conteo de --verificar falla, el dato sale vacio y el rest
   assert.equal(info.mostrador, null);
   assert.ok(Array.isArray(info.grants));
 });
+
+// Traspasos (Seguimiento de facturas, 2026-10-25). Consultas exactas; nunca aliasOri/aliasDes ni sucCan.
+const TRASPASO_SELECT = 'SELECT t.`tra_id`, t.`folio`, t.`sucOri`, t.`sucDes`, t.`fecha`, t.`total`, t.`status`, t.`fechaApl`, '
+  + 't.`fechaCan` FROM `traspaso` t ';
+const TRASPASOS_SQL = TRASPASO_SELECT + 'WHERE t.`tra_id` > ? ORDER BY t.`tra_id` LIMIT ?';
+const RELEER_TRASPASOS_SQL = TRASPASO_SELECT + 'WHERE t.`tra_id` > ? AND t.`status` = 1 OR t.`tra_id` > ? AND t.`fecha` >= ? '
+  + 'OR t.`tra_id` > ? AND t.`fechaApl` >= ? OR t.`tra_id` > ? AND t.`fechaCan` >= ? ORDER BY t.`tra_id` LIMIT ?';
+const DETALLET_SQL = 'SELECT d.`tra_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon` FROM `detallet` d '
+  + 'WHERE d.`tra_id` IN (?, ?) ORDER BY d.`tra_id`, d.`art_id`';
+function prepararTraspasos(sinColumna, traspasos = [{ tra_id: '41' }, { tra_id: '42' }]) {
+  const consultas = [];
+  const tablas = { ...columnas, traspaso: 'tra_id folio sucOri sucDes aliasOri aliasDes fecha total status fechaApl fechaCan sucCan',
+    detallet: 'tra_id art_id cantidad precioSin precioCon importeSin importeCon' };
+  const leer = async (sql, parametros) => {
+    validarSQL(sql);
+    consultas.push({ sql, parametros });
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries(tablas).flatMap(([TABLE_NAME, campos]) => campos.split(' ')
+        .filter(c => `${TABLE_NAME}.${c}` !== sinColumna).map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('COUNT(*)') && sql.includes('`traspaso`') && sql.includes('`status` = 1')) return [{ total: '12' }];
+    if (sql.includes('COUNT(*)') && sql.includes('`traspaso`')) return [{ total: '2500' }];
+    if (sql.includes('COUNT(*)')) return [{ total: '0' }];
+    if (sql === TRASPASOS_SQL || sql === RELEER_TRASPASOS_SQL) return traspasos;
+    if (sql === DETALLET_SQL) return [{ tra_id: '41', art_id: '7' }];
+    return [];
+  };
+  return { fuente: crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {}), consultas };
+}
+test('traspasos: una pagina lee traspasos y su detalle con consultas exactas que pasan la guardia, sin nombres', async () => {
+  const { fuente, consultas } = prepararTraspasos();
+  await fuente.validar();
+  assert.equal(fuente.traspasosDisponibles, true);
+  assert.deepEqual(await fuente.traspasos('40', 500), { traspasos: [{ tra_id: '41' }, { tra_id: '42' }], detalles: [{ tra_id: '41', art_id: '7' }] });
+  const desde = consultas.findIndex(q => q.sql === TRASPASOS_SQL);
+  assert.deepEqual(consultas.slice(desde).map(q => q.sql), [TRASPASOS_SQL, DETALLET_SQL]);
+  assert.deepEqual(consultas[desde].parametros, ['40', 100], 'no mas de 100 por pagina');
+  assert.deepEqual(consultas[desde + 1].parametros, ['41', '42']);
+  assert.equal(consultas.some(q => /alias|sucCan/.test(q.sql)), false, 'nunca lee nombres de sucursal');
+});
+test('traspasos: la relectura trae los abiertos y los de los ultimos 30 dias por fecha, aplicado o cancelado', async () => {
+  const { fuente, consultas } = prepararTraspasos();
+  await fuente.validar();
+  await fuente.traspasos('0', 100, '2026-09-25');
+  const i = consultas.findIndex(q => q.sql === RELEER_TRASPASOS_SQL);
+  assert.deepEqual(consultas[i].parametros, ['0', '0', '2026-09-25', '0', '2026-09-25', '0', '2026-09-25', 100]);
+});
+test('traspasos: una pagina vacia no consulta el detalle', async () => {
+  const { fuente, consultas } = prepararTraspasos(undefined, []);
+  await fuente.validar();
+  assert.deepEqual(await fuente.traspasos('9000', 100), { traspasos: [], detalles: [] });
+  assert.equal(consultas.some(q => q.sql === DETALLET_SQL), false);
+});
+test('traspasos: verificar trae columnas, faltantes, total y abiertos', async () => {
+  const { fuente } = prepararTraspasos();
+  await fuente.validar();
+  const { traspasos } = await fuente.verificar();
+  assert.deepEqual(traspasos.faltantes, []);
+  assert.equal(traspasos.total, '2500');
+  assert.equal(traspasos.abiertos, '12');
+  assert.ok(traspasos.columnas.includes('traspaso.fechaCan'));
+  assert.ok(traspasos.columnas.includes('detallet.precioCon'));
+  assert.equal(traspasos.columnas.some(c => /alias|sucCan|importe/.test(c)), false);
+});
+for (const falta of ['traspaso.fechaCan', 'detallet.precioCon']) {
+  test(`traspasos: sin ${falta} quedan apagados, no detienen la validacion y no se consultan`, async () => {
+    const { fuente, consultas } = prepararTraspasos(falta);
+    await fuente.validar();
+    assert.equal(fuente.traspasosDisponibles, false);
+    await assert.rejects(fuente.traspasos('0', 100), /TRASPASOS_NO_DISPONIBLES/);
+    const { traspasos } = await fuente.verificar();
+    assert.deepEqual(traspasos.faltantes, [falta]);
+    assert.equal(traspasos.total, null);
+    assert.equal(traspasos.abiertos, null);
+    assert.equal(consultas.some(q => /FROM `traspaso`|FROM `detallet`/.test(q.sql)), false);
+  });
+}
+test('traspasos: sin las tablas tambien siguen apagados', async () => {
+  const { fuente } = preparar();
+  await fuente.validar();
+  assert.equal(fuente.traspasosDisponibles, false);
+});

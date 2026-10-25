@@ -195,3 +195,50 @@ test('--mostrador-ahora se acepta, queda en el registro y de dia corre la carga 
   assert.deepEqual(desdes, ['2025-01-01 00:00:00']);
   assert.equal(JSON.parse(await fs.readFile(config.estado, 'utf8')).mostrador_terminado, true, 'sin ventas desde 2025 no hay nada que cargar');
 });
+test('el interruptor traspasos solo acepta true o false y el ejemplo lo trae apagado', async t => {
+  const { archivo, config } = await preparar(t);
+  assert.equal((await leerConfiguracion(archivo)).traspasos, undefined);
+  for (const [valor, acepta] of [[true, true], [false, true], ['true', false], [1, false], [null, false], [{}, false]]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, traspasos: valor }));
+    if (acepta) assert.equal((await leerConfiguracion(archivo)).traspasos, valor);
+    else await assert.rejects(leerConfiguracion(archivo), /CONFIGURACION_INVALIDA/);
+  }
+  assert.equal(JSON.parse(await fs.readFile(path.join(__dirname, 'config.ejemplo.json'), 'utf8')).traspasos, false);
+});
+test('--verificar dice cuantos traspasos hay y cuantos siguen abiertos, o que estan apagados', async t => {
+  const { archivo } = await preparar(t);
+  const base = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }) };
+  const info = traspasos => async () => ({ grants: [], columnas: [], ventas: [], clientes: [], traspasos });
+  for (const [traspasos, esperado, aviso] of [
+    [{ columnas: ['traspaso.tra_id'], faltantes: [], total: '2500', abiertos: '12' },
+      /Traspasos en SICAR: 2500, 12 enviados sin recibir/, false],
+    [{ columnas: ['traspaso.tra_id'], faltantes: ['detallet.precioCon'], total: null, abiertos: null },
+      /Traspasos APAGADOS, faltan columnas: \["detallet.precioCon"\]/, true],
+    [undefined, /Traspasos APAGADOS, faltan columnas/, true],
+  ]) {
+    const salida = [], registros = [];
+    await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+      crearFuente: async () => ({ ...base, verificar: info(traspasos) }), imprimir: x => salida.push(x), log: x => registros.push(x),
+      esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+    assert.match(salida.join('\n'), /Columnas de traspasos: /);
+    assert.match(salida.join('\n'), esperado);
+    assert.equal(registros.includes('TRASPASOS_NO_DISPONIBLES'), aviso);
+  }
+});
+test('--traspasos-ahora se acepta, queda en el registro y de dia hace la vuelta completa de traspasos', async t => {
+  const { archivo, config } = await preparar(t);
+  await fs.writeFile(archivo, JSON.stringify({ ...config, traspasos: true }));
+  const registros = [], leidos = [];
+  const vacia = { filas: [], clientes: [], detalles: [] };
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [], ventas: async () => vacia,
+    historial: async () => [], porIds: async () => vacia, traspasosDisponibles: true,
+    traspasos: async (cursor, limite, desde) => { leidos.push([cursor, desde ?? null]); return { traspasos: [], detalles: [] }; } };
+  await fs.writeFile(config.estado, JSON.stringify({ ...require('./estado').inicial(), fase: 'incremental' }));
+  await main(['--traspasos-ahora'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, log: x => registros.push(x), esperar: async () => {},
+    reloj: () => Date.parse('2026-10-15T18:00:00Z'), fetch: async () => assert.fail('Nada que mandar') });
+  assert.ok(registros.includes('TRASPASOS_AUTORIZADOS_DE_DIA'));
+  assert.deepEqual(leidos[0], ['0', null], 'vuelta completa desde el primero');
+  assert.equal(JSON.parse(await fs.readFile(config.estado, 'utf8')).traspasos_semana, '2026-10-15');
+});
