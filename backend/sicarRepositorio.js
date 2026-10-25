@@ -193,8 +193,7 @@ function centavos(decimal) {
 
 // Texto validado (signo opcional, enteros y cuatro decimales) a enteros de diezmilesimas, con BigInt sobre el texto sin punto (nunca parseFloat). "-0.0000" es 0.
 function diezmilesimas(texto) {
-  const valor = BigInt(texto.replace('.', ''));
-  return Number(valor);
+  return Number(BigInt(texto.replace('.', '')));
 }
 
 // Importe con signo y dos decimales a centavos enteros, con BigInt sobre el texto sin punto (nunca parseFloat). "-0.00" es 0.

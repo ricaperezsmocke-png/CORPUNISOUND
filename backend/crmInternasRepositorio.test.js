@@ -14,7 +14,7 @@ function preparar(t, persistente = false) {
   sqlite.exec("INSERT INTO sicar_tiendas(sucursal_id) VALUES (1); INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (1, '9', 'Tienda');");
   t.after(() => {
     sqlite.close();
-    if (carpeta) fs.rmSync(carpeta, { recursive: true });
+    if (carpeta) fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   return { sqlite, repo };
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   textoPersona, claseDiferencia, textoAtribucion, formatoDinero, nombreFormaPago, fechaHoraCorte, parametrosCortes, contadorDePeticiones,
-  textoHechoPor, tiendasDelSelector,
+  textoHechoPor, tiendasDelSelector, resultadoDeCarga,
 } from "./cortesSicar.js";
 
 test("textoPersona: sin nombre, con nombre y ventas sin usuario", () => {
@@ -68,6 +68,15 @@ test("contadorDePeticiones: solo la respuesta de la ultima peticion se muestra",
   assert.equal(contador.vigente(nueva), true);
   contador.nueva();
   assert.equal(contador.vigente(nueva), false);
+});
+
+test("resultadoDeCarga: si la carga falla no queda la tabla ni el resumen del rango anterior, solo el mensaje", () => {
+  const ok = { cortes: [{ cor_id: "1" }], resumen: [], umbral: "1.00" };
+  assert.deepEqual(resultadoDeCarga(true, ok), { datos: ok, error: "" });
+  assert.deepEqual(resultadoDeCarga(false, { error: "El rango no puede pasar de 366 días" }),
+    { datos: null, error: "El rango no puede pasar de 366 días" });
+  assert.deepEqual(resultadoDeCarga(false, {}), { datos: null, error: "No se pudieron cargar los cortes." });
+  assert.deepEqual(resultadoDeCarga(false, null), { datos: null, error: "No se pudieron cargar los cortes." });
 });
 
 test("textoHechoPor: nombre de CORPUNISOUND con su id; sin nombre, solo el id", () => {

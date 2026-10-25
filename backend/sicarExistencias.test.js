@@ -129,8 +129,11 @@ test('ruta: exige ver_existencias_sicar e ignora sucursal_id', async t => {
   t.after(() => sqlite.close());
   porTienda = {};
   const repo = crearRepositorioSicar(sqlite);
-  sembrar(repo, sqlite, 1, [art('1', 'A', 'Uno')], [ex('1', '1.0000')]);
-  sembrar(repo, sqlite, 2, [art('1', 'A', 'Uno')], [ex('1', '2.0000')]);
+  // La ruta usa el reloj real: las marcas se siembran relativas a ahora, no a la fecha fija de AHORA.
+  const reciente = new Date(Date.now() - 3600000).toISOString();
+  const frescas = { actualizado: reciente, recepcion: reciente };
+  sembrar(repo, sqlite, 1, [art('1', 'A', 'Uno')], [ex('1', '1.0000')], frescas);
+  sembrar(repo, sqlite, 2, [art('1', 'A', 'Uno')], [ex('1', '2.0000')], frescas);
   const vecinos = ['ver_clientes_sicar', 'ver_sincronizacion_sicar'];
   for (const [id, permisos] of [[981, [...vecinos, 'ver_existencias_sicar']], [982, vecinos]]) {
     app.DB.admin.roles.push({ id, nombre: `Existencias ${id}`, permisos, modulos: ['sicar', 'inventario'] });

@@ -45,7 +45,7 @@ function conBase(fn) {
     return fn(sqlite, { carpeta, ruta });
   } finally {
     sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }
 
@@ -125,7 +125,7 @@ test("migración V3 actualiza una base V2 sin reconstruir V1/V2 y es idempotente
     assert.ok(sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='lead_enlaces_rastreados'").get());
   } finally {
     sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 

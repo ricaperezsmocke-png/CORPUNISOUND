@@ -10,6 +10,8 @@ const { construirDBPrueba } = require('./testHelpers');
 const { desempaquetar } = require('./respaldoCifrado');
 const LLAVE = Buffer.alloc(32, 7);
 const LIMITE = 2 * 1024 * 1024;
+const MANIFIESTO_INVALIDO = 'El manifiesto SICAR es inválido.';
+const { TABLAS_15 } = require('./sicarRespaldo');
 
 test('Drive limitado cancela al recibir 2097153 bytes y conserva la descarga anterior', async t => {
   const drive = require('./drive');
@@ -70,7 +72,7 @@ function preparar(t) {
   const drive = driveFalso();
   t.after(() => {
     if (sqlite.open) sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     require('./mantenimiento').desactivar();
   });
   return { sqlite, repo, DB, drive, guardar, ruta };
@@ -608,10 +610,6 @@ test('un borrado de huérfanos detenido no retiene el lector ni impide el respal
 const CORTES = ['sicar_cortes', 'sicar_cortes_pagos', 'sicar_cortes_cobros'];
 const CAJEROS = ['sicar_cajeros', 'sicar_cajeros_historial'];
 const MOSTRADOR = ['sicar_ventas_mostrador', 'sicar_detalles_mostrador'];
-// Forma exacta de los respaldos que ya están en Drive antes de los proveedores del Radar (2026-10-23).
-const TABLAS_15 = ['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 'sicar_clientes', 'sicar_vinculos', 'sicar_decisiones',
-  'sicar_ventas', 'sicar_detalles', 'sicar_envios', 'sicar_intentos', 'sicar_estados', 'sicar_estados_historial',
-  'sicar_internas', 'sicar_internas_historial', 'sicar_articulos'];
 const conProveedor = f => f.repo.aplicarLote({ sucursalId: 1, hash: 'hash-p', lote: { batch_id: 'lote-p', sequence: '2',
   mapping_version: 'v1', clientes: [], ventas: [], proveedores: [{ prv_id: '7', nombre: 'Casa Veerkamp' }] } });
 
@@ -652,13 +650,13 @@ const sinTablas = (m, tablas) => {
   m.trozos = m.trozos.filter(c => !tablas.includes(c.tabla));
   return m;
 };
-const sinExistencias = m => sinTablas(m, ['sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR]);
+const comoRespaldoDe16Tablas = m => sinTablas(m, ['sicar_existencias', ...CORTES, ...CAJEROS, ...MOSTRADOR]);
 
 test('respaldo viejo de 16 tablas (con proveedores, sin existencias) abre y deja las existencias vacias', async t => {
   const f = preparar(t), s = api();
   sembrar(f);
   conProveedor(f);
-  const m = sinExistencias(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }));
+  const m = comoRespaldoDe16Tablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }));
   assert.deepEqual(Object.keys(m.conteos), [...TABLAS_15, 'sicar_proveedores']);
   await s.verificarSnapshotSicar(f.repo, f.drive, m);
   conExistencia(f, '3');
@@ -688,7 +686,7 @@ test('un manifiesto con existencias pero sin proveedores no es una generacion co
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   delete m.conteos.sicar_proveedores;
   m.trozos = m.trozos.filter(c => c.tabla !== 'sicar_proveedores');
-  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
+  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), { message: MANIFIESTO_INVALIDO });
 });
 
 const corteDePrueba = {
@@ -733,7 +731,7 @@ test('un manifiesto con pagos de corte pero sin cortes no es una generacion cono
   sembrar(f);
   conCorte(f, '2');
   const m = sinTablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }), ['sicar_cortes']);
-  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
+  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), { message: MANIFIESTO_INVALIDO });
 });
 
 const conNombre = (f, nombre = 'Ana') => f.sqlite.exec(`INSERT INTO sicar_cajeros VALUES (1, '52', '${nombre}', '9', 'hoy')
@@ -781,7 +779,7 @@ test('un manifiesto con historial de nombres pero sin nombres no es una generaci
   conCorte(f, '2');
   conNombre(f);
   const m = sinTablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }), ['sicar_cajeros']);
-  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
+  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), { message: MANIFIESTO_INVALIDO });
 });
 
 const ventaMostrador = { ven_id: '70', fecha_local: '2026-10-22T10:00:00', estado: 'vigente', total: '30.25',
@@ -828,5 +826,5 @@ test('un manifiesto con renglones de mostrador pero sin ventas de mostrador no e
   sembrar(f);
   conMostrador(f, '2');
   const m = sinTablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }), ['sicar_ventas_mostrador']);
-  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), /inv/i);
+  await assert.rejects(() => s.verificarSnapshotSicar(f.repo, f.drive, m), { message: MANIFIESTO_INVALIDO });
 });

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import {
-  haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar, paginaDelServidor,
+  fechaTienda, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar, paginaDelServidor,
 } from "./existenciasSicar.js";
 import { contadorDePeticiones } from "./cortesSicar.js";
 
@@ -81,8 +81,8 @@ export default function ExistenciasSicar() {
         {tiendas.map((t) => (
           <div key={t.id} className={CAJA}>
             <p className="font-semibold text-slate-900">{t.nombre}</p>
-            <p className="text-slate-700">Último contacto del agente: {haceCuanto(t.ultimo_contacto, ahora)}</p>
-            <p className="text-slate-700">Última confirmación de existencias: {haceCuanto(t.ultimo_cambio, ahora)}</p>
+            <p className="text-slate-700">Último contacto del agente: {fechaTienda(t.ultimo_contacto, ahora)}</p>
+            <p className="text-slate-700">Última confirmación de existencias: {fechaTienda(t.ultimo_cambio, ahora)}</p>
             {avisoTienda(t, ahora) && <p role="alert" className={AVISO_AMBAR}>{avisoTienda(t, ahora)}</p>}
           </div>
         ))}
@@ -129,7 +129,7 @@ export default function ExistenciasSicar() {
                 <td className={CELDA}>{[r.departamento, r.categoria].filter(Boolean).join(" / ") || "—"}</td>
                 {tiendas.map((t) => {
                   const c = r.por_tienda[t.id];
-                  const vencida = c ? textoSinConfirmar(c.sin_confirmar_desde) : null;
+                  const vencida = c ? textoSinConfirmar(c.sin_confirmar_desde, ahora) : null;
                   return (
                     <td
                       key={t.id}

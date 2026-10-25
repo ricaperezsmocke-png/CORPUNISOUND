@@ -3,7 +3,7 @@ import { apiFetch } from "../api";
 import PersonalSicar from "./PersonalSicar.jsx";
 import {
   textoPersona, claseDiferencia, textoAtribucion, formatoDinero, nombreFormaPago, fechaHoraCorte, parametrosCortes, fechaRelativa,
-  contadorDePeticiones, tiendasDelSelector,
+  contadorDePeticiones, tiendasDelSelector, resultadoDeCarga,
 } from "./cortesSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -202,10 +202,14 @@ export default function CortesSicar({ permisos = [], usuario = null }) {
       const respuesta = await apiFetch(`/sicar/cortes?${parametrosCortes(consulta)}`);
       const cuerpo = await respuesta.json();
       if (!peticiones.current.vigente(numero)) return;
-      if (!respuesta.ok) throw new Error(cuerpo.error || "No se pudieron cargar los cortes.");
-      setDatos(cuerpo);
+      // Si falló se limpian los datos: no queda a la vista la tabla ni el resumen del rango anterior, solo el mensaje.
+      const resultado = resultadoDeCarga(respuesta.ok, cuerpo);
+      setDatos(resultado.datos);
+      setError(resultado.error);
     } catch (e) {
-      if (peticiones.current.vigente(numero)) setError(e.message || "No se pudieron cargar los cortes.");
+      if (!peticiones.current.vigente(numero)) return;
+      setDatos(null);
+      setError(e.message || "No se pudieron cargar los cortes.");
     } finally {
       if (peticiones.current.vigente(numero)) setCargando(false);
     }

@@ -30,7 +30,7 @@ function conBase(fn) {
     return fn(sqlite);
   } finally {
     sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }
 

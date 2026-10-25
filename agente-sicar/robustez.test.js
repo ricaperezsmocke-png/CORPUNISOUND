@@ -469,3 +469,22 @@ test('--proveedores-ahora manda la lista de dia solo con el interruptor proveedo
   assert.deepEqual(lotes.map(l => l.proveedores?.map(x => x.prv_id)), [['5']]);
   await assert.rejects(main(['--proveedores-ahora', '--verificar'], deps), 'no se combina con --verificar');
 });
+test('--verificar explica por qué la cifra de público por número de cliente y la del nombre pueden diferir', async t => {
+  const { main } = require('./index');
+  const dir = await carpeta(t);
+  const archivo = path.join(dir, 'config.json');
+  await fs.writeFile(archivo, JSON.stringify({ mysql: { host: 'localhost', database: 'sicar', password: 'p' },
+    llave: 'k', estado: path.join(dir, 'estado.json') }));
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '9', clientes: async () => [],
+    verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [],
+      mostrador: { total_publico_desde_2025: '4', desde_ven_id: '1' } }),
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }) };
+  const salida = [];
+  await main(['--verificar'], { configPath: archivo, eco: () => {}, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, imprimir: x => salida.push(x), esperar: async () => {},
+    fetch: async () => assert.fail('No debe enviar') });
+  const texto = salida.join('\n');
+  assert.match(texto, /pueden diferir/);
+  assert.match(texto, /sin nombre/);
+  assert.match(texto, /PÚBLICO EN GENERAL/);
+});

@@ -1075,3 +1075,169 @@ test('mostrador: la carga desde 2025 salta las de publico con fecha anterior a 2
   assert.deepEqual(p.lotes.flatMap(l => l.mostrador).map(m => m.ven_id), ['56', '60']);
   assert.equal((await cargar(p.archivo)).mostrador_cursor, '60');
 });
+
+// Pulido de pendientes SICAR, Task 1.
+test('cortes: sin resumen a los 11 minutos sale con cobros vacios, no queda resuelto y se reenvia completo una sola vez', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA; // 12:00:00 en la tienda
+  const datos = { cortes: [corteDe(1), corteDe(2, '2026-10-15 11:49:00')], cajeros: [cerroDe(1), cerroDe(2)],
+    resumenes: [{ cor_id: '1', rcc_id: '10' }], ventas: [{ cor_id: '2', ven_id: '5', total: '10.00', status: '1', usu_id: '52' }] };
+  conCortes(p, datos);
+  // Sin resumen, SICAR no liga las ventas al corte: la consulta no las trae.
+  const leer = p.fuente.cortes;
+  p.fuente.cortes = async (...args) => {
+    const pagina = await leer(...args);
+    const conResumen = new Set(pagina.resumenes.map(r => r.cor_id));
+    return { ...pagina, ventas: pagina.ventas.filter(x => conResumen.has(x.cor_id)) };
+  };
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.cobros])), [[['1', []], ['2', []]]]);
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.cortes_cursor, '2');
+  assert.deepEqual(estado.cortes_enviados, ['1'], 'el incompleto no queda como resuelto');
+  // SICAR ya escribió el resumen: la relectura del margen lo manda completo.
+  datos.resumenes.push({ cor_id: '2', rcc_id: '20' });
+  p.lotes.length = 0;
+  p.deps.reloj = () => DE_DIA() + 5 * 60000;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.cobros.length])), [[['2', 1]]]);
+  estado = await cargar(p.archivo);
+  assert.equal(estado.cortes_cursor, '2', 'el cursor no se mueve hacia atras');
+  assert.deepEqual(estado.cortes_enviados, ['1', '2']);
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(p.lotes.length, 0, 'completo ya no se reenvia');
+});
+test('cortes: sin quien lo cerro se reenvia cuando SICAR ya tiene el renglon de historial', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const datos = { cortes: [corteDe(1), corteDe(2)], cajeros: [cerroDe(1)] };
+  conCortes(p, datos);
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.usu_id])), [[['1', '7'], ['2', null]]]);
+  assert.deepEqual((await cargar(p.archivo)).cortes_enviados, ['1']);
+  datos.cajeros.push(cerroDe(2, '9'));
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.deepEqual(cortesMandados(p).map(l => l.map(x => [x.cor_id, x.usu_id])), [[['2', '9']]]);
+  assert.deepEqual((await cargar(p.archivo)).cortes_enviados, ['1', '2']);
+});
+test('registro: CORTE_SIN_RESUMEN de un corte que se reenvia sale una vez por dia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)], resumenes: [] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(p.lotes.filter(l => l.cortes).length, 2, 'se sigue reenviando');
+  assert.equal(registro.filter(r => r === 'CORTE_SIN_RESUMEN cor_id=1').length, 1);
+  p.deps.reloj = () => DE_DIA() + 24 * 3600000;
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(registro.filter(r => r === 'CORTE_SIN_RESUMEN cor_id=1').length, 2, 'al dia siguiente se vuelve a anotar');
+});
+test('registro: EXISTENCIA_OMITIDA sale una vez por dia por articulo', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  const filas = [existencia(1), existencia(2, '1.12345')];
+  conExistencias(p, filas);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(registro.filter(r => r.startsWith('EXISTENCIA_OMITIDA art_id=2')).length, 1);
+  filas.push(existencia(3, '1.12345'));
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(registro.filter(r => r.startsWith('EXISTENCIA_OMITIDA art_id=3')).length, 1, 'otro articulo si se anota');
+  assert.equal(registro.filter(r => r.startsWith('EXISTENCIA_OMITIDA art_id=2')).length, 1);
+  p.deps.reloj = () => DE_DIA() + 24 * 3600000;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(registro.filter(r => r.startsWith('EXISTENCIA_OMITIDA art_id=2')).length, 2, 'al dia siguiente se vuelve a anotar');
+});
+test('registro: EXISTENCIAS_NO_DISPONIBLES sale una vez por dia y las ventas siguen', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  p.fuente.existenciasDisponibles = false;
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.mensajes.filter(m => m === 'EXISTENCIAS_NO_DISPONIBLES').length, 1);
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+  p.deps.reloj = () => DE_DIA() + 24 * 3600000;
+  await ejecutar(p.archivo, { existencias: true }, p.deps);
+  assert.equal(p.mensajes.filter(m => m === 'EXISTENCIAS_NO_DISPONIBLES').length, 2);
+});
+test('registro: CORTE_OMITIDO sale una vez por dia aunque el corte se vuelva a leer', async t => {
+  // Sin el recuerdo de resueltos (estado.json recortado a mano), el omitido se vuelve a leer.
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  const registro = registroDe(p);
+  conCortes(p, { cortes: [{ ...corteDe(1), contado: '1.001' }], cajeros: [cerroDe(1)] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  const estado = await cargar(p.archivo);
+  await guardar(p.archivo, { ...estado, cortes_cursor: '0', cortes_enviados: [] });
+  await ejecutar(p.archivo, { cortes: true }, p.deps);
+  assert.equal(registro.filter(r => r.startsWith('CORTE_OMITIDO cor_id=1')).length, 1);
+});
+test('existencias: una pagina cuyo cursor no avanza detiene con ID_INVALIDO', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  p.fuente.existenciasDisponibles = true;
+  p.fuente.existencias = async () => [existencia(5)];
+  await assert.rejects(ejecutar(p.archivo, { existencias: true }, p.deps), /ID_INVALIDO/);
+});
+test('estado podado: enviadas y mostrador_enviadas olvidan las de mas de 90 dias fuera de la ventana y del margen', async t => {
+  // Reloj: 2026-10-14 21:00 en la tienda. Cursor de ventas en 1000: el margen cubre de la 801 a la 1000.
+  const ventana = { 10: '2026-01-05T10:00:00', 11: '2026-07-01T10:00:00', 12: '2026-08-01T10:00:00',
+    850: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00', 13: 'basura' };
+  const enviadas = { 10: true, 11: true, 12: true, 850: true, 999: true, 13: true, 14: true };
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '1000', ventana, enviadas,
+    mostrador_terminado: true, mostrador_enviadas: { 10: true, 12: true, 14: true } });
+  p.fuente.tope = async () => '1000';
+  await ejecutar(p.archivo, {}, p.deps);
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(Object.keys(estado.enviadas).sort(), ['12', '13', '14', '850', '999'],
+    'se van solo las de mas de 90 dias por fecha y fuera del margen; sin fecha valida no se adivina');
+  assert.deepEqual(Object.keys(estado.mostrador_enviadas).sort(), ['12', '14']);
+  assert.deepEqual(estado.ventana, { 12: '2026-08-01T10:00:00', 850: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00', 13: 'basura' },
+    'la ventana olvida con la misma regla: la de hace 1 dia, la del margen y la sin fecha valida se quedan');
+  assert.equal(p.lotes.length, 0, 'podar no manda nada');
+});
+test('estado podado: la ventana no se poda mientras la carga de mostrador esta prendida y sin terminar', async t => {
+  const ventana = { 10: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00' };
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '1000', ventana, enviadas: { 10: true } });
+  p.fuente.tope = async () => '1000';
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.deepEqual((await cargar(p.archivo)).ventana, ventana);
+});
+test('estado podado: una venta podada de la ventana que se cancela via historial vuelve a mandarse completa', async t => {
+  const ventana = { 9: '2026-01-05T10:00:00' };
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '1000', his_id: '70', ventana, enviadas: { 9: true },
+    mostrador_terminado: true });
+  p.fuente.tope = async () => '1000';
+  p.fuente.historial = async cursor => (cursor === '70' ? [{ his_id: '80', tabla: 'Venta', movimiento: 2, referencia: '9' }] : []);
+  p.fuente.porIds = async ids => (ids.includes('9') ? { filas: [{ ...v, fecha: '2026-01-05 10:00:00' }], clientes: [c], detalles: [d] }
+    : vacia());
+  await ejecutar(p.archivo, { historial: { columna_referencia: 'ref' } }, p.deps);
+  const ventas = p.lotes.flatMap(l => l.ventas);
+  assert.equal(ventas.length, 1);
+  assert.equal(ventas[0].estado, 'cancelada');
+  assert.equal(ventas[0].detalle.length, 1, 'sale completa, con sus renglones, no como cancelacion corta');
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.his_id, '80');
+  assert.equal(estado.ventana['9'], '2026-01-05T10:00:00', 'el historial la vuelve a anotar con su fecha');
+  assert.equal(estado.enviadas['9'], true);
+});
+test('estado podado: la cancelacion de una venta de hace 1 dia sigue saliendo como antes', async t => {
+  const ventana = { 10: '2026-01-05T10:00:00', 999: '2026-10-13T10:00:00' };
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '1000', ventana, enviadas: { 10: true, 999: true },
+    mostrador_terminado: true, mostrador_enviadas: { 999: true } });
+  p.fuente.tope = async () => '1000';
+  // Cancelada, de público y sin renglones: solo sale (corta) si se recuerda como enviada.
+  p.fuente.porIds = async ids => (ids.includes('999')
+    ? { filas: [{ ...v, ven_id: '999', cli_id: '1', fecha: '2026-10-13 10:00:00' }], clientes: [PUBLICO], detalles: [] } : vacia());
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  const ventas = p.lotes.flatMap(l => l.ventas), mostrador = p.lotes.flatMap(l => l.mostrador || []);
+  assert.deepEqual(ventas, [{ ven_id: '999', estado: 'excluida' }]);
+  assert.deepEqual(mostrador, [{ ven_id: '999', estado: 'cancelada' }]);
+  assert.deepEqual(Object.keys((await cargar(p.archivo)).enviadas), ['999']);
+});

@@ -50,7 +50,7 @@ function preparar(t) {
   const drive = driveFalso();
   t.after(() => {
     if (sqlite.open) sqlite.close();
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     require('./mantenimiento').desactivar();
   });
   return { sqlite, repo, DB, drive, guardar, ruta };

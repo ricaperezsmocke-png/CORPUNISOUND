@@ -63,11 +63,16 @@ function cargarNombres(sqlite) {
     nombre: usu_id === '' ? null : mapa.get(`${sucursal_id}\u0000${usu_id}`) ?? null });
 }
 
+const MAX_DIAS_RANGO = 366;
+
 function consultarCortesSicar(sqlite, filtros = {}, alcance, hoy = fechaLocal()) {
   const propia = tiendaDelAlcance(alcance);
   const hasta = filtroFecha(filtros.hasta, 'hasta') ?? hoy;
   const desde = filtroFecha(filtros.desde, 'desde')
     ?? new Date(Date.parse(`${hoy}T00:00:00Z`) - (DIAS_POR_DEFECTO - 1) * DIA).toISOString().slice(0, 10);
+  if ((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / DIA > MAX_DIAS_RANGO) {
+    throw fallo(400, `El rango de fechas no puede pasar de ${MAX_DIAS_RANGO} días.`);
+  }
   const pedida = filtroTexto(filtros.sucursal_id, 'sucursal_id') === null ? null : idTienda(filtros.sucursal_id);
   const cajId = filtroTexto(filtros.caj_id, 'caj_id');
   const usuId = filtroTexto(filtros.usu_id, 'usu_id');

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  haceCuanto, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar, paginaDelServidor,
+  haceCuanto, fechaTienda, claseExistencia, formatoExistencia, avisoTienda, textoSinConfirmar, paginaDelServidor,
 } from "./existenciasSicar.js";
 
 const AHORA = new Date("2026-10-23T18:00:00.000Z");
@@ -10,7 +10,7 @@ test("haceCuanto: minutos, horas y fecha", () => {
   assert.equal(haceCuanto("2026-10-23T17:57:00.000Z", AHORA), "hace 3 min");
   assert.equal(haceCuanto("2026-10-23T15:50:00.000Z", AHORA), "hace 2 h");
   assert.equal(haceCuanto("2026-10-23T17:59:50.000Z", AHORA), "hace unos segundos");
-  assert.match(haceCuanto("2026-10-21T18:04:00.000Z", AHORA), /^el 21\/10 \d{2}:\d{2}$/);
+  assert.equal(haceCuanto("2026-10-21T18:04:00.000Z", AHORA), "el 21/10 12:04");
   assert.equal(haceCuanto(null, AHORA), "nunca");
   assert.equal(haceCuanto("basura", AHORA), "nunca");
 });
@@ -41,10 +41,34 @@ test("avisoTienda: ambar solo si el agente lleva mas de 24 h sin enviar", () => 
   assert.match(avisoTienda(nunca, AHORA), /no ha enviado nada/);
 });
 
+test("fechaTienda: hoy / ayer / fecha, siempre en hora de Chiapas", () => {
+  const ahora = new Date("2026-10-26T18:00:00.000Z"); // lunes 26/10 12:00 en Chiapas
+  assert.equal(fechaTienda("2026-10-26T16:42:00.000Z", ahora), "hoy 10:42");
+  assert.equal(fechaTienda("2026-10-26T00:04:00.000Z", ahora), "ayer 18:04");
+  assert.equal(fechaTienda("2026-10-22T00:04:00.000Z", ahora), "el 21/10 18:04");
+  assert.equal(fechaTienda(null, ahora), "nunca");
+  assert.equal(fechaTienda("basura", ahora), "nunca");
+});
+
+test("fechaTienda: la misma fecha de hace un año no se muestra como hoy ni ayer", () => {
+  const ahora = new Date("2026-10-26T18:00:00.000Z");
+  assert.equal(fechaTienda("2025-10-26T16:42:00.000Z", ahora), "el 26/10 10:42");
+  assert.equal(fechaTienda("2025-10-25T16:42:00.000Z", ahora), "el 25/10 10:42");
+});
+
+test("fechaTienda: el dia UTC y el de Chiapas no coinciden", () => {
+  // 2026-10-26T03:00Z es el 25/10 21:00 en Chiapas
+  const ahora = new Date("2026-10-26T03:30:00.000Z");
+  assert.equal(fechaTienda("2026-10-26T03:00:00.000Z", ahora), "hoy 21:00");
+  assert.equal(fechaTienda("2026-10-25T20:00:00.000Z", ahora), "hoy 14:00");
+  assert.equal(fechaTienda("2026-10-25T03:00:00.000Z", ahora), "ayer 21:00");
+  assert.equal(fechaTienda("2026-10-24T03:00:00.000Z", new Date("2026-10-26T18:00:00.000Z")), "el 23/10 21:00");
+});
+
 test("textoSinConfirmar: texto visible bajo la cantidad con dia y hora; nada si esta confirmada", () => {
-  assert.match(textoSinConfirmar("2026-10-21T18:04:00.000Z"), /^sin confirmar desde el 21\/10 \d{2}:\d{2}$/);
-  const local = new Date(2026, 9, 22, 7, 5);
-  assert.equal(textoSinConfirmar(local.toISOString()), "sin confirmar desde el 22/10 07:05");
+  const ahora = new Date("2026-10-26T18:00:00.000Z");
+  assert.equal(textoSinConfirmar("2026-10-22T00:04:00.000Z", ahora), "sin confirmar desde el 21/10 18:04");
+  assert.equal(textoSinConfirmar("2026-10-26T00:04:00.000Z", ahora), "sin confirmar desde ayer 18:04");
   assert.equal(textoSinConfirmar(null), null);
   assert.equal(textoSinConfirmar(undefined), null);
   assert.equal(textoSinConfirmar("basura"), null);

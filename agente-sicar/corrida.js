@@ -1,5 +1,5 @@
 const { setTimeout: pausa } = require('node:timers/promises');
-const { cargar, guardar, bloquear } = require('./estado');
+const { cargar, guardar, bloquear, LIMITE_AVISOS } = require('./estado');
 const { cliente, esPublico, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
   proveedorSeguro, existenciaSegura, corteSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
@@ -62,6 +62,8 @@ const ESPERA_INCOMPLETO_MS = 10 * 60000;
 // Cortes bajo el cursor que se releen por si otra caja los guardó tarde (como MARGEN_VENTAS) y cuántos se recuerdan.
 const MARGEN_CORTES = 50;
 const FECHA_SICAR = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+// enviadas y mostrador_enviadas olvidan las ventas fechadas hace más de esto que ya están fuera del margen de relectura.
+const DIAS_RECUERDO_VENTAS = 90;
 function cache(pagina, estado) {
   const ventana = { ...estado.ventana };
   for (const v of pagina.filas) ventana[id(v.ven_id)] = String(v.fecha).replace(' ', 'T');
@@ -70,6 +72,28 @@ function cache(pagina, estado) {
 function horaLocal(ms) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit',
     day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(ms)).replace(' ', 'T');
+}
+// Olvida de enviadas, mostrador_enviadas y ventana las ventas fechadas hace más de 90 días que ya quedaron fuera del
+// margen de relectura: ninguna corrida normal las vuelve a leer y el estado.json crecería para siempre. Nunca se olvida
+// una venta sin fecha válida en la ventana, ni una de las 200 bajo el cursor, ni nada mientras la carga de mostrador
+// desde 2025 está prendida y sin terminar (decide la tumba 'excluida' de ventas viejas). La regla se decide con la ventana
+// de antes de podar, igual para los tres mapas. Devuelve true si quitó algo.
+function podar(estado, config, ahora) {
+  if (estado.fase !== 'incremental' || (config.mostrador === true && !estado.mostrador_terminado)) return false;
+  const limite = horaLocal(ahora - DIAS_RECUERDO_VENTAS * 86400000);
+  const piso = BigInt(estado.ven_id) - BigInt(MARGEN_VENTAS);
+  const ventana = estado.ventana;
+  const fecha = ven => ventana[ven];
+  const olvidable = ven => /^[1-9]\d*$/.test(ven) && BigInt(ven) <= piso && typeof fecha(ven) === 'string'
+    && FECHA_SICAR.test(fecha(ven)) && fecha(ven) < limite;
+  let quito = false;
+  for (const mapa of ['enviadas', 'mostrador_enviadas', 'ventana']) {
+    const quedan = Object.entries(estado[mapa]).filter(([ven]) => !olvidable(ven));
+    if (quedan.length === Object.keys(estado[mapa]).length) continue;
+    estado[mapa] = Object.fromEntries(quedan);
+    quito = true;
+  }
+  return quito;
 }
 async function ejecutar(archivo, config, deps) {
   const { fuente, reloj = Date.now, esperar = pausa, log = () => {} } = deps;
@@ -86,6 +110,23 @@ async function ejecutar(archivo, config, deps) {
     const estado = await cargar(archivo);
     if (estado.detenido) throw new Error(estado.detenido);
     if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
+    // Avisos repetibles (un artículo o un corte raro, las existencias sin columnas): una vez por día por id o por evento,
+    // no en cada corrida. El recuerdo vive en estado.json y se guarda con lo demás o al final de existencias y cortes.
+    let vistos = null, avisosNuevos = false;
+    function avisarUnaVez(evento, clave, datos) {
+      const dia = horaLocal(reloj()).slice(0, 10);
+      if (estado.avisos_dia !== dia) { estado.avisos_dia = dia; estado.avisos = []; vistos = null; avisosNuevos = true; }
+      vistos ??= new Set(estado.avisos);
+      const llave = clave ? `${evento}:${clave}` : evento;
+      if (vistos.has(llave)) return;
+      if (estado.avisos.length < LIMITE_AVISOS) { estado.avisos.push(llave); vistos.add(llave); avisosNuevos = true; }
+      log(evento, datos);
+    }
+    async function guardarAvisos() {
+      if (!avisosNuevos) return;
+      avisosNuevos = false;
+      await guardar(archivo, estado);
+    }
     await fuente.validar();
     function permitido(mode) {
       if (mode !== 'historico' || deps.historicoAhora || esHorarioHistorico(new Date(reloj()))) return true;
@@ -115,6 +156,7 @@ async function ejecutar(archivo, config, deps) {
     }
     const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
     if (!permitido(mode)) return;
+    if (podar(estado, config, reloj())) await guardar(archivo, estado);
     let enviados = 0, paginas = 0;
     async function transmitir(items, cambios, modo = mode) {
       if (++paginas > MAXIMO_PAGINAS_POR_CORRIDA) { log('TOPE_DE_CORRIDA'); return false; }
@@ -256,7 +298,7 @@ async function ejecutar(archivo, config, deps) {
     // interruptor no sea true: un servidor viejo rechaza la colección y detendría las ventas.
     async function mandarExistencias() {
       if (config.existencias !== true) return true;
-      if (!fuente.existenciasDisponibles) { log('EXISTENCIAS_NO_DISPONIBLES'); return true; }
+      if (!fuente.existenciasDisponibles) { avisarUnaVez('EXISTENCIAS_NO_DISPONIBLES'); return true; }
       // De día también toca si la última vuelta completa fue antes de ayer (o nunca): tiendas que apagan la PC de noche.
       const ayer = horaLocal(reloj() - 24 * 3600000).slice(0, 10);
       const atrasada = !estado.existencias_dia || estado.existencias_dia < ayer;
@@ -273,7 +315,7 @@ async function ejecutar(archivo, config, deps) {
         cursor = siguiente;
         for (const fila of filas) {
           const { existencia, omitido } = existenciaSegura(fila);
-          if (omitido) { omitir('EXISTENCIA_OMITIDA', omitido); omitidas.add(omitido.art_id); continue; }
+          if (omitido) { avisarUnaVez('EXISTENCIA_OMITIDA', omitido.art_id, omitido); omitidas.add(omitido.art_id); continue; }
           // Un art_id repetido lo rechaza el servidor (ID_DUPLICADO, 422) y detendría el agente: se queda el primero.
           if (!actuales.has(existencia.art_id)) actuales.set(existencia.art_id, existencia.existencia);
         }
@@ -303,7 +345,9 @@ async function ejecutar(archivo, config, deps) {
       }
       return true;
     }
-    if (!await mandarExistencias()) return;
+    const existenciasListas = await mandarExistencias();
+    await guardarAvisos();
+    if (!existenciasListas) return;
     // Cortes de caja: en cada corrida, después de las existencias, por cor_id (nunca se editan y crecen con el tiempo).
     // cortes_cursor avanza solo cuando el servidor confirma el lote. Apagados mientras el interruptor no sea true.
     async function mandarCortes() {
@@ -337,24 +381,28 @@ async function ejecutar(archivo, config, deps) {
             break;
           }
           const { corte, omitido } = corteSeguro({ corte: fila, pagos: pagina.pagos, cajeros: pagina.cajeros, ventas: pagina.ventas });
-          if (omitido) omitir('CORTE_OMITIDO', omitido);
+          if (omitido) avisarUnaVez('CORTE_OMITIDO', cor_id, omitido);
           else {
-            if (adelantado) log('CORTE_FECHA_FUTURA', { cor_id });
-            if (corte.usu_id === null) log('CORTE_SIN_CAJERO', { cor_id });
-            if (!conResumen) log('CORTE_SIN_RESUMEN', { cor_id });
+            if (adelantado) avisarUnaVez('CORTE_FECHA_FUTURA', cor_id, { cor_id });
+            if (corte.usu_id === null) avisarUnaVez('CORTE_SIN_CAJERO', cor_id, { cor_id });
+            if (!conResumen) avisarUnaVez('CORTE_SIN_RESUMEN', cor_id, { cor_id });
             items.push({ corte });
           }
-          nuevos.push(cor_id);
+          // Mandado sin quién lo cerró o sin resumen: no queda resuelto, así la relectura del margen lo vuelve a mandar
+          // (el servidor lo reescribe por cor_id, no lo duplica) hasta que SICAR tenga esos datos. El cursor sí lo pasa.
+          if (omitido || (conCajero && conResumen)) nuevos.push(cor_id);
           if (posterior(cor_id, cursor)) cursor = cor_id;
         }
-        if (nuevos.length) {
+        if (items.length || nuevos.length) {
           const enviados = [...new Set([...estado.cortes_enviados, ...nuevos])].sort((x, y) => (posterior(x, y) ? 1 : -1)).slice(-MARGEN_CORTES);
           if (!await transmitir(items, { cortes_cursor: cursor, cortes_enviados: enviados }, 'incremental')) return false;
         }
         if (espera) return true;
       }
     }
-    if (!await mandarCortes()) return;
+    const cortesListos = await mandarCortes();
+    await guardarAvisos();
+    if (!cortesListos) return;
     // Ventas de mostrador desde 2025 (Cinco Caminos P1): una sola vez, al final de todo, de noche o con --mostrador-ahora.
     // Lee las ventas de (max(mostrador_cursor, desde - 1), cursor de ventas] y manda solo las de público (con su tumba
     // excluida si se habían mandado con cliente); mostrador_cursor avanza solo cuando el servidor confirma. Al alcanzar el

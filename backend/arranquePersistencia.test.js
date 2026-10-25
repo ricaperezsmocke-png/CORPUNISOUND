@@ -185,7 +185,7 @@ test("ARRANQUE REAL: con la persistencia rota y sin NODE_ENV, el proceso se muer
     assert.strictEqual(r.murio, true, `debió salir con código distinto de cero${detalle(r)}`);
     assert.match(r.salida, /ARRANQUE CANCELADO/, "y tiene que decir por qué, a gritos" + detalle(r));
   } finally {
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -197,7 +197,7 @@ test("ARRANQUE REAL: con NODE_ENV=production el proceso se muere solo", () => {
     assert.strictEqual(r.murio, true, detalle(r));
     assert.match(r.salida, /ARRANQUE CANCELADO/, detalle(r));
   } finally {
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -211,6 +211,6 @@ test("ARRANQUE REAL: en desarrollo SÍ se tolera — se queda vivo, avisando", (
     );
     assert.match(r.salida, /NADA DE LO QUE HAGAS SE VA A GUARDAR/, "pero con un aviso imposible de ignorar" + detalle(r));
   } finally {
-    fs.rmSync(carpeta, { recursive: true, force: true });
+    fs.rmSync(carpeta, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

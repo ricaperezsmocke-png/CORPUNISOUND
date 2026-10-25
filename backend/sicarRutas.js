@@ -122,7 +122,7 @@ function registrarRutasSicar(app, opciones) {
   const ejecutar = fn => (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      if (req.method !== 'GET' && mantenimiento.estaActivo()) return res.status(503).json({ codigo: 'MANTENIMIENTO' });
+      if (req.method !== 'GET' && req.method !== 'HEAD' && mantenimiento.estaActivo()) return res.status(503).json({ codigo: 'MANTENIMIENTO' });
       return fn(req, res, resolverAlcanceAutorizado(req));
     } catch (e) {
       return res.status(e.status || 503).json({ error: e.status ? e.message : 'No se pudo completar la operación SICAR.' });

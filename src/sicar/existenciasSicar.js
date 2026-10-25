@@ -6,7 +6,16 @@
 const MIN = 60000;
 const HORA = 60 * MIN;
 
-const dos = (n) => String(n).padStart(2, "0");
+const FORMATO_TIENDA = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "America/Mexico_City", year: "numeric", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+/** Año, día, mes, hora y minuto de un instante en America/Mexico_City (Chiapas), sin depender de la zona del navegador. */
+function partesTienda(t) {
+  const p = {};
+  for (const x of FORMATO_TIENDA.formatToParts(new Date(t))) p[x.type] = x.value;
+  return p;
+}
 
 /** "hace 3 min" / "hace 2 h" / "el 21/10 18:04" (pasadas 24 h). */
 export function haceCuanto(iso, ahora = new Date()) {
@@ -19,17 +28,31 @@ export function haceCuanto(iso, ahora = new Date()) {
   return fechaCorta(t);
 }
 
-/** "el 21/10 18:04" en la hora local del navegador. */
+/** "el 21/10 18:04" en hora de Chiapas. */
 function fechaCorta(t) {
-  const d = new Date(t);
-  return `el ${dos(d.getDate())}/${dos(d.getMonth() + 1)} ${dos(d.getHours())}:${dos(d.getMinutes())}`;
+  const p = partesTienda(t);
+  return `el ${p.day}/${p.month} ${p.hour}:${p.minute}`;
 }
 
-/** Texto visible bajo una existencia vencida: "sin confirmar desde el 21/10 18:04"; null si está confirmada. */
-export function textoSinConfirmar(desde) {
+/** "hoy 10:42" / "ayer 18:04" / "el 21/10 18:04", comparando el día en hora de Chiapas; "nunca" si no hay fecha. */
+export function fechaTienda(iso, ahora = new Date()) {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return "nunca";
+  const p = partesTienda(t);
+  const hoy = partesTienda(ahora.getTime());
+  // "ayer" usa ahora - 24 h: vale porque Ciudad de México ya no tiene horario de verano.
+  const ayer = partesTienda(ahora.getTime() - 24 * HORA);
+  const hora = `${p.hour}:${p.minute}`;
+  if (p.year === hoy.year && p.day === hoy.day && p.month === hoy.month) return `hoy ${hora}`;
+  if (p.year === ayer.year && p.day === ayer.day && p.month === ayer.month) return `ayer ${hora}`;
+  return `el ${p.day}/${p.month} ${hora}`;
+}
+
+/** Texto visible bajo una existencia vencida: "sin confirmar desde ayer 18:04"; null si está confirmada. */
+export function textoSinConfirmar(desde, ahora = new Date()) {
   const t = desde ? Date.parse(desde) : NaN;
   if (Number.isNaN(t)) return null;
-  return `sin confirmar desde ${fechaCorta(t)}`;
+  return `sin confirmar desde ${fechaTienda(desde, ahora)}`;
 }
 
 /** Clase de color de una celda: gris si no está confirmada, rojo si es negativa, gris claro si es cero. */
