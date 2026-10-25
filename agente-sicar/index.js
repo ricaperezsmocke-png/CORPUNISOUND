@@ -43,7 +43,12 @@ async function verificar(fuente, imprimir, esperar, log) {
   if (traspasos.faltantes.length) {
     imprimir('Traspasos APAGADOS, faltan columnas: ' + JSON.stringify(traspasos.faltantes));
     log('TRASPASOS_NO_DISPONIBLES');
-  } else imprimir(`Traspasos en SICAR: ${traspasos.total}, ${traspasos.abiertos} enviados sin recibir`);
+  } else {
+    // Cuántos enviados sin recibir se omitirían por fecha inválida (no llegarían a CORPUNISOUND más que como alerta).
+    const invalidos = traspasos.abiertos_fecha_invalida;
+    imprimir(`Traspasos en SICAR: ${traspasos.total}, ${traspasos.abiertos} enviados sin recibir`
+      + (invalidos == null ? '' : `; ${invalidos} de ellos se omitirían por fecha inválida`));
+  }
   // Ventas de mostrador (público en general) desde 2025: por número de cliente en SQL y, abajo, con la regla completa.
   const mostrador = info.mostrador;
   if (!mostrador) imprimir('Ventas de público en general desde 2025: sin dato');
@@ -133,8 +138,9 @@ async function main(args = process.argv.slice(2), deps = {}) {
     if (mostradorAhora) log('MOSTRADOR_AUTORIZADO_DE_DIA');
     // Y la vuelta completa de traspasos (la primera carga o tras restaurar un respaldo), de día y solo esta corrida.
     const traspasosAhora = args.includes('--traspasos-ahora');
-    if (traspasosAhora) log('TRASPASOS_AUTORIZADOS_DE_DIA');
     const config = await leerConfiguracion(configPath);
+    // Solo queda en el registro si de verdad va a correr: con el interruptor apagado la vuelta no se hace.
+    if (traspasosAhora && config.traspasos === true) log('TRASPASOS_AUTORIZADOS_DE_DIA');
     liberar = await bloquear(config.estado);
     if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
     conexion = await (deps.conectar || conectar)(config.mysql);

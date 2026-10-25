@@ -114,12 +114,12 @@ test('una venta ya recibida que pasa a público se quita de la ficha del cliente
   assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
 });
 
-test('la migración es idempotente, activa FK y crea las 28 tablas aisladas', t => {
+test('la migración es idempotente, activa FK y crea las 29 tablas aisladas (con sicar_traspasos_omitidos)', t => {
   const { sqlite } = prepararDB(t);
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 28);
+  assert.equal(Object.keys(antes).length, 29);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -532,4 +532,32 @@ test('guarda traspasos en centavos, reemplaza el detalle al reenviar, separa tie
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_traspasos_detalle').get().n, 3);
   const sin = aplicar(repo, { ...base, batch_id: 'lote-4', sequence: '3' });
   assert.equal(Object.hasOwn(sin.aceptados, 'traspasos'), false, 'un lote sin la llave no la reporta');
+});
+
+test('traspasos omitidos: upsert que conserva primera_vez, codigo raro como OTRO y se borran al llegar validos', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const base = { ...lote(), clientes: [], ventas: [] };
+  const omitidos = () => sqlite.prepare('SELECT sucursal_id, tra_id, codigo, primera_vez, ultima_vez FROM sicar_traspasos_omitidos ORDER BY tra_id').all();
+  const recibo = aplicar(repo, { ...base, traspasos_omitidos: [{ tra_id: '7', codigo: 'DETALLE_FUERA_DE_LIMITE' },
+    { tra_id: '8', codigo: 'NADIE_LO_CONOCE' }, { tra_id: '9', codigo: 7 }] });
+  assert.deepEqual(recibo.aceptados, { clientes: 0, ventas: 0, traspasos_omitidos: 3 });
+  assert.deepEqual(omitidos().map(o => [o.sucursal_id, o.tra_id, o.codigo]),
+    [[1, '7', 'DETALLE_FUERA_DE_LIMITE'], [1, '8', 'OTRO'], [1, '9', 'OTRO']]);
+  sqlite.prepare("UPDATE sicar_traspasos_omitidos SET primera_vez='2026-01-01T00:00:00.000Z', ultima_vez='2026-01-01T00:00:00.000Z'").run();
+  aplicar(repo, { ...base, batch_id: 'lote-2', sequence: '2', traspasos_omitidos: [{ tra_id: '7', codigo: 'FECHA_INVALIDA' }] });
+  const siete = omitidos().find(o => o.tra_id === '7');
+  assert.equal(siete.primera_vez, '2026-01-01T00:00:00.000Z', 'conserva la primera vez');
+  assert.notEqual(siete.ultima_vez, '2026-01-01T00:00:00.000Z');
+  assert.equal(siete.codigo, 'FECHA_INVALIDA');
+  assert.equal(omitidos().length, 3, 'sin duplicados');
+  // Otra tienda con el mismo tra_id: no se mezcla, y el traspaso valido de la tienda 1 solo borra el suyo.
+  aplicar(repo, { ...base, batch_id: 'lote-3', sequence: '1', traspasos_omitidos: [{ tra_id: '7', codigo: 'OTRO' }] }, 2);
+  aplicar(repo, { ...base, batch_id: 'lote-4', sequence: '3', traspasos: [traspasoDe('7')] });
+  assert.deepEqual(omitidos().map(o => [o.sucursal_id, o.tra_id]), [[2, '7'], [1, '8'], [1, '9']]);
+  // Mismo lote con el omitido y el valido: gana el valido.
+  aplicar(repo, { ...base, batch_id: 'lote-5', sequence: '4', traspasos: [traspasoDe('8')], traspasos_omitidos: [{ tra_id: '8', codigo: 'OTRO' }] });
+  assert.deepEqual(omitidos().map(o => [o.sucursal_id, o.tra_id]), [[2, '7'], [1, '9']]);
+  const sin = aplicar(repo, { ...base, batch_id: 'lote-6', sequence: '5' });
+  assert.equal(Object.hasOwn(sin.aceptados, 'traspasos_omitidos'), false, 'un lote sin la llave no la reporta');
+  assert.equal(omitidos().length, 2);
 });

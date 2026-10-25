@@ -18,12 +18,13 @@ function prepararDB(t) {
   t.after(() => sqlite.close());
   return { sqlite, repo: crearRepositorioSicar(sqlite) };
 }
-function sembrar(repo, sucursalId, traspasos) {
+function sembrar(repo, sucursalId, traspasos, extra = {}) {
   lotes += 1;
   porTienda[sucursalId] = (porTienda[sucursalId] || 0) + 1;
   repo.aplicarLote({ sucursalId, hash: `h${lotes}`, lote: { schema_version: 1, mapping_version: 'v', batch_id: `b${lotes}`,
-    sequence: String(porTienda[sucursalId]), clientes: [], ventas: [], traspasos } });
+    sequence: String(porTienda[sucursalId]), clientes: [], ventas: [], ...(traspasos ? { traspasos } : {}), ...extra } });
 }
+const omitir = (repo, sucursalId, omitidos) => sembrar(repo, sucursalId, null, { traspasos_omitidos: omitidos });
 const det = (art_id, cantidad) => ({ art_id, cantidad, precio_sin: '10.00', precio_con: '11.60' });
 const tra = (tra_id, folio, extra = {}) => ({ tra_id, folio, suc_origen: '6', suc_destino: '2', fecha: '2026-10-18', estado: 'enviado',
   fecha_aplicado: null, fecha_cancelado: null, total: '100.00', detalle: [det('10', '5.0000'), det('11', '2.0000')], ...extra });
@@ -180,6 +181,11 @@ test('rutas: permisos exactos con roles vecinos y alcance del token', async t =>
   const propia = await pedir('/api/sicar/traspasos?sucursal_id=2', 971);
   assert.deepEqual(propia.datos.traspasos.map(x => x.sucursal_id), [1]);
   assert.equal((await pedir('/api/sicar/traspasos', 973)).datos.traspasos.length, 2);
+  omitir(repo, 1, [{ tra_id: '15', codigo: 'DETALLE_FUERA_DE_LIMITE' }]);
+  omitir(repo, 2, [{ tra_id: '25', codigo: 'FECHA_INVALIDA' }]);
+  assert.deepEqual((await pedir('/api/sicar/traspasos?sucursal_id=2', 971)).datos.omitidos.map(o => [o.sucursal_id, o.tra_id]), [[1, '15']],
+    'el gerente de una tienda no ve los omitidos de otra');
+  assert.deepEqual((await pedir('/api/sicar/traspasos', 973)).datos.omitidos.map(o => [o.sucursal_id, o.tra_id]).sort(), [[1, '15'], [2, '25']]);
   assert.equal((await pedir('/api/sicar/traspasos?estado=raro', 973)).status, 400);
   assert.equal((await pedir('/api/sicar/traspasos?desde=2020-01-01&hasta=2026-01-01', 973)).status, 400);
 
@@ -279,4 +285,33 @@ test('permiso nuevo en el catalogo, modulo inventario', () => {
   assert.ok(p);
   assert.equal(p.modulo, 'inventario');
   assert.equal(p.implementado, true);
+});
+
+test('omitidos: salen con tienda y motivo claro, sin filtro de fechas ni de estado, con el alcance del token', t => {
+  const sqlite = escenario(t);
+  const repo = crearRepositorioSicar(sqlite);
+  omitir(repo, 1, [{ tra_id: '50', codigo: 'DETALLE_FUERA_DE_LIMITE' }, { tra_id: '51', codigo: 'ESTADO_TRASPASO_DESCONOCIDO' },
+    { tra_id: '52', codigo: 'FECHA_INVALIDA' }, { tra_id: '53', codigo: 'TEXTO_VACIO' }, { tra_id: '54', codigo: 'ID_INVALIDO' },
+    { tra_id: '55', codigo: 'NADIE_LO_CONOCE' }]);
+  omitir(repo, 2, [{ tra_id: '60', codigo: 'FECHA_INVALIDA' }]);
+  sqlite.prepare("UPDATE sicar_traspasos_omitidos SET primera_vez='2025-01-01T00:00:00.000Z', ultima_vez='2025-01-02T00:00:00.000Z'").run();
+  const r = consulta(sqlite, { desde: '2026-10-20', hasta: '2026-10-23', estado: 'recibido' });
+  const porId = Object.fromEntries(r.omitidos.map(o => [`${o.sucursal_id}:${o.tra_id}`, o]));
+  assert.deepEqual(Object.keys(porId).sort(), ['1:50', '1:51', '1:52', '1:53', '1:54', '1:55', '2:60'], 'sin filtro de fechas ni estado');
+  assert.deepEqual(porId['1:50'], { sucursal_id: 1, tienda: 'CEDIS', tra_id: '50', codigo: 'DETALLE_FUERA_DE_LIMITE',
+    motivo: 'No tiene artículos o tiene más de 500 artículos distintos; el sistema no lo acepta',
+    primera_vez: '2025-01-01T00:00:00.000Z', ultima_vez: '2025-01-02T00:00:00.000Z' });
+  assert.equal(porId['1:51'].motivo, 'Estado desconocido en SICAR');
+  assert.equal(porId['1:52'].motivo, 'Fecha imposible');
+  assert.equal(porId['1:53'].motivo, 'Folio vacío');
+  assert.match(porId['1:54'].motivo, /^Artículo repetido/);
+  assert.deepEqual([porId['1:55'].codigo, porId['1:55'].motivo], ['OTRO', 'Dato que el sistema no sabe leer']);
+  assert.equal(porId['2:60'].tienda, 'Ocosingo');
+  assert.deepEqual(consulta(sqlite, {}, SOLO(2)).omitidos.map(o => o.tra_id), ['60']);
+  assert.equal(consulta(sqlite, {}, SOLO(1)).omitidos.length, 6);
+  assert.deepEqual(consulta(sqlite, {}, SOLO(3)).omitidos, []);
+  omitir(repo, 1, [{ tra_id: '56', codigo: 'OTRO' }]);
+  assert.equal(consulta(sqlite, {}, SOLO(1)).omitidos.find(o => o.tra_id === '56').tienda, 'CEDIS');
+  sembrar(repo, 1, [tra('50', 'F50')]);
+  assert.equal(consulta(sqlite, {}, SOLO(1)).omitidos.some(o => o.tra_id === '50'), false, 'corregido en SICAR: deja de salir');
 });

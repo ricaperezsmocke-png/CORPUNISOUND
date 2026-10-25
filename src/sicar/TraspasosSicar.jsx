@@ -5,7 +5,7 @@ import {
 } from "./cortesSicar.js";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso,
+  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso, textoOmitido,
 } from "./traspasosSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -17,6 +17,7 @@ const CELDA = "border-b border-slate-200 px-3 py-2 align-top";
 const DERECHA = "text-right tabular-nums";
 const NOTA_ROJA = "mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800";
 const NOTA_AMBAR = "mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900";
+const ALERTA_ROJA = "mb-3 rounded-md border-2 border-red-400 bg-red-50 p-2 text-sm text-red-800";
 const NOTA_GRIS = "text-xs text-slate-600";
 const PESTANA = "rounded-md border px-3 py-2 text-sm";
 const PESTANA_ON = "border-blue-700 bg-blue-700 text-white";
@@ -61,14 +62,27 @@ function Desglose({ t }) {
   );
 }
 
-function AlertasArriba({ traspasos }) {
-  const resumen = resumenDeAlertas(traspasos);
+// Los traspasos que el agente no pudo mandar van arriba y en rojo, antes que las demás alertas: salió mercancía de una
+// tienda y aquí no hay registro. Se ven siempre, sin importar las fechas, hasta que el traspaso llega bien.
+function OmitidosArriba({ omitidos }) {
+  if (!omitidos.length) return null;
+  return (
+    <div role="alert" className={ALERTA_ROJA}>
+      <ul className="space-y-1">
+        {omitidos.map((o) => <li key={`${o.sucursal_id}-${o.tra_id}`} className="font-semibold">{textoOmitido(o)}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function AlertasArriba({ traspasos, omitidos }) {
+  const resumen = resumenDeAlertas(traspasos, omitidos);
   if (resumen.length === 0) return null;
   return (
     <div role="status" className={NOTA_AMBAR}>
       <p className="font-semibold">Para revisar</p>
       <ul className="list-disc pl-5">
-        {resumen.map((a) => <li key={a.clave}>{a.cantidad} {a.texto}</li>)}
+        {resumen.map((a) => <li key={a.clave} className={a.roja ? "font-semibold text-red-800" : undefined}>{a.cantidad} {a.texto}</li>)}
       </ul>
     </div>
   );
@@ -275,6 +289,7 @@ export default function TraspasosSicar({ permisos = [], usuario = null }) {
 
   // El servidor ya limita a quien no ve todas; quien las ve todas filtra por tienda aquí.
   const traspasos = selector.todas ? filtrarPorTienda(datos?.traspasos, consulta.sucursal) : datos?.traspasos || [];
+  const omitidos = selector.todas ? filtrarPorTienda(datos?.omitidos, consulta.sucursal) : datos?.omitidos || [];
   const estilo = (id) => `${PESTANA} ${pestana === id ? PESTANA_ON : PESTANA_OFF}`;
   return (
     <div className={PAGINA}>
@@ -312,7 +327,8 @@ export default function TraspasosSicar({ permisos = [], usuario = null }) {
           </p>
           {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
           {cargando && <p className="mb-2 text-sm text-slate-500">Cargando…</p>}
-          <AlertasArriba traspasos={traspasos} />
+          <OmitidosArriba omitidos={omitidos} />
+          <AlertasArriba traspasos={traspasos} omitidos={omitidos} />
           <TablaTraspasos traspasos={traspasos} tiendas={tiendas} desde={consulta.desde} hasta={consulta.hasta} />
           {!cargando && !error && datos && traspasos.length === 0 && <p className="mt-3 text-sm text-slate-700">No hay traspasos con estos filtros</p>}
         </>

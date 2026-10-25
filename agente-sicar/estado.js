@@ -147,6 +147,7 @@ const EVENTOS = new Set([
   'CORTE_OMITIDO', 'CORTE_SIN_CAJERO', 'CORTES_NO_DISPONIBLES', 'CORTE_FECHA_FUTURA', 'CORTE_SIN_RESUMEN', 'CORTES_DESCARTADOS',
   'MOSTRADOR_AUTORIZADO_DE_DIA',
   'TRASPASO_OMITIDO', 'TRASPASOS_NO_DISPONIBLES', 'TRASPASOS_DESCARTADOS', 'TRASPASOS_AUTORIZADOS_DE_DIA',
+  'TRASPASOS_ESPERANDO_NOCHE',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,

@@ -331,3 +331,11 @@ test('un lote cabe con hasta 100 traspasos y 1,000 renglones', () => {
   lote.traspasos = [{ ...traspaso, detalle: renglones(501) }];
   assert.equal(cabe(lote), false);
 });
+
+test('cabe: hasta 1000 traspasos omitidos por lote, como el servidor', () => {
+  const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));
+  lote.traspasos_omitidos = Array.from({ length: 1000 }, (_, i) => ({ tra_id: String(i + 1), codigo: 'OTRO' }));
+  assert.equal(cabe(lote), true);
+  lote.traspasos_omitidos.push({ tra_id: '1001', codigo: 'OTRO' });
+  assert.equal(cabe(lote), false);
+});

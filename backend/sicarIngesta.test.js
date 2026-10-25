@@ -353,3 +353,28 @@ test('traspasos opcionales aceptan lote exclusivo y rechazan estados, fechas, im
   const mil = { ...solo, traspasos: [1, 2].map(n => ({ ...traspasoValido(String(n)), detalle: renglonesTraspaso(500) })) };
   assert.deepEqual(validarLoteSicar(mil), mil);
 });
+
+test('traspasos_omitidos: opcional, hasta 1000, ids validos y unicos, solo tra_id y codigo; un codigo raro no tumba el lote', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const solo = { ...lote(), clientes: [], ventas: [], traspasos_omitidos: [{ tra_id: '41', codigo: 'DETALLE_FUERA_DE_LIMITE' }] };
+  assert.deepEqual(validarLoteSicar(solo), solo);
+  const raro = { ...solo, traspasos_omitidos: [{ tra_id: '41', codigo: 'NADIE_LO_CONOCE' }, { tra_id: '42', codigo: 7 }] };
+  assert.deepEqual(validarLoteSicar(raro), raro);
+  const conTraspasos = { ...solo, traspasos: [traspasoValido('40')] };
+  assert.deepEqual(validarLoteSicar(conTraspasos), conTraspasos);
+  const mil = { ...solo, traspasos_omitidos: Array.from({ length: 1000 }, (_, i) => ({ tra_id: String(i + 1), codigo: 'OTRO' })) };
+  assert.deepEqual(validarLoteSicar(mil), mil);
+  for (const [nombre, cambiar, codigo] of [
+    ['1001', b => { b.traspasos_omitidos = Array.from({ length: 1001 }, (_, i) => ({ tra_id: String(i + 1), codigo: 'OTRO' })); },
+      'LIMITE_ENTIDADES'],
+    ['no arreglo', b => { b.traspasos_omitidos = {}; }, 'LIMITE_ENTIDADES'],
+    ['repetido', b => { b.traspasos_omitidos.push({ tra_id: '41', codigo: 'OTRO' }); }, 'ID_DUPLICADO'],
+    ['tra numero', b => { b.traspasos_omitidos[0].tra_id = 41; }, 'ID_INVALIDO'],
+    ['tra cero', b => { b.traspasos_omitidos[0].tra_id = '0'; }, 'ID_INVALIDO'],
+    ['propiedad extra', b => { b.traspasos_omitidos[0].folio = 'T-1'; }, 'PROPIEDAD_NO_DECLARADA'],
+  ]) {
+    const entrada = structuredClone(solo);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+});

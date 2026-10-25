@@ -194,7 +194,7 @@ function validarVenta(v, indice) {
 
 function validarSobreSicar(body) {
   objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
-    'proveedores', 'existencias', 'cortes', 'mostrador', 'traspasos']);
+    'proveedores', 'existencias', 'cortes', 'mostrador', 'traspasos', 'traspasos_omitidos']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -242,6 +242,12 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
       renglones += enReferencia(`traspasos[${i}]`, () => validarTraspaso(t, i));
       if (renglones > 1000) fallar('LIMITE_ENTIDADES');
     });
+  }
+  // Traspasos que el agente no pudo mandar: solo su tra_id y el codigo del motivo. Un codigo desconocido no tumba el lote
+  // (las ventas del mismo envio no se pueden frenar por una alerta): el repositorio lo guarda como OTRO.
+  if (body.traspasos_omitidos !== undefined) {
+    arreglo(body.traspasos_omitidos, 1000, 'tra_id');
+    body.traspasos_omitidos.forEach((o, i) => enReferencia(`traspasos_omitidos[${i}]`, () => objeto(o, ['tra_id', 'codigo'])));
   }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);

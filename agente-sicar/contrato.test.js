@@ -255,3 +255,44 @@ test('agente → ruta real: un lote de traspasos entra a sicar_traspasos con su 
   assert.deepEqual(sqlite.prepare('SELECT art_id, cantidad, precio_con_centavos FROM sicar_traspasos_detalle').all(),
     [{ art_id: '7', cantidad: '2.0000', precio_con_centavos: 5800 }]);
 });
+
+test('agente → ruta real: un traspaso de mas de 500 renglones llega como omitido y sale en la consulta de traspasos', async t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const llave = crearLlaveSicar(repo, 1, 961).llave;
+  let ruta;
+  registrarAgenteSicar({ use: (_, handler) => { ruta = handler; } }, { repo, mantenimiento: { estaActivo: () => false } });
+  const transportar = (_, opciones) => new Promise(resolve => {
+    const req = Readable.from([Buffer.from(opciones.body, 'utf8')]);
+    Object.assign(req, { method: 'POST', path: '/v1/lotes', socket: { remoteAddress: '127.0.0.1' },
+      headers: { authorization: opciones.headers.Authorization, 'content-type': opciones.headers['Content-Type'] } });
+    const res = new EventEmitter();
+    res.set = () => res;
+    res.status = status => { res.codigo = status; return res; };
+    res.json = datos => { res.emit('close'); resolve({ status: res.codigo, json: async () => datos }); };
+    ruta(req, res);
+  });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sicar-omitidos-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const archivo = path.join(dir, 'estado.json');
+  await guardar(archivo, { ...inicial(), fase: 'incremental' });
+  const fila = n => ({ tra_id: String(n), folio: `T-${n}`, sucOri: '6', sucDes: '2', fecha: '2026-10-10', total: '116.00', status: 2,
+    fechaApl: '2026-10-11 09:00:00', fechaCan: null });
+  const renglon = (n, art) => ({ tra_id: String(n), art_id: String(art), cantidad: '1.0000', precioSin: '1.00', precioCon: '1.16' });
+  const vacia = { filas: [], clientes: [], detalles: [] };
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', ventas: async () => vacia, porIds: async () => vacia,
+    historial: async () => [], clientesIds: async () => [], traspasosDisponibles: true,
+    traspasos: async cursor => (cursor === '0' ? { traspasos: [fila(1), fila(2)],
+      detalles: [renglon(1, 7), ...Array.from({ length: 501 }, (_, i) => renglon(2, i + 1))] } : { traspasos: [], detalles: [] }) };
+  const respuestas = [];
+  await ejecutar(archivo, { llave, traspasos: true }, { fuente, esperar: async () => {}, reloj: () => Date.parse('2026-10-15T03:00:00Z'),
+    log: () => {}, fetch: async (...args) => { const r = await transportar(...args); respuestas.push(r.status); return r; } });
+  assert.ok(respuestas.length && respuestas.every(s => s === 200), JSON.stringify(respuestas));
+  assert.deepEqual(repo.listarTraspasos().map(f => f.tra_id), ['1']);
+  const { consultarTraspasosSicar } = require('../backend/sicarTraspasos');
+  const { omitidos } = consultarTraspasosSicar(sqlite, {}, { verTodas: true }, { 1: 'Ocosingo' }, '2026-10-15');
+  assert.deepEqual(omitidos.map(o => [o.sucursal_id, o.tienda, o.tra_id, o.codigo]), [[1, 'Ocosingo', '2', 'DETALLE_FUERA_DE_LIMITE']]);
+  assert.match(omitidos[0].motivo, /más de 500/);
+  assert.equal((await cargar(archivo)).traspasos_cursor, '2');
+});

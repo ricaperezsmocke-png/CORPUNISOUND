@@ -213,6 +213,8 @@ test('--verificar dice cuantos traspasos hay y cuantos siguen abiertos, o que es
   for (const [traspasos, esperado, aviso] of [
     [{ columnas: ['traspaso.tra_id'], faltantes: [], total: '2500', abiertos: '12' },
       /Traspasos en SICAR: 2500, 12 enviados sin recibir/, false],
+    [{ columnas: ['traspaso.tra_id'], faltantes: [], total: '2500', abiertos: '12', abiertos_fecha_invalida: '3' },
+      /Traspasos en SICAR: 2500, 12 enviados sin recibir; 3 de ellos se omitirían por fecha inválida/, false],
     [{ columnas: ['traspaso.tra_id'], faltantes: ['detallet.precioCon'], total: null, abiertos: null },
       /Traspasos APAGADOS, faltan columnas: \["detallet.precioCon"\]/, true],
     [undefined, /Traspasos APAGADOS, faltan columnas/, true],
@@ -241,4 +243,20 @@ test('--traspasos-ahora se acepta, queda en el registro y de dia hace la vuelta 
   assert.ok(registros.includes('TRASPASOS_AUTORIZADOS_DE_DIA'));
   assert.deepEqual(leidos[0], ['0', null], 'vuelta completa desde el primero');
   assert.equal(JSON.parse(await fs.readFile(config.estado, 'utf8')).traspasos_semana, '2026-10-15');
+});
+
+test('--traspasos-ahora con el interruptor apagado no deja TRASPASOS_AUTORIZADOS_DE_DIA en el registro', async t => {
+  const { archivo, config } = await preparar(t);
+  for (const valor of [false, undefined]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, ...(valor === undefined ? {} : { traspasos: valor }) }));
+    const registros = [];
+    const vacia = { filas: [], clientes: [], detalles: [] };
+    const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [], ventas: async () => vacia,
+      historial: async () => [], porIds: async () => vacia, traspasosDisponibles: true, traspasos: async () => assert.fail('apagado') };
+    await fs.writeFile(config.estado, JSON.stringify({ ...require('./estado').inicial(), fase: 'incremental' }));
+    await main(['--traspasos-ahora'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+      crearFuente: async () => fuente, log: x => registros.push(x), esperar: async () => {},
+      reloj: () => Date.parse('2026-10-15T18:00:00Z'), fetch: async () => assert.fail('Nada que mandar') });
+    assert.equal(registros.includes('TRASPASOS_AUTORIZADOS_DE_DIA'), false, String(valor));
+  }
 });

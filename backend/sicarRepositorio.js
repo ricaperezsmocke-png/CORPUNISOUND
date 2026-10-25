@@ -170,6 +170,11 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, tra_id, art_id),
     FOREIGN KEY (sucursal_id, tra_id) REFERENCES sicar_traspasos(sucursal_id, tra_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_traspasos_omitidos (
+    sucursal_id INTEGER NOT NULL, tra_id TEXT NOT NULL, codigo TEXT NOT NULL, primera_vez TEXT NOT NULL, ultima_vez TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, tra_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
   CREATE INDEX IF NOT EXISTS sicar_traspasos_punta ON sicar_traspasos (folio, suc_origen, suc_destino);
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa (
     sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT
@@ -209,6 +214,10 @@ const ESQUEMA = `
   CREATE INDEX IF NOT EXISTS sicar_intentos_hora ON sicar_intentos(hora);
   INSERT OR IGNORE INTO sicar_esquema(version, aplicada) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 `;
+
+// Codigos que el agente produce al omitir un traspaso (formato.js, DATOS_RAROS). Cualquier otro se guarda como OTRO.
+const CODIGOS_TRASPASO_OMITIDO = new Set(['ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO', 'TEXTO_INVALIDO',
+  'TEXTO_VACIO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE', 'ESTADO_TRASPASO_DESCONOCIDO', 'OTRO']);
 
 // Los importes se convierten sin aritmética decimal binaria. Los precios unitarios
 // conservan sus cuatro decimales exactos como texto, conforme al contrato v1.
@@ -301,6 +310,10 @@ function prepararEscrituras(sqlite) {
     borrarTraspasoDetalle: sqlite.prepare('DELETE FROM sicar_traspasos_detalle WHERE sucursal_id=? AND tra_id=?'),
     traspasoDetalle: sqlite.prepare(`INSERT INTO sicar_traspasos_detalle (sucursal_id, tra_id, art_id, cantidad, precio_sin_centavos,
         precio_con_centavos) VALUES (@sucursal_id, @tra_id, @art_id, @cantidad, @precio_sin, @precio_con)`),
+    traspasoOmitido: sqlite.prepare(`INSERT INTO sicar_traspasos_omitidos (sucursal_id, tra_id, codigo, primera_vez, ultima_vez)
+      VALUES (@sucursal_id, @tra_id, @codigo, @fecha, @fecha)
+      ON CONFLICT(sucursal_id, tra_id) DO UPDATE SET codigo=excluded.codigo, ultima_vez=excluded.ultima_vez`),
+    borrarTraspasoOmitido: sqlite.prepare('DELETE FROM sicar_traspasos_omitidos WHERE sucursal_id=? AND tra_id=?'),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -486,7 +499,13 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
           canceladas: b.canceladas, total_canceladas: centavosConSigno(b.total_canceladas) });
       }
     }
+    // Los omitidos van antes que los traspasos: si el mismo lote trae el traspaso valido, ese gana y la alerta se borra.
+    for (const o of lote.traspasos_omitidos || []) {
+      const codigo = CODIGOS_TRASPASO_OMITIDO.has(o.codigo) ? o.codigo : 'OTRO';
+      sentencias.traspasoOmitido.run({ sucursal_id: sucursalId, tra_id: o.tra_id, codigo, fecha: actualizado_en });
+    }
     for (const t of lote.traspasos || []) {
+      sentencias.borrarTraspasoOmitido.run(sucursalId, t.tra_id);
       sentencias.traspaso.run({ sucursal_id: sucursalId, tra_id: t.tra_id, folio: t.folio.trim(), suc_origen: t.suc_origen,
         suc_destino: t.suc_destino, fecha: t.fecha, estado: t.estado, fecha_aplicado: t.fecha_aplicado, fecha_cancelado: t.fecha_cancelado,
         total: centavos(t.total), actualizado_en });
@@ -504,7 +523,8 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
         ...(lote.existencias !== undefined ? { existencias: lote.existencias.length } : {}),
         ...(lote.cortes !== undefined ? { cortes: lote.cortes.length } : {}),
         ...(lote.mostrador !== undefined ? { mostrador: lote.mostrador.length } : {}),
-        ...(lote.traspasos !== undefined ? { traspasos: lote.traspasos.length } : {}) }, rechazados: 0,
+        ...(lote.traspasos !== undefined ? { traspasos: lote.traspasos.length } : {}),
+        ...(lote.traspasos_omitidos !== undefined ? { traspasos_omitidos: lote.traspasos_omitidos.length } : {}) }, rechazados: 0,
       ...(descartados.clientes || descartados.ventas ? { descartados } : {}),
       next_sequence: (BigInt(lote.sequence) + 1n).toString(), received_at: new Date().toISOString(),
     };

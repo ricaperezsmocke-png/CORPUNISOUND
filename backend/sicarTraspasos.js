@@ -8,6 +8,20 @@ const MAX_DIAS_RANGO = 366;
 const DIAS_SIN_RECIBIR = 3;
 const ESTADOS = ['enviado', 'recibido', 'cancelado'];
 
+// Motivo claro de cada codigo con que el agente omite un traspaso (sicarRepositorio guarda OTRO si no lo conoce).
+const MOTIVOS_OMITIDO = {
+  DETALLE_FUERA_DE_LIMITE: 'No tiene artículos o tiene más de 500 artículos distintos; el sistema no lo acepta',
+  ESTADO_TRASPASO_DESCONOCIDO: 'Estado desconocido en SICAR',
+  FECHA_INVALIDA: 'Fecha imposible',
+  TEXTO_VACIO: 'Folio vacío',
+  TEXTO_INVALIDO: 'Folio demasiado largo o con caracteres que no se pueden leer',
+  ID_INVALIDO: 'Artículo repetido, o número de artículo o de sucursal inválido',
+  DECIMAL_INVALIDO: 'Cantidad o importe que no es un número',
+  PRECISION_NO_PACTADA: 'Cantidad o importe con más decimales de los permitidos',
+  IMPORTE_EXCESIVO: 'Cantidad o importe demasiado grande',
+  OTRO: 'Dato que el sistema no sabe leer',
+};
+
 const fallo = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
 function filtroFecha(valor, campo) {
@@ -133,7 +147,12 @@ function consultarTraspasosSicar(sqlite, filtros = {}, alcance, nombresTiendas =
       },
     });
   }
-  return { desde, hasta, traspasos };
+  // Omitidos: sin filtro de fechas ni de estado; se ven hasta que el traspaso llegue valido. Mismo alcance de tienda.
+  const omitidos = sqlite.prepare(`SELECT sucursal_id, tra_id, codigo, primera_vez, ultima_vez FROM sicar_traspasos_omitidos
+    WHERE (@tienda IS NULL OR sucursal_id = @tienda) ORDER BY sucursal_id, length(tra_id), tra_id`).all({ tienda: propia })
+    .map(o => ({ sucursal_id: o.sucursal_id, tienda: nombresTiendas[o.sucursal_id] ?? `Tienda ${o.sucursal_id}`, tra_id: o.tra_id,
+      codigo: o.codigo, motivo: MOTIVOS_OMITIDO[o.codigo] ?? MOTIVOS_OMITIDO.OTRO, primera_vez: o.primera_vez, ultima_vez: o.ultima_vez }));
+  return { desde, hasta, traspasos, omitidos };
 }
 
 function listarMapaSicar(sqlite, nombresTiendas = {}) {

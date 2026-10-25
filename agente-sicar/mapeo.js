@@ -1,4 +1,4 @@
-const { PUBLICOS } = require('./formato');
+const { PUBLICOS, traspasoConFechaInvalida } = require('./formato');
 // Único diccionario del esquema SICAR. Los nombres no confirmados se verifican al arrancar.
 const COLUMNAS = {
   cliente: ['cli_id', 'nombre', 'telefono', 'celular', 'mail', 'rfc', 'status', 'clave'],
@@ -51,6 +51,8 @@ const LEER_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? ORDER BY t.`
 // tras WHERE por función: AND pesa más que OR, así que el cursor se repite en cada rama.
 const RELEER_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? AND t.`status` = 1 OR t.`tra_id` > ? AND t.`fecha` >= ? '
   + 'OR t.`tra_id` > ? AND t.`fechaApl` >= ? OR t.`tra_id` > ? AND t.`fechaCan` >= ? ORDER BY t.`tra_id` LIMIT ?';
+// --verificar: los enviados sin recibir, por páginas, para contar cuántos se omitirían por fecha inválida.
+const ABIERTOS_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? AND t.`status` = 1 ORDER BY t.`tra_id` LIMIT ?';
 const MAXIMO_TRASPASOS = 100;
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
@@ -309,7 +311,25 @@ function crearFuente(lector, config = {}) {
           : { columnas: columnasTraspasos, faltantes: [], total: String((await leer('SELECT COUNT(*) AS total FROM `traspaso`'))[0].total),
             abiertos: String((await leer('SELECT COUNT(*) AS total FROM `traspaso` WHERE `status` = 1'))[0].total) },
       }));
-      return { ...info, mostrador: await medirMostrador() };
+      // Enviados sin recibir (status 1) que se omitirían por fecha inválida, por ejemplo una fecha cero que no sea
+      // 0000-00-00 00:00:00. Si la lectura falla, sale null ("sin dato") sin tumbar el resto de --verificar.
+      const medirFechasTraspasos = async () => {
+        if (traspasosFaltantes.length) return null;
+        try {
+          return await lector.pagina(async leer => {
+            let cursor = '0', invalidos = 0;
+            for (let paginas = 0; paginas < 1000; paginas++) {
+              const filas = await leer(ABIERTOS_TRASPASOS, [cursor, Math.min(lector.tamano, MAXIMO_TRASPASOS)]);
+              if (!filas.length) break;
+              invalidos += filas.filter(traspasoConFechaInvalida).length;
+              cursor = String(filas.at(-1).tra_id);
+            }
+            return String(invalidos);
+          });
+        } catch { return null; }
+      };
+      const abiertosFechaInvalida = await medirFechasTraspasos();
+      return { ...info, traspasos: { ...info.traspasos, abiertos_fecha_invalida: abiertosFechaInvalida }, mostrador: await medirMostrador() };
     },
   };
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso, filtrarPorTienda,
+  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso, filtrarPorTienda, textoOmitido,
 } from "./traspasosSicar.js";
 
 const BASE = {
@@ -117,4 +117,29 @@ test("filtrarPorTienda: Todas muestra todo y una tienda solo sus renglones", () 
   assert.equal(filtrarPorTienda(lista, "").length, 3);
   assert.deepEqual(filtrarPorTienda(lista, "3").map((t) => t.tra_id), ["9", "2"]);
   assert.equal(filtrarPorTienda(lista, "7").length, 0);
+});
+
+const OMITIDO = { sucursal_id: 1, tienda: "Ocosingo", tra_id: "2500", codigo: "DETALLE_FUERA_DE_LIMITE",
+  motivo: "No tiene artículos o tiene más de 500 artículos distintos; el sistema no lo acepta" };
+
+test("textoOmitido dice que el traspaso no llegó, de qué tienda y por qué", () => {
+  assert.equal(textoOmitido(OMITIDO), "Traspaso SICAR #2500 de Ocosingo no llegó al sistema: "
+    + "No tiene artículos o tiene más de 500 artículos distintos; el sistema no lo acepta. Revísalo en SICAR.");
+  assert.equal(textoOmitido({ sucursal_id: 4, tra_id: "7", motivo: "" }), "Traspaso SICAR #7 de Tienda 4 no llegó al sistema: "
+    + "Dato que el sistema no sabe leer. Revísalo en SICAR.");
+});
+
+test("resumenDeAlertas pone primero los traspasos que no llegaron, antes que las demás alertas", () => {
+  const r = resumenDeAlertas([con({}, { cancelado: true })], [OMITIDO, { ...OMITIDO, tra_id: "2501" }]);
+  assert.deepEqual(r.map((x) => [x.clave, x.cantidad]), [["omitidos", 2], ["cancelado", 1]]);
+  assert.equal(r[0].texto, "traspasos que no llegaron al sistema");
+  assert.equal(r[0].roja, true);
+  assert.equal(resumenDeAlertas([], [OMITIDO])[0].texto, "traspaso que no llegó al sistema");
+  assert.deepEqual(resumenDeAlertas([con({}, { cancelado: true })]).map((x) => x.clave), ["cancelado"], "sin omitidos, igual que antes");
+});
+
+test("filtrarPorTienda tambien filtra los omitidos por la tienda dueña", () => {
+  const lista = [OMITIDO, { ...OMITIDO, sucursal_id: 2, tra_id: "9" }];
+  assert.deepEqual(filtrarPorTienda(lista, "2").map((o) => o.tra_id), ["9"]);
+  assert.equal(filtrarPorTienda(lista, "").length, 2);
 });

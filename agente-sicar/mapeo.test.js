@@ -413,7 +413,8 @@ const RELEER_TRASPASOS_SQL = TRASPASO_SELECT + 'WHERE t.`tra_id` > ? AND t.`stat
   + 'OR t.`tra_id` > ? AND t.`fechaApl` >= ? OR t.`tra_id` > ? AND t.`fechaCan` >= ? ORDER BY t.`tra_id` LIMIT ?';
 const DETALLET_SQL = 'SELECT d.`tra_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon` FROM `detallet` d '
   + 'WHERE d.`tra_id` IN (?, ?) ORDER BY d.`tra_id`, d.`art_id`';
-function prepararTraspasos(sinColumna, traspasos = [{ tra_id: '41' }, { tra_id: '42' }]) {
+const ABIERTOS_TRASPASOS_SQL = TRASPASO_SELECT + 'WHERE t.`tra_id` > ? AND t.`status` = 1 ORDER BY t.`tra_id` LIMIT ?';
+function prepararTraspasos(sinColumna, traspasos = [{ tra_id: '41' }, { tra_id: '42' }], abiertos = []) {
   const consultas = [];
   const tablas = { ...columnas, traspaso: 'tra_id folio sucOri sucDes aliasOri aliasDes fecha total status fechaApl fechaCan sucCan',
     detallet: 'tra_id art_id cantidad precioSin precioCon importeSin importeCon' };
@@ -429,6 +430,7 @@ function prepararTraspasos(sinColumna, traspasos = [{ tra_id: '41' }, { tra_id: 
     if (sql.includes('COUNT(*)') && sql.includes('`traspaso`')) return [{ total: '2500' }];
     if (sql.includes('COUNT(*)')) return [{ total: '0' }];
     if (sql === TRASPASOS_SQL || sql === RELEER_TRASPASOS_SQL) return traspasos;
+    if (sql === ABIERTOS_TRASPASOS_SQL) return abiertos.filter(t => BigInt(t.tra_id) > BigInt(parametros[0])).slice(0, parametros[1]);
     if (sql === DETALLET_SQL) return [{ tra_id: '41', art_id: '7' }];
     return [];
   };
@@ -486,4 +488,22 @@ test('traspasos: sin las tablas tambien siguen apagados', async () => {
   const { fuente } = preparar();
   await fuente.validar();
   assert.equal(fuente.traspasosDisponibles, false);
+});
+
+test('traspasos: verificar cuenta los enviados sin recibir que se omitirian por fecha invalida (fecha cero no reconocida)', async () => {
+  const abierto = (tra_id, extra = {}) => ({ tra_id, folio: 'T', sucOri: '6', sucDes: '2', fecha: '2026-10-20', total: '1.00', status: 1,
+    fechaApl: null, fechaCan: null, ...extra });
+  const abiertos = [abierto('41'), abierto('42', { fechaApl: '0000-00-00 00:00:00' }), abierto('43', { fechaApl: '0000-00-00' }),
+    abierto('44', { fechaCan: '2026-02-30 10:00:00' }), abierto('45', { fecha: '0000-00-00' }), abierto('46', { status: 1, total: 'x' })];
+  const { fuente, consultas } = prepararTraspasos(undefined, undefined, abiertos);
+  await fuente.validar();
+  const { traspasos } = await fuente.verificar();
+  assert.equal(traspasos.abiertos_fecha_invalida, '3', 'el 43, el 44 y el 45; la fecha cero completa y el importe raro no cuentan aqui');
+  assert.ok(consultas.some(q => q.sql === ABIERTOS_TRASPASOS_SQL && q.parametros[0] === '0'));
+  const vacio = prepararTraspasos();
+  await vacio.fuente.validar();
+  assert.equal((await vacio.fuente.verificar()).traspasos.abiertos_fecha_invalida, '0');
+  const sin = prepararTraspasos('traspaso.fechaCan');
+  await sin.fuente.validar();
+  assert.equal((await sin.fuente.verificar()).traspasos.abiertos_fecha_invalida, null);
 });

@@ -80,6 +80,7 @@ function cabe(lote) {
     && (lote.proveedores?.length || 0) <= 500 && (lote.existencias?.length || 0) <= 500 && (lote.cortes?.length || 0) <= 100
     && (lote.traspasos?.length || 0) <= 100 && (lote.traspasos || []).every(t => (t.detalle?.length || 0) <= 500)
     && (lote.traspasos || []).reduce((n, t) => n + (t.detalle?.length || 0), 0) <= 1000
+    && (lote.traspasos_omitidos?.length || 0) <= 1000
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
     && Buffer.byteLength(JSON.stringify(lote), 'utf8') <= 1024 * 1024;
@@ -290,6 +291,18 @@ function traspaso({ traspaso: t, detalles }) {
     fecha: fechaDia(t.fecha), estado, fecha_aplicado: fechaHora(t.fechaApl), fecha_cancelado: fechaHora(t.fechaCan),
     total: decimal(t.total, 2), detalle };
 }
+// Para --verificar: true si las fechas del traspaso (fecha, fechaApl, fechaCan) harían que se omitiera con FECHA_INVALIDA.
+function traspasoConFechaInvalida(t) {
+  try {
+    fechaDia(t.fecha);
+    fechaHora(t.fechaApl);
+    fechaHora(t.fechaCan);
+    return false;
+  } catch (error) {
+    if (error.message !== 'FECHA_INVALIDA') throw error;
+    return true;
+  }
+}
 // Un traspaso que el contrato no acepta no detiene la carga: se salta con su tra_id. Un tra_id inválido sí detiene.
 function traspasoSeguro(datos) {
   const tra_id = id(datos?.traspaso?.tra_id);
@@ -300,4 +313,4 @@ function traspasoSeguro(datos) {
   }
 }
 module.exports = { PUBLICOS, esPublico, id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro };
+  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro, traspasoConFechaInvalida };

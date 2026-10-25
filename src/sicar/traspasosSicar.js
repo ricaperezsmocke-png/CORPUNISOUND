@@ -50,11 +50,25 @@ export function alertasDeTraspaso(t) {
   return TIPOS_ALERTA.filter((a) => activa(a, t)).map((a) => ({ clave: a.clave, texto: textoAlerta(a.clave, t) }));
 }
 
-/** Cuántos renglones hay por tipo de alerta (los tipos sin renglones no salen). */
-export function resumenDeAlertas(traspasos) {
-  return TIPOS_ALERTA
+/**
+ * Cuántos renglones hay por tipo de alerta (los tipos sin renglones no salen). Los traspasos que no llegaron al sistema
+ * (omitidos por el agente) van primero y en rojo: es mercancía que salió de una tienda sin registro aquí.
+ */
+export function resumenDeAlertas(traspasos, omitidos = []) {
+  const n = (omitidos || []).length;
+  const rojos = n > 0
+    ? [{ clave: "omitidos", texto: n === 1 ? "traspaso que no llegó al sistema" : "traspasos que no llegaron al sistema", cantidad: n, roja: true }]
+    : [];
+  return rojos.concat(TIPOS_ALERTA
     .map((a) => ({ clave: a.clave, texto: a.resumen, cantidad: (traspasos || []).filter((t) => activa(a, t)).length }))
-    .filter((a) => a.cantidad > 0);
+    .filter((a) => a.cantidad > 0));
+}
+
+/** Texto de la alerta roja de un traspaso que el agente no pudo mandar. */
+export function textoOmitido(o) {
+  const tienda = o?.tienda || `Tienda ${o?.sucursal_id}`;
+  const motivo = o?.motivo || "Dato que el sistema no sabe leer";
+  return `Traspaso SICAR #${o?.tra_id} de ${tienda} no llegó al sistema: ${motivo}. Revísalo en SICAR.`;
 }
 
 /**

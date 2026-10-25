@@ -286,7 +286,7 @@ test('traspasos: un estado.json de antes arranca sin cursor, sin vuelta y sin fi
   }
   assert.equal(registrar(x => x)('TRASPASO_OMITIDO', { tra_id: '41', codigo: 'ESTADO_TRASPASO_DESCONOCIDO' }),
     'TRASPASO_OMITIDO tra_id=41 codigo=ESTADO_TRASPASO_DESCONOCIDO');
-  for (const evento of ['TRASPASOS_NO_DISPONIBLES', 'TRASPASOS_DESCARTADOS', 'TRASPASOS_AUTORIZADOS_DE_DIA']) {
+  for (const evento of ['TRASPASOS_NO_DISPONIBLES', 'TRASPASOS_DESCARTADOS', 'TRASPASOS_AUTORIZADOS_DE_DIA', 'TRASPASOS_ESPERANDO_NOCHE']) {
     assert.equal(registrar(x => x)(evento), evento);
   }
 });
