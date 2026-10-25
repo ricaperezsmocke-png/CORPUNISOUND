@@ -1,7 +1,8 @@
 # Agente SICAR → CORPUNISOUND
 
 Este programa corre en la PC de la tienda donde está el MySQL de SICAR. Lee los clientes con nombre y sus
-ventas **sin escribir nada en SICAR**, y los manda al CRM de CORPUNISOUND. El público en general no se manda.
+ventas **sin escribir nada en SICAR**, y los manda al CRM de CORPUNISOUND. El público en general no entra al CRM: si se
+prende `"mostrador"` (ver "Ventas de mostrador"), sus ventas se mandan aparte, sin ningún dato de persona.
 
 Cada vez que corre hace una sola pasada y termina. El Programador de tareas de Windows lo arranca cada 5 minutos.
 
@@ -182,6 +183,40 @@ lee la tabla de usuarios ni manda nombres**. Los nombres se asignan en CORPUNISO
 - Un corte con un dato que el agente no sabe leer (importe con 3 decimales, fecha imposible) se salta y queda
   `CORTE_OMITIDO cor_id=... codigo=...` en el registro. Ese corte **no se vuelve a intentar**: hay que avisar.
 
+### Ventas de mostrador (público en general)
+
+Con `"mostrador": true` el agente manda también las ventas de **público en general**, aparte del CRM, para medir la
+tienda completa (tablero Cinco Caminos). De cada venta solo va: número de venta, fecha y hora, vigente o cancelada,
+total y, por renglón, número de artículo, cantidad, importe y descuento. **Nunca** cliente, nombre, teléfono,
+descripción ni clave del artículo. No llegan al CRM ni a la lista de clientes.
+
+- **Qué cuenta como público**: la venta sin cliente, o con cliente sin nombre, o con uno de los números de público
+  (`1, 2, 3, 13, 21, 33, 4566, 4567, 4572`, lista `PUBLICOS` en `formato.js`), o con un nombre que empiece con
+  "PÚBLICO EN GENERAL". **Antes de prenderlo en cada tienda, confirmar en su SICAR cuáles son sus números de
+  público**: la lista se armó con Ocosingo. Un número de público que falte hace que esas ventas se cuenten como
+  cliente en el CRM (como hoy) y no como mostrador; uno de más saca del CRM a un cliente real.
+- **En cada corrida**, junto con las ventas: las de público salen en el mismo paquete que las de cliente. La relectura
+  de 48 horas y el historial de cancelaciones también mandan su cancelación. Si una venta pasa de público a cliente,
+  se manda como venta con cliente y el servidor la quita de mostrador; si pasa de cliente a público, se manda como
+  "excluida" del CRM y como mostrador en el mismo paquete. Ninguna venta cuenta dos veces.
+- **Carga desde el 1 de enero de 2025, una sola vez**: de noche (20:00-07:00), al final de cada corrida y después de
+  todo lo demás, el agente lee las ventas desde la primera de 2025 hasta la última ya mandada y manda solo las de
+  público, a lo más 10 páginas (unas 1,000 ventas revisadas) por corrida para no alentar la corrida siguiente. Avanza
+  (`mostrador_cursor` en `estado.json`) solo cuando el servidor confirma; si el envío falla, la siguiente corrida
+  reenvía lo mismo. Al alcanzar las ventas ya mandadas termina (`mostrador_terminado`) y no vuelve a correr.
+  De día se puede adelantar a mano, un tramo por vez: `C:\UnisoundSICAR\agente-sicar\correr.cmd --mostrador-ahora`
+  (queda `MOSTRADOR_AUTORIZADO_DE_DIA` en el registro).
+- **Viene apagado.** Se prende poniendo `"mostrador": true` en `config.json`, solo después de que el servidor de
+  CORPUNISOUND tenga esta versión (uno viejo rechaza el paquete con `HTTP_400` y **el agente se detendría, ventas
+  incluidas**) y de revisar `--verificar`. Solo `true` lo prende.
+- `--verificar` dice `Ventas de público en general desde 2025: N por número de cliente, desde la venta X` y, al final,
+  cuántas son revisando también el nombre. Si las dos cifras se alejan mucho, hay clientes llamados "PÚBLICO EN
+  GENERAL" con otro número: avisar para agregarlo a la lista.
+- Si se apaga y se vuelve a prender, las ventas de público del tiempo apagado no se mandan solas: con la tarea
+  pausada, en `estado.json` poner `"mostrador_terminado": false` y `"mostrador_cursor": "0"`, y volver a prender la
+  tarea (la carga vuelve a pasar desde 2025; el servidor no las duplica).
+- Una venta de público con un dato que el agente no sabe leer se salta y queda `VENTA_OMITIDA ven_id=... codigo=...`.
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
@@ -219,6 +254,7 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale en cada corrida. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
 | `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias (o de existencias y cortes) no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `CORTES_DESCARTADOS` | Un paquete de solo cortes (o de cortes y existencias) no se pudo mandar tras sus reintentos. Se tiró **para que las ventas sigan saliendo**; no se pierde ningún corte: el cursor no avanzó y se vuelven a mandar en las siguientes corridas. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `MOSTRADOR_AUTORIZADO_DE_DIA` | Alguien corrió `--mostrador-ahora`: se adelantó de día un tramo de la carga de mostrador desde 2025. | Nada. |
 | `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
 | `CORTE_SIN_CAJERO cor_id=…` | SICAR no anotó quién cerró ese corte (o anotó a dos). Se mandó igual, sin quién lo cerró. | Nada si es raro. Si sale en todos los cortes, avisar. |
 | `CORTE_SIN_RESUMEN cor_id=…` | Pasados 10 minutos, SICAR no tenía el resumen de ese corte. Se mandó sin las ventas por usuario. | Revisar ese corte en SICAR; si sale seguido, avisar. |

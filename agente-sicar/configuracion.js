@@ -43,6 +43,9 @@ async function leerConfiguracion(archivo) {
   if (config.existencias !== undefined && typeof config.existencias !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   // Y la de cortes de caja (plan E2): igual, solo true la prende.
   if (config.cortes !== undefined && typeof config.cortes !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
+  // Y la de ventas de mostrador (público en general, Cinco Caminos P1): solo true la prende; un servidor viejo rechaza la
+  // colección con 400 y detendría las ventas.
+  if (config.mostrador !== undefined && typeof config.mostrador !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   return config;
 }
 module.exports = { leerConfiguracion };

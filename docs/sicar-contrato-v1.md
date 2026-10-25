@@ -90,6 +90,20 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   transacción. El recibo incluye `aceptados.cortes` cuando el lote trae esta colección. Un servidor anterior a esta
   versión rechaza la llave `cortes` con 400: el agente la manda solo con `"cortes": true` en su configuración. El
   agente no manda nombres de personas, solo `usu_id`.
+- `mostrador` es otra colección opcional independiente (Cinco caminos, 2026-10-24): ventas a público en general sin ningún
+  dato de persona. Misma regla: puede ser el único contenido del lote, no cambia `schema_version`, hasta 100 filas y
+  1,000 renglones por lote, y el mismo `ven_id` no se repite. Cada fila es exactamente `{ ven_id, fecha_local, estado,
+  total, detalle }` con `detalle` de `{ art_id, cantidad, importe_con, descuento_total }`; `estado` es `vigente` o
+  `cancelada` (otro valor, 422 `ESTADO_INVALIDO`). `total`, `importe_con` y `descuento_total` llevan exactamente 2
+  decimales y `cantidad` 4 (otra cosa, 422 `IMPORTE_INVALIDO`). Nunca lleva `cli_id`, nombre, teléfono, `clave` ni
+  `descripcion`: cualquier propiedad no declarada responde 400 `PROPIEDAD_NO_DECLARADA`. Una cancelación ya enviada
+  puede ir como `{ ven_id, estado: "cancelada" }`: cambia el estado de la fila sin tocar su total (si el servidor no la
+  tenía, no hace nada). El servidor guarda centavos enteros y la cantidad como texto de 4 decimales por tienda (la de la
+  llave); reenviar una fila reemplaza sus renglones. Nunca escribe en `sicar_ventas` ni en `sicar_clientes`. Una venta
+  nunca cuenta dos veces: si el mismo `ven_id` llega después (o en el mismo lote) como venta con cliente, vigente o
+  cancelada, el servidor borra la fila de mostrador y sus renglones en la misma transacción. El recibo incluye
+  `aceptados.mostrador` cuando el lote trae esta colección. Un servidor anterior rechaza la llave `mostrador` con 400:
+  el agente la manda solo con `"mostrador": true` en su configuración.
 
 ## 3. Qué venta mandar y con qué estado
 

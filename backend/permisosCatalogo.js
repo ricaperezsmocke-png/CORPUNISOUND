@@ -115,6 +115,10 @@ const PERMISOS = [
   // anular capturas ajenas es revisión de jefatura y queda a nombre de quien anula.
   { clave: "administrar_metas_personalizadas", etiqueta: "Crear y Sellar Metas Personalizadas (KPIs/OKRs)", modulo: "pos", implementado: true },
   { clave: "anular_capturas_metas", etiqueta: "Anular Capturas de Metas del Personal", modulo: "pos", implementado: true },
+  // Cinco caminos (spec 2026-10-24): ver el tablero semanal de la tienda es aparte de cambiar qué categorías
+  // son instrumento o accesorio (y el manual de tácticas), porque eso mueve un número del tablero.
+  { clave: "ver_cinco_caminos", etiqueta: "Ver Tablero de los Cinco Caminos", modulo: "pos", implementado: true },
+  { clave: "administrar_manual_tacticas", etiqueta: "Administrar Manual de Tácticas y Categorías", modulo: "pos", implementado: true },
   // Dar de alta/editar el catalogo de quien vende. Permiso propio y no
   // prestado de dar_alta_personal: son cosas distintas -- un vendedor es un
   // renglon del catalogo de ventas, una cuenta es un acceso al sistema.

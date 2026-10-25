@@ -61,6 +61,18 @@ test('el esquema indexa las decisiones por identidad y bloqueo de unión', t => 
   }));
 });
 
+test('el esquema indexa ventas con cliente y de mostrador por tienda, estado y fecha (idempotente)', t => {
+  const { sqlite } = prepararDB(t);
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite); // base ya existente: no truena ni duplica
+  for (const tabla of ['sicar_ventas', 'sicar_ventas_mostrador']) {
+    const indices = sqlite.pragma(`index_list(${tabla})`).filter(i => {
+      const columnas = sqlite.pragma(`index_info(${i.name})`).map(c => c.name);
+      return JSON.stringify(columnas) === JSON.stringify(['sucursal_id', 'estado', 'fecha_local']);
+    });
+    assert.equal(indices.length, 1, tabla);
+  }
+});
+
 test('descarta público por nombre, id y tienda incluso en ventas sin cliente en el lote', t => {
   const { sqlite, repo } = prepararDB(t);
   const datos = lote();
@@ -107,7 +119,7 @@ test('la migración es idempotente, activa FK y crea las catorce tablas aisladas
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 22);
+  assert.equal(Object.keys(antes).length, 24);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -398,4 +410,86 @@ test('guarda cortes con centavos con signo, reemplaza pagos y cobros al reenviar
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_cortes_pagos').get().n, 3);
   const sin = aplicar(repo, { ...base, batch_id: 'lote-4', sequence: '3' });
   assert.equal(Object.hasOwn(sin.aceptados, 'cortes'), false, 'un lote sin la llave no la reporta');
+});
+
+test('mostrador: guarda centavos y renglones sin tocar ventas ni clientes, reenviar reemplaza y la cancelacion corta conserva el total', t => {
+  const { sqlite, repo } = prepararDB(t);
+  assert.deepEqual(repo.listarMostrador(), []);
+  const base = { ...lote(), clientes: [], ventas: [] };
+  const renglon = (art_id, importe_con) => ({ art_id, cantidad: '1.5000', importe_con, descuento_total: '0.50' });
+  const fila = { ven_id: '70', fecha_local: '2026-10-22T10:00:00', estado: 'vigente', total: '30.25',
+    detalle: [renglon('1', '10.25'), renglon('2', '20.00')] };
+  const recibo = aplicar(repo, { ...base, mostrador: [fila] });
+  assert.deepEqual(recibo.aceptados, { clientes: 0, ventas: 0, mostrador: 1 });
+  assert.deepEqual(repo.listarMostrador().map(({ sucursal_id, ven_id, estado, total_centavos }) => ({ sucursal_id, ven_id, estado, total_centavos })),
+    [{ sucursal_id: 1, ven_id: '70', estado: 'vigente', total_centavos: 3025 }]);
+  const renglones = () => sqlite.prepare('SELECT renglon, art_id, cantidad, importe_centavos, descuento_centavos FROM sicar_detalles_mostrador ORDER BY renglon').all();
+  assert.deepEqual(renglones(), [{ renglon: 0, art_id: '1', cantidad: '1.5000', importe_centavos: 1025, descuento_centavos: 50 },
+    { renglon: 1, art_id: '2', cantidad: '1.5000', importe_centavos: 2000, descuento_centavos: 50 }]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_ventas').get().n, 0);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_clientes').get().n, 0);
+  aplicar(repo, { ...base, batch_id: 'lote-2', sequence: '2', mostrador: [{ ...fila, total: '5.00', detalle: [renglon('3', '5.00')] }] });
+  assert.deepEqual(renglones().map(r => r.art_id), ['3']);
+  assert.equal(repo.listarMostrador()[0].total_centavos, 500);
+  aplicar(repo, { ...base, batch_id: 'lote-3', sequence: '3', mostrador: [{ ven_id: '70', estado: 'cancelada' }, { ven_id: '99', estado: 'cancelada' }] });
+  assert.deepEqual(repo.listarMostrador().map(f => [f.ven_id, f.estado, f.total_centavos]), [['70', 'cancelada', 500]]);
+  assert.equal(renglones().length, 1);
+  aplicar(repo, { ...base, batch_id: 'lote-4', sequence: '1', mostrador: [fila] }, 2);
+  assert.deepEqual(repo.listarMostrador().map(f => [f.sucursal_id, f.ven_id]), [[1, '70'], [2, '70']]);
+  const sin = aplicar(repo, { ...base, batch_id: 'lote-5', sequence: '4' });
+  assert.equal(Object.hasOwn(sin.aceptados, 'mostrador'), false, 'un lote sin la llave no la reporta');
+  assert.deepEqual(sqlite.pragma('foreign_key_check'), []);
+});
+
+test('mostrador: una venta con cliente (vigente o cancelada) con el mismo ven_id borra la fila de mostrador y sus renglones', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const renglon = { art_id: '1', cantidad: '1.0000', importe_con: '100.00', descuento_total: '0.00' };
+  const fila = ven_id => ({ ven_id, fecha_local: '2026-10-12T16:30:00', estado: 'vigente', total: '100.00', detalle: [renglon] });
+  const venta = lote().ventas[0];
+  aplicar(repo, { ...lote(), clientes: [], ventas: [], mostrador: [fila(venta.ven_id), fila('71'), fila('72')] });
+  assert.equal(repo.listarMostrador().length, 3);
+  aplicar(repo, { ...lote('2'), ventas: [venta, { ...venta, ven_id: '71', estado: 'cancelada' }] });
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['72']);
+  assert.deepEqual(sqlite.prepare('SELECT ven_id FROM sicar_detalles_mostrador').all(), [{ ven_id: '72' }]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_ventas').get().n, 2);
+  // En el mismo lote gana la venta con cliente: no queda fila de mostrador.
+  aplicar(repo, { ...lote('3'), ventas: [{ ...venta, ven_id: '73' }], mostrador: [fila('73')] });
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['72']);
+  // La misma venta en otra tienda no se toca.
+  aplicar(repo, { ...lote('1'), clientes: [], ventas: [], mostrador: [fila('74')] }, 2);
+  aplicar(repo, { ...lote('4'), ventas: [{ ...venta, ven_id: '74' }] });
+  assert.deepEqual(repo.listarMostrador().map(f => [f.sucursal_id, f.ven_id]), [[1, '72'], [2, '74']]);
+});
+
+test('mostrador: una venta con cliente publico en general no borra la fila de mostrador, y mostrador no entra si ya hay venta con cliente', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const renglon = { art_id: '1', cantidad: '1.0000', importe_con: '100.00', descuento_total: '0.00' };
+  const fila = ven_id => ({ ven_id, fecha_local: '2026-10-12T16:30:00', estado: 'vigente', total: '100.00', detalle: [renglon] });
+  const venta = lote().ventas[0];
+  const publico = { cli_id: '1', nombre: 'PUBLICO EN GENERAL', telefono: null, celular: null, email: null, rfc: null };
+  aplicar(repo, { ...lote(), clientes: [], ventas: [], mostrador: [fila('80')] });
+  const recibo = aplicar(repo, { ...lote('2'), clientes: [publico], ventas: [{ ...venta, ven_id: '80', cli_id: '1' }] });
+  assert.equal(recibo.descartados.ventas, 1, 'la venta con cliente publico se descarta');
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80']);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_detalles_mostrador').get().n, 1);
+  // Venta con cliente ya guardada: mostrador con el mismo ven_id no entra, pero el recibo lo cuenta.
+  aplicar(repo, lote('3'));
+  const r = aplicar(repo, { ...lote('4'), clientes: [], ventas: [], mostrador: [fila(venta.ven_id), fila('81')] });
+  assert.equal(r.aceptados.mostrador, 2);
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80', '81']);
+  // Una venta excluida (sin cliente) no bloquea mostrador.
+  aplicar(repo, { ...lote('5'), clientes: [], ventas: [{ ven_id: '82', estado: 'excluida' }], mostrador: [fila('82')] });
+  assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80', '81', '82']);
+});
+
+test('mostrador: si el mismo lote marca excluida la venta con cliente, la fila de mostrador entra', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const venta = lote().ventas[0];
+  aplicar(repo, lote());
+  const fila = { ven_id: venta.ven_id, fecha_local: '2026-10-12T16:30:00', estado: 'vigente', total: '100.00',
+    detalle: [{ art_id: '1', cantidad: '1.0000', importe_con: '100.00', descuento_total: '0.00' }] };
+  aplicar(repo, { ...lote('2'), clientes: [], ventas: [{ ven_id: venta.ven_id, estado: 'excluida' }], mostrador: [fila] });
+  assert.equal(sqlite.prepare('SELECT estado FROM sicar_ventas WHERE ven_id=?').get(venta.ven_id).estado, 'excluida');
+  assert.deepEqual(repo.listarMostrador().map(f => [f.ven_id, f.total_centavos]), [[venta.ven_id, 10000]]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_detalles_mostrador').get().n, 1);
 });

@@ -242,3 +242,25 @@ test('14. un lote solo de cortes avanza la secuencia, se guarda por tienda y el 
   assert.equal((await enviar(malo)).status, 422);
   } finally { llave = llaveAnterior; }
 });
+
+test('15. un lote solo de mostrador avanza la secuencia, se guarda por tienda sin tocar ventas y el reenvio no duplica', async () => {
+  // El ritmo es de 12 solicitudes por minuto por llave y este archivo ya las gasta: una llave nueva de la misma tienda.
+  const llaveAnterior = llave;
+  llave = crearLlaveSicar(repo, 1, 961).llave;
+  try {
+  const fila = { ven_id: '8801', fecha_local: '2026-10-22T20:15:00', estado: 'vigente', total: '10.33',
+    detalle: [{ art_id: '7', cantidad: '1.5000', importe_con: '10.33', descuento_total: '0.00' }] };
+  const cuerpo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000018', sequence: '11', clientes: [], ventas: [], mostrador: [fila] });
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  assert.deepEqual(r.datos.aceptados, { clientes: 0, ventas: 0, mostrador: 1 });
+  assert.equal(r.datos.next_sequence, '12');
+  assert.deepEqual(await enviar(cuerpo), r);
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, ven_id, total_centavos FROM sicar_ventas_mostrador').all(),
+    [{ sucursal_id: 1, ven_id: '8801', total_centavos: 1033 }]);
+  assert.deepEqual(sqlite.prepare('SELECT cantidad, importe_centavos FROM sicar_detalles_mostrador').all(), [{ cantidad: '1.5000', importe_centavos: 1033 }]);
+  const malo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000019', sequence: '12', clientes: [], ventas: [],
+    mostrador: [{ ...fila, cli_id: '5' }] });
+  assert.equal((await enviar(malo)).status, 400);
+  } finally { llave = llaveAnterior; }
+});

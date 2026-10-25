@@ -6,7 +6,7 @@ const { conectar } = require('./conexion');
 const { crearLector } = require('./seguridad');
 const { crearFuente } = require('./mapeo');
 const { ejecutar } = require('./corrida');
-const { clienteSeguro, ventaSegura } = require('./formato');
+const { clienteSeguro, ventaSegura, esPublico } = require('./formato');
 async function verificar(fuente, imprimir, esperar, log) {
   await fuente.validar();
   const info = await fuente.verificar();
@@ -38,7 +38,14 @@ async function verificar(fuente, imprimir, esperar, log) {
     imprimir('Cortes APAGADOS, faltan columnas: ' + JSON.stringify(cortes.faltantes));
     log('CORTES_NO_DISPONIBLES');
   } else imprimir(`Cortes en SICAR: ${cortes.total}, lectura de ventas de 100 cortes en ${cortes.ms} ms`);
-  let cursor = '0', clientes = 0, ventas = 0;
+  // Ventas de mostrador (público en general) desde 2025: por número de cliente en SQL y, abajo, con la regla completa.
+  const mostrador = info.mostrador;
+  if (!mostrador) imprimir('Ventas de público en general desde 2025: sin dato');
+  else {
+    imprimir(`Ventas de público en general desde 2025: ${mostrador.total_publico_desde_2025} por número de cliente, `
+      + `desde la venta ${mostrador.desde_ven_id ?? 'ninguna'}`);
+  }
+  let cursor = '0', clientes = 0, ventas = 0, publico = 0;
   const clientesRaros = [];
   while (true) {
     const filas = await fuente.clientes(cursor, fuente.tamano);
@@ -61,6 +68,10 @@ async function verificar(fuente, imprimir, esperar, log) {
     const conNombre = pagina.filas.filter(v => personas.has(String(v.cli_id)));
     ventas += conNombre.length;
     const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
+    if (mostrador?.desde_ven_id) {
+      publico += pagina.filas.filter(v => BigInt(v.ven_id) >= BigInt(mostrador.desde_ven_id)
+        && esPublico(clientes.get(String(v.cli_id)))).length;
+    }
     for (const v of conNombre) {
       const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
       const { omitida } = ventaSegura(v, clientes.get(String(v.cli_id)), detalles, false);
@@ -75,6 +86,7 @@ async function verificar(fuente, imprimir, esperar, log) {
   imprimir(`Ventas con nombre: ${ventas}`);
   imprimir(`Ventas que se saltarían por datos raros: ${raras.length}`);
   for (const r of raras.slice(0, 20)) imprimir(`  ven_id=${r.ven_id} codigo=${r.codigo}`);
+  if (mostrador?.desde_ven_id) imprimir(`Ventas de público en general desde 2025 revisando también el nombre: ${publico}`);
 }
 function rutaRegistro(configPath) {
   return typeof configPath === 'string' && path.isAbsolute(configPath) ? path.join(path.dirname(configPath), 'agente-sicar.log') : null;
@@ -88,7 +100,8 @@ async function main(args = process.argv.slice(2), deps = {}) {
   const esperar = deps.esperar || pausa;
   let liberar = null, conexion;
   try {
-    const conocidos = ['--verificar', '--historico-ahora', '--articulos-ahora', '--proveedores-ahora', '--existencias-ahora'];
+    const conocidos = ['--verificar', '--historico-ahora', '--articulos-ahora', '--proveedores-ahora', '--existencias-ahora',
+      '--mostrador-ahora'];
     if (args.some(a => !conocidos.includes(a)) || args.length > 1) throw new Error('CONFIGURACION_INVALIDA');
     // Carga histórica fuera de 20:00-07:00: solo a mano y solo esta corrida (Victor, 2026-10-15). La tarea programada no la usa.
     const historicoAhora = args.includes('--historico-ahora');
@@ -102,6 +115,9 @@ async function main(args = process.argv.slice(2), deps = {}) {
     // Y la vuelta completa de existencias (todas aunque no cambiaran), por ejemplo tras restaurar un respaldo.
     const existenciasAhora = args.includes('--existencias-ahora');
     if (existenciasAhora) log('EXISTENCIAS_AUTORIZADAS_DE_DIA');
+    // Y la carga de ventas de mostrador desde 2025, de día y solo esta corrida.
+    const mostradorAhora = args.includes('--mostrador-ahora');
+    if (mostradorAhora) log('MOSTRADOR_AUTORIZADO_DE_DIA');
     const config = await leerConfiguracion(configPath);
     liberar = await bloquear(config.estado);
     if (!liberar) { log('OTRA_CORRIDA_ACTIVA'); return; }
@@ -112,7 +128,7 @@ async function main(args = process.argv.slice(2), deps = {}) {
       if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
       await verificar(fuente, imprimir, esperar, log);
     } else await ejecutar(config.estado, config, { ...deps, fuente, esperar, log, bloqueado: true, historicoAhora, articulosAhora,
-      proveedoresAhora, existenciasAhora });
+      proveedoresAhora, existenciasAhora, mostradorAhora });
   } catch (e) {
     // Solo códigos conocidos, ids y nombres de columna: nunca el mensaje de MySQL (puede traer usuario o datos).
     escribir(describirFallo(e));

@@ -359,3 +359,48 @@ test('cortes: sin las tablas de cortes tambien siguen apagados', async () => {
   await fuente.validar();
   assert.equal(fuente.cortesDisponibles, false);
 });
+test('mostrador: primera venta de 2025 por ven_id y conteo de publico por ids con consultas que pasan la guardia', async () => {
+  const { PUBLICOS } = require('./formato');
+  const consultas = [];
+  const leer = async (sql, parametros) => {
+    validarSQL(sql);
+    consultas.push({ sql, parametros });
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries(columnas).flatMap(([TABLE_NAME, campos]) => campos.split(' ').map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('AS desde')) return [{ desde: 120 }];
+    if (sql.includes('COUNT(*)') && sql.includes('`venta`')) return [{ total: 4321 }];
+    return [];
+  };
+  const fuente = crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {});
+  await fuente.validar();
+  assert.equal(await fuente.mostradorDesde('2025-01-01 00:00:00'), '120');
+  const q = consultas.at(-1);
+  assert.equal(q.sql, 'SELECT v.`ven_id` AS desde FROM `venta` v WHERE v.`fecha` >= ? ORDER BY v.`ven_id` LIMIT 1');
+  assert.deepEqual(q.parametros, ['2025-01-01 00:00:00']);
+  const info = await fuente.verificar();
+  assert.deepEqual(info.mostrador, { desde_ven_id: '120', total_publico_desde_2025: '4321' });
+  const conteo = consultas.find(x => x.sql.includes('COUNT(*)') && x.sql.includes('`venta`'));
+  assert.match(conteo.sql, /WHERE v\.`fecha` >= \? AND COALESCE\(t\.`cli_id`, n\.`cli_id`, r\.`cli_id`, 0\) IN \(0, \?(, \?){8}\)$/);
+  assert.deepEqual(conteo.parametros, ['2025-01-01 00:00:00', ...PUBLICOS]);
+  const sinVentas = crearFuente({ pagina: fn => fn(async (sql, p) => (sql.includes('AS desde') ? [] : leer(sql, p))), tamano: 100 }, {});
+  await sinVentas.validar();
+  assert.equal(await sinVentas.mostradorDesde('2025-01-01 00:00:00'), null);
+});
+test('mostrador: si el conteo de --verificar falla, el dato sale vacio y el resto de verificar sigue', async () => {
+  const leer = async sql => {
+    validarSQL(sql);
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries(columnas).flatMap(([TABLE_NAME, campos]) => campos.split(' ').map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('AS desde') || (sql.includes('COUNT(*)') && sql.includes('`venta`'))) throw new Error('Query inactivity timeout');
+    return [];
+  };
+  const fuente = crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {});
+  await fuente.validar();
+  const info = await fuente.verificar();
+  assert.equal(info.mostrador, null);
+  assert.ok(Array.isArray(info.grants));
+});

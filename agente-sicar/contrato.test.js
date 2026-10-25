@@ -187,3 +187,37 @@ test('agente → ruta real: un lote de cortes entra a sicar_cortes con sus pagos
   assert.deepEqual(repo.listarCortes().map(c => [c.cor_id, c.usu_id, c.diferencia_centavos]), [['5', '3', -33]]);
   assert.deepEqual(sqlite.prepare('SELECT tpa_id, calculado_centavos FROM sicar_cortes_pagos').all(), [{ tpa_id: '1', calculado_centavos: 10033 }]);
 });
+
+test('agente → ruta real: un lote de mostrador entra a sicar_ventas_mostrador en centavos sin tocar sicar_ventas', async t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const llave = crearLlaveSicar(repo, 1, 961).llave;
+  let ruta;
+  registrarAgenteSicar({ use: (_, handler) => { ruta = handler; } }, { repo, mantenimiento: { estaActivo: () => false } });
+  const transportar = (_, opciones) => new Promise(resolve => {
+    const req = Readable.from([Buffer.from(opciones.body, 'utf8')]);
+    Object.assign(req, { method: 'POST', path: '/v1/lotes', socket: { remoteAddress: '127.0.0.1' },
+      headers: { authorization: opciones.headers.Authorization, 'content-type': opciones.headers['Content-Type'] } });
+    const res = new EventEmitter();
+    res.set = () => res;
+    res.status = status => { res.codigo = status; return res; };
+    res.json = datos => { res.emit('close'); resolve({ status: res.codigo, json: async () => datos }); };
+    ruta(req, res);
+  });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sicar-mostrador-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const archivo = path.join(dir, 'estado.json');
+  const mostrador = [{ ven_id: '31', fecha_local: '2026-10-22T20:15:00', estado: 'vigente', total: '100.33',
+    detalle: [{ art_id: '7', cantidad: '2.0000', importe_con: '100.33', descuento_total: '0.00' }] }];
+  const bytes = JSON.stringify({ schema_version: 1, mapping_version: 'ocosingo-f0-v1', batch_id: crypto.randomUUID(), sequence: '1',
+    captured_at: '2026-10-15T03:00:00Z', mode: 'incremental', window: { from: '2026-10-14T00:00:00-06:00', to: '2026-10-15T00:00:00-06:00' },
+    clientes: [], ventas: [], mostrador });
+  const estado = { ...inicial(), fase: 'incremental', siguiente_secuencia: '1', pendiente: { bytes, cambios: {} } };
+  await guardar(archivo, estado);
+  assert.equal(await enviarPendiente(archivo, estado, { llave }, { fetch: transportar, esperar: async () => {}, reloj: () => 1 }), true);
+  assert.deepEqual(repo.listarMostrador().map(f => [f.ven_id, f.estado, f.total_centavos]), [['31', 'vigente', 10033]]);
+  assert.deepEqual(sqlite.prepare('SELECT art_id, cantidad, importe_centavos FROM sicar_detalles_mostrador').all(),
+    [{ art_id: '7', cantidad: '2.0000', importe_centavos: 10033 }]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_ventas').get().n, 0);
+});

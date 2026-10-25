@@ -6,7 +6,7 @@ function inicial() {
     tope: null, enviadas: {}, ventana: {}, pendiente: null, detenido: null, ultimo_envio: null,
     articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null,
     existencias: {}, existencias_dia: null, cortes_cursor: '0',
-    cortes_enviados: [] };
+    cortes_enviados: [], mostrador_cursor: '0', mostrador_desde_ven_id: null, mostrador_enviadas: {}, mostrador_terminado: false };
 }
 async function guardar(archivo, estado) {
   const temporal = `${archivo}.${randomUUID()}.tmp`;
@@ -59,6 +59,21 @@ async function cargar(archivo) {
   if (!Array.isArray(enviados) || enviados.length > 50 || enviados.some(x => typeof x !== 'string' || !/^[1-9]\d*$/.test(x))) {
     throw new Error('ESTADO_INVALIDO');
   }
+  // Mostrador (ventas de público en general). Un estado.json de antes arranca la carga desde 2025 desde cero.
+  // mostrador_cursor: último ven_id revisado por la carga; mostrador_desde_ven_id: primera venta de 2025 (null = sin
+  // consultar); mostrador_enviadas: ven_id que el servidor confirmó en mostrador (aparte de enviadas, que decide la tumba
+  // 'excluida' de ventas); mostrador_terminado: la carga ya alcanzó el cursor de ventas y no vuelve a correr.
+  estado.mostrador_cursor ??= '0';
+  estado.mostrador_desde_ven_id ??= null;
+  estado.mostrador_enviadas ??= {};
+  estado.mostrador_terminado ??= false;
+  const desde = estado.mostrador_desde_ven_id;
+  const mostrador = estado.mostrador_enviadas;
+  if (typeof estado.mostrador_cursor !== 'string' || !/^\d+$/.test(estado.mostrador_cursor)
+    || (desde !== null && (typeof desde !== 'string' || !/^[1-9]\d*$/.test(desde)))
+    || typeof mostrador !== 'object' || Array.isArray(mostrador)
+    || Object.entries(mostrador).some(([k, x]) => !/^[1-9]\d*$/.test(k) || x !== true)
+    || typeof estado.mostrador_terminado !== 'boolean') throw new Error('ESTADO_INVALIDO');
   return estado;
 }
 const CANDADO_ABANDONADO_MS = 6 * 3600000;
@@ -101,6 +116,7 @@ const EVENTOS = new Set([
   'PROVEEDOR_OMITIDO', 'PROVEEDORES_NO_DISPONIBLES', 'PROVEEDORES_AUTORIZADOS_DE_DIA',
   'EXISTENCIA_OMITIDA', 'EXISTENCIAS_NO_DISPONIBLES', 'EXISTENCIAS_AUTORIZADAS_DE_DIA', 'EXISTENCIAS_DESCARTADAS',
   'CORTE_OMITIDO', 'CORTE_SIN_CAJERO', 'CORTES_NO_DISPONIBLES', 'CORTE_FECHA_FUTURA', 'CORTE_SIN_RESUMEN', 'CORTES_DESCARTADOS',
+  'MOSTRADOR_AUTORIZADO_DE_DIA',
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,

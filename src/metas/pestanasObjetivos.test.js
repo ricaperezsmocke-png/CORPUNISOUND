@@ -164,3 +164,9 @@ test("cuenta sin vendedor con usar_gerente_ventas ve solo Mis metas extra en Lo 
   assert.deepEqual(claves({ miVendedorId: null, sinVendedor: true, permisos: [] }), []);
   assert.equal(claves({ miVendedorId: 3, sinVendedor: false, permisos: ["usar_gerente_ventas"] }).filter((c) => c === "mis-metas").length, 1);
 });
+
+test("cinco caminos aparece solo con ver_cinco_caminos, en el grupo de la tienda", () => {
+  assert.deepEqual(claves({ permisos: ["usar_gerente_ventas"] }), []);
+  const pestanas = pestanasObjetivos({ permisos: ["ver_cinco_caminos"] });
+  assert.deepEqual(pestanas, [{ clave: "cinco-caminos", etiqueta: "Cinco caminos", icono: "Route", grupo: "tienda" }]);
+});

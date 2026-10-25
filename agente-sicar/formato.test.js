@@ -193,3 +193,80 @@ test('un lote cabe con hasta 100 cortes', () => {
   lote.cortes.push({ ...corte, cor_id: '101' });
   assert.equal(cabe(lote), false);
 });
+
+// Ventas de público en general como mostrador (Cinco Caminos P1): sin cliente, nombre, teléfono, descripción ni clave.
+const { ventaSegura } = require('./formato');
+const publico = { cli_id: '1', nombre: 'PÚBLICO EN GENERAL', telefono: '9611234567' };
+const vPublico = { ven_id: '77', cli_id: '1', fecha: '2025-03-14 10:00:00', status: 1, total: '1500' };
+const dPublico = { ven_id: '77', art_id: '8', clave: 'GT-1', descripcion: 'Guitarra', cantidad: '1',
+  precioCon: '1500', precioSin: '1293.1034', importeCon: '1500', descTotal: '25.5' };
+const filaMostrador = { ven_id: '77', fecha_local: '2025-03-14T10:00:00', estado: 'vigente', total: '1500.00',
+  detalle: [{ art_id: '8', cantidad: '1.0000', importe_con: '1500.00', descuento_total: '25.50' }] };
+test('mostrador: venta de publico sale como fila de mostrador sin datos de persona ni del articulo', () => {
+  const r = ventaSegura(vPublico, publico, [dPublico], false, undefined, { enviada: false });
+  assert.deepEqual(r, { venta: null, omitida: null, mostrador: filaMostrador });
+  const texto = JSON.stringify(r.mostrador);
+  for (const prohibido of ['cli_id', 'nombre', 'telefono', 'descripcion', 'clave', 'precio_con', 'precio_sin', 'Guitarra', 'GT-1']) {
+    assert.equal(texto.includes(prohibido), false, prohibido);
+  }
+  assert.doesNotThrow(() => validarLoteSicar({ ...sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z')), mostrador: [r.mostrador] }));
+  // Por nombre aunque el id no esté en la lista, y sin cliente en SICAR.
+  const otro = ventaSegura({ ...vPublico, cli_id: '900' }, { cli_id: '900', nombre: 'Público en general Yajalón' }, [dPublico], false, undefined,
+    { enviada: false });
+  assert.deepEqual(otro.mostrador, filaMostrador);
+  assert.deepEqual(ventaSegura({ ...vPublico, cli_id: null }, undefined, [dPublico], false, undefined, { enviada: false }).mostrador, filaMostrador);
+});
+test('mostrador: el nombre con espacios al inicio tambien es publico en general', () => {
+  const r = ventaSegura({ ...vPublico, cli_id: '900' }, { cli_id: '900', nombre: ' PÚBLICO EN GENERAL' }, [dPublico], false, undefined,
+    { enviada: false });
+  assert.deepEqual(r.mostrador, filaMostrador);
+  assert.equal(cliente({ ...c, nombre: '  PÚBLICO EN GENERAL 2' }), null);
+});
+test('mostrador: cancelada sale cancelada; sin renglones y ya enviada sale como cancelacion corta', () => {
+  const r = ventaSegura({ ...vPublico, status: -1 }, publico, [dPublico], false, undefined, { enviada: false });
+  assert.equal(r.mostrador.estado, 'cancelada');
+  assert.deepEqual(ventaSegura({ ...vPublico, status: -1 }, publico, [], false, undefined, { enviada: true }),
+    { venta: null, omitida: null, mostrador: { ven_id: '77', estado: 'cancelada' } });
+  const nunca = ventaSegura({ ...vPublico, status: -1 }, publico, [], false, undefined, { enviada: false });
+  assert.deepEqual(nunca, { venta: null, omitida: { ven_id: '77', codigo: 'DETALLE_FUERA_DE_LIMITE' }, mostrador: null });
+  const rara = ventaSegura({ ...vPublico, total: '1.005' }, publico, [dPublico], false, undefined, { enviada: false });
+  assert.deepEqual(rara, { venta: null, omitida: { ven_id: '77', codigo: 'PRECISION_NO_PACTADA' }, mostrador: null });
+});
+test('mostrador: venta de publico ya enviada como venta con cliente sale excluida y como mostrador', () => {
+  const r = ventaSegura(vPublico, publico, [dPublico], true, undefined, { enviada: false });
+  assert.deepEqual(r, { venta: { ven_id: '77', estado: 'excluida' }, omitida: null, mostrador: filaMostrador });
+});
+test('mostrador: venta de cliente normal no trae mostrador; sin el interruptor la salida es la de siempre', () => {
+  const r = ventaSegura({ ...vPublico, cli_id: '42' }, c, [dPublico], false, undefined, { enviada: true });
+  assert.equal(r.venta.cli_id, '42');
+  assert.equal(r.mostrador, null);
+  assert.deepEqual(ventaSegura(vPublico, publico, [dPublico], false), { venta: null, omitida: null });
+  assert.deepEqual(ventaSegura(vPublico, publico, [dPublico], true), { venta: { ven_id: '77', estado: 'excluida' }, omitida: null });
+});
+test('un lote cabe con hasta 100 filas de mostrador y 1000 renglones de mostrador, aparte de los de ventas', () => {
+  const renglon = filaMostrador.detalle[0];
+  const lote = sobre('1', 'incremental', new Date('2026-10-15T03:00:00Z'));
+  lote.mostrador = Array.from({ length: 100 }, (_, i) => ({ ...filaMostrador, ven_id: String(i + 1) }));
+  assert.equal(cabe(lote), true);
+  lote.mostrador.push({ ven_id: '101', estado: 'cancelada' });
+  assert.equal(cabe(lote), false);
+  lote.mostrador = [1, 2, 3].map(n => ({ ...filaMostrador, ven_id: String(n), detalle: Array(n === 3 ? 200 : 400).fill(renglon) }));
+  lote.ventas = [{ ...venta(v, c, Array(400).fill(d)) }, { ...venta({ ...v, ven_id: '5' }, c, Array(400).fill(d)) }];
+  assert.equal(cabe(lote), true, 'mil renglones de mostrador y 800 de ventas: el servidor los cuenta por separado');
+  lote.mostrador[2].detalle.push(renglon);
+  assert.equal(cabe(lote), false);
+  lote.mostrador = [{ ...filaMostrador, detalle: Array(501).fill(renglon) }];
+  assert.equal(cabe(lote), false);
+});
+test('fecha imposible (30 de febrero, 0000-00-00) es dato raro en venta de cliente y de publico, como en el servidor', () => {
+  for (const fecha of ['2025-02-30 10:00:00', '0000-00-00 00:00:00']) {
+    const deCliente = ventaSegura({ ...vPublico, cli_id: '42', fecha }, c, [dPublico], false, undefined, { enviada: false });
+    assert.deepEqual(deCliente, { venta: null, omitida: { ven_id: '77', codigo: 'FECHA_INVALIDA' }, mostrador: null }, fecha);
+    assert.deepEqual(ventaSegura({ ...vPublico, cli_id: '42', fecha }, c, [dPublico], true),
+      { venta: { ven_id: '77', estado: 'excluida' }, omitida: { ven_id: '77', codigo: 'FECHA_INVALIDA' } }, fecha);
+    const dePublico = ventaSegura({ ...vPublico, fecha }, publico, [dPublico], false, undefined, { enviada: false });
+    assert.deepEqual(dePublico, { venta: null, omitida: { ven_id: '77', codigo: 'FECHA_INVALIDA' }, mostrador: null }, fecha);
+  }
+  assert.equal(ventaSegura({ ...vPublico, fecha: '2024-02-29 23:59:59' }, publico, [dPublico], false, undefined, { enviada: false })
+    .mostrador.fecha_local, '2024-02-29T23:59:59', 'un 29 de febrero bisiesto si es fecha');
+});

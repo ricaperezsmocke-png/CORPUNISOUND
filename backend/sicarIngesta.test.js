@@ -264,3 +264,36 @@ test('cortes opcionales aceptan lote exclusivo y rechazan importes, duplicados, 
   cero.cortes[0].diferencia = '-0.00';
   assert.deepEqual(validarLoteSicar(cero), cero);
 });
+
+test('mostrador opcional acepta fila completa y cancelacion corta, y rechaza datos de persona, estados, importes y limites', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const fila = (ven_id, n = 1) => ({ ven_id, fecha_local: '2026-10-22T10:00:00', estado: 'vigente', total: '100.00',
+    detalle: Array.from({ length: n }, (_, i) => ({ art_id: String(i + 1), cantidad: '2.0000', importe_con: '100.00', descuento_total: '0.00' })) });
+  const solo = { ...lote(), clientes: [], ventas: [], mostrador: [fila('9'), { ven_id: '10', estado: 'cancelada' }] };
+  assert.deepEqual(validarLoteSicar(solo), solo);
+  for (const [nombre, cambiar, codigo] of [
+    ['cli_id', b => { b.mostrador[0].cli_id = '5'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['nombre', b => { b.mostrador[0].nombre = 'Ana'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['clave en renglon', b => { b.mostrador[0].detalle[0].clave = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['descripcion en renglon', b => { b.mostrador[0].detalle[0].descripcion = 'Cable'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['clave', b => { b.mostrador[0].clave = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['descripcion', b => { b.mostrador[0].descripcion = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['excluida', b => { b.mostrador[0].estado = 'excluida'; }, 'ESTADO_INVALIDO'],
+    ['cancelacion corta con total', b => { b.mostrador[1].total = '1.00'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['importe con un decimal', b => { b.mostrador[0].detalle[0].importe_con = '1.5'; }, 'IMPORTE_INVALIDO'],
+    ['total con un decimal', b => { b.mostrador[0].total = '1.5'; }, 'IMPORTE_INVALIDO'],
+    ['cantidad con 2 decimales', b => { b.mostrador[0].detalle[0].cantidad = '2.00'; }, 'IMPORTE_INVALIDO'],
+    ['fecha invalida', b => { b.mostrador[0].fecha_local = '2026-10-22'; }, 'FECHA_INVALIDA'],
+    ['detalle vacio', b => { b.mostrador[0].detalle = []; }, 'DETALLE_VACIO'],
+    ['duplicado', b => { b.mostrador[1].ven_id = '9'; }, 'ID_DUPLICADO'],
+    ['id invalido', b => { b.mostrador[0].ven_id = 9; }, 'ID_INVALIDO'],
+    ['101 filas', b => { b.mostrador = Array.from({ length: 101 }, (_, i) => fila(String(i + 1))); }, 'LIMITE_ENTIDADES'],
+    ['1001 renglones', b => { b.mostrador = [fila('1', 500), fila('2', 500), fila('3', 1)]; }, 'LIMITE_ENTIDADES'],
+  ]) {
+    const entrada = structuredClone(solo);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+  const mil = { ...solo, mostrador: [fila('1', 500), fila('2', 500)] };
+  assert.deepEqual(validarLoteSicar(mil), mil);
+});

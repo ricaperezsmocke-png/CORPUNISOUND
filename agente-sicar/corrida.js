@@ -1,21 +1,30 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { cargar, guardar, bloquear } = require('./estado');
-const { cliente, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
+const { cliente, esPublico, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
   proveedorSeguro, existenciaSegura, corteSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
 // Ventas bajo el cursor que se releen por si otra caja las confirmó tarde (ids asignados antes, guardadas después).
 const MARGEN_VENTAS = 200;
-function elementos(pagina, estado, avisar, omitir) {
+// Carga de ventas de mostrador desde 2025: a lo más estas páginas por corrida, para que la corrida termine pronto y la
+// siguiente (con las ventas nuevas) no espere.
+const PAGINAS_MOSTRADOR_POR_CORRIDA = 10;
+const INICIO_MOSTRADOR = '2025-01-01 00:00:00';
+// Con el interruptor mostrador (exactamente true) la venta de público en general sale además como fila de mostrador.
+// soloPublico (carga desde 2025): las de cliente no se devuelven; las de público, con su tumba excluida si hace falta.
+function elementos(pagina, estado, avisar, omitir, config = {}, soloPublico = false) {
   const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
-  return pagina.filas.map(v => {
+  const conMostrador = config.mostrador === true;
+  return pagina.filas.flatMap(v => {
     const c = clientes.get(String(v.cli_id));
+    if (soloPublico && !esPublico(c)) return [];
     const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
-    const { venta: salida, omitida } = ventaSegura(v, c, detalles, !!estado.enviadas[String(v.ven_id)], avisar);
+    const opciones = conMostrador ? { enviada: !!estado.mostrador_enviadas[String(v.ven_id)] } : undefined;
+    const { venta: salida, omitida, mostrador = null } = ventaSegura(v, c, detalles, !!estado.enviadas[String(v.ven_id)], avisar, opciones);
     if (omitida) omitir('VENTA_OMITIDA', omitida);
     // Solo una venta completa trae cliente: la excluida y la cancelación sin renglones no.
-    return { venta: salida, cliente: salida?.cli_id ? cliente(c) : null };
+    return [{ venta: salida, cliente: salida?.cli_id ? cliente(c) : null, mostrador }];
   });
 }
 function agregar(lote, elemento) {
@@ -27,6 +36,9 @@ function agregar(lote, elemento) {
   // La fila nunca es null (su existencia sí puede serlo: artículo que dejó de ser vigente).
   if (elemento.existencia) (lote.existencias ??= []).push(elemento.existencia);
   if (elemento.corte) (lote.cortes ??= []).push(elemento.corte);
+  // Va en el mismo lote que la tumba excluida de su venta: el servidor la acepta solo así. elementos() solo la produce
+  // con el interruptor mostrador === true.
+  if (elemento.mostrador) (lote.mostrador ??= []).push(elemento.mostrador);
 }
 // Un prv_id repetido en el lote lo rechaza el servidor (ID_DUPLICADO, 422) y eso detendría el agente entero, con clientes
 // y ventas. La lista de proveedores es opcional: se conserva la primera aparición de cada id y se sigue.
@@ -35,10 +47,11 @@ function sinIdsRepetidos(filas) {
   return filas.filter(p => !vistos.has(String(p.prv_id)) && vistos.add(String(p.prv_id)));
 }
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
-  && !lote.existencias?.length && !lote.cortes?.length;
-// Solo un lote de existencias y/o cortes se puede descartar; nunca uno que traiga clientes, ventas, artículos o proveedores.
+  && !lote.existencias?.length && !lote.cortes?.length && !lote.mostrador?.length;
+// Solo un lote de existencias y/o cortes se puede descartar; nunca uno que traiga clientes, ventas, artículos, proveedores
+// o mostrador (la carga de mostrador mueve su cursor solo al confirmar, pero sus ventas sí cuentan).
 const descartable = lote => (!!lote.existencias?.length || !!lote.cortes?.length) && !lote.clientes?.length
-  && !lote.ventas?.length && !lote.articulos?.length && !lote.proveedores?.length;
+  && !lote.ventas?.length && !lote.articulos?.length && !lote.proveedores?.length && !lote.mostrador?.length;
 const EXISTENCIAS_POR_LOTE = 500;
 const CORTES_POR_LOTE = 100;
 // SICAR escribe el corte, luego el renglón de historial de quién lo cerró (0-22 s) y enseguida el resumen (1 s): un
@@ -136,8 +149,11 @@ async function ejecutar(archivo, config, deps) {
         actual.sequence = estado.siguiente_secuencia;
         const enviadas = { ...estado.enviadas };
         for (const v of actual.ventas) enviadas[v.ven_id] = true;
+        // Las de mostrador se recuerdan aparte: enviadas decide la tumba excluida de ventas y no se mezcla.
+        const mostrador = actual.mostrador?.length ? { ...estado.mostrador_enviadas } : null;
+        for (const m of actual.mostrador || []) mostrador[m.ven_id] = true;
         estado.pendiente = { bytes: JSON.stringify(actual),
-          cambios: { enviadas, ...(i === grupos.length - 1 ? cambios : {}) } };
+          cambios: { enviadas, ...(mostrador ? { mostrador_enviadas: mostrador } : {}), ...(i === grupos.length - 1 ? cambios : {}) } };
         await guardar(archivo, estado);
         if (!await enviarPendiente(archivo, estado, config, deps)) return false;
       }
@@ -155,7 +171,7 @@ async function ejecutar(archivo, config, deps) {
         const pagina = await fuente.ventas(estado.ven_id, estado.tope, fuente.tamano);
         const cambios = pagina.filas.length ? { ven_id: id(pagina.filas.at(-1).ven_id), ventana: cache(pagina, estado) }
           : { fase: 'incremental' };
-        if (!await transmitir(elementos(pagina, estado, avisar, omitir), cambios)) return;
+        if (!await transmitir(elementos(pagina, estado, avisar, omitir, config), cambios)) return;
       }
       return;
     }
@@ -163,7 +179,7 @@ async function ejecutar(archivo, config, deps) {
     while (BigInt(estado.ven_id) < BigInt(tope)) {
       const pagina = await fuente.ventas(estado.ven_id, tope, fuente.tamano);
       if (!pagina.filas.length) break;
-      if (!await transmitir(elementos(pagina, estado, avisar, omitir), {
+      if (!await transmitir(elementos(pagina, estado, avisar, omitir, config), {
         ven_id: id(pagina.filas.at(-1).ven_id), ventana: cache(pagina, estado),
       })) return;
     }
@@ -174,7 +190,7 @@ async function ejecutar(archivo, config, deps) {
       desdeMargen = id(pagina.filas.at(-1).ven_id);
       const nuevas = { ...pagina, filas: pagina.filas.filter(v => !estado.ventana[id(v.ven_id)]) };
       if (!nuevas.filas.length) continue;
-      if (!await transmitir(elementos(nuevas, estado, avisar, omitir), { ventana: cache(nuevas, estado) })) return;
+      if (!await transmitir(elementos(nuevas, estado, avisar, omitir, config), { ventana: cache(nuevas, estado) })) return;
     }
     if (config.historial?.columna_referencia) {
       while (true) {
@@ -189,7 +205,7 @@ async function ejecutar(archivo, config, deps) {
           for (const k of Object.keys(pagina)) pagina[k].push(...parte[k]);
         }
         const clientes = clientesIds.length ? await fuente.clientesIds(clientesIds) : [];
-        const items = clientes.map(c => ({ cliente: clientePermitido(c) })).concat(elementos(pagina, estado, avisar, omitir));
+        const items = clientes.map(c => ({ cliente: clientePermitido(c) })).concat(elementos(pagina, estado, avisar, omitir, config));
         if (!await transmitir(items, { his_id: id(movimientos.at(-1).his_id), ventana: cache(pagina, estado) })) return;
       }
     }
@@ -198,7 +214,7 @@ async function ejecutar(archivo, config, deps) {
     for (let i = 0; i < ids.length;) {
       const paginaIds = ids.slice(i, i + fuente.tamano);
       const pagina = await fuente.porIds(paginaIds);
-      if (!await transmitir(elementos(pagina, estado, avisar, omitir), { ventana: cache(pagina, estado) })) return;
+      if (!await transmitir(elementos(pagina, estado, avisar, omitir, config), { ventana: cache(pagina, estado) })) return;
       i += paginaIds.length;
     }
     // Listas diarias (artículos con departamento y categoría; proveedores para el Radar): completas una vez al día, de noche
@@ -290,51 +306,79 @@ async function ejecutar(archivo, config, deps) {
     if (!await mandarExistencias()) return;
     // Cortes de caja: en cada corrida, después de las existencias, por cor_id (nunca se editan y crecen con el tiempo).
     // cortes_cursor avanza solo cuando el servidor confirma el lote. Apagados mientras el interruptor no sea true.
-    if (config.cortes !== true) return;
-    if (!fuente.cortesDisponibles) { log('CORTES_NO_DISPONIBLES'); return; }
-    const posterior = (a, b) => BigInt(a) > BigInt(b);
-    // Se empieza 50 abajo del cursor: un corte de número menor guardado tarde también sale. Los ya resueltos se saltan.
-    let lectura = posterior(estado.cortes_cursor, MARGEN_CORTES) ? String(BigInt(estado.cortes_cursor) - BigInt(MARGEN_CORTES)) : '0';
-    while (true) {
-      const pagina = await fuente.cortes(lectura, CORTES_POR_LOTE);
-      if (!pagina.cortes.length) return;
-      // Horas de la tienda, en el mismo formato que la fecha de SICAR.
-      const hace2 = horaLocal(reloj() - ESPERA_CORTE_MS), hace10 = horaLocal(reloj() - ESPERA_INCOMPLETO_MS);
-      const futuro = horaLocal(reloj() + ESPERA_INCOMPLETO_MS);
-      const resueltos = new Set(estado.cortes_enviados);
-      let cursor = estado.cortes_cursor, espera = false;
-      const items = [], nuevos = [];
-      for (const fila of pagina.cortes) {
-        const cor_id = id(fila.cor_id);
-        // La lectura solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
-        if (!posterior(cor_id, lectura)) throw new Error('ID_INVALIDO');
-        lectura = cor_id;
-        if (!posterior(cor_id, estado.cortes_cursor) && resueltos.has(cor_id)) continue;
-        const fecha = String(fila.fecha).replace(' ', 'T');
-        const conCajero = pagina.cajeros.some(h => String(h.id) === cor_id);
-        const conResumen = pagina.resumenes.some(r => String(r.cor_id) === cor_id);
-        const adelantado = FECHA_SICAR.test(fecha) && fecha > futuro;
-        // Recién cerrado o a medias: se espera a la siguiente corrida, junto con todos los posteriores.
-        if (FECHA_SICAR.test(fecha) && !adelantado && (fecha > hace2 || ((!conCajero || !conResumen) && fecha > hace10))) {
-          espera = true;
-          break;
+    async function mandarCortes() {
+      if (config.cortes !== true) return true;
+      if (!fuente.cortesDisponibles) { log('CORTES_NO_DISPONIBLES'); return true; }
+      const posterior = (a, b) => BigInt(a) > BigInt(b);
+      // Se empieza 50 abajo del cursor: un corte de número menor guardado tarde también sale. Los ya resueltos se saltan.
+      let lectura = posterior(estado.cortes_cursor, MARGEN_CORTES) ? String(BigInt(estado.cortes_cursor) - BigInt(MARGEN_CORTES)) : '0';
+      while (true) {
+        const pagina = await fuente.cortes(lectura, CORTES_POR_LOTE);
+        if (!pagina.cortes.length) return true;
+        // Horas de la tienda, en el mismo formato que la fecha de SICAR.
+        const hace2 = horaLocal(reloj() - ESPERA_CORTE_MS), hace10 = horaLocal(reloj() - ESPERA_INCOMPLETO_MS);
+        const futuro = horaLocal(reloj() + ESPERA_INCOMPLETO_MS);
+        const resueltos = new Set(estado.cortes_enviados);
+        let cursor = estado.cortes_cursor, espera = false;
+        const items = [], nuevos = [];
+        for (const fila of pagina.cortes) {
+          const cor_id = id(fila.cor_id);
+          // La lectura solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+          if (!posterior(cor_id, lectura)) throw new Error('ID_INVALIDO');
+          lectura = cor_id;
+          if (!posterior(cor_id, estado.cortes_cursor) && resueltos.has(cor_id)) continue;
+          const fecha = String(fila.fecha).replace(' ', 'T');
+          const conCajero = pagina.cajeros.some(h => String(h.id) === cor_id);
+          const conResumen = pagina.resumenes.some(r => String(r.cor_id) === cor_id);
+          const adelantado = FECHA_SICAR.test(fecha) && fecha > futuro;
+          // Recién cerrado o a medias: se espera a la siguiente corrida, junto con todos los posteriores.
+          if (FECHA_SICAR.test(fecha) && !adelantado && (fecha > hace2 || ((!conCajero || !conResumen) && fecha > hace10))) {
+            espera = true;
+            break;
+          }
+          const { corte, omitido } = corteSeguro({ corte: fila, pagos: pagina.pagos, cajeros: pagina.cajeros, ventas: pagina.ventas });
+          if (omitido) omitir('CORTE_OMITIDO', omitido);
+          else {
+            if (adelantado) log('CORTE_FECHA_FUTURA', { cor_id });
+            if (corte.usu_id === null) log('CORTE_SIN_CAJERO', { cor_id });
+            if (!conResumen) log('CORTE_SIN_RESUMEN', { cor_id });
+            items.push({ corte });
+          }
+          nuevos.push(cor_id);
+          if (posterior(cor_id, cursor)) cursor = cor_id;
         }
-        const { corte, omitido } = corteSeguro({ corte: fila, pagos: pagina.pagos, cajeros: pagina.cajeros, ventas: pagina.ventas });
-        if (omitido) omitir('CORTE_OMITIDO', omitido);
-        else {
-          if (adelantado) log('CORTE_FECHA_FUTURA', { cor_id });
-          if (corte.usu_id === null) log('CORTE_SIN_CAJERO', { cor_id });
-          if (!conResumen) log('CORTE_SIN_RESUMEN', { cor_id });
-          items.push({ corte });
+        if (nuevos.length) {
+          const enviados = [...new Set([...estado.cortes_enviados, ...nuevos])].sort((x, y) => (posterior(x, y) ? 1 : -1)).slice(-MARGEN_CORTES);
+          if (!await transmitir(items, { cortes_cursor: cursor, cortes_enviados: enviados }, 'incremental')) return false;
         }
-        nuevos.push(cor_id);
-        if (posterior(cor_id, cursor)) cursor = cor_id;
+        if (espera) return true;
       }
-      if (nuevos.length) {
-        const enviados = [...new Set([...estado.cortes_enviados, ...nuevos])].sort((x, y) => (posterior(x, y) ? 1 : -1)).slice(-MARGEN_CORTES);
-        if (!await transmitir(items, { cortes_cursor: cursor, cortes_enviados: enviados }, 'incremental')) return;
-      }
-      if (espera) return;
+    }
+    if (!await mandarCortes()) return;
+    // Ventas de mostrador desde 2025 (Cinco Caminos P1): una sola vez, al final de todo, de noche o con --mostrador-ahora.
+    // Lee las ventas de (max(mostrador_cursor, desde - 1), cursor de ventas] y manda solo las de público (con su tumba
+    // excluida si se habían mandado con cliente); mostrador_cursor avanza solo cuando el servidor confirma. Al alcanzar el
+    // cursor de ventas termina y no vuelve a correr: lo nuevo ya sale con el interruptor prendido. Nunca toca ventana.
+    if (config.mostrador !== true || estado.mostrador_terminado) return;
+    if (!deps.mostradorAhora && !esHorarioHistorico(new Date(reloj()))) return;
+    const terminar = () => transmitir([], { mostrador_terminado: true }, 'incremental');
+    if (estado.mostrador_desde_ven_id === null) {
+      const primera = await fuente.mostradorDesde(INICIO_MOSTRADOR);
+      if (primera === null) { await terminar(); return; }
+      estado.mostrador_desde_ven_id = id(primera);
+      await guardar(archivo, estado);
+    }
+    for (let n = 0; n < PAGINAS_MOSTRADOR_POR_CORRIDA; n++) {
+      const inicio = String(BigInt(estado.mostrador_desde_ven_id) - 1n);
+      const desde = BigInt(estado.mostrador_cursor) > BigInt(inicio) ? estado.mostrador_cursor : inicio;
+      const pagina = BigInt(desde) < BigInt(estado.ven_id) ? await fuente.ventas(desde, estado.ven_id, fuente.tamano) : { filas: [] };
+      if (!pagina.filas.length) { await terminar(); return; }
+      const ultimo = id(pagina.filas.at(-1).ven_id);
+      // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
+      if (BigInt(ultimo) <= BigInt(desde)) throw new Error('ID_INVALIDO');
+      // Solo las fechadas desde 2025: un ven_id mayor no garantiza la fecha (reloj de SICAR mal puesto).
+      const de2025 = { ...pagina, filas: pagina.filas.filter(v => String(v.fecha).replace('T', ' ') >= INICIO_MOSTRADOR) };
+      if (!await transmitir(elementos(de2025, estado, avisar, omitir, config, true), { mostrador_cursor: ultimo }, 'incremental')) return;
     }
   } finally { await liberar(); }
 }

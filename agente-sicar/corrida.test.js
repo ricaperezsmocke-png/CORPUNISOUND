@@ -899,3 +899,179 @@ test('cortes: fechado mas de 10 minutos en el futuro no se espera ni por la regl
   assert.ok(registro.includes('CORTE_FECHA_FUTURA cor_id=1'));
   assert.ok(registro.includes('CORTE_SIN_RESUMEN cor_id=1'));
 });
+
+// Ventas de público en general como mostrador (Cinco Caminos P1).
+const PUBLICO = { cli_id: '1', nombre: 'PÚBLICO EN GENERAL' };
+const ventaDe = (n, publico, extra = {}) => ({ ven_id: String(n), cli_id: publico ? '1' : '42', fecha: '2025-02-01 10:00:00', status: 1,
+  total: '10', ...extra });
+const renglonDe = n => ({ ...d, ven_id: String(n), clave: 'CLV', descripcion: 'Cuerda' });
+// Ventas de SICAR por rango (cursor, tope], como la consulta real; anota cada lectura.
+function conVentas(p, filas) {
+  const leidas = [];
+  p.fuente.ventas = async (cursor, tope, limite) => {
+    leidas.push([cursor, tope]);
+    const elegidas = filas.filter(f => BigInt(f.ven_id) > BigInt(cursor) && BigInt(f.ven_id) <= BigInt(tope)).slice(0, limite);
+    return { filas: elegidas, clientes: [c, PUBLICO], detalles: elegidas.map(f => renglonDe(f.ven_id)) };
+  };
+  p.fuente.porIds = async ids => {
+    const elegidas = filas.filter(f => ids.includes(f.ven_id));
+    return { filas: elegidas, clientes: [c, PUBLICO], detalles: elegidas.map(f => renglonDe(f.ven_id)) };
+  };
+  return leidas;
+}
+test('mostrador: con el interruptor apagado ningun lote trae mostrador y las ventas salen como hoy', async t => {
+  for (const config of [{}, { mostrador: 'true' }, { mostrador: 1 }]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '0' });
+    p.fuente.tope = async () => '11';
+    conVentas(p, [ventaDe(10, true), ventaDe(11, false)]);
+    p.fuente.mostradorDesde = async () => assert.fail('Sin interruptor no hay carga desde 2025');
+    await ejecutar(p.archivo, config, p.deps);
+    assert.ok(p.lotes.length);
+    assert.ok(p.lotes.every(l => !('mostrador' in l)));
+    assert.deepEqual(p.lotes.flatMap(l => l.ventas.map(x => x.ven_id)), ['11']);
+    assert.deepEqual((await cargar(p.archivo)).mostrador_enviadas, {});
+  }
+});
+test('mostrador: prendido, una pagina mezclada manda ventas y mostrador en el mismo lote', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '0', mostrador_terminado: true });
+  p.fuente.tope = async () => '12';
+  conVentas(p, [ventaDe(10, true), ventaDe(11, false), ventaDe(12, true, { status: -1 })]);
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  const lote = p.lotes[0];
+  assert.deepEqual(lote.ventas.map(x => x.ven_id), ['11']);
+  assert.deepEqual(lote.mostrador.map(m => [m.ven_id, m.estado]), [['10', 'vigente'], ['12', 'cancelada']]);
+  assert.deepEqual(lote.clientes.map(x => x.cli_id), ['42'], 'el publico nunca va como cliente');
+  assert.doesNotMatch(JSON.stringify(lote.mostrador), /cli_id|nombre|descripcion|clave|precio_/);
+  assert.doesNotThrow(() => require('../backend/sicarIngesta').validarLoteSicar(lote), 'el servidor acepta el lote tal cual');
+  const estado = await cargar(p.archivo);
+  assert.deepEqual(estado.mostrador_enviadas, { 10: true, 12: true });
+  assert.equal(estado.enviadas['10'], undefined, 'enviadas solo decide la tumba excluida de ventas');
+  assert.equal(estado.ven_id, '12');
+});
+test('mostrador: venta de publico cancelada dentro de 48 h se manda cancelada', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '20', mostrador_terminado: true,
+    mostrador_enviadas: { 20: true }, ventana: { 20: '2026-10-14T10:00:00' } });
+  p.fuente.tope = async () => '20';
+  conVentas(p, [ventaDe(20, true, { status: -1, fecha: '2026-10-14 10:00:00' })]);
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  const mandadas = p.lotes.flatMap(l => l.mostrador || []);
+  assert.ok(mandadas.length);
+  assert.ok(mandadas.every(m => m.ven_id === '20' && m.estado === 'cancelada'));
+});
+test('mostrador: cancelada de publico sin renglones ya enviada (historial) sale como cancelacion corta', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '9', his_id: '70', mostrador_terminado: true,
+    mostrador_enviadas: { 9: true } });
+  p.fuente.historial = async cursor => (cursor === '70' ? [{ his_id: '80', tabla: 'Venta', movimiento: 2, referencia: '9' }] : []);
+  p.fuente.porIds = async () => ({ filas: [{ ...v, cli_id: '1' }], clientes: [PUBLICO], detalles: [] });
+  await ejecutar(p.archivo, { mostrador: true, historial: { columna_referencia: 'ref' } }, p.deps);
+  assert.deepEqual(p.lotes[0].mostrador, [{ ven_id: '9', estado: 'cancelada' }]);
+  assert.deepEqual(p.lotes[0].ventas, []);
+  assert.equal((await cargar(p.archivo)).his_id, '80');
+});
+test('mostrador: venta de cliente que pasa a publico va excluida y como mostrador en el mismo lote; la inversa va como venta', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '31', mostrador_terminado: true,
+    enviadas: { 30: true }, mostrador_enviadas: { 31: true },
+    ventana: { 30: '2026-10-14T10:00:00', 31: '2026-10-14T11:00:00' } });
+  p.fuente.tope = async () => '31';
+  conVentas(p, [ventaDe(30, true, { fecha: '2026-10-14 10:00:00' }), ventaDe(31, false, { fecha: '2026-10-14 11:00:00' })]);
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  const lote = p.lotes.find(l => l.mostrador);
+  assert.deepEqual(lote.ventas.map(x => [x.ven_id, x.estado, x.cli_id]), [['30', 'excluida', undefined], ['31', 'vigente', '42']]);
+  assert.deepEqual(lote.mostrador.map(m => m.ven_id), ['30']);
+  assert.doesNotThrow(() => require('../backend/sicarIngesta').validarLoteSicar(lote));
+});
+test('mostrador: un lote de existencias que trae mostrador nunca se descarta', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', mostrador_terminado: true,
+    pendiente: pendienteDe({ existencias: [{ art_id: '1', existencia: '9.0000' }],
+      mostrador: [{ ven_id: '5', estado: 'cancelada' }] }) });
+  p.deps.reloj = DE_DIA;
+  p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.equal(p.mensajes.includes('EXISTENCIAS_DESCARTADAS'), false);
+  assert.ok((await cargar(p.archivo)).pendiente, 'se queda para reenviarse');
+});
+// Carga desde 2025: ventas 10..60 (las pares de publico) con el cursor de ventas en 300 (la relectura de 200 lee desde 100).
+const historia = () => Array.from({ length: 51 }, (_, i) => ventaDe(10 + i, (10 + i) % 2 === 0));
+async function prepararCarga(t, estado = {}) {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', ven_id: '300', ...estado });
+  p.fuente.tope = async () => '300';
+  const leidas = conVentas(p, historia());
+  const desdes = [];
+  p.fuente.mostradorDesde = async fecha => { desdes.push(fecha); return '20'; };
+  return { p, leidas, desdes };
+}
+test('mostrador: carga desde 2025 de noche, al final de todo, solo publico, y no vuelve a correr', async t => {
+  const { p, leidas, desdes } = await prepararCarga(t);
+  p.fuente.tamano = 10;
+  conCortes(p, { cortes: [corteDe(1)], cajeros: [cerroDe(1)] });
+  await ejecutar(p.archivo, { mostrador: true, cortes: true }, p.deps);
+  assert.deepEqual(desdes, ['2025-01-01 00:00:00']);
+  const orden = p.lotes.map(l => (l.cortes ? 'cortes' : l.mostrador ? 'mostrador' : 'otro'));
+  assert.equal(orden.indexOf('cortes'), 0, 'la carga va despues de los cortes');
+  assert.ok(orden.slice(1).every(x => x === 'mostrador'));
+  const mandadas = p.lotes.flatMap(l => l.mostrador || []).map(m => Number(m.ven_id));
+  assert.deepEqual(mandadas, Array.from({ length: 21 }, (_, i) => 20 + 2 * i), 'desde la primera de 2025 (20), solo las de publico');
+  assert.ok(p.lotes.every(l => !l.ventas.length && !l.clientes.length), 'las de cliente no se reenvian');
+  const cargas = leidas.filter(([cursor, tope]) => tope === '300' && cursor !== '100');
+  assert.equal(cargas[0][0], '19', 'empieza en desde - 1');
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.mostrador_desde_ven_id, '20');
+  assert.equal(estado.mostrador_terminado, true);
+  assert.equal(estado.mostrador_cursor, '60');
+  assert.equal(Object.keys(estado.mostrador_enviadas).length, 21);
+  assert.deepEqual(estado.ventana, {}, 'la carga no llena la relectura de 48 h');
+  p.lotes.length = 0;
+  leidas.length = 0;
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.equal(p.lotes.length, 0);
+  assert.deepEqual(leidas.filter(([cursor]) => cursor === '19' || cursor === '60'), [], 'terminada no se vuelve a leer');
+});
+test('mostrador: carga de dia solo con mostradorAhora; retoma de max(cursor, desde - 1)', async t => {
+  const { p, desdes } = await prepararCarga(t, { mostrador_cursor: '40', mostrador_desde_ven_id: '20' });
+  p.deps.reloj = DE_DIA;
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.equal(p.lotes.length, 0);
+  assert.deepEqual(desdes, []);
+  await ejecutar(p.archivo, { mostrador: true }, { ...p.deps, mostradorAhora: true });
+  assert.deepEqual(desdes, [], 'el desde ya guardado no se vuelve a consultar');
+  assert.deepEqual(p.lotes.flatMap(l => l.mostrador).map(m => m.ven_id), ['42', '44', '46', '48', '50', '52', '54', '56', '58', '60']);
+});
+test('mostrador: venta de 2025 que ya se habia mandado con cliente y hoy es publico sale excluida junto con su mostrador', async t => {
+  const { p } = await prepararCarga(t, { mostrador_cursor: '55', mostrador_desde_ven_id: '20', enviadas: { 56: true } });
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.deepEqual(p.lotes[0].ventas, [{ ven_id: '56', estado: 'excluida' }]);
+  assert.deepEqual(p.lotes[0].mostrador.map(m => m.ven_id), ['56', '58', '60']);
+});
+test('mostrador: un fallo de envio no mueve el cursor de la carga', async t => {
+  const { p } = await prepararCarga(t, { mostrador_desde_ven_id: '20' });
+  p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.mostrador_cursor, '0');
+  assert.equal(estado.mostrador_terminado, false);
+  assert.deepEqual(estado.mostrador_enviadas, {});
+});
+test('mostrador: la carga avanza a lo mas 10 paginas por corrida para no alentar las ventas', async t => {
+  const { p, leidas } = await prepararCarga(t, { mostrador_desde_ven_id: '1' });
+  p.fuente.tamano = 2;
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.equal(leidas.filter(([cursor, tope]) => tope === '300' && cursor !== '100').length, 10, 'sin contar la relectura de 200');
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.mostrador_cursor, '29');
+  assert.equal(estado.mostrador_terminado, false);
+});
+test('mostrador: sin ventas desde 2025 la carga termina sin mandar nada', async t => {
+  const { p } = await prepararCarga(t);
+  p.fuente.mostradorDesde = async () => null;
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.equal(p.lotes.length, 0);
+  assert.equal((await cargar(p.archivo)).mostrador_terminado, true);
+});
+test('mostrador: la carga desde 2025 salta las de publico con fecha anterior a 2025 aunque su ven_id sea mayor', async t => {
+  const { p } = await prepararCarga(t, { mostrador_cursor: '55', mostrador_desde_ven_id: '20' });
+  const filas = historia().map(f => (f.ven_id === '58' ? { ...f, fecha: '2024-12-31 23:59:59' } : f));
+  conVentas(p, filas);
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.deepEqual(p.lotes.flatMap(l => l.mostrador).map(m => m.ven_id), ['56', '60']);
+  assert.equal((await cargar(p.archivo)).mostrador_cursor, '60');
+});

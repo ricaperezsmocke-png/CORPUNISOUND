@@ -213,3 +213,26 @@ test('registro reconoce los avisos de paquetes descartados', () => {
   assert.equal(linea('EXISTENCIAS_DESCARTADAS'), 'EXISTENCIAS_DESCARTADAS');
   assert.equal(linea('CORTES_DESCARTADOS'), 'CORTES_DESCARTADOS');
 });
+test('mostrador: un estado.json de antes arranca la carga desde cero y rechaza campos raros', async t => {
+  const archivo = await entorno(t);
+  const nuevo = inicial();
+  assert.equal(nuevo.mostrador_cursor, '0');
+  assert.equal(nuevo.mostrador_desde_ven_id, null);
+  assert.deepEqual(nuevo.mostrador_enviadas, {});
+  assert.equal(nuevo.mostrador_terminado, false);
+  const viejo = inicial();
+  for (const campo of ['mostrador_cursor', 'mostrador_desde_ven_id', 'mostrador_enviadas', 'mostrador_terminado']) delete viejo[campo];
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const cargado = await cargar(archivo);
+  assert.deepEqual([cargado.mostrador_cursor, cargado.mostrador_desde_ven_id, cargado.mostrador_enviadas, cargado.mostrador_terminado],
+    ['0', null, {}, false]);
+  const bueno = { mostrador_cursor: '500', mostrador_desde_ven_id: '120', mostrador_enviadas: { 77: true }, mostrador_terminado: true };
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...bueno }));
+  assert.deepEqual((await cargar(archivo)).mostrador_enviadas, { 77: true });
+  for (const raro of [{ mostrador_cursor: 'x' }, { mostrador_cursor: 5 }, { mostrador_desde_ven_id: '0' }, { mostrador_desde_ven_id: 7 },
+    { mostrador_enviadas: [] }, { mostrador_enviadas: { x: true } }, { mostrador_enviadas: { 7: 1 } }, { mostrador_terminado: 'si' }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('MOSTRADOR_AUTORIZADO_DE_DIA'), 'MOSTRADOR_AUTORIZADO_DE_DIA');
+});
