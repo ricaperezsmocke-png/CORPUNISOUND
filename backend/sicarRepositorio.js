@@ -140,6 +140,21 @@ const ESQUEMA = `
     nombre_anterior TEXT, nombre_nuevo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
     FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_ventas_mostrador (
+    sucursal_id INTEGER NOT NULL, ven_id TEXT NOT NULL, fecha_local TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('vigente', 'cancelada')),
+    total_centavos INTEGER NOT NULL CHECK (typeof(total_centavos) = 'integer'),
+    actualizado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, ven_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_detalles_mostrador (
+    sucursal_id INTEGER NOT NULL, ven_id TEXT NOT NULL, renglon INTEGER NOT NULL, art_id TEXT NOT NULL, cantidad TEXT NOT NULL,
+    importe_centavos INTEGER NOT NULL CHECK (typeof(importe_centavos) = 'integer'),
+    descuento_centavos INTEGER NOT NULL CHECK (typeof(descuento_centavos) = 'integer'),
+    PRIMARY KEY (sucursal_id, ven_id, renglon),
+    FOREIGN KEY (sucursal_id, ven_id) REFERENCES sicar_ventas_mostrador(sucursal_id, ven_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -232,6 +247,17 @@ function prepararEscrituras(sqlite) {
     corteCobro: sqlite.prepare(`INSERT INTO sicar_cortes_cobros (sucursal_id, cor_id, usu_id, ventas, total_centavos, canceladas,
         total_canceladas_centavos)
       VALUES (@sucursal_id, @cor_id, @usu_id, @ventas, @total, @canceladas, @total_canceladas)`),
+    mostrador: sqlite.prepare(`INSERT INTO sicar_ventas_mostrador (sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en)
+      VALUES (@sucursal_id, @ven_id, @fecha_local, @estado, @total_centavos, @actualizado_en)
+      ON CONFLICT(sucursal_id, ven_id) DO UPDATE SET fecha_local=excluded.fecha_local, estado=excluded.estado,
+        total_centavos=excluded.total_centavos, actualizado_en=excluded.actualizado_en`),
+    cancelarMostrador: sqlite.prepare(`UPDATE sicar_ventas_mostrador SET estado='cancelada', actualizado_en=?
+      WHERE sucursal_id=? AND ven_id=?`),
+    borrarDetalleMostrador: sqlite.prepare('DELETE FROM sicar_detalles_mostrador WHERE sucursal_id=? AND ven_id=?'),
+    borrarMostrador: sqlite.prepare('DELETE FROM sicar_ventas_mostrador WHERE sucursal_id=? AND ven_id=?'),
+    detalleMostrador: sqlite.prepare(`INSERT INTO sicar_detalles_mostrador
+      (sucursal_id, ven_id, renglon, art_id, cantidad, importe_centavos, descuento_centavos)
+      VALUES (@sucursal_id, @ven_id, @renglon, @art_id, @cantidad, @importe_centavos, @descuento_centavos)`),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -258,6 +284,22 @@ function escribirVenta(sentencias, sucursalId, venta, revision, hash) {
       descripcion: detalle.descripcion, cantidad: detalle.cantidad, precio_con: detalle.precio_con, precio_sin: detalle.precio_sin,
       importe_centavos: centavos(detalle.importe_con), descuento_centavos: centavos(detalle.descuento_total),
     });
+  }
+}
+
+// Venta de mostrador: solo ids de artículo, cantidad e importes; nunca cliente, nombre, clave ni descripción.
+// La cancelación corta cambia el estado de una fila ya recibida sin tocar su total; si no existía, no hay nada que cancelar.
+function escribirMostrador(sentencias, sucursalId, m, actualizado_en) {
+  if (m.fecha_local === undefined) {
+    sentencias.cancelarMostrador.run(actualizado_en, sucursalId, m.ven_id);
+    return;
+  }
+  sentencias.mostrador.run({ sucursal_id: sucursalId, ven_id: m.ven_id, fecha_local: m.fecha_local, estado: m.estado,
+    total_centavos: centavos(m.total), actualizado_en });
+  sentencias.borrarDetalleMostrador.run(sucursalId, m.ven_id);
+  for (const [renglon, d] of m.detalle.entries()) {
+    sentencias.detalleMostrador.run({ sucursal_id: sucursalId, ven_id: m.ven_id, renglon, art_id: d.art_id, cantidad: d.cantidad,
+      importe_centavos: centavos(d.importe_con), descuento_centavos: centavos(d.descuento_total) });
   }
 }
 
@@ -346,7 +388,15 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
       const { resolverVinculosSicar } = require('./sicarVinculos');
       resolverVinculosSicar(repositorio, clientesNativos(), identidades);
     }
+    const actualizadoMostrador = new Date().toISOString();
+    // Mostrador va antes que las ventas: si el mismo lote trae la venta con cliente, esa gana y la fila de mostrador se borra.
+    for (const m of lote.mostrador || []) escribirMostrador(sentencias, sucursalId, m, actualizadoMostrador);
     for (const venta of lote.ventas) {
+      if (venta.cli_id !== undefined && ['vigente', 'cancelada'].includes(venta.estado)) {
+        // Una venta nunca cuenta dos veces: con cliente deja de ser de mostrador.
+        sentencias.borrarDetalleMostrador.run(sucursalId, venta.ven_id);
+        sentencias.borrarMostrador.run(sucursalId, venta.ven_id);
+      }
       if (venta.cli_id != null && (publicos.has(venta.cli_id) || esPublicoSicar({ sucursal_id: sucursalId, cli_id: venta.cli_id }))) {
         descartados.ventas++;
         descartados.renglones += venta.detalle?.length || 0;
@@ -394,7 +444,8 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
         ...(lote.articulos !== undefined ? { articulos: lote.articulos.length } : {}),
         ...(lote.proveedores !== undefined ? { proveedores: lote.proveedores.length } : {}),
         ...(lote.existencias !== undefined ? { existencias: lote.existencias.length } : {}),
-        ...(lote.cortes !== undefined ? { cortes: lote.cortes.length } : {}) }, rechazados: 0,
+        ...(lote.cortes !== undefined ? { cortes: lote.cortes.length } : {}),
+        ...(lote.mostrador !== undefined ? { mostrador: lote.mostrador.length } : {}) }, rechazados: 0,
       ...(descartados.clientes || descartados.ventas ? { descartados } : {}),
       next_sequence: (BigInt(lote.sequence) + 1n).toString(), received_at: new Date().toISOString(),
     };
@@ -465,6 +516,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     consultarCortes: (filtros, alcance) => require('./sicarCortes').consultarCortesSicar(sqlite, filtros, alcance),
     listarPersonal: (alcance, nombreUsuario) => require('./sicarCortes').listarPersonalSicar(sqlite, alcance, nombreUsuario),
     asignarNombre: (datos, actor, alcance) => require('./sicarCortes').asignarNombreSicar(sqlite, datos, actor, alcance),
+    // Lista simple de ventas de mostrador para pruebas; las pantallas la leen con sus propias consultas.
+    listarMostrador: () => sqlite.prepare(`SELECT sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en
+      FROM sicar_ventas_mostrador ORDER BY sucursal_id, ven_id`).all(),
     registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
       (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
       VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),

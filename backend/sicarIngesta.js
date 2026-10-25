@@ -127,6 +127,28 @@ function validarCorte(c) {
   }
 }
 
+// Venta de mostrador (publico en general): sin cliente, nombre, clave ni descripcion. Devuelve cuantos renglones trae.
+// La cancelacion corta { ven_id, estado: 'cancelada' } solo cambia el estado de una fila ya recibida.
+function validarMostrador(m, indice) {
+  objeto(m, ['ven_id', 'fecha_local', 'estado', 'total', 'detalle']);
+  if (!['vigente', 'cancelada'].includes(m.estado)) fallar('ESTADO_INVALIDO');
+  if (m.estado === 'cancelada' && m.fecha_local === undefined) {
+    objeto(m, ['ven_id', 'estado']);
+    return 0;
+  }
+  fecha(m.fecha_local, true);
+  decimal(m.total, 2);
+  arreglo(m.detalle, 500, 'art_id', false);
+  if (!m.detalle.length) fallar('DETALLE_VACIO');
+  m.detalle.forEach((d, i) => enReferencia(`mostrador[${indice}].detalle[${i}]`, () => {
+    objeto(d, ['art_id', 'cantidad', 'importe_con', 'descuento_total']);
+    decimal(d.cantidad, 4);
+    decimal(d.importe_con, 2);
+    decimal(d.descuento_total, 2);
+  }));
+  return m.detalle.length;
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -146,7 +168,7 @@ function validarVenta(v, indice) {
 
 function validarSobreSicar(body) {
   objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
-    'proveedores', 'existencias', 'cortes']);
+    'proveedores', 'existencias', 'cortes', 'mostrador']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -178,6 +200,14 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
   if (body.cortes !== undefined) {
     arreglo(body.cortes, 100, 'cor_id');
     body.cortes.forEach((c, i) => enReferencia(`cortes[${i}]`, () => validarCorte(c)));
+  }
+  if (body.mostrador !== undefined) {
+    arreglo(body.mostrador, 100, 'ven_id');
+    let renglones = 0;
+    body.mostrador.forEach((m, i) => {
+      renglones += enReferencia(`mostrador[${i}]`, () => validarMostrador(m, i));
+      if (renglones > 1000) fallar('LIMITE_ENTIDADES');
+    });
   }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);
