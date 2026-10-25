@@ -19,6 +19,7 @@ export function pestanasObjetivos({ miVendedorId = null, veTienda = false, permi
       { clave: "tienda-marcas", etiqueta: "Marcas, productos y créditos", icono: "Tags", grupo: "tienda" },
     ] : []),
     ...(veTienda || administra || anula ? [{ clave: "metas-tienda", etiqueta: "Metas extra", icono: "ListChecks", grupo: "tienda" }] : []),
+    ...(permisos.includes("ver_cinco_caminos") ? [{ clave: "cinco-caminos", etiqueta: "Cinco caminos", icono: "Route", grupo: "tienda" }] : []),
     ...(administra ? [{ clave: "administrar-metas", etiqueta: "Administrar metas extra", icono: "Settings2", grupo: "admin" }] : []),
     ...(permisos.includes("cerrar_mes_objetivos") ? [{ clave: "cierre-mes", etiqueta: "Cierre del mes", icono: "Lock", grupo: "admin" }] : []),
   ];

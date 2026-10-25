@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { BarChart3, CreditCard, Gauge, ListChecks, Lock, Megaphone, RefreshCw, Settings2, Store, Tags, Target, Users } from "lucide-react";
+import { BarChart3, CreditCard, Gauge, ListChecks, Lock, Megaphone, RefreshCw, Route, Settings2, Store, Tags, Target, Users } from "lucide-react";
 import { apiFetch } from "./api";
 import Pestanas, { GruposPestanas } from "./objetivos/Pestanas";
 import CapturaVendedor from "./objetivos/CapturaVendedor";
@@ -15,10 +15,11 @@ import { Campo, HistorialMetas, Modal } from "./objetivos/DialogosObjetivos";
 import { cuentaMalLigada, fechaCorta, finDelMes, hoyLocal, leer, mesActual, mesEnPalabras } from "./objetivos/datos";
 import { pesosConCentavos } from "./objetivos/marcas";
 import PestanaMetas from "./metas/PestanaMetas";
+import CincoCaminos from "./metas/CincoCaminos.jsx";
 import { esPestanaMetas, gruposObjetivos, pestanasObjetivos, resolverActiva } from "./metas/pestanasObjetivos";
 import CierreObjetivos from "./CierreObjetivos";
 
-const ICONOS = { BarChart3, CreditCard, Gauge, ListChecks, Lock, Megaphone, Settings2, Store, Tags, Target, Users };
+const ICONOS = { BarChart3, CreditCard, Gauge, ListChecks, Lock, Megaphone, Route, Settings2, Store, Tags, Target, Users };
 
 export default function GerenciaVentas({ permisos = [], usuario }) {
   const esJefatura = permisos.includes("editar_objetivos_venta");
@@ -261,7 +262,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
   });
   const setPestana = (pestana) => elegir({ pestana });
   const muestraMetas = esPestanaMetas(activa);
-  const muestraVentas = !muestraMetas && activa !== "cierre-mes";
+  const muestraVentas = !muestraMetas && activa !== "cierre-mes" && activa !== "cinco-caminos";
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto min-w-0 max-w-full">
@@ -326,6 +327,7 @@ export default function GerenciaVentas({ permisos = [], usuario }) {
       )}
       </>}
       {muestraMetas && <PestanaMetas activa={activa} permisos={permisos} miVendedorId={miVendedorId} />}
+      {activa === "cinco-caminos" && <CincoCaminos key={usuario?.sucursal_id} permisos={permisos} usuario={usuario} />}
       {activa === "cierre-mes" && <CierreObjetivos permisos={permisos} usuario={usuario} />}
       {muestraVentas && (cargando ? <p className="text-sm text-slate-500">Cargando objetivos…</p> : (
         <>
