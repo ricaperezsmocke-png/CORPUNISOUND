@@ -114,12 +114,12 @@ test('una venta ya recibida que pasa a público se quita de la ficha del cliente
   assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
 });
 
-test('la migración es idempotente, activa FK y crea las 24 tablas aisladas', t => {
+test('la migración es idempotente, activa FK y crea las 28 tablas aisladas', t => {
   const { sqlite } = prepararDB(t);
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 24);
+  assert.equal(Object.keys(antes).length, 28);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -492,4 +492,44 @@ test('mostrador: si el mismo lote marca excluida la venta con cliente, la fila d
   assert.equal(sqlite.prepare('SELECT estado FROM sicar_ventas WHERE ven_id=?').get(venta.ven_id).estado, 'excluida');
   assert.deepEqual(repo.listarMostrador().map(f => [f.ven_id, f.total_centavos]), [[venta.ven_id, 10000]]);
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_detalles_mostrador').get().n, 1);
+});
+
+function traspasoDe(id, extra = {}) {
+  return { tra_id: id, folio: 'T-0001', suc_origen: '1', suc_destino: '2', fecha: '2026-10-22', estado: 'enviado',
+    fecha_aplicado: null, fecha_cancelado: null, total: '1500.50',
+    detalle: [{ art_id: '10', cantidad: '3.0000', precio_sin: '100.00', precio_con: '116.00' },
+      { art_id: '11', cantidad: '1.5000', precio_sin: '50.00', precio_con: '58.00' }], ...extra };
+}
+
+test('guarda traspasos en centavos, reemplaza el detalle al reenviar, separa tiendas y crea las tablas de mapa vacias', t => {
+  const { sqlite, repo } = prepararDB(t);
+  assert.deepEqual(repo.listarTraspasos(), []);
+  for (const tabla of ['sicar_sucursales_mapa', 'sicar_sucursales_mapa_historial']) {
+    assert.equal(sqlite.prepare(`SELECT COUNT(*) AS n FROM ${tabla}`).get().n, 0);
+  }
+  assert.deepEqual(sqlite.pragma('table_info(sicar_sucursales_mapa)').map(c => c.name), ['sicar_sucursal', 'sucursal_id', 'asignado_por', 'asignado_en']);
+  assert.deepEqual(sqlite.pragma('table_info(sicar_sucursales_mapa_historial)').map(c => c.name),
+    ['id', 'sicar_sucursal', 'anterior', 'nuevo', 'actor', 'fecha']);
+  const base = { ...lote(), clientes: [], ventas: [] };
+  const recibo = aplicar(repo, { ...base, traspasos: [traspasoDe('7')] });
+  assert.deepEqual(recibo.aceptados, { clientes: 0, ventas: 0, traspasos: 1 });
+  const fila = sqlite.prepare('SELECT * FROM sicar_traspasos').get();
+  assert.deepEqual([fila.tra_id, fila.folio, fila.suc_origen, fila.suc_destino, fila.fecha, fila.estado, fila.total_centavos],
+    ['7', 'T-0001', '1', '2', '2026-10-22', 'enviado', 150050]);
+  assert.deepEqual([fila.fecha_aplicado, fila.fecha_cancelado], [null, null]);
+  const detalle = () => sqlite.prepare(`SELECT art_id, cantidad, precio_sin_centavos AS s, precio_con_centavos AS c
+    FROM sicar_traspasos_detalle ORDER BY art_id`).all();
+  assert.deepEqual(detalle(), [{ art_id: '10', cantidad: '3.0000', s: 10000, c: 11600 }, { art_id: '11', cantidad: '1.5000', s: 5000, c: 5800 }]);
+  assert.equal(sqlite.prepare("SELECT typeof(precio_con_centavos) AS t FROM sicar_traspasos_detalle WHERE art_id='10'").get().t, 'integer');
+  aplicar(repo, { ...base, batch_id: 'lote-2', sequence: '2', traspasos: [traspasoDe('7', { estado: 'recibido', fecha_aplicado: '2026-10-23T09:30:00',
+    total: '10.00', detalle: [{ art_id: '10', cantidad: '1.0000', precio_sin: '10.00', precio_con: '11.60' }] })] });
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_traspasos').get().n, 1);
+  const nueva = sqlite.prepare('SELECT estado, fecha_aplicado, total_centavos FROM sicar_traspasos').get();
+  assert.deepEqual({ ...nueva }, { estado: 'recibido', fecha_aplicado: '2026-10-23T09:30:00', total_centavos: 1000 });
+  assert.deepEqual(detalle(), [{ art_id: '10', cantidad: '1.0000', s: 1000, c: 1160 }]);
+  aplicar(repo, { ...base, batch_id: 'lote-3', sequence: '1', traspasos: [traspasoDe('7')] }, 2);
+  assert.deepEqual(repo.listarTraspasos().map(f => [f.sucursal_id, f.tra_id]), [[1, '7'], [2, '7']]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_traspasos_detalle').get().n, 3);
+  const sin = aplicar(repo, { ...base, batch_id: 'lote-4', sequence: '3' });
+  assert.equal(Object.hasOwn(sin.aceptados, 'traspasos'), false, 'un lote sin la llave no la reporta');
 });
