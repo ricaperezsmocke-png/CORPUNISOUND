@@ -469,3 +469,15 @@ test('mostrador: una venta con cliente publico en general no borra la fila de mo
   aplicar(repo, { ...lote('5'), clientes: [], ventas: [{ ven_id: '82', estado: 'excluida' }], mostrador: [fila('82')] });
   assert.deepEqual(repo.listarMostrador().map(f => f.ven_id), ['80', '81', '82']);
 });
+
+test('mostrador: si el mismo lote marca excluida la venta con cliente, la fila de mostrador entra', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const venta = lote().ventas[0];
+  aplicar(repo, lote());
+  const fila = { ven_id: venta.ven_id, fecha_local: '2026-10-12T16:30:00', estado: 'vigente', total: '100.00',
+    detalle: [{ art_id: '1', cantidad: '1.0000', importe_con: '100.00', descuento_total: '0.00' }] };
+  aplicar(repo, { ...lote('2'), clientes: [], ventas: [{ ven_id: venta.ven_id, estado: 'excluida' }], mostrador: [fila] });
+  assert.equal(sqlite.prepare('SELECT estado FROM sicar_ventas WHERE ven_id=?').get(venta.ven_id).estado, 'excluida');
+  assert.deepEqual(repo.listarMostrador().map(f => [f.ven_id, f.total_centavos]), [[venta.ven_id, 10000]]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_detalles_mostrador').get().n, 1);
+});

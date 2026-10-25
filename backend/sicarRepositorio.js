@@ -290,13 +290,13 @@ function escribirVenta(sentencias, sucursalId, venta, revision, hash) {
 
 // Venta de mostrador: solo ids de artículo, cantidad e importes; nunca cliente, nombre, clave ni descripción.
 // La cancelación corta cambia el estado de una fila ya recibida sin tocar su total; si no existía, no hay nada que cancelar.
-function escribirMostrador(sentencias, sucursalId, m, actualizado_en) {
+function escribirMostrador(sentencias, sucursalId, m, actualizado_en, seExcluyen = new Set()) {
   if (m.fecha_local === undefined) {
     sentencias.cancelarMostrador.run(actualizado_en, sucursalId, m.ven_id);
     return;
   }
   // Ya llego como venta con cliente: no se cuenta dos veces.
-  if (sentencias.ventaConCliente.get(sucursalId, m.ven_id)) return;
+  if (!seExcluyen.has(m.ven_id) && sentencias.ventaConCliente.get(sucursalId, m.ven_id)) return;
   sentencias.mostrador.run({ sucursal_id: sucursalId, ven_id: m.ven_id, fecha_local: m.fecha_local, estado: m.estado,
     total_centavos: centavos(m.total), actualizado_en });
   sentencias.borrarDetalleMostrador.run(sucursalId, m.ven_id);
@@ -393,7 +393,10 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     }
     const actualizadoMostrador = new Date().toISOString();
     // Mostrador va antes que las ventas: si el mismo lote trae la venta con cliente, esa gana y la fila de mostrador se borra.
-    for (const m of lote.mostrador || []) escribirMostrador(sentencias, sucursalId, m, actualizadoMostrador);
+    // Las ventas que este mismo lote deja excluidas (ya no son de un cliente real) no bloquean a su fila de mostrador.
+    const seExcluyen = new Set(lote.ventas.filter(v => v.estado === 'excluida' || (v.cli_id != null
+      && (publicos.has(v.cli_id) || esPublicoSicar({ sucursal_id: sucursalId, cli_id: v.cli_id })))).map(v => v.ven_id));
+    for (const m of lote.mostrador || []) escribirMostrador(sentencias, sucursalId, m, actualizadoMostrador, seExcluyen);
     for (const venta of lote.ventas) {
       if (venta.cli_id != null && (publicos.has(venta.cli_id) || esPublicoSicar({ sucursal_id: sucursalId, cli_id: venta.cli_id }))) {
         descartados.ventas++;
