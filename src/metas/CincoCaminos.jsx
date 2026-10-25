@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, RefreshCw } from "lucide-react";
 import { apiFetch } from "../api";
 import { contadorDePeticiones, tiendasDelSelector } from "../sicar/cortesSicar";
-import { diaDeLaTienda, opcionesSemanas, tarjetasDelTablero } from "./tableroCincoCaminos.js";
+import { diaDeLaTienda, opcionesSemanas, semanaPorDefecto, tarjetasDelTablero } from "./tableroCincoCaminos.js";
 import CategoriasCincoCaminos from "./CategoriasCincoCaminos.jsx";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
@@ -38,7 +38,7 @@ function Tarjeta({ t }) {
       {t.nota && <p className={NOTA_GRIS}>{t.nota}: aún no hay semanas para comparar el registro del Radar.</p>}
       {sem && <p className={`inline-block rounded-full border px-2 py-0.5 text-xs font-semibold ${sem.clase}`}>{sem.texto} (base: {t.base})</p>}
       <Fila nombre="Semana anterior" valor={t.anterior} />
-      <Fila nombre="Misma semana de 2025" valor={t.mismo_2025} />
+      <Fila nombre="Misma semana del año pasado" valor={t.mismo_2025} />
       <Fila nombre="Promedio de 8 semanas" valor={t.promedio_8} />
       {t.detalle && t.detalle.denominador > 0 && (
         <p className={NOTA_GRIS}>Radar: {t.detalle.numerador} convertidas de {t.detalle.denominador} registradas hace 30 a 60 días.</p>
@@ -53,7 +53,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
   const hoy = diaDeLaTienda();
   const semanas = useMemo(() => opcionesSemanas(hoy), [hoy]);
   const [sucursal, setSucursal] = useState(String(usuario?.sucursal_id ?? ""));
-  const [semana, setSemana] = useState(semanas[0].lunes);
+  const [semana, setSemana] = useState(() => semanaPorDefecto());
   const [tablero, setTablero] = useState(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
@@ -134,10 +134,11 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
               <section className={TARJETA} aria-label="Venta de la semana">
                 <h3 className="text-sm font-semibold text-slate-900">Venta de {nombreTienda} en la semana</h3>
                 <p className="text-2xl font-bold tabular-nums text-slate-900">{vista.venta.actual}</p>
-                <Fila nombre="Misma semana de 2025" valor={vista.venta.mismo_2025} />
+                <Fila nombre="Misma semana del año pasado" valor={vista.venta.mismo_2025} />
                 <Fila nombre="Promedio de 8 semanas" valor={vista.venta.promedio_8} />
               </section>
-              {tablero.actual.sin_dato && (
+              {vista.aviso && <p role="status" className={NOTA_ROJA}>{vista.aviso}</p>}
+              {tablero.actual.sin_dato && tablero.actual.motivo !== "sin_mostrador" && (
                 <p className={NOTA_GRIS}>Esta semana tiene menos de 30 ventas vigentes o la tienda no manda datos: no se califica.</p>
               )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

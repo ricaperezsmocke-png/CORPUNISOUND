@@ -61,6 +61,7 @@ export default function CategoriasCincoCaminos() {
         Marca qué es instrumento y qué es accesorio. Una regla de categoría gana sobre la del departamento entero.
         Sin instrumentos y accesorios marcados, el número "Instrumento con accesorio" sale "sin configurar". Cada cambio queda con tu nombre y fecha.
       </p>
+      <p className="text-sm font-semibold text-slate-700">Los cambios se aplican también a las semanas pasadas.</p>
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</p>}
       {exito && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{exito}</p>}
       {cargando ? <p className="text-sm text-slate-500">Cargando…</p> : (

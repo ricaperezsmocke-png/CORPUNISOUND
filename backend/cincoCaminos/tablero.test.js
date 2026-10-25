@@ -307,3 +307,40 @@ test('Radar: sin semanas base no se sabe si es confiable (null, no false)', t =>
   DB.radar_demanda.registros = [{ id: 1, sucursal_id: 1, estado: 'REGISTRADA', fecha_registro: `${LUNES}T18:00:00.000Z` }];
   assert.equal(n(sqlite, DB).radar.no_confiable, null);
 });
+
+test('sin ventas de mostrador la semana es "sin dato" con motivo; las otras causas tienen el suyo', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  // 40 ventas con cliente y ninguna de mostrador: la carga de publico en general no esta prendida.
+  for (let i = 0; i < 40; i++) s.venta(1, { cli: `c${i}`, fecha: `${sumar(LUNES, i % 7)}T10:00:00` });
+  const sinMostrador = n(sqlite, DB);
+  assert.equal(sinMostrador.sin_dato, true);
+  assert.equal(sinMostrador.motivo, 'sin_mostrador');
+  assert.equal(sinMostrador.ventas, 40);
+  // Una venta de mostrador cancelada no cuenta como mostrador vigente.
+  s.venta(1, { fecha: `${LUNES}T10:00:00`, estado: 'cancelada' });
+  assert.equal(n(sqlite, DB).motivo, 'sin_mostrador');
+  s.mostrador(1, LUNES, 1);
+  assert.equal(n(sqlite, DB).sin_dato, false);
+  assert.equal(n(sqlite, DB).motivo, null);
+  assert.equal(n(sqlite, DB, { sucursal_id: 3 }).motivo, 'sin_agente');
+  const poca = prepararDB(t);
+  poca.s.tienda(1);
+  poca.s.mostrador(1, LUNES, 5);
+  assert.equal(n(poca.sqlite, poca.DB).motivo, 'pocas_ventas');
+});
+
+test('tableroTienda: una semana sin mostrador no entra al promedio de 8 y lleva su motivo', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  for (let k = 1; k <= 8; k++) {
+    if (k === 2) { for (let i = 0; i < 40; i++) s.venta(1, { cli: `c${i}`, fecha: `${sumar(LUNES, -14 + (i % 7))}T10:00:00`, centavos: 99900 }); continue; }
+    s.mostrador(1, sumar(LUNES, -7 * k), 30 + k, 1000 * k);
+  }
+  s.mostrador(1, LUNES, 40);
+  const r = tableroTienda(sqlite, DB, { sucursal_id: 1, lunes: LUNES });
+  assert.equal(r.mismo_2025.sin_dato, true);
+  assert.equal(r.mismo_2025.motivo, 'sin_mostrador');
+  assert.equal(r.promedio_8.semanas, 7);
+  assert.equal(r.promedio_8.ticket_promedio_centavos, Math.round((1000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000) / 7));
+});

@@ -216,6 +216,12 @@ test('mostrador: venta de publico sale como fila de mostrador sin datos de perso
   assert.deepEqual(otro.mostrador, filaMostrador);
   assert.deepEqual(ventaSegura({ ...vPublico, cli_id: null }, undefined, [dPublico], false, undefined, { enviada: false }).mostrador, filaMostrador);
 });
+test('mostrador: el nombre con espacios al inicio tambien es publico en general', () => {
+  const r = ventaSegura({ ...vPublico, cli_id: '900' }, { cli_id: '900', nombre: ' PÚBLICO EN GENERAL' }, [dPublico], false, undefined,
+    { enviada: false });
+  assert.deepEqual(r.mostrador, filaMostrador);
+  assert.equal(cliente({ ...c, nombre: '  PÚBLICO EN GENERAL 2' }), null);
+});
 test('mostrador: cancelada sale cancelada; sin renglones y ya enviada sale como cancelacion corta', () => {
   const r = ventaSegura({ ...vPublico, status: -1 }, publico, [dPublico], false, undefined, { enviada: false });
   assert.equal(r.mostrador.estado, 'cancelada');

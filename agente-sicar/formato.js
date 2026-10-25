@@ -32,7 +32,7 @@ function texto(valor, maximo, opcional = true) {
 }
 const RFC = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/i;
 // Público en general: sin cliente en SICAR, sin nombre, uno de los ids de público o el nombre "PÚBLICO EN GENERAL".
-const esPublico = c => !c || !c.nombre?.trim() || PUBLICOS.has(String(c.cli_id)) || /^P.BLICO EN GENERAL/i.test(c.nombre);
+const esPublico = c => !c || !c.nombre?.trim() || PUBLICOS.has(String(c.cli_id)) || /^P.BLICO EN GENERAL/i.test(c.nombre.trim());
 function cliente(c, avisar = () => {}) {
   if (esPublico(c)) return null;
   const cli_id = id(c.cli_id);

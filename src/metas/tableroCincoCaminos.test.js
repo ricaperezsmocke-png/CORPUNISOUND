@@ -40,14 +40,14 @@ const semana = (sobre = {}) => ({ sin_dato: false, venta_centavos: 100000, venta
   radar: radar(40, false), ...sobre });
 const porClave = (tarjetas, clave) => tarjetas.find((t) => t.clave === clave);
 
-test("tarjetas: base es 2025 y, sin ella, el promedio de 8 semanas", () => {
+test("tarjetas: base es el año pasado y, sin ella, el promedio de 8 semanas", () => {
   const t = tarjetasDelTablero({ actual: semana({ pct_con_cliente: 40 }), anterior: semana({ pct_con_cliente: 30 }),
     mismo_2025: semana({ pct_con_cliente: 60 }), promedio_8: semana({ pct_con_cliente: 41 }) });
   const c = porClave(t.tarjetas, "pct_con_cliente");
   assert.equal(c.actual, "40.0%");
   assert.equal(c.flecha, "sube");
   assert.equal(c.semaforo, "rojo");
-  assert.equal(c.base, "2025");
+  assert.equal(c.base, "año pasado");
   const sin2025 = tarjetasDelTablero({ actual: semana({ pct_con_cliente: 40 }), anterior: semana(), mismo_2025: semana({ sin_dato: true }),
     promedio_8: semana({ pct_con_cliente: 41 }) });
   const d = porClave(sin2025.tarjetas, "pct_con_cliente");
@@ -114,4 +114,16 @@ test("semana por defecto sigue el reloj de México, no el del navegador", () => 
   assert.equal(diaDeLaTienda(new Date("2026-10-26T03:00:00Z")), "2026-10-25");
   assert.equal(semanaPorDefecto(new Date("2026-10-26T03:00:00Z")), "2026-10-12");
   assert.equal(semanaPorDefecto(new Date("2026-10-26T07:00:00Z")), "2026-10-19");
+});
+
+test("tarjetas: una semana sin mostrador explica el motivo en palabras", () => {
+  const sinMostrador = semana({ sin_dato: true, motivo: "sin_mostrador" });
+  const t = tarjetasDelTablero({ actual: sinMostrador, anterior: semana(), mismo_2025: semana(), promedio_8: semana() });
+  assert.equal(t.aviso, "Sin ventas de mostrador: falta prender o terminar la carga de público en general en esta tienda.");
+  const o = tarjetasDelTablero({ actual: semana(), anterior: semana(), mismo_2025: sinMostrador, promedio_8: semana() });
+  assert.equal(o.aviso, t.aviso);
+  const poca = tarjetasDelTablero({ actual: semana({ sin_dato: true, motivo: "pocas_ventas" }), anterior: semana(), mismo_2025: semana(),
+    promedio_8: semana() });
+  assert.equal(poca.aviso, null);
+  assert.equal(tarjetasDelTablero({ actual: semana(), anterior: semana(), mismo_2025: semana(), promedio_8: semana() }).aviso, null);
 });

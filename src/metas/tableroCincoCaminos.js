@@ -59,10 +59,10 @@ function tarjeta(numero, tablero) {
   const anterior = celda(numero, tablero.anterior);
   const mismo = celda(numero, tablero.mismo_2025);
   const promedio = celda(numero, tablero.promedio_8);
-  // Base: la misma semana de 2025; si no existe (Radar, tiendas nuevas), el promedio de 8 semanas.
+  // Base: la misma semana del año pasado; si no existe (Radar, tiendas nuevas), el promedio de 8 semanas.
   let base = null;
   let valorBase = null;
-  if (!numero.solo8 && mismo.valor !== null) [base, valorBase] = ["2025", mismo.valor];
+  if (!numero.solo8 && mismo.valor !== null) [base, valorBase] = ["año pasado", mismo.valor];
   else if (promedio.valor !== null) [base, valorBase] = ["promedio de 8 semanas", promedio.valor];
   const calificable = actual.valor !== null;
   return {
@@ -81,9 +81,15 @@ function tarjeta(numero, tablero) {
   };
 }
 
+export const AVISO_SIN_MOSTRADOR =
+  "Sin ventas de mostrador: falta prender o terminar la carga de público en general en esta tienda.";
+
 export function tarjetasDelTablero(tablero) {
+  const periodos = [tablero.actual, tablero.anterior, tablero.mismo_2025, tablero.promedio_8];
+  const aviso = periodos.some((p) => p?.sin_dato && p.motivo === "sin_mostrador") ? AVISO_SIN_MOSTRADOR : null;
   const dinero = (periodo) => (!periodo || periodo.sin_dato ? "sin dato" : formatoNumero(periodo.venta_centavos, "pesos"));
   return {
+    aviso,
     venta: { actual: dinero(tablero.actual), mismo_2025: dinero(tablero.mismo_2025), promedio_8: dinero(tablero.promedio_8) },
     tarjetas: NUMEROS.map((n) => tarjeta(n, tablero)),
   };

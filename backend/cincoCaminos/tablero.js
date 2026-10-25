@@ -6,8 +6,8 @@
  *
  * - Dinero en centavos enteros; porcentajes con un decimal; `null` cuando no hay denominador.
  * - Las cuentas se hacen en SQL (COUNT/SUM/GROUP BY): la historia de una tienda son decenas de miles de ventas.
- * - "Sin dato": menos de 30 ventas vigentes en la semana o tienda sin agente (`sicar_tiendas`). Los números se
- *   devuelven igual, pero no se califican.
+ * - "Sin dato" (`sin_dato` + `motivo`): tienda sin agente (`sin_agente`), semana sin ventas de mostrador vigentes
+ *   (`sin_mostrador`) o menos de 30 ventas vigentes (`pocas_ventas`). Los números se devuelven igual, pero no se califican.
  */
 const { clasificarEstadoDemanda } = require('../radar/metricas');
 const { diaLocal } = require('../fechas');
@@ -171,6 +171,11 @@ function numerosSemana(sqlite, DB, { sucursal_id, lunes }, opciones = {}) {
   const t = sqlite.prepare(SQL_TOTALES).get(rango);
   const ventas = t.ventas_cliente + t.ventas_mostrador;
   const ventaCentavos = t.centavos_cliente + t.centavos_mostrador;
+  // Sin mostrador vigente la carga de público en general no está prendida o no ha terminado: el número saldría torcido.
+  let motivo = null;
+  if (!t.con_agente) motivo = 'sin_agente';
+  else if (t.ventas_mostrador === 0) motivo = 'sin_mostrador';
+  else if (ventas < MINIMO_VENTAS) motivo = 'pocas_ventas';
   const c = sqlite.prepare(SQL_CLIENTES).get({ ...rango, hace90: sumarDias(lunes, -90) });
   const reglas = reglasValidas(DB);
   const configurado = ['instrumento', 'accesorio'].every(tipo => reglas.some(r => r.tipo === tipo));
@@ -181,7 +186,8 @@ function numerosSemana(sqlite, DB, { sucursal_id, lunes }, opciones = {}) {
     sucursal_id: suc,
     lunes,
     domingo,
-    sin_dato: !t.con_agente || ventas < MINIMO_VENTAS,
+    sin_dato: motivo !== null,
+    motivo,
     venta_centavos: ventaCentavos,
     ventas,
     pct_con_cliente: pct(t.con_cliente, ventas),
@@ -201,6 +207,12 @@ function promedio(semanas, leer, decimales) {
   return redondear(valores.reduce((a, b) => a + b, 0) / valores.length, decimales);
 }
 
+// Motivo de un promedio sin semanas útiles: el de todas si coinciden; si no, la falta de ventas.
+function motivoComun(semanas) {
+  const motivos = new Set(semanas.map(s => s.motivo));
+  return motivos.size === 1 ? [...motivos][0] : 'pocas_ventas';
+}
+
 function promediar(semanas, { sucursal_id, lunesMasViejo, domingo }) {
   const validas = semanas.filter(s => !s.sin_dato);
   const prom = (leer, decimales = 1) => promedio(validas, leer, decimales);
@@ -211,6 +223,7 @@ function promediar(semanas, { sucursal_id, lunesMasViejo, domingo }) {
     domingo,
     semanas: validas.length,
     sin_dato: validas.length === 0,
+    motivo: validas.length === 0 ? motivoComun(semanas) : null,
     venta_centavos: prom(s => s.venta_centavos, 0),
     ventas: prom(s => s.ventas),
     pct_con_cliente: prom(s => s.pct_con_cliente),
