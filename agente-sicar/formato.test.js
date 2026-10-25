@@ -252,3 +252,15 @@ test('un lote cabe con hasta 100 filas de mostrador y 1000 renglones de mostrado
   lote.mostrador = [{ ...filaMostrador, detalle: Array(501).fill(renglon) }];
   assert.equal(cabe(lote), false);
 });
+test('fecha imposible (30 de febrero, 0000-00-00) es dato raro en venta de cliente y de publico, como en el servidor', () => {
+  for (const fecha of ['2025-02-30 10:00:00', '0000-00-00 00:00:00']) {
+    const deCliente = ventaSegura({ ...vPublico, cli_id: '42', fecha }, c, [dPublico], false, undefined, { enviada: false });
+    assert.deepEqual(deCliente, { venta: null, omitida: { ven_id: '77', codigo: 'FECHA_INVALIDA' }, mostrador: null }, fecha);
+    assert.deepEqual(ventaSegura({ ...vPublico, cli_id: '42', fecha }, c, [dPublico], true),
+      { venta: { ven_id: '77', estado: 'excluida' }, omitida: { ven_id: '77', codigo: 'FECHA_INVALIDA' } }, fecha);
+    const dePublico = ventaSegura({ ...vPublico, fecha }, publico, [dPublico], false, undefined, { enviada: false });
+    assert.deepEqual(dePublico, { venta: null, omitida: { ven_id: '77', codigo: 'FECHA_INVALIDA' }, mostrador: null }, fecha);
+  }
+  assert.equal(ventaSegura({ ...vPublico, fecha: '2024-02-29 23:59:59' }, publico, [dPublico], false, undefined, { enviada: false })
+    .mostrador.fecha_local, '2024-02-29T23:59:59', 'un 29 de febrero bisiesto si es fecha');
+});

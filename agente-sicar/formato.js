@@ -57,8 +57,8 @@ function armarVenta(ven_id, v, c, detalles, enviada, avisar) {
   const persona = cliente(c, avisar);
   if (!persona) return enviada ? { ven_id, estado: 'excluida' } : null;
   if (!['1', '-1'].includes(String(v.status))) throw new Error('ESTADO_VENTA_DESCONOCIDO');
-  const fecha_local = String(v.fecha).replace(' ', 'T');
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fecha_local)) throw new Error('FECHA_INVALIDA');
+  // Mismo criterio que el servidor: 0000-00-00 o 30 de febrero no son fechas (el servidor rechazaría el lote con 422).
+  const fecha_local = fechaLocal(v.fecha);
   if (!detalles.length || detalles.length > 500) throw new Error('DETALLE_FUERA_DE_LIMITE');
   return { ven_id, cli_id: persona.cli_id, fecha_local, timezone: ZONA,
     estado: String(v.status) === '1' ? 'vigente' : 'cancelada', moneda: 'MXN', total: decimal(v.total, 2),
@@ -223,8 +223,8 @@ function corteSeguro(datos) {
 // cantidad, importe y descuento. Nunca cliente, nombre, teléfono, descripción, clave ni precios unitarios.
 function armarMostrador(ven_id, v, detalles) {
   if (!['1', '-1'].includes(String(v.status))) throw new Error('ESTADO_VENTA_DESCONOCIDO');
-  const fecha_local = String(v.fecha).replace(' ', 'T');
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fecha_local)) throw new Error('FECHA_INVALIDA');
+  // Mismo criterio que el servidor: 0000-00-00 o 30 de febrero no son fechas (el servidor rechazaría el lote con 422).
+  const fecha_local = fechaLocal(v.fecha);
   if (!detalles.length || detalles.length > 500) throw new Error('DETALLE_FUERA_DE_LIMITE');
   return { ven_id, fecha_local, estado: String(v.status) === '1' ? 'vigente' : 'cancelada', total: decimal(v.total, 2),
     detalle: detalles.map(d => ({ art_id: id(d.art_id), cantidad: decimal(d.cantidad, 4), importe_con: decimal(d.importeCon, 2),

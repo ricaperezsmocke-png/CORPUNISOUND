@@ -1067,3 +1067,11 @@ test('mostrador: sin ventas desde 2025 la carga termina sin mandar nada', async 
   assert.equal(p.lotes.length, 0);
   assert.equal((await cargar(p.archivo)).mostrador_terminado, true);
 });
+test('mostrador: la carga desde 2025 salta las de publico con fecha anterior a 2025 aunque su ven_id sea mayor', async t => {
+  const { p } = await prepararCarga(t, { mostrador_cursor: '55', mostrador_desde_ven_id: '20' });
+  const filas = historia().map(f => (f.ven_id === '58' ? { ...f, fecha: '2024-12-31 23:59:59' } : f));
+  conVentas(p, filas);
+  await ejecutar(p.archivo, { mostrador: true }, p.deps);
+  assert.deepEqual(p.lotes.flatMap(l => l.mostrador).map(m => m.ven_id), ['56', '60']);
+  assert.equal((await cargar(p.archivo)).mostrador_cursor, '60');
+});

@@ -248,7 +248,15 @@ function crearFuente(lector, config = {}) {
     },
     async verificar() {
       comprobar();
-      return lector.pagina(async leer => ({
+      // El conteo de mostrador recorre las ventas desde 2025 y puede tardar: va en su propia lectura y, si falla, sale
+      // null ("sin dato") sin tumbar el resto de --verificar.
+      const medirMostrador = async () => {
+        try {
+          return await lector.pagina(async leer => ({ desde_ven_id: await primeraVentaDesde(leer, INICIO_MOSTRADOR),
+            total_publico_desde_2025: String((await contarPublico(leer))[0].total) }));
+        } catch { return null; }
+      };
+      const info = await lector.pagina(async leer => ({
         grants: await leer('SHOW GRANTS'),
         columnas: await leer('SHOW FULL COLUMNS FROM historial'),
         ventas: await leer(`SELECT ${lista(columnasHistorial)} FROM \`historial\` `
@@ -263,9 +271,8 @@ function crearFuente(lector, config = {}) {
           : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
         cortes: cortesFaltantes.length ? { columnas: columnasCortes, faltantes: cortesFaltantes, total: null, ms: null }
           : { columnas: columnasCortes, faltantes: [], ...await medirCortes(leer) },
-        mostrador: { desde_ven_id: await primeraVentaDesde(leer, INICIO_MOSTRADOR),
-          total_publico_desde_2025: String((await contarPublico(leer))[0].total) },
       }));
+      return { ...info, mostrador: await medirMostrador() };
     },
   };
 }

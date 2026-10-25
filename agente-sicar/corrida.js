@@ -10,6 +10,7 @@ const MARGEN_VENTAS = 200;
 // Carga de ventas de mostrador desde 2025: a lo más estas páginas por corrida, para que la corrida termine pronto y la
 // siguiente (con las ventas nuevas) no espere.
 const PAGINAS_MOSTRADOR_POR_CORRIDA = 10;
+const INICIO_MOSTRADOR = '2025-01-01 00:00:00';
 // Con el interruptor mostrador (exactamente true) la venta de público en general sale además como fila de mostrador.
 // soloPublico (carga desde 2025): las de cliente no se devuelven; las de público, con su tumba excluida si hace falta.
 function elementos(pagina, estado, avisar, omitir, config = {}, soloPublico = false) {
@@ -362,7 +363,7 @@ async function ejecutar(archivo, config, deps) {
     if (!deps.mostradorAhora && !esHorarioHistorico(new Date(reloj()))) return;
     const terminar = () => transmitir([], { mostrador_terminado: true }, 'incremental');
     if (estado.mostrador_desde_ven_id === null) {
-      const primera = await fuente.mostradorDesde('2025-01-01 00:00:00');
+      const primera = await fuente.mostradorDesde(INICIO_MOSTRADOR);
       if (primera === null) { await terminar(); return; }
       estado.mostrador_desde_ven_id = id(primera);
       await guardar(archivo, estado);
@@ -375,7 +376,9 @@ async function ejecutar(archivo, config, deps) {
       const ultimo = id(pagina.filas.at(-1).ven_id);
       // El cursor solo avanza: una página que no avanza (SICAR devolviendo basura) no deja el ciclo dando vueltas.
       if (BigInt(ultimo) <= BigInt(desde)) throw new Error('ID_INVALIDO');
-      if (!await transmitir(elementos(pagina, estado, avisar, omitir, config, true), { mostrador_cursor: ultimo }, 'incremental')) return;
+      // Solo las fechadas desde 2025: un ven_id mayor no garantiza la fecha (reloj de SICAR mal puesto).
+      const de2025 = { ...pagina, filas: pagina.filas.filter(v => String(v.fecha).replace('T', ' ') >= INICIO_MOSTRADOR) };
+      if (!await transmitir(elementos(de2025, estado, avisar, omitir, config, true), { mostrador_cursor: ultimo }, 'incremental')) return;
     }
   } finally { await liberar(); }
 }

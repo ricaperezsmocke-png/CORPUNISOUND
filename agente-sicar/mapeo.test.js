@@ -388,3 +388,19 @@ test('mostrador: primera venta de 2025 por ven_id y conteo de publico por ids co
   await sinVentas.validar();
   assert.equal(await sinVentas.mostradorDesde('2025-01-01 00:00:00'), null);
 });
+test('mostrador: si el conteo de --verificar falla, el dato sale vacio y el resto de verificar sigue', async () => {
+  const leer = async sql => {
+    validarSQL(sql);
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+      return Object.entries(columnas).flatMap(([TABLE_NAME, campos]) => campos.split(' ').map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    }
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('AS desde') || (sql.includes('COUNT(*)') && sql.includes('`venta`'))) throw new Error('Query inactivity timeout');
+    return [];
+  };
+  const fuente = crearFuente({ pagina: fn => fn(leer), tamano: 100 }, {});
+  await fuente.validar();
+  const info = await fuente.verificar();
+  assert.equal(info.mostrador, null);
+  assert.ok(Array.isArray(info.grants));
+});
