@@ -5,7 +5,7 @@ import {
 } from "./cortesSicar.js";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso,
+  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso,
 } from "./traspasosSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -96,6 +96,7 @@ function TablaTraspasos({ traspasos, tiendas, desde, hasta }) {
             const llave = llaveTraspaso(t);
             const visible = abierto === llave;
             const viejo = etiquetaFueraDeRango(t, desde, hasta);
+            const alertas = alertasDeTraspaso(t);
             return (
               <React.Fragment key={llave}>
                 <tr>
@@ -112,8 +113,8 @@ function TablaTraspasos({ traspasos, tiendas, desde, hasta }) {
                   </td>
                   <td className={`${CELDA} ${DERECHA}`}>{formatoDinero(t.total)}</td>
                   <td className={CELDA}>
-                    {alertasDeTraspaso(t).map((a) => <p key={a.clave} className="text-xs font-semibold text-amber-800">{a.texto}</p>)}
-                    {alertasDeTraspaso(t).length === 0 && "—"}
+                    {alertas.map((a) => <p key={a.clave} className="text-xs font-semibold text-amber-800">{a.texto}</p>)}
+                    {alertas.length === 0 && "—"}
                   </td>
                   <td className={CELDA}>
                     <button type="button" className={BTN} aria-expanded={visible} onClick={() => setAbierto(visible ? null : llave)}>
@@ -174,13 +175,17 @@ function MapaSucursales({ permisos }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const editable = puedeEditarMapa(permisos);
+  const peticiones = useRef(contadorDePeticiones());
   const cargar = useCallback(async () => {
+    const numero = peticiones.current.nueva();
     try {
       const r = await apiFetch("/sicar/sucursales-mapa");
       const cuerpo = await r.json();
+      if (!peticiones.current.vigente(numero)) return;
       setDatos(r.ok ? cuerpo : null);
       setError(r.ok ? "" : cuerpo?.error || "No se pudo cargar el mapa.");
     } catch (e) {
+      if (!peticiones.current.vigente(numero)) return;
       setDatos(null);
       setError(e.message || "No se pudo cargar el mapa.");
     }
@@ -268,7 +273,8 @@ export default function TraspasosSicar({ permisos = [], usuario = null }) {
 
   useEffect(() => { if (pestana === "traspasos") cargar(); }, [cargar, pestana]);
 
-  const traspasos = datos?.traspasos || [];
+  // El servidor ya limita a quien no ve todas; quien las ve todas filtra por tienda aquí.
+  const traspasos = selector.todas ? filtrarPorTienda(datos?.traspasos, consulta.sucursal) : datos?.traspasos || [];
   const estilo = (id) => `${PESTANA} ${pestana === id ? PESTANA_ON : PESTANA_OFF}`;
   return (
     <div className={PAGINA}>

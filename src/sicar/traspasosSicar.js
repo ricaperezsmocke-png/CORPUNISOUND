@@ -19,13 +19,17 @@ export function parametrosTraspasos({ sucursal, desde, hasta, estado }) {
   return p.toString();
 }
 
+const esSinMapa = (t) => !!t?.alertas?.sin_conciliar && t.conciliacion !== "mapa_no_coincide";
+const esMapaNoCoincide = (t) => !!t?.alertas?.sin_conciliar && t.conciliacion === "mapa_no_coincide";
 const TIPOS_ALERTA = [
   { clave: "sin_recibir_3_dias", resumen: "enviados sin recibir por más de 3 días" },
   { clave: "cancelado", resumen: "cancelados" },
-  { clave: "sin_conciliar", resumen: "sin poder compararse: falta asignar la tienda en el mapa" },
+  { clave: "sin_mapa", resumen: "sin poder compararse: falta asignar la tienda en el mapa", activa: esSinMapa },
+  { clave: "mapa_no_coincide", resumen: "sin poder compararse: el mapa no coincide con el traspaso", activa: esMapaNoCoincide },
   { clave: "puntas_ambiguas", resumen: "con dos registros posibles de la otra tienda" },
   { clave: "con_diferencias", resumen: "con piezas enviadas y recibidas que no cuadran" },
 ];
+const activa = (a, t) => (a.activa ? a.activa(t) : !!t?.alertas?.[a.clave]);
 
 function textoAlerta(clave, t) {
   switch (clave) {
@@ -34,7 +38,8 @@ function textoAlerta(clave, t) {
       return `Enviado hace ${d} ${d === 1 ? "día" : "días"} y no recibido`;
     }
     case "cancelado": return "Cancelado";
-    case "sin_conciliar": return "No se pudo comparar: falta asignar la tienda en el mapa";
+    case "sin_mapa": return "No se pudo comparar: falta asignar la tienda en el mapa";
+    case "mapa_no_coincide": return "No se pudo comparar: el mapa de sucursales no coincide con este traspaso";
     case "puntas_ambiguas": return "Dos registros posibles de la otra tienda: revisar";
     default: return "Piezas enviadas vs recibidas no cuadran";
   }
@@ -42,14 +47,23 @@ function textoAlerta(clave, t) {
 
 /** Las alertas de un renglón con texto claro. */
 export function alertasDeTraspaso(t) {
-  return TIPOS_ALERTA.filter((a) => t?.alertas?.[a.clave]).map((a) => ({ clave: a.clave, texto: textoAlerta(a.clave, t) }));
+  return TIPOS_ALERTA.filter((a) => activa(a, t)).map((a) => ({ clave: a.clave, texto: textoAlerta(a.clave, t) }));
 }
 
 /** Cuántos renglones hay por tipo de alerta (los tipos sin renglones no salen). */
 export function resumenDeAlertas(traspasos) {
   return TIPOS_ALERTA
-    .map((a) => ({ clave: a.clave, texto: a.resumen, cantidad: (traspasos || []).filter((t) => t?.alertas?.[a.clave]).length }))
+    .map((a) => ({ clave: a.clave, texto: a.resumen, cantidad: (traspasos || []).filter((t) => activa(a, t)).length }))
     .filter((a) => a.cantidad > 0);
+}
+
+/**
+ * El servidor ignora sucursal_id y manda lo del alcance del token. Quien ve todas filtra aquí por la tienda
+ * que dueña del registro ("" = todas).
+ */
+export function filtrarPorTienda(traspasos, sucursal) {
+  if (!sucursal) return traspasos || [];
+  return (traspasos || []).filter((t) => String(t.sucursal_id) === String(sucursal));
 }
 
 /** Los enviados viejos sin recibir entran aunque caigan fuera de las fechas: se avisa para que no parezca error del filtro. */

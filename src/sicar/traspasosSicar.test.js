@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso,
+  puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso, filtrarPorTienda,
 } from "./traspasosSicar.js";
 
 const BASE = {
@@ -23,7 +23,7 @@ test("un traspaso sin problemas no trae alertas", () => {
 });
 
 test("las alertas salen con texto claro para quien no es tecnico", () => {
-  const t = con({ dias_en_transito: 5 }, {
+  const t = con({ dias_en_transito: 5, conciliacion: "sin_mapa" }, {
     sin_recibir_3_dias: true, cancelado: true, con_diferencias: true, sin_conciliar: true, puntas_ambiguas: true,
   });
   assert.deepEqual(alertasDeTraspaso(t).map((a) => a.texto), [
@@ -86,4 +86,35 @@ test("nombreEstado y llaveTraspaso", () => {
   assert.equal(nombreEstado("recibido"), "Recibido");
   assert.equal(nombreEstado("cancelado"), "Cancelado");
   assert.equal(llaveTraspaso(BASE), "3-9");
+});
+
+test("sin_conciliar dice la causa segun la conciliacion", () => {
+  const sinMapa = con({ conciliacion: "sin_mapa" }, { sin_conciliar: true });
+  const noCoincide = con({ conciliacion: "mapa_no_coincide" }, { sin_conciliar: true });
+  assert.equal(alertasDeTraspaso(sinMapa)[0].texto, "No se pudo comparar: falta asignar la tienda en el mapa");
+  assert.equal(alertasDeTraspaso(noCoincide)[0].texto, "No se pudo comparar: el mapa de sucursales no coincide con este traspaso");
+});
+
+test("ambigua se avisa como dos registros posibles", () => {
+  const t = con({ conciliacion: "ambigua" }, { puntas_ambiguas: true });
+  assert.equal(alertasDeTraspaso(t)[0].texto, "Dos registros posibles de la otra tienda: revisar");
+});
+
+test("resumenDeAlertas separa sin mapa de mapa que no coincide", () => {
+  const lista = [
+    con({ conciliacion: "sin_mapa" }, { sin_conciliar: true }),
+    con({ conciliacion: "sin_mapa" }, { sin_conciliar: true }),
+    con({ conciliacion: "mapa_no_coincide" }, { sin_conciliar: true }),
+  ];
+  const r = resumenDeAlertas(lista);
+  assert.deepEqual(r.map((x) => [x.clave, x.cantidad]), [["sin_mapa", 2], ["mapa_no_coincide", 1]]);
+  assert.match(r[0].texto, /falta asignar la tienda en el mapa/);
+  assert.match(r[1].texto, /el mapa no coincide/);
+});
+
+test("filtrarPorTienda: Todas muestra todo y una tienda solo sus renglones", () => {
+  const lista = [con({ sucursal_id: 3 }), con({ sucursal_id: 4, tra_id: "1" }), con({ sucursal_id: 3, tra_id: "2" })];
+  assert.equal(filtrarPorTienda(lista, "").length, 3);
+  assert.deepEqual(filtrarPorTienda(lista, "3").map((t) => t.tra_id), ["9", "2"]);
+  assert.equal(filtrarPorTienda(lista, "7").length, 0);
 });
