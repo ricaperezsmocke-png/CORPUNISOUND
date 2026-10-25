@@ -233,6 +233,8 @@ const DB = {
     // Interruptores de pantallas de caja. Tiene que estar en la semilla: al arrancar solo se restauran
     // las claves que existen aquí, y sin esta línea todo volvía a encenderse en cada reinicio de Render.
     pantallas_caja: null,
+    // Tablero de los cinco caminos: qué categorías SICAR son instrumento y cuáles accesorio. Ver cincoCaminos/.
+    cinco_caminos: { categorias: [], categorias_historial: [] },
     apartado_abonos: [],
   },
   crm: {
@@ -3142,6 +3144,12 @@ require("./metasRutas")(app, {
   // Las pruebas fijan un cliente falso; sin ANTHROPIC_API_KEY el planeador queda apagado.
   guardarDB: () => guardar(DB),
   clienteIA: () => (app.locals.clienteIA !== undefined ? app.locals.clienteIA : (process.env.ANTHROPIC_API_KEY ? anthropic : null)),
+});
+
+// Tablero semanal de los cinco caminos por tienda. Solo lee SICAR; el alcance sale del token.
+require("./cincoCaminos/rutas").registrarRutasCincoCaminos(app, {
+  DB, sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado,
+  tiendas: () => DB.pos.sucursales,
 });
 
 // Supervisión de tiendas: visita mensual y fallas. Ver supervisionRutas.js.
