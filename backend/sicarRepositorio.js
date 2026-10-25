@@ -170,6 +170,7 @@ const ESQUEMA = `
     PRIMARY KEY (sucursal_id, tra_id, art_id),
     FOREIGN KEY (sucursal_id, tra_id) REFERENCES sicar_traspasos(sucursal_id, tra_id)
   );
+  CREATE INDEX IF NOT EXISTS sicar_traspasos_punta ON sicar_traspasos (folio, suc_origen, suc_destino);
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa (
     sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT
   );

@@ -79,12 +79,15 @@ function consultarTraspasosSicar(sqlite, filtros = {}, alcance, nombresTiendas =
 
   const mapa = leerMapa(sqlite);
   const nombre = n => (mapa.has(n) && nombresTiendas[mapa.get(n)]) || `SICAR ${n}`;
+  const limiteViejos = new Date(diaMs(hoy) - (DIAS_SIN_RECIBIR + 1) * DIA).toISOString().slice(0, 10);
   const filas = sqlite.prepare(`SELECT * FROM sicar_traspasos
-    WHERE substr(fecha, 1, 10) BETWEEN @desde AND @hasta
-      AND (@tienda IS NULL OR sucursal_id = @tienda) AND (@estado IS NULL OR estado = @estado)
-    ORDER BY fecha DESC, sucursal_id, length(tra_id) DESC, tra_id DESC`).all({ desde, hasta, tienda: propia, estado });
-  const otraPunta = sqlite.prepare(`SELECT * FROM sicar_traspasos
-    WHERE folio = ? AND suc_origen = ? AND suc_destino = ? AND sucursal_id <> ?`);
+    WHERE (@tienda IS NULL OR sucursal_id = @tienda)
+      AND ((substr(fecha, 1, 10) BETWEEN @desde AND @hasta AND (@estado IS NULL OR estado = @estado))
+        OR (estado = 'enviado' AND (@estado IS NULL OR @estado = 'enviado') AND substr(fecha, 1, 10) <= @limite))
+    ORDER BY fecha DESC, sucursal_id, length(tra_id) DESC, tra_id DESC`)
+    .all({ desde, hasta, tienda: propia, estado, limite: limiteViejos });
+  const candidatas = sqlite.prepare(`SELECT * FROM sicar_traspasos
+    WHERE folio = ? AND suc_origen = ? AND suc_destino = ? AND sucursal_id = ?`);
   const detalle = sqlite.prepare('SELECT art_id, cantidad FROM sicar_traspasos_detalle WHERE sucursal_id = ? AND tra_id = ?');
   const cantidades = fila => {
     const m = new Map();
@@ -92,33 +95,44 @@ function consultarTraspasosSicar(sqlite, filtros = {}, alcance, nombresTiendas =
     return m;
   };
 
-  const traspasos = filas.map(f => {
-    const otra = otraPunta.get(f.folio, f.suc_origen, f.suc_destino, f.sucursal_id);
-    let diferencias = [], conciliacion = otra ? 'sin_mapa' : 'una_punta';
+  const traspasos = [];
+  for (const f of filas) {
+    let otra = null, diferencias = [], ambiguas = false, conciliacion;
     const idOrigen = mapa.get(f.suc_origen), idDestino = mapa.get(f.suc_destino);
-    if (otra && idOrigen != null && idDestino != null) {
-      const origen = [f, otra].find(x => x.sucursal_id === idOrigen);
-      const destino = [f, otra].find(x => x.sucursal_id === idDestino);
-      if (origen && destino && origen !== destino) {
-        conciliacion = 'dos_puntas';
+    if (idOrigen == null || idDestino == null) conciliacion = 'sin_mapa';
+    else if (idOrigen === idDestino || (f.sucursal_id !== idOrigen && f.sucursal_id !== idDestino)) conciliacion = 'mapa_no_coincide';
+    else {
+      const contraria = f.sucursal_id === idOrigen ? idDestino : idOrigen;
+      const lista = candidatas.all(f.folio, f.suc_origen, f.suc_destino, contraria);
+      conciliacion = lista.length === 0 ? 'una_punta' : 'dos_puntas';
+      if (lista.length > 1) { ambiguas = true; conciliacion = 'ambigua'; }
+      else if (lista.length === 1) {
+        otra = lista[0];
+        const [origen, destino] = f.sucursal_id === idOrigen ? [f, otra] : [otra, f];
         // Mientras ninguna punta lo haya recibido no hay nada que comparar: no es una perdida.
         if (origen.estado === 'recibido' || destino.estado === 'recibido') diferencias = compararPuntas(origen, destino, cantidades);
       }
     }
     const enTransito = f.estado === 'enviado' ? dias(f.fecha, hoy)
       : f.estado === 'recibido' && f.fecha_aplicado ? dias(f.fecha, f.fecha_aplicado) : null;
-    return {
+    const sinRecibir = f.estado === 'enviado' && !(conciliacion === 'dos_puntas' && otra?.estado === 'recibido') && enTransito > DIAS_SIN_RECIBIR;
+    // Un envio viejo entra aunque no caiga en el rango solo si de verdad sigue sin recibirse.
+    const enRango = f.fecha.slice(0, 10) >= desde && f.fecha.slice(0, 10) <= hasta && (estado === null || f.estado === estado);
+    if (!enRango && !sinRecibir) continue;
+    traspasos.push({
       sucursal_id: f.sucursal_id, tra_id: f.tra_id, folio: f.folio, fecha: f.fecha, estado: f.estado,
       fecha_aplicado: f.fecha_aplicado, fecha_cancelado: f.fecha_cancelado, total: centavosATexto(f.total_centavos),
       origen: nombre(f.suc_origen), destino: nombre(f.suc_destino), suc_origen: f.suc_origen, suc_destino: f.suc_destino,
       dias_en_transito: enTransito, conciliacion, diferencias,
       alertas: {
-        sin_recibir_3_dias: f.estado === 'enviado' && otra?.estado !== 'recibido' && enTransito > DIAS_SIN_RECIBIR,
+        sin_recibir_3_dias: sinRecibir,
         cancelado: f.estado === 'cancelado',
         con_diferencias: diferencias.length > 0,
+        sin_conciliar: conciliacion === 'sin_mapa' || conciliacion === 'mapa_no_coincide',
+        puntas_ambiguas: ambiguas,
       },
-    };
-  });
+    });
+  }
   return { desde, hasta, traspasos };
 }
 
@@ -126,6 +140,15 @@ function listarMapaSicar(sqlite, nombresTiendas = {}) {
   return sqlite.prepare('SELECT sicar_sucursal, sucursal_id, asignado_por, asignado_en FROM sicar_sucursales_mapa').all()
     .sort((a, b) => Number(a.sicar_sucursal) - Number(b.sicar_sucursal))
     .map(m => ({ ...m, tienda: m.sucursal_id === null ? null : nombresTiendas[m.sucursal_id] ?? null }));
+}
+
+// Numeros SICAR (origen o destino) que aparecen en traspasos y no tienen tienda asignada, dentro del alcance de quien pregunta.
+function listarSinAsignarSicar(sqlite, alcance) {
+  const propia = tiendaDelAlcance(alcance);
+  const filas = sqlite.prepare(`SELECT suc_origen AS n FROM sicar_traspasos WHERE (@t IS NULL OR sucursal_id = @t)
+    UNION SELECT suc_destino FROM sicar_traspasos WHERE (@t IS NULL OR sucursal_id = @t)`).all({ t: propia });
+  const mapa = leerMapa(sqlite);
+  return filas.map(f => f.n).filter(n => mapa.get(n) == null).sort((x, y) => Number(x) - Number(y) || (x < y ? -1 : 1));
 }
 
 // El mapa es de toda la empresa: cambiarlo cambia los nombres que ven todas las tiendas. Solo con alcance total.
@@ -146,6 +169,9 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
   return sqlite.transaction(() => {
     const anterior = sqlite.prepare('SELECT * FROM sicar_sucursales_mapa WHERE sicar_sucursal = ?').get(sicar);
     if (anterior && anterior.sucursal_id === nuevo) return anterior;
+    if (nuevo !== null && sqlite.prepare('SELECT 1 FROM sicar_sucursales_mapa WHERE sucursal_id = ? AND sicar_sucursal <> ?').get(nuevo, sicar)) {
+      throw fallo(400, 'Esa tienda ya tiene otro número de sucursal SICAR asignado.');
+    }
     const fila = { sicar_sucursal: sicar, sucursal_id: nuevo, asignado_por: quien, asignado_en: new Date().toISOString() };
     sqlite.prepare(`INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, asignado_por, asignado_en)
       VALUES (@sicar_sucursal, @sucursal_id, @asignado_por, @asignado_en)
@@ -158,4 +184,4 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
   }).immediate();
 }
 
-module.exports = { consultarTraspasosSicar, listarMapaSicar, asignarMapaSicar };
+module.exports = { consultarTraspasosSicar, listarMapaSicar, listarSinAsignarSicar, asignarMapaSicar };

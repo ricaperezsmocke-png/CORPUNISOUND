@@ -179,9 +179,10 @@ function registrarRutasSicar(app, opciones) {
     const { desde, hasta, estado } = req.query;
     res.json(traspasos.consultarTraspasosSicar(repo.conexionParaVinculos(), { desde, hasta, estado }, alcance, nombresTiendas()));
   }));
-  app.get('/api/sicar/sucursales-mapa', ...permiso('ver_traspasos_sicar'), ejecutar((req, res) => {
+  app.get('/api/sicar/sucursales-mapa', ...permiso('ver_traspasos_sicar'), ejecutar((req, res, alcance) => {
     res.json({ tiendas: tiendas().map(t => ({ id: t.id, nombre: t.nombre })),
-      mapa: traspasos.listarMapaSicar(repo.conexionParaVinculos(), nombresTiendas()) });
+      mapa: traspasos.listarMapaSicar(repo.conexionParaVinculos(), nombresTiendas()),
+      sin_asignar: traspasos.listarSinAsignarSicar(repo.conexionParaVinculos(), alcance) });
   }));
   app.put('/api/sicar/sucursales-mapa', ...permiso('administrar_sucursales'), ejecutar((req, res, alcance) => {
     const existe = id => tiendas().some(t => Number(t.id) === id);

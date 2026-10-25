@@ -106,7 +106,7 @@ test('diferencias por articulo entre enviado y recibido, exactas y solo con mapa
 test('filtros: estado, fechas y tope de 366 dias', t => {
   const sqlite = escenario(t);
   assert.deepEqual(ids(consulta(sqlite, { estado: 'cancelado' })), ['1:12']);
-  assert.deepEqual(ids(consulta(sqlite, { desde: '2026-10-20', hasta: '2026-10-23' })), ['1:11']);
+  assert.deepEqual(ids(consulta(sqlite, { desde: '2026-10-20', hasta: '2026-10-23' })), ['1:11', '1:13', '3:30'], 'el envio viejo sin recibir entra siempre');
   assert.throws(() => consulta(sqlite, { estado: 'raro' }), errorCon(400));
   assert.throws(() => consulta(sqlite, { desde: 'basura' }), errorCon(400));
   assert.throws(() => consulta(sqlite, { desde: ['2026-10-01'] }), errorCon(400));
@@ -192,9 +192,86 @@ test('rutas: permisos exactos con roles vecinos y alcance del token', async t =>
   assert.equal(ok.datos.asignado_por, '973');
   const mapa = await pedir('/api/sicar/sucursales-mapa', 971);
   assert.deepEqual(mapa.datos.mapa.map(m => [m.sicar_sucursal, m.sucursal_id]), [['6', 1]]);
+  assert.deepEqual(mapa.datos.sin_asignar, ['2'], 'el numero 2 aparece en traspasos y no tiene mapa');
   assert.ok(mapa.datos.mapa[0].tienda);
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_sucursales_mapa_historial').get().n, 1);
   assert.equal((await pedir('/api/sicar/traspasos', 'basura')).status, 401);
+});
+
+test('envios viejos sin recibir siguen apareciendo, una sola vez y con el alcance de la tienda', t => {
+  const sqlite = escenario(t);
+  const repo = crearRepositorioSicar(sqlite);
+  sembrar(repo, 1, [tra('14', 'F5', { fecha: '2026-08-24' }), tra('15', 'F6', { fecha: '2026-08-25', estado: 'cancelado', fecha_cancelado: '2026-08-26' })]);
+  sembrar(repo, 3, [tra('31', 'F7', { fecha: '2026-08-24', suc_origen: '7', suc_destino: '3' })]);
+  const viejo = consulta(sqlite, {}, SOLO(1)).traspasos.find(x => x.tra_id === '14');
+  assert.ok(viejo, 'el envio de hace 60 dias aparece sin desde');
+  assert.equal(viejo.alertas.sin_recibir_3_dias, true);
+  assert.equal(viejo.dias_en_transito, 60);
+  assert.equal(consulta(sqlite, {}, SOLO(1)).traspasos.find(x => x.tra_id === '15'), undefined, 'un cancelado viejo no se cuela');
+  assert.equal(consulta(sqlite, {}, SOLO(2)).traspasos.some(x => x.tra_id === '31' || x.tra_id === '14'), false);
+  assert.equal(consulta(sqlite, { desde: '2026-10-20', hasta: '2026-10-23' }, SOLO(1)).traspasos.some(x => x.tra_id === '14'), true);
+  const ancho = consulta(sqlite, { desde: '2026-08-01' }, SOLO(1)).traspasos.filter(x => x.tra_id === '14');
+  assert.equal(ancho.length, 1, 'una sola vez aunque entre por las dos consultas');
+  assert.equal(consulta(sqlite, { estado: 'recibido' }, SOLO(1)).traspasos.some(x => x.tra_id === '14'), false);
+  assert.equal(ids(consulta(sqlite)).includes('3:31'), true);
+});
+
+test('la otra punta se busca por el mapa: una tercera tienda no apaga la alerta y dos candidatos son ambiguos', t => {
+  const sqlite = escenario(t);
+  const repo = crearRepositorioSicar(sqlite);
+  sembrar(repo, 3, [tra('32', 'F4', { estado: 'recibido', fecha: '2026-10-10', fecha_aplicado: '2026-10-11' })]);
+  const f4 = consulta(sqlite, {}, SOLO(1)).traspasos.find(x => x.tra_id === '13');
+  assert.equal(f4.alertas.sin_recibir_3_dias, true, 'un recibido de otra tienda no la apaga');
+  assert.equal(f4.conciliacion, 'una_punta');
+  const ajena = consulta(sqlite, {}, SOLO(3)).traspasos.find(x => x.tra_id === '32');
+  assert.deepEqual([ajena.conciliacion, ajena.alertas.sin_conciliar], ['mapa_no_coincide', true]);
+  sembrar(repo, 2, [tra('21', 'F1', { estado: 'recibido', fecha_aplicado: '2026-10-19T10:00:00', detalle: [det('10', '5.0000')] })]);
+  const amb = consulta(sqlite, {}, SOLO(1)).traspasos.find(x => x.tra_id === '10');
+  assert.equal(amb.alertas.puntas_ambiguas, true);
+  assert.deepEqual(amb.diferencias, []);
+  assert.equal(amb.alertas.sin_recibir_3_dias, true, 'con candidatos ambiguos no se da por recibido');
+  assert.equal(consulta(sqlite, {}, SOLO(1)).traspasos.find(x => x.tra_id === '13').alertas.puntas_ambiguas, false);
+});
+
+test('sin conciliar: falta el mapa o no coincide con las tiendas, y se dice cual', t => {
+  const sin = consulta(escenario(t, false), {}, SOLO(1)).traspasos.find(x => x.tra_id === '10');
+  assert.deepEqual([sin.conciliacion, sin.alertas.sin_conciliar], ['sin_mapa', true]);
+  assert.equal(sin.alertas.sin_recibir_3_dias, true, 'sin mapa no se asume que ya llego');
+  const sqlite = escenario(t);
+  sqlite.prepare("UPDATE sicar_sucursales_mapa SET sucursal_id = 3 WHERE sicar_sucursal = '6'").run();
+  const no = consulta(sqlite, {}, SOLO(1)).traspasos.find(x => x.tra_id === '10');
+  assert.deepEqual([no.conciliacion, no.alertas.sin_conciliar, no.diferencias], ['mapa_no_coincide', true, []]);
+  const bien = consulta(escenario(t), {}, SOLO(1)).traspasos.find(x => x.tra_id === '10');
+  assert.equal(bien.alertas.sin_conciliar, false);
+});
+
+test('sin_asignar: numeros SICAR de traspasos sin mapa, con el alcance de la tienda', t => {
+  const { listarSinAsignarSicar } = require('./sicarTraspasos');
+  const sqlite = escenario(t, false);
+  assert.deepEqual(listarSinAsignarSicar(sqlite, TODAS), ['2', '3', '6', '7']);
+  assert.deepEqual(listarSinAsignarSicar(sqlite, SOLO(2)), ['2', '6']);
+  assert.deepEqual(listarSinAsignarSicar(sqlite, SOLO(3)), ['3', '7']);
+  sqlite.prepare("INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id) VALUES ('6', 1), ('2', NULL)").run();
+  assert.deepEqual(listarSinAsignarSicar(sqlite, TODAS), ['2', '3', '7']);
+  assert.throws(() => listarSinAsignarSicar(sqlite, { verTodas: false, sucursalId: null }), errorCon(403));
+});
+
+test('mapa: dos numeros SICAR no pueden quedar en la misma tienda', t => {
+  const { sqlite } = prepararDB(t);
+  const poner = datos => asignarMapaSicar(sqlite, datos, '77', TODAS, id => id === 1 || id === 2);
+  poner({ sicar_sucursal: '6', sucursal_id: 1 });
+  assert.throws(() => poner({ sicar_sucursal: '7', sucursal_id: 1 }), errorCon(400));
+  poner({ sicar_sucursal: '6', sucursal_id: 1 });
+  poner({ sicar_sucursal: '7', sucursal_id: 2 });
+  poner({ sicar_sucursal: '8', sucursal_id: null });
+  poner({ sicar_sucursal: '9', sucursal_id: null });
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_sucursales_mapa_historial').get().n, 4);
+});
+
+test('indice para buscar la otra punta por folio', t => {
+  const { sqlite } = prepararDB(t);
+  const i = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='sicar_traspasos' AND sql LIKE '%folio%'").get();
+  assert.match(i.sql, /folio, suc_origen, suc_destino/);
 });
 
 test('permiso nuevo en el catalogo, modulo inventario', () => {
