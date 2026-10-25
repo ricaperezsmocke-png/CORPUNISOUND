@@ -56,6 +56,8 @@ function parsearFacturaXML(xmlTexto) {
     emisor,
     folioFiscal,
     fecha: comprobante.Fecha || null,
+    total: comprobante.Total === undefined ? null : String(comprobante.Total),
+    tipoComprobante: comprobante.TipoDeComprobante || null,
     conceptos,
   };
 }

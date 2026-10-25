@@ -176,6 +176,16 @@ const ESQUEMA = `
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa_historial (
     id INTEGER PRIMARY KEY, sicar_sucursal TEXT, anterior TEXT, nuevo TEXT, actor TEXT, fecha TEXT
   );
+  CREATE TABLE IF NOT EXISTS facturas_por_llegar (
+    id INTEGER PRIMARY KEY, uuid TEXT NOT NULL UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT, fecha_emision TEXT,
+    total_centavos INTEGER NOT NULL, conceptos_json TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('por_llegar', 'llego', 'cancelada')),
+    creada_por TEXT NOT NULL, creada_en TEXT NOT NULL, llego_en TEXT, llego_por TEXT, motivo TEXT
+  );
+  CREATE TABLE IF NOT EXISTS facturas_por_llegar_historial (
+    id INTEGER PRIMARY KEY, factura_id INTEGER NOT NULL, accion TEXT NOT NULL, actor TEXT NOT NULL,
+    fecha TEXT NOT NULL, detalle TEXT, FOREIGN KEY (factura_id) REFERENCES facturas_por_llegar(id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
