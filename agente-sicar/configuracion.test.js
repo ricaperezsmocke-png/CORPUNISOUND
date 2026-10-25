@@ -150,3 +150,48 @@ test('--verificar dice cuantos cortes hay en SICAR o que estan apagados', async 
     assert.equal(registros.includes('CORTES_NO_DISPONIBLES'), aviso);
   }
 });
+test('el interruptor mostrador solo acepta true o false y el ejemplo lo trae apagado', async t => {
+  const { archivo, config } = await preparar(t);
+  assert.equal((await leerConfiguracion(archivo)).mostrador, undefined);
+  for (const [valor, acepta] of [[true, true], [false, true], ['true', false], [1, false], [null, false], [{}, false]]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, mostrador: valor }));
+    if (acepta) assert.equal((await leerConfiguracion(archivo)).mostrador, valor);
+    else await assert.rejects(leerConfiguracion(archivo), /CONFIGURACION_INVALIDA/);
+  }
+  assert.equal(JSON.parse(await fs.readFile(path.join(__dirname, 'config.ejemplo.json'), 'utf8')).mostrador, false);
+});
+test('--verificar dice cuantas ventas de publico hay desde 2025, contando tambien por nombre', async t => {
+  const { archivo } = await preparar(t);
+  const pagina = { filas: [{ ven_id: '5', cli_id: '1', status: 1 }, { ven_id: '120', cli_id: '1', status: 1 },
+    { ven_id: '121', cli_id: '900', status: 1 }, { ven_id: '122', cli_id: '42', status: 1 }],
+  clientes: [{ cli_id: '1', nombre: 'PUBLICO' }, { cli_id: '900', nombre: 'PÚBLICO EN GENERAL 2' }, { cli_id: '42', nombre: 'José' }], detalles: [] };
+  const base = { tamano: 100, validar: async () => {}, tope: async () => '122', clientes: async () => [],
+    ventas: async cursor => (cursor === '0' ? pagina : { filas: [], clientes: [], detalles: [] }) };
+  for (const [mostrador, esperado] of [
+    [{ desde_ven_id: '120', total_publico_desde_2025: '1' }, /Ventas de público en general desde 2025: 1 por número de cliente, desde la venta 120/],
+    [{ desde_ven_id: null, total_publico_desde_2025: '0' }, /Ventas de público en general desde 2025: 0 por número de cliente, desde la venta ninguna/],
+    [undefined, /Ventas de público en general desde 2025: sin dato/],
+  ]) {
+    const salida = [];
+    await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+      crearFuente: async () => ({ ...base, verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [], mostrador }) }),
+      imprimir: x => salida.push(x), log: () => {}, esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+    assert.match(salida.join('\n'), esperado);
+    if (mostrador?.desde_ven_id) assert.match(salida.join('\n'), /Ventas de público en general desde 2025 revisando también el nombre: 2/);
+  }
+});
+test('--mostrador-ahora se acepta, queda en el registro y de dia corre la carga desde 2025', async t => {
+  const { archivo, config } = await preparar(t);
+  await fs.writeFile(archivo, JSON.stringify({ ...config, mostrador: true }));
+  const registros = [], desdes = [];
+  const vacia = { filas: [], clientes: [], detalles: [] };
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [], ventas: async () => vacia,
+    historial: async () => [], porIds: async () => vacia, mostradorDesde: async fecha => { desdes.push(fecha); return null; } };
+  await fs.writeFile(config.estado, JSON.stringify({ ...require('./estado').inicial(), fase: 'incremental', ven_id: '50' }));
+  await main(['--mostrador-ahora'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, log: x => registros.push(x), esperar: async () => {},
+    reloj: () => Date.parse('2026-10-15T18:00:00Z'), fetch: async () => assert.fail('Nada que mandar') });
+  assert.ok(registros.includes('MOSTRADOR_AUTORIZADO_DE_DIA'));
+  assert.deepEqual(desdes, ['2025-01-01 00:00:00']);
+  assert.equal(JSON.parse(await fs.readFile(config.estado, 'utf8')).mostrador_terminado, true, 'sin ventas desde 2025 no hay nada que cargar');
+});

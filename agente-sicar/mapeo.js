@@ -1,3 +1,4 @@
+const { PUBLICOS } = require('./formato');
 // Único diccionario del esquema SICAR. Los nombres no confirmados se verifican al arrancar.
 const COLUMNAS = {
   cliente: ['cli_id', 'nombre', 'telefono', 'celular', 'mail', 'rfc', 'status', 'clave'],
@@ -34,6 +35,10 @@ const MAXIMO_CORTES = 100;
 const ventasDeCortes = (leer, ids) => leer('SELECT r.`cor_id`, v.`ven_id`, v.`total`, v.`status`, h.`usu_id` FROM `resumencortecaja` r '
   + 'JOIN `venta` v ON v.`rcc_id` = r.`rcc_id` LEFT JOIN `historial` h ON h.`id` = v.`ven_id` AND h.`tabla` = ? '
   + `AND h.\`movimiento\` = 0 WHERE r.\`cor_id\` IN (${ids.map(() => '?').join(', ')})`, ['Venta', ...ids]);
+// Ventas de mostrador (público en general) desde 2025 (Cinco Caminos P1). La guardia no admite MIN(): la primera venta
+// de 2025 se toma por ven_id con ORDER BY ... LIMIT 1, que da lo mismo.
+const INICIO_MOSTRADOR = '2025-01-01 00:00:00';
+const PRIMERA_VENTA_DESDE = 'SELECT v.`ven_id` AS desde FROM `venta` v WHERE v.`fecha` >= ? ORDER BY v.`ven_id` LIMIT 1';
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -65,6 +70,14 @@ function crearFuente(lector, config = {}) {
   const seleccionarVenta = 'SELECT ' + COLUMNAS.venta.map(c => 'v.' + identificador(c)).join(', ')
     + ', COALESCE(t.`cli_id`, n.`cli_id`, r.`cli_id`) AS cli_id ' + desdeVenta;
   function comprobar() { if (!validado) throw new Error('ESQUEMA_NO_VALIDADO'); }
+  const primeraVentaDesde = async (leer, fecha) => {
+    const [fila] = await leer(PRIMERA_VENTA_DESDE, [fecha]);
+    return fila?.desde == null ? null : String(fila.desde);
+  };
+  // Para --verificar: las de público por número de cliente (o sin cliente, que cuenta como 0) en SQL; el nombre se revisa
+  // en JS (index.js). Sin paréntesis tras WHERE/AND: la guardia los toma por función.
+  const contarPublico = leer => leer(`SELECT COUNT(*) AS total ${desdeVenta} WHERE v.\`fecha\` >= ? `
+    + `AND COALESCE(t.\`cli_id\`, n.\`cli_id\`, r.\`cli_id\`, 0) IN (0, ${huecos([...PUBLICOS])})`, [INICIO_MOSTRADOR, ...PUBLICOS]);
   // Con un id que se puede repetir, el servidor rechaza el lote (ID_DUPLICADO) y el agente se detendría con todo y
   // clientes y ventas. Solo se habilitan si el id es PRIMARY o UNIQUE de una sola columna completa; si no, o si el
   // índice no se puede leer, la lista queda apagada (falla cerrando) sin tumbar la validación.
@@ -197,6 +210,10 @@ function crearFuente(lector, config = {}) {
         validado = true;
       });
     },
+    async mostradorDesde(fecha) {
+      comprobar();
+      return lector.pagina(leer => primeraVentaDesde(leer, fecha));
+    },
     async tope() {
       comprobar();
       return lector.pagina(async leer => String((await leer('SELECT MAX(`ven_id`) AS tope FROM `venta`'))[0].tope || '0'));
@@ -246,6 +263,8 @@ function crearFuente(lector, config = {}) {
           : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
         cortes: cortesFaltantes.length ? { columnas: columnasCortes, faltantes: cortesFaltantes, total: null, ms: null }
           : { columnas: columnasCortes, faltantes: [], ...await medirCortes(leer) },
+        mostrador: { desde_ven_id: await primeraVentaDesde(leer, INICIO_MOSTRADOR),
+          total_publico_desde_2025: String((await contarPublico(leer))[0].total) },
       }));
     },
   };

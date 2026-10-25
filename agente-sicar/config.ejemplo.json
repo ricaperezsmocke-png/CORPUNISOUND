@@ -11,5 +11,6 @@
   "articulos": false,
   "proveedores": false,
   "existencias": false,
-  "cortes": false
+  "cortes": false,
+  "mostrador": false
 }

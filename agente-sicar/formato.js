@@ -31,8 +31,10 @@ function texto(valor, maximo, opcional = true) {
   return valor;
 }
 const RFC = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/i;
+// Público en general: sin cliente en SICAR, sin nombre, uno de los ids de público o el nombre "PÚBLICO EN GENERAL".
+const esPublico = c => !c || !c.nombre?.trim() || PUBLICOS.has(String(c.cli_id)) || /^P.BLICO EN GENERAL/i.test(c.nombre);
 function cliente(c, avisar = () => {}) {
-  if (!c || !c.nombre?.trim() || PUBLICOS.has(String(c.cli_id)) || /^P.BLICO EN GENERAL/i.test(c.nombre)) return null;
+  if (esPublico(c)) return null;
   const cli_id = id(c.cli_id);
   // Un dato de contacto mal capturado no detiene toda la carga: se omite y queda en el registro.
   function contacto(campo, valor, maximo, patron) {
@@ -70,7 +72,11 @@ function sobre(sequence, mode, ahora) {
     window: { from: new Date(ahora.getTime() - 48 * 3600000).toISOString(), to: ahora.toISOString() }, clientes: [], ventas: [] };
 }
 function cabe(lote) {
-  return lote.clientes.length <= 100 && lote.ventas.length <= 100 && (lote.articulos?.length || 0) <= 500
+  const mostrador = lote.mostrador || [];
+  // Mismos topes que el servidor (validarLoteSicar): 100 filas de mostrador y 1,000 renglones, contados aparte de ventas.
+  return lote.clientes.length <= 100 && lote.ventas.length <= 100 && mostrador.length <= 100
+    && mostrador.every(m => (m.detalle?.length || 0) <= 500) && mostrador.reduce((n, m) => n + (m.detalle?.length || 0), 0) <= 1000
+    && (lote.articulos?.length || 0) <= 500
     && (lote.proveedores?.length || 0) <= 500 && (lote.existencias?.length || 0) <= 500 && (lote.cortes?.length || 0) <= 100
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
@@ -213,7 +219,38 @@ function corteSeguro(datos) {
     return { corte: null, omitido: { cor_id, codigo: error.message } };
   }
 }
-function ventaSegura(v, c, detalles, enviada, avisar) {
+// Venta de público en general para la colección mostrador: solo ven_id, fecha, estado, total y por renglón art_id,
+// cantidad, importe y descuento. Nunca cliente, nombre, teléfono, descripción, clave ni precios unitarios.
+function armarMostrador(ven_id, v, detalles) {
+  if (!['1', '-1'].includes(String(v.status))) throw new Error('ESTADO_VENTA_DESCONOCIDO');
+  const fecha_local = String(v.fecha).replace(' ', 'T');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fecha_local)) throw new Error('FECHA_INVALIDA');
+  if (!detalles.length || detalles.length > 500) throw new Error('DETALLE_FUERA_DE_LIMITE');
+  return { ven_id, fecha_local, estado: String(v.status) === '1' ? 'vigente' : 'cancelada', total: decimal(v.total, 2),
+    detalle: detalles.map(d => ({ art_id: id(d.art_id), cantidad: decimal(d.cantidad, 4), importe_con: decimal(d.importeCon, 2),
+      descuento_total: decimal(d.descTotal, 2) })) };
+}
+// Con datos raros: cancelada ya enviada a mostrador → cancelación corta; si no, se salta y se anota. Mostrador no tiene
+// 'excluida': una vigente ya enviada que se vuelve rara conserva en el servidor su última versión.
+function mostradorSeguro(v, detalles, enviada) {
+  const ven_id = id(v.ven_id);
+  try { return { mostrador: armarMostrador(ven_id, v, detalles), omitida: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message)) throw error;
+    if (String(v.status) === '-1' && enviada) return { mostrador: { ven_id, estado: 'cancelada' }, omitida: null };
+    return { mostrador: null, omitida: { ven_id, codigo: error.message } };
+  }
+}
+// mostrador: { enviada } (ya confirmada en mostrador) cuando el interruptor está prendido; sin él la salida es la de siempre.
+function ventaSegura(v, c, detalles, enviada, avisar, mostrador) {
+  const salida = ventaClienteSegura(v, c, detalles, enviada, avisar);
+  if (!mostrador) return salida;
+  if (!esPublico(c)) return { ...salida, mostrador: null };
+  // De público la parte de ventas nunca falla por datos (solo devuelve excluida o null): la omisión es de mostrador.
+  const m = mostradorSeguro(v, detalles, mostrador.enviada);
+  return { venta: salida.venta, omitida: m.omitida, mostrador: m.mostrador };
+}
+function ventaClienteSegura(v, c, detalles, enviada, avisar) {
   try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
   catch (error) {
     if (!DATOS_RAROS.has(error.message) || !error.ven_id) throw error;
@@ -225,5 +262,5 @@ function ventaSegura(v, c, detalles, enviada, avisar) {
     return { venta: enviada ? { ven_id: error.ven_id, estado: 'excluida' } : null, omitida };
   }
 }
-module.exports = { id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
+module.exports = { PUBLICOS, esPublico, id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
   proveedorSeguro, existenciaSegura, corteSeguro };
