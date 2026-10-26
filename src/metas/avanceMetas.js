@@ -107,3 +107,6 @@ export const hayBarra = hayAvance;
 
 /** "83.5%" o "Sin dato": la barra roja y el "%" suelto desaparecen. */
 export const textoPorcentajeMeta = (meta) => (hayAvance(meta) ? `${meta.porcentaje}%` : SIN_DATO);
+
+// "Tú llevas N" cuenta capturas propias: solo tiene sentido en una meta manual de tienda o empresa.
+export const mostrarMias = (meta) => (meta.fuente ?? "manual") === "manual" && !["persona", "corporativo"].includes(meta.alcance);

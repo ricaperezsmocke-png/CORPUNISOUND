@@ -50,8 +50,8 @@ async function conServidor(t) {
   await new Promise(resolve => servidor.once('listening', resolve));
   t.after(async () => { servidor.closeAllConnections(); await new Promise(resolve => servidor.close(resolve)); });
   const base = `http://127.0.0.1:${servidor.address().port}`;
-  return (ruta, id, opciones = {}) => fetch(base + ruta, { ...opciones,
-    headers: { Authorization: `Bearer ${token(id)}`, 'Content-Type': 'application/json' } })
+  return (ruta, id, { token: propio, ...opciones } = {}) => fetch(base + ruta, { ...opciones,
+    headers: { Authorization: `Bearer ${propio || token(id)}`, 'Content-Type': 'application/json' } })
     .then(async r => ({ status: r.status, datos: await r.json().catch(() => ({})) }));
 }
 
@@ -375,4 +375,18 @@ test('junta: lunes pasado da 400 y la lectura trae nombres', async t => {
   assert.equal(v.datos.junta.por_nombre, 'Prueba 976');
   assert.equal(v.datos.compromisos[0].creado_por_nombre, 'Prueba 976');
   assert.equal((await pedir(`${JUNTA}?lunes=${pasado}`, 972)).status, 200, 'ver semanas pasadas sigue permitido');
+});
+
+test('junta: un token sin tienda valida recibe 403 al escribir, igual que al leer', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  for (const sucursal_id of [null, 0, 'abc']) {
+    const propio = firmarToken({ id: 976, rol_id: 976, sucursal_id });
+    const con = (ruta, datos) => pedir(ruta, 976, { ...POST(datos), token: propio });
+    assert.equal((await con(`${JUNTA}/compromisos`, compromisoBase())).status, 403, `crear ${sucursal_id}`);
+    assert.equal((await con(`${JUNTA}/compromisos/1/hecho`, {})).status, 403, `hecho ${sucursal_id}`);
+    assert.equal((await con(`${JUNTA}/compromisos/1/cancelar`, { motivo: 'Motivo' })).status, 403, `cancelar ${sucursal_id}`);
+    assert.equal((await con(`${JUNTA}/hecha`, { lunes: lunesJ })).status, 403, `hecha ${sucursal_id}`);
+  }
+  assert.equal(app.DB.pos.cinco_caminos.compromisos.length, 0);
 });

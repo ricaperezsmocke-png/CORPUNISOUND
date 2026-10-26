@@ -3,6 +3,7 @@
 const { validarPeriodo, finDePeriodo, ritmoEsperado } = require("./metasPeriodos");
 const { periodoSellado, fuenteDe } = require("./metasPersonalizadas");
 const { contarFuente } = require("./metasFuentes");
+const { esFuenteNumero } = require("./cincoCaminos/metaNumero");
 const { capturaParaRespuesta, validarParticipacion } = require("./metasCapturas");
 const { plantillaDelMes } = require("./objetivos");
 const { fechaLocal } = require("./fechas");
@@ -111,7 +112,9 @@ function detalleSellado(DB, meta) {
   return sello ? (sello.foto?.resultados || []).find((r) => r.clave === meta.clave)?.detalle || [] : null;
 }
 
-function avanceMeta(DB, meta, visor, ritmo, hoy) {
+function avanceMeta(DB, meta, visor, ritmoDelPeriodo, hoy) {
+  // Un promedio no se acumula con los días: una meta por número se compara siempre contra la meta completa.
+  const ritmo = esFuenteNumero(fuenteDe(meta)) ? 1 : ritmoDelPeriodo;
   const auto = conteoAutomatico(DB, meta, hoy);
   const resultado = resultadoRectificado(DB, meta, hoy);
   const pct = porcentaje(resultado, meta.valor_meta);

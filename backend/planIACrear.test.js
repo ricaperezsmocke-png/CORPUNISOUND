@@ -132,3 +132,14 @@ test("decisiones guardan alcance y vendedor final normalizado", () => {
   assert.equal(plan.decisiones[2].alcance, "base");
   assert.equal(plan.decisiones[2].vendedor_id, null);
 });
+
+test("no se crea una meta manual a partir de una meta por numero de cinco caminos", () => {
+  const DB = dbConPlan();
+  DB.pos.metas_personalizadas.push({ id: 9, clave: 9, vigente: true, nombre: "Con cliente", unidad: "%", prueba: "ninguna", valor_meta: 452,
+    fuente: "cinco_caminos:pct_con_cliente", alcance: "tienda", sucursal_id: 1, periodo: "semanal", inicio: "2026-09-07" });
+  DB.pos.planes_ia[0].propuesta.metas[0] = { indice: 0, accion: "meta:9", nombre: "Con cliente", unidad: "%", prueba: "ninguna", valor_meta: 400 };
+  assert.throws(() => validarPlan(DB, 1, todo("aceptar"), VICTOR), /cinco caminos/);
+  assert.equal(DB.pos.okrs.length, 0);
+  assert.equal(DB.pos.metas_personalizadas.length, 1);
+  assert.equal(DB.pos.planes_ia[0].estado, "borrador");
+});

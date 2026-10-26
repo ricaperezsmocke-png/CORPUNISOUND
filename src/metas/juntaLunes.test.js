@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   textoEstadoCompromiso, estadoCompromiso, textoIndicador, rangoFechaCompromiso, fechaCompromisoInicial, cuerpoCompromiso,
   cuerpoCancelar, cuerpoJuntaHecha, compromisoValido, puedeMarcarJunta, puedeEscribirJunta, queryJunta, esSemanaActual, puedeAgregarEnSemana,
+  mostrarAgregarCompromiso, mostrarMarcarJunta,
   textoJuntaHecha, textoRegistrado, opcionesSemanasJunta,
 } from "./juntaLunes.js";
 
@@ -104,4 +105,15 @@ test("opcionesSemanasJunta: la semana actual primero y luego las completas", () 
   const o = opcionesSemanasJunta("2026-10-28", 3);
   assert.deepEqual(o.map((x) => x.lunes), ["2026-10-26", "2026-10-19", "2026-10-12", "2026-10-05"]);
   assert.match(o[0].etiqueta, /^Esta semana/);
+});
+
+test("mostrarAgregarCompromiso: tambien con la junta ya marcada; Marcar junta hecha se esconde", () => {
+  const marcada = { junta: { por_id: 1 }, compromisos: [base] };
+  const abierta = { junta: null, compromisos: [base] };
+  assert.equal(mostrarAgregarCompromiso(true, marcada), true);
+  assert.equal(mostrarAgregarCompromiso(true, abierta), true);
+  assert.equal(mostrarAgregarCompromiso(false, abierta), false);
+  assert.equal(mostrarAgregarCompromiso(true, null), false);
+  assert.equal(mostrarMarcarJunta(true, marcada), false);
+  assert.equal(mostrarMarcarJunta(true, abierta), true);
 });

@@ -5,6 +5,10 @@ const { objetivoVigente } = require("./objetivos");
 const { listarElementos } = require("./objetivosCatalogos");
 const { estaActivo } = require("./vendedores");
 const { finDePeriodo } = require("./metasPeriodos");
+const { esFuenteNumero } = require("./cincoCaminos/metaNumero");
+
+// Las metas por número de los cinco caminos no suman capturas: su resultado sale del tablero y la IA vería un 0.
+const esManual = (m) => !esFuenteNumero(m.fuente);
 
 const MESES_HISTORIAL = 6;
 // Para comparar una cifra semanal o trimestral contra el historial mensual.
@@ -74,7 +78,7 @@ function armarDatosPlan(DB, { sucursal_id, periodo, inicio }, hoy) {
   const capturas = DB.pos.meta_capturas.filter((c) => !c.anulada && deTienda(c));
   const metas_anteriores = DB.pos.metas_personalizadas
     // Las metas de una sola persona no van: su resultado sería una cifra individual.
-    .filter((m) => m.vigente && m.alcance !== "persona" && finDePeriodo(m.periodo, m.inicio) < hoy && deTienda(m))
+    .filter((m) => m.vigente && esManual(m) && m.alcance !== "persona" && finDePeriodo(m.periodo, m.inicio) < hoy && deTienda(m))
     .sort((a, b) => b.inicio.localeCompare(a.inicio)).slice(0, 20)
     .map((m) => ({ accion: `meta:${m.clave}`, nombre: quitarNombres(DB, m.nombre), unidad: quitarNombres(DB, m.unidad), periodo: m.periodo,
       inicio: m.inicio, fin: finDePeriodo(m.periodo, m.inicio), valor_meta: m.valor_meta,
@@ -93,7 +97,7 @@ function armarDatosPlan(DB, { sucursal_id, periodo, inicio }, hoy) {
     actividades_por_mes, metas_anteriores,
     marcas: listarElementos(DB, "marcas").map((e) => quitarNombres(DB, e.nombre)).slice(0, 60),
     marcas_vendidas: marcasVendidas(DB, meses, deTienda),
-    metas_del_periodo: DB.pos.metas_personalizadas.filter((m) => m.vigente && m.periodo === periodo && m.inicio === inicio &&
+    metas_del_periodo: DB.pos.metas_personalizadas.filter((m) => m.vigente && esManual(m) && m.periodo === periodo && m.inicio === inicio &&
       (sucursal_id === null ? m.alcance === "empresa" : m.alcance === "tienda" && Number(m.sucursal_id) === sucursal_id))
       .map((m) => ({ nombre: quitarNombres(DB, m.nombre), unidad: quitarNombres(DB, m.unidad), valor_meta: m.valor_meta })),
   };
@@ -108,7 +112,7 @@ function armarDatosPlan(DB, { sucursal_id, periodo, inicio }, hoy) {
     maximos[accion] = Math.max(maximos[accion] || 0, Math.round(m.resultado / FACTOR_PERIODO[m.periodo]));
   }
   for (const c of catalogo) {
-    const original = DB.pos.metas_personalizadas.find((m) => m.vigente && `meta:${m.clave}` === c.accion);
+    const original = DB.pos.metas_personalizadas.find((m) => m.vigente && esManual(m) && `meta:${m.clave}` === c.accion);
     if (original) { c.prueba = original.prueba; c.unidad = quitarNombres(DB, original.unidad); }
     c.maximo_permitido = maximos[c.accion] > 0 ? Math.ceil(3 * maximos[c.accion] * FACTOR_PERIODO[periodo]) : null;
   }

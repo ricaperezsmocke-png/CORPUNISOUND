@@ -75,6 +75,11 @@ function validarCifra(valor, fuente = "manual") {
   if (!Number.isInteger(valor) || valor < 1 || valor > 1000000) {
     throw new Error("La cifra meta debe ser un entero entre 1 y 1,000,000");
   }
+  return validarTope(valor, fuente);
+}
+
+// Tope de la escala del número (1000 para décimas de punto); lo comparten crear, editar y rectificar.
+function validarTope(valor, fuente) {
   if (esFuenteNumero(fuente) && valor > NUMEROS_META[numeroDeFuente(fuente)].maximo) {
     throw new Error(`La cifra meta de este número no puede pasar de ${NUMEROS_META[numeroDeFuente(fuente)].maximo}`);
   }
@@ -211,5 +216,5 @@ function retirarMeta(DB, clave, motivo, usuario) {
 
 module.exports = {
   ALCANCES, PRUEBAS, fuenteDe, periodoSellado, okrVigente, metaVigente, historial,
-  crearOkr, editarOkr, retirarOkr, crearMeta, editarMeta, retirarMeta, motivoObligatorio,
+  crearOkr, editarOkr, retirarOkr, crearMeta, editarMeta, retirarMeta, motivoObligatorio, validarTope,
 };

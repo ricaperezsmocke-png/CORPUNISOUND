@@ -65,4 +65,21 @@ function valorDelPeriodo(sqlite, DB, { sucursal_id, numero, periodo, inicio, hoy
   };
 }
 
-module.exports = { NUMEROS_META, PREFIJO, esFuenteNumero, numeroDeFuente, valorDelPeriodo };
+// Primer día en que el periodo se puede sellar sin dejar fuera su última semana: el día siguiente al domingo en que
+// cierra la semana del último lunes del periodo. Sin lunes en el periodo: null.
+function primerDiaParaSellar(periodo, inicio) {
+  const lunes = lunesDelPeriodo(periodo, inicio);
+  return lunes.length ? sumarDias(lunes[lunes.length - 1], 7) : null;
+}
+
+// Cifra en la unidad que entiende la gente: 452 -> "45.2 %", 85000 -> "$850.00", 185 -> "1.85", 12 -> "12".
+function formatearValor(numero, entero) {
+  const def = NUMEROS_META[numero];
+  if (!def) throw new Error('El número de los cinco caminos no es válido');
+  if (def.escala === 'decimas') return `${(entero / 10).toFixed(1)} %`;
+  if (def.escala === 'centavos') return `$${(entero / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (def.escala === 'centesimas') return (entero / 100).toFixed(2);
+  return String(entero);
+}
+
+module.exports = { NUMEROS_META, PREFIJO, esFuenteNumero, numeroDeFuente, valorDelPeriodo, primerDiaParaSellar, formatearValor };

@@ -2,7 +2,7 @@
 // y cuándo. Lo que no tiene usuario_id no se le atribuye a nadie. Cada renglón cuenta una vez por su clave.
 const { finDePeriodo } = require("./metasPeriodos");
 const { fechaLocal } = require("./fechas");
-const { NUMEROS_META, PREFIJO, esFuenteNumero, numeroDeFuente, valorDelPeriodo } = require("./cincoCaminos/metaNumero");
+const { NUMEROS_META, PREFIJO, esFuenteNumero, numeroDeFuente, valorDelPeriodo, formatearValor } = require("./cincoCaminos/metaNumero");
 
 const HORAS_SEGUIMIENTO = 48;
 const FUENTES_NUMERO = Object.keys(NUMEROS_META).map((n) => `${PREFIJO}${n}`);
@@ -117,7 +117,9 @@ function cincoCaminos(DB, meta, hoy) {
   if (!conexion) return { valor: null, detalle: [], aviso: SIN_SICAR };
   const r = valorDelPeriodo(conexion, DB, { sucursal_id: meta.sucursal_id, numero: numeroDeFuente(meta.fuente),
     periodo: meta.periodo, inicio: meta.inicio, hoy });
-  const detalle = r.semanas.map((s) => ({ clave: `semana:${s.lunes}`, fecha: s.lunes, texto: `Semana del ${s.lunes}: ${s.valor}` }));
+  const numero = numeroDeFuente(meta.fuente);
+  const detalle = r.semanas.map((s) => ({ clave: `semana:${s.lunes}`, fecha: s.lunes,
+    texto: `Semana del ${s.lunes}: ${formatearValor(numero, s.valor)}` }));
   return { valor: r.valor, detalle, aviso: null };
 }
 

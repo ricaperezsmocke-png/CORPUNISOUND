@@ -48,6 +48,9 @@ export const cuerpoCompromiso = (form, lunes, esActual = true) => ({
 export const cuerpoCancelar = (motivo) => ({ motivo: motivo.trim() });
 export const cuerpoJuntaHecha = (lunes) => ({ lunes });
 
+// El servidor acepta compromisos en la semana actual aunque la junta ya esté marcada; marcarla otra vez no.
+export const mostrarAgregarCompromiso = (puedeAgregar, datos) => Boolean(puedeAgregar && datos);
+export const mostrarMarcarJunta = (puedeAgregar, datos) => Boolean(puedeAgregar && datos && !datos.junta);
 export const puedeMarcarJunta = ({ compromisos, junta }) => !junta && compromisos.some((c) => !c.cancelado);
 
 // El servidor escribe siempre en la tienda del token; quien ve otra tienda con "ver todas" solo la mira.

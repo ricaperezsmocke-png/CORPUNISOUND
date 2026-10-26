@@ -112,3 +112,12 @@ test("textoFaltan: sin dato no inventa faltantes y las cifras salen en su unidad
   assert.equal(textoFaltan({ fuente: PCT, resultado: 400, valor_meta: 452, unidad: "%" }, "2026-10-18", "2026-10-19"), "Faltaron 5.2 %");
   assert.equal(textoFaltan({ fuente: PCT, resultado: 460, valor_meta: 452, unidad: "%" }, "2026-10-18", "2026-10-19"), "Meta cumplida");
 });
+
+test("mostrarMias: solo en metas manuales de tienda o empresa", async () => {
+  const { mostrarMias } = await import("./avanceMetas.js");
+  assert.equal(mostrarMias({ alcance: "tienda", fuente: "manual" }), true);
+  assert.equal(mostrarMias({ alcance: "tienda" }), true);
+  assert.equal(mostrarMias({ alcance: "tienda", fuente: "cinco_caminos:pct_con_cliente" }), false);
+  assert.equal(mostrarMias({ alcance: "persona", fuente: "manual" }), false);
+  assert.equal(mostrarMias({ alcance: "corporativo", fuente: "manual" }), false);
+});

@@ -4,7 +4,7 @@ import { leer } from "../objetivos/datos";
 import { contadorDePeticiones } from "../sicar/cortesSicar";
 import {
   compromisoValido, cuerpoCancelar, cuerpoCompromiso, cuerpoJuntaHecha, esSemanaActual, estadoCompromiso, fechaCompromisoInicial,
-  opcionesSemanasJunta, puedeAgregarEnSemana, puedeEscribirJunta, puedeMarcarJunta, queryJunta, rangoFechaCompromiso, textoEstadoCompromiso,
+  opcionesSemanasJunta, mostrarAgregarCompromiso, mostrarMarcarJunta, puedeAgregarEnSemana, puedeEscribirJunta, puedeMarcarJunta, queryJunta, rangoFechaCompromiso, textoEstadoCompromiso,
   textoJuntaHecha, textoRegistrado,
 } from "./juntaLunes.js";
 import { diaDeLaTienda } from "./tableroCincoCaminos.js";
@@ -149,10 +149,10 @@ export default function JuntaLunes({ sucursal, permisos = [], usuario = null, al
             {semanas.map((s) => <option key={s.lunes} value={s.lunes}>{s.etiqueta}</option>)}
           </select>
         </label>
-        {puedeAgregar && datos && !datos.junta && (
+        {mostrarAgregarCompromiso(puedeAgregar, datos) && (
           <button type="button" className={BOTON} onClick={() => { setAviso(""); setDialogo({ tipo: "nuevo" }); }}>Agregar compromiso</button>
         )}
-        {puedeAgregar && datos && !datos.junta && (
+        {mostrarMarcarJunta(puedeAgregar, datos) && (
           <button type="button" className={BOTON_PRINCIPAL} disabled={enviando || !puedeMarcarJunta(datos)}
             title={puedeMarcarJunta(datos) ? undefined : "Agrega al menos un compromiso vigente"}
             onClick={() => accion("/cinco-caminos/junta/hecha", cuerpoJuntaHecha(lunes), "Junta marcada como hecha.", "No se pudo marcar la junta")}>

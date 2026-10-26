@@ -195,3 +195,80 @@ test('sellar con una meta cinco caminos sin dato guarda resultado null (no 0) y 
   const o = tablero(DB, visor, SEM, '2026-10-20').okrs[0];
   assert.equal(o.porcentaje, 100, 'promedio solo de la meta con dato');
 });
+
+test('semaforo: el dia 15 con 25 % contra una meta de 45.2 % NO sale verde (un promedio no se acumula con los dias)', t => {
+  const { DB, semana } = preparar(t);
+  semana('2026-10-05', 10); // 25.0 % = 250
+  M.crearMeta(DB, { nombre: 'Con cliente', prueba: 'ninguna', valor_meta: 452, ...OCT, alcance: 'tienda', sucursal_id: 1,
+    fuente: 'cinco_caminos:pct_con_cliente' }, { id: 1, nombre: 'Victor' });
+  const visor = { jefatura: true, verTodas: true, sucursalId: 1, vendedor_id: null, usuario_id: 1 };
+  const a = tablero(DB, visor, OCT, '2026-10-15').sueltas[0];
+  assert.equal(a.resultado, 250);
+  assert.notEqual(a.semaforo, 'verde');
+  assert.equal(a.semaforo, 'rojo');
+});
+
+test('detalle de lo que conto: cada semana sale en su unidad legible, no en el entero escalado', t => {
+  const { DB, semana, mostrador } = preparar(t);
+  const meta = numero => ({ fuente: `cinco_caminos:${numero}`, sucursal_id: 1, ...OCT });
+  semana('2026-10-05', 10); // 25.0 %
+  const textos = numero => contarFuente(DB, meta(numero), '2026-10-20').detalle.map(d => d.texto);
+  assert.deepEqual(textos('pct_con_cliente'), ['Semana del 2026-10-05: 25.0 %']);
+  assert.deepEqual(textos('ticket_promedio_centavos'), ['Semana del 2026-10-05: $100.00']);
+  assert.deepEqual(textos('clientes_nuevos'), ['Semana del 2026-10-05: 10']);
+  assert.deepEqual(textos('articulos_por_ticket'), ['Semana del 2026-10-05: 0.00']);
+  mostrador('2026-10-12', 0);
+  const { formatearValor } = require('./metaNumero');
+  assert.equal(formatearValor('pct_con_cliente', 452), '45.2 %');
+  assert.equal(formatearValor('ticket_promedio_centavos', 85000), '$850.00');
+  assert.equal(formatearValor('ticket_promedio_centavos', 123456), '$1,234.56');
+  assert.equal(formatearValor('articulos_por_ticket', 185), '1.85');
+  assert.equal(formatearValor('clientes_nuevos', 12), '12');
+});
+
+test('sello: se niega mientras la ultima semana de una meta cinco caminos siga abierta, y deja pasar a las manuales', t => {
+  const { previoSello, sellarPeriodo } = require('../metasSellos');
+  const { DB, semana } = preparar(t);
+  const usuario = { id: 1, nombre: 'Victor' };
+  semana('2026-10-26', 30);
+  M.crearMeta(DB, { nombre: 'Con cliente', prueba: 'ninguna', valor_meta: 400, ...OCT, alcance: 'tienda', sucursal_id: 1,
+    fuente: 'cinco_caminos:pct_con_cliente' }, usuario);
+  // Octubre termina el sabado 31; su ultima semana (lunes 26) cierra el domingo 1 de noviembre.
+  const msg = /última semana todavía abierta; se puede sellar a partir del 2026-11-02/;
+  assert.throws(() => previoSello(DB, OCT, '2026-11-01'), msg);
+  assert.throws(() => sellarPeriodo(DB, { ...OCT, huella: 'x' }, usuario, '2026-11-01'), msg);
+  const previo = previoSello(DB, OCT, '2026-11-02');
+  const sello = sellarPeriodo(DB, { ...OCT, huella: previo.huella }, usuario, '2026-11-02');
+  assert.equal(sello.foto.resultados[0].resultado, 500);
+  // Una meta manual no cambia: el mes se sella desde el dia siguiente a su fin.
+  const DB2 = { pos: { sucursales: [{ id: 1 }], vendedores: [], okrs: [], metas_personalizadas: [], meta_capturas: [], meta_sellos: [] } };
+  M.crearMeta(DB2, { nombre: 'Videos', unidad: 'videos', prueba: 'ninguna', valor_meta: 4, ...OCT, alcance: 'tienda', sucursal_id: 1 }, usuario);
+  assert.doesNotThrow(() => previoSello(DB2, OCT, '2026-11-01'));
+});
+
+test('sello: una meta cinco caminos sin dato guarda resultado null, no 0', t => {
+  const { previoSello, sellarPeriodo } = require('../metasSellos');
+  const { DB } = preparar(t);
+  const usuario = { id: 1, nombre: 'Victor' };
+  M.crearMeta(DB, { nombre: 'Con cliente', prueba: 'ninguna', valor_meta: 400, ...OCT, alcance: 'tienda', sucursal_id: 1,
+    fuente: 'cinco_caminos:pct_con_cliente' }, usuario);
+  const previo = previoSello(DB, OCT, '2026-11-02');
+  assert.strictEqual(previo.resultados[0].resultado, null);
+  const sello = sellarPeriodo(DB, { ...OCT, huella: previo.huella }, usuario, '2026-11-02');
+  assert.strictEqual(sello.foto.resultados[0].resultado, null);
+  assert.strictEqual(sello.foto.resultados[0].porcentaje, null);
+});
+
+test('rectificar una meta cinco caminos aplica el tope de su escala', t => {
+  const { previoSello, sellarPeriodo, rectificarSello } = require('../metasSellos');
+  const { DB } = preparar(t);
+  const usuario = { id: 1, nombre: 'Victor' };
+  M.crearMeta(DB, { nombre: 'Con cliente', prueba: 'ninguna', valor_meta: 400, ...OCT, alcance: 'tienda', sucursal_id: 1,
+    fuente: 'cinco_caminos:pct_con_cliente' }, usuario);
+  const previo = previoSello(DB, OCT, '2026-11-02');
+  const sello = sellarPeriodo(DB, { ...OCT, huella: previo.huella }, usuario, '2026-11-02');
+  const clave = sello.foto.resultados[0].clave;
+  assert.throws(() => rectificarSello(DB, sello.id, { meta_clave: clave, valor_nuevo: 1001, motivo: 'Correccion' }, usuario), /no puede pasar de 1000/);
+  assert.equal(sello.rectificaciones.length, 0);
+  assert.doesNotThrow(() => rectificarSello(DB, sello.id, { meta_clave: clave, valor_nuevo: 452, motivo: 'Correccion' }, usuario));
+});

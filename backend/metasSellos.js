@@ -2,7 +2,8 @@
 // el Administrador lo sella; después nada cambia. Rectificar corrige el RESULTADO con motivo y deja
 // el sellado intacto; la cifra meta nunca se rectifica (sería maquillar el cumplimiento).
 const { validarPeriodo, finDePeriodo } = require("./metasPeriodos");
-const { periodoSellado, motivoObligatorio, fuenteDe } = require("./metasPersonalizadas");
+const { periodoSellado, motivoObligatorio, fuenteDe, validarTope } = require("./metasPersonalizadas");
+const { esFuenteNumero, primerDiaParaSellar } = require("./cincoCaminos/metaNumero");
 const { contarFuente } = require("./metasFuentes");
 const { resultadoMeta, resultadoRectificado, porcentaje } = require("./metasAvance");
 const { createHash } = require("node:crypto");
@@ -15,6 +16,11 @@ function previoSello(DB, { periodo, inicio }, hoy) {
   if (hoy <= fin) throw new Error("El periodo todavía no termina; se sella a partir del día siguiente a su fin");
   if (periodoSellado(DB, periodo, inicio)) throw new Error("El periodo ya está sellado");
   const metas = DB.pos.metas_personalizadas.filter((m) => m.vigente && m.periodo === periodo && m.inicio === inicio);
+  // La última semana de una meta por número cierra su domingo; sellar antes la dejaría fuera para siempre.
+  const desde = primerDiaParaSellar(periodo, inicio);
+  if (desde && hoy < desde && metas.some((m) => esFuenteNumero(fuenteDe(m)))) {
+    throw new Error(`Este periodo tiene metas de cinco caminos con su última semana todavía abierta; se puede sellar a partir del ${desde}`);
+  }
   const previo = {
     periodo, inicio, fin,
     resultados: metas.map((m) => {
@@ -82,6 +88,7 @@ function rectificarSello(DB, selloId, { meta_clave, valor_nuevo, motivo, campo }
   if (!Number.isInteger(valor_nuevo) || valor_nuevo < 0) throw new Error("El resultado debe ser un entero mayor o igual a cero");
   const limpio = motivoObligatorio(motivo, "Rectificar un sello");
   const meta = sello.foto.metas.find((m) => m.clave === sellado.clave);
+  validarTope(valor_nuevo, fuenteDe(meta));
   const rectificacion = { id: siguienteId(sello.rectificaciones), meta_clave: sellado.clave,
     valor_anterior: resultadoRectificado(DB, meta), valor_nuevo, motivo: limpio,
     por_id: usuario?.id ?? null, por_nombre: usuario?.nombre || "desconocido", en: new Date().toISOString() };
