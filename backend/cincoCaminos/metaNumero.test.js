@@ -158,3 +158,40 @@ test('avance: sin dato no tiene porcentaje ni semaforo; con dato compara contra 
   assert.equal(a.porcentaje, 100);
   assert.equal(a.sin_dato, false);
 });
+
+test('esFuenteNumero no acepta nombres heredados de Object.prototype', () => {
+  const { esFuenteNumero } = require('./metaNumero');
+  for (const n of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) assert.equal(esFuenteNumero(`cinco_caminos:${n}`), false, n);
+  assert.equal(esFuenteNumero('cinco_caminos:pct_con_cliente'), true);
+});
+
+test('el hoy del tablero llega hasta la fuente: semana sin terminar es sin dato aunque el reloj real diga otra cosa', t => {
+  const { DB, semana } = preparar(t);
+  semana('2026-10-12', 30);
+  M.crearMeta(DB, { nombre: 'Con cliente', prueba: 'ninguna', valor_meta: 400, periodo: 'semanal', inicio: '2026-10-12',
+    alcance: 'tienda', sucursal_id: 1, fuente: 'cinco_caminos:pct_con_cliente' }, { id: 1, nombre: 'Victor' });
+  const visor = { jefatura: true, verTodas: true, sucursalId: 1, vendedor_id: null, usuario_id: 1 };
+  const ver = hoy => tablero(DB, visor, { periodo: 'semanal', inicio: '2026-10-12' }, hoy).sueltas[0];
+  assert.equal(ver('2026-10-15').resultado, null, 'el domingo de esa semana todavia no pasa');
+  assert.equal(ver('2026-10-26').resultado, 500);
+});
+
+test('sellar con una meta cinco caminos sin dato guarda resultado null (no 0) y el OKR no la cuenta', t => {
+  const { previoSello, sellarPeriodo } = require('../metasSellos');
+  const { DB, semana } = preparar(t);
+  semana('2026-10-12', 30);
+  const SEM = { periodo: 'semanal', inicio: '2026-10-12' };
+  const usuario = { id: 1, nombre: 'Victor' };
+  const okr = M.crearOkr(DB, { titulo: 'Objetivo', ...SEM, alcance: 'tienda', sucursal_id: 1 }, usuario);
+  const base = { okr_clave: okr.clave, prueba: 'ninguna', alcance: 'tienda', sucursal_id: 1 };
+  M.crearMeta(DB, { ...base, nombre: 'Con cliente', valor_meta: 400, fuente: 'cinco_caminos:pct_con_cliente' }, usuario);
+  M.crearMeta(DB, { ...base, nombre: 'Accesorio', valor_meta: 5, fuente: 'cinco_caminos:pct_instrumento_con_accesorio' }, usuario);
+  const previo = previoSello(DB, SEM, '2026-10-20');
+  const sello = sellarPeriodo(DB, { ...SEM, huella: previo.huella }, usuario, '2026-10-20');
+  const sinDato = sello.foto.resultados.find(r => r.valor_meta === 5);
+  assert.strictEqual(sinDato.resultado, null);
+  assert.strictEqual(sinDato.porcentaje, null);
+  const visor = { jefatura: true, verTodas: true, sucursalId: 1, vendedor_id: null, usuario_id: 1 };
+  const o = tablero(DB, visor, SEM, '2026-10-20').okrs[0];
+  assert.equal(o.porcentaje, 100, 'promedio solo de la meta con dato');
+});

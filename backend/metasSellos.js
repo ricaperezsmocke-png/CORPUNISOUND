@@ -19,9 +19,9 @@ function previoSello(DB, { periodo, inicio }, hoy) {
     periodo, inicio, fin,
     resultados: metas.map((m) => {
       // Una fuente que no se puede leer ahora no se sella en cero: sería un incumplimiento inventado.
-      const auto = fuenteDe(m) === "manual" ? null : contarFuente(DB, m);
+      const auto = fuenteDe(m) === "manual" ? null : contarFuente(DB, m, hoy);
       if (auto?.aviso) throw new Error(`No se puede sellar "${m.nombre}": ${auto.aviso}`);
-      const resultado = auto ? auto.valor : resultadoMeta(DB, m);
+      const resultado = auto ? auto.valor : resultadoMeta(DB, m, hoy);
       return { clave: m.clave, nombre: m.nombre, alcance: m.alcance, sucursal_id: m.sucursal_id, vendedor_id: m.vendedor_id,
         usuario_id: m.usuario_id ?? null, fuente: fuenteDe(m), detalle: auto ? auto.detalle : null,
         valor_meta: m.valor_meta, resultado, porcentaje: porcentaje(resultado, m.valor_meta) };

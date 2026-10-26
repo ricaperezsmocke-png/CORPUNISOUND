@@ -28,7 +28,7 @@ const NUMEROS_META = {
     etiqueta: 'Artículos por ticket', leer: s => s.articulos_por_ticket },
 };
 
-const esFuenteNumero = fuente => typeof fuente === 'string' && fuente.startsWith(PREFIJO) && fuente.slice(PREFIJO.length) in NUMEROS_META;
+const esFuenteNumero = fuente => typeof fuente === 'string' && fuente.startsWith(PREFIJO) && Object.hasOwn(NUMEROS_META, fuente.slice(PREFIJO.length));
 const numeroDeFuente = fuente => fuente.slice(PREFIJO.length);
 
 // Lunes de las semanas que empiezan dentro del periodo.

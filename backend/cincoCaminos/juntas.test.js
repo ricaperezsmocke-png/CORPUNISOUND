@@ -117,3 +117,59 @@ test('vista: compromisos de la semana de esa tienda y su junta', () => {
   assert.equal(v.junta, null);
   assert.equal(v.indicador.semanas, 8);
 });
+
+test('solo se registra la junta de esta semana: lunes pasado o de hace 5 anios dan 400 y el indicador no cambia', () => {
+  const db = nuevaDB();
+  J.asegurar(db);
+  const antes = J.indicador(db, 1, HOY);
+  for (const lunes of ['2026-10-19', '2021-10-25', '2026-11-02']) {
+    assert.throws(() => J.crearCompromiso(db, cuerpo({ lunes, fecha_compromiso: '2026-10-30' }), ctx()),
+      e => e.status === 400 && /Solo se registra la junta de esta semana/.test(e.message), lunes);
+    assert.throws(() => J.marcarJunta(db, lunes, ctx()), e => e.status === 400 && /Solo se registra la junta de esta semana/.test(e.message), lunes);
+  }
+  assert.equal(db.pos.cinco_caminos.juntas.length, 0);
+  assert.deepEqual(J.indicador(db, 1, HOY), antes);
+  assert.equal(J.crearCompromiso(db, cuerpo({ lunes: LUNES }), ctx()).lunes, LUNES);
+});
+
+test('hecho y cancelar siguen permitidos sobre compromisos de semanas pasadas', () => {
+  const db = nuevaDB();
+  const viejo = J.crearCompromiso(db, cuerpo({ fecha_compromiso: '2026-10-16' }), ctx({ hoy: '2026-10-14' }));
+  const otro = J.crearCompromiso(db, cuerpo({ fecha_compromiso: '2026-10-16' }), ctx({ hoy: '2026-10-14' }));
+  assert.equal(viejo.lunes, '2026-10-12');
+  assert.ok(J.marcarHecho(db, viejo.id, ctx()).hecho);
+  assert.ok(J.cancelarCompromiso(db, otro.id, 'Ya no aplica', ctx()).cancelado);
+});
+
+test('no se cancela el ultimo compromiso vigente de una semana con la junta ya marcada', () => {
+  const db = nuevaDB();
+  const a = J.crearCompromiso(db, cuerpo(), ctx());
+  const b = J.crearCompromiso(db, cuerpo(), ctx());
+  J.marcarJunta(db, LUNES, ctx());
+  assert.ok(J.cancelarCompromiso(db, a.id, 'Ya no aplica', ctx()).cancelado, 'queda otro vigente');
+  assert.throws(() => J.cancelarCompromiso(db, b.id, 'Ya no aplica', ctx()),
+    e => e.status === 409 && /La junta ya se marcó con este compromiso; no se puede cancelar el último/.test(e.message));
+  assert.equal(db.pos.cinco_caminos.compromisos.find(x => x.id === b.id).cancelado, null);
+  const db2 = nuevaDB();
+  const c = J.crearCompromiso(db2, cuerpo(), ctx());
+  assert.ok(J.cancelarCompromiso(db2, c.id, 'Ya no aplica', ctx()).cancelado, 'sin junta marcada si se puede');
+});
+
+test('vista agrega nombres al leer, sin guardarlos; usuario inexistente queda senalado', () => {
+  const db = nuevaDB();
+  db.admin = { usuarios: [{ id: 7, nombre: 'Ana' }, { id: 8, nombre: 'Beto' }] };
+  const a = J.crearCompromiso(db, cuerpo(), ctx());
+  const b = J.crearCompromiso(db, cuerpo(), ctx({ usuarioId: 8 }));
+  J.crearCompromiso(db, cuerpo(), ctx({ usuarioId: 99 }));
+  J.cancelarCompromiso(db, b.id, 'Ya no aplica', ctx({ usuarioId: 8 }));
+  J.marcarHecho(db, a.id, ctx({ usuarioNombre: undefined }));
+  J.marcarJunta(db, LUNES, ctx({ usuarioId: 8 }));
+  const v = J.vista(db, 1, LUNES, HOY);
+  assert.equal(v.junta.por_nombre, 'Beto');
+  assert.equal(v.compromisos[0].creado_por_nombre, 'Ana');
+  assert.equal(v.compromisos[0].hecho.por_nombre, 'Ana');
+  assert.equal(v.compromisos[1].cancelado.nombre, 'Beto');
+  assert.equal(v.compromisos[2].creado_por_nombre, 'Usuario #99 (ya no existe)');
+  assert.equal(JSON.stringify(db.pos.cinco_caminos).includes('Beto'), false, 'los nombres no se guardan');
+  assert.equal(db.pos.cinco_caminos.juntas[0].por_nombre, undefined);
+});

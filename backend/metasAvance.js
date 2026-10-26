@@ -11,10 +11,10 @@ const { fechaLocal } = require("./fechas");
 const validas = (DB, meta) => DB.pos.meta_capturas.filter((c) => c.meta_clave === meta.clave && !c.anulada);
 
 // Una meta automática no suma capturas: su resultado lo da la fuente (spec 2026-10-22 §4.3).
-const conteoAutomatico = (DB, meta) => (fuenteDe(meta) === "manual" ? null : contarFuente(DB, meta));
+const conteoAutomatico = (DB, meta, hoy) => (fuenteDe(meta) === "manual" ? null : contarFuente(DB, meta, hoy));
 
-function resultadoMeta(DB, meta) {
-  const auto = conteoAutomatico(DB, meta);
+function resultadoMeta(DB, meta, hoy) {
+  const auto = conteoAutomatico(DB, meta, hoy);
   if (auto) return auto.valor;
   return validas(DB, meta).reduce((suma, c) => suma + c.cantidad, 0);
 }
@@ -37,13 +37,13 @@ function selloDe(DB, periodo, inicio) {
   return (DB.pos.meta_sellos || []).find((s) => s.periodo === periodo && s.inicio === inicio) || null;
 }
 
-function resultadoRectificado(DB, meta) {
+function resultadoRectificado(DB, meta, hoy) {
   const sello = selloDe(DB, meta.periodo, meta.inicio);
-  if (!sello) return resultadoMeta(DB, meta);
+  if (!sello) return resultadoMeta(DB, meta, hoy);
   const rectificaciones = (sello.rectificaciones || []).filter((r) => r.meta_clave === meta.clave);
   if (rectificaciones.length) return rectificaciones.at(-1).valor_nuevo;
   const sellado = (sello.foto?.resultados || []).find((r) => r.clave === meta.clave);
-  return sellado ? sellado.resultado : resultadoMeta(DB, meta);
+  return sellado ? sellado.resultado : resultadoMeta(DB, meta, hoy);
 }
 
 function participoEnTienda(DB, meta, vendedor_id) {
@@ -112,8 +112,8 @@ function detalleSellado(DB, meta) {
 }
 
 function avanceMeta(DB, meta, visor, ritmo, hoy) {
-  const auto = conteoAutomatico(DB, meta);
-  const resultado = resultadoRectificado(DB, meta);
+  const auto = conteoAutomatico(DB, meta, hoy);
+  const resultado = resultadoRectificado(DB, meta, hoy);
   const pct = porcentaje(resultado, meta.valor_meta);
   const capturas = validas(DB, meta);
   const avance = {

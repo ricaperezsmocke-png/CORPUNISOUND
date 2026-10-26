@@ -351,3 +351,28 @@ test('junta: el indicador cuenta con huecos y no hay ruta para editar el texto',
   }
   assert.equal(app.DB.pos.cinco_caminos.compromisos.find(x => x.id === c.id).texto, c.texto);
 });
+
+test('junta: un rol con "ver todas" pero sin permiso de marcar recibe 403 al escribir', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  assert.equal((await pedir(`${JUNTA}?lunes=${lunesJ}`, 973)).status, 200);
+  assert.equal((await pedir(`${JUNTA}/compromisos`, 973, POST(compromisoBase()))).status, 403);
+  assert.equal((await pedir(`${JUNTA}/compromisos/1/hecho`, 973, POST({}))).status, 403);
+  assert.equal((await pedir(`${JUNTA}/compromisos/1/cancelar`, 973, POST({ motivo: 'Motivo' }))).status, 403);
+  assert.equal((await pedir(`${JUNTA}/hecha`, 973, POST({ lunes: lunesJ }))).status, 403);
+  assert.equal(app.DB.pos.cinco_caminos.compromisos.length, 0);
+});
+
+test('junta: lunes pasado da 400 y la lectura trae nombres', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  const pasado = sumarDias(lunesJ, -7);
+  assert.equal((await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase({ lunes: pasado, fecha_compromiso: lunesJ })))).status, 400);
+  assert.equal((await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: pasado }))).status, 400);
+  await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase()));
+  await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: lunesJ }));
+  const v = await pedir(`${JUNTA}?lunes=${lunesJ}`, 972);
+  assert.equal(v.datos.junta.por_nombre, 'Prueba 976');
+  assert.equal(v.datos.compromisos[0].creado_por_nombre, 'Prueba 976');
+  assert.equal((await pedir(`${JUNTA}?lunes=${pasado}`, 972)).status, 200, 'ver semanas pasadas sigue permitido');
+});
