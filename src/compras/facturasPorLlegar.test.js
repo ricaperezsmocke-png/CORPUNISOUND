@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   textoEspera, nombreEstado, formatoCentavos, motivoValido, puedeRegistrar, resumenFacturas, fechaCorta, archivoXmlValido,
-  mensajeResultado,
+  mensajeResultado, textoTotal, textoMonedaProhibida, resumenProhibidas,
 } from "./facturasPorLlegar.js";
 
 test("textoEspera cuenta dias solo mientras la factura esta por llegar", () => {
@@ -60,4 +60,22 @@ test("mensajeResultado resume cargas de varios archivos", () => {
   const r = mensajeResultado([{ nombre: "a.xml", ok: true }, { nombre: "b.xml", ok: false, error: "Esa factura ya está registrada." }]);
   assert.equal(r.ok, 1);
   assert.deepEqual(r.errores, ["b.xml: Esa factura ya está registrada."]);
+});
+
+test("textoTotal agrega la moneda solo si no es MXN", () => {
+  assert.equal(textoTotal({ total_centavos: 100000, moneda: "USD" }), "$1,000.00 USD");
+  assert.equal(textoTotal({ total_centavos: 100000, moneda: "MXN" }), "$1,000.00");
+  assert.equal(textoTotal({ total_centavos: 100000 }), "$1,000.00");
+});
+
+test("textoMonedaProhibida y resumenProhibidas", () => {
+  assert.equal(textoMonedaProhibida({ moneda: "MXN", moneda_prohibida: false }), "");
+  assert.equal(
+    textoMonedaProhibida({ moneda: "USD", moneda_prohibida: true }),
+    "Factura en USD: las compras en moneda extranjera están prohibidas. Revisar con quién la autorizó.",
+  );
+  assert.equal(resumenProhibidas({ prohibidas: 0 }), "");
+  assert.equal(resumenProhibidas(null), "");
+  assert.equal(resumenProhibidas({ prohibidas: 1 }), "1 factura en moneda distinta de MXN (prohibida).");
+  assert.equal(resumenProhibidas({ prohibidas: 3 }), "3 facturas en moneda distinta de MXN (prohibida).");
 });

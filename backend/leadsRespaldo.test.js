@@ -312,7 +312,7 @@ test('respaldo viejo de 45 tablas (bandeja con mostrador, sin traspasos ni factu
   for (const tabla of NUEVAS) delete viejo.conteos[tabla];
   viejo.trozos = viejo.trozos.filter(c => !NUEVAS.includes(c.tabla));
   assert.equal(Object.keys(viejo.conteos).length, 45);
-  g.sqlite.exec(`INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Prov', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL);
+  g.sqlite.exec(`INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Prov', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL, 'MXN', NULL);
     INSERT INTO facturas_por_llegar_historial VALUES (1, 7, 'alta', 'Ana', 'hoy', NULL)`);
   s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
   const p = await s.prepararRestauracionSicar(g.repo, f.drive, viejo);
@@ -325,7 +325,7 @@ test('respaldo viejo de 45 tablas (bandeja con mostrador, sin traspasos ni factu
 test('respaldo nuevo de 51 tablas (con bandeja) conserva las facturas por llegar', async t => {
   const f = conBandeja(t), g = preparar(t), s = api();
   inicializarPersistenciaCentroLeads(g.sqlite);
-  f.sqlite.exec(`INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Prov', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL);
+  f.sqlite.exec(`INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Prov', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL, 'MXN', NULL);
     INSERT INTO facturas_por_llegar_historial VALUES (1, 7, 'alta', 'Ana', 'hoy', NULL)`);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
   assert.equal(Object.keys(m.conteos).length, 51);

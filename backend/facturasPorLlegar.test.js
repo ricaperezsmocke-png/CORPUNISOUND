@@ -3,11 +3,12 @@ const assert = require('node:assert/strict');
 
 const UUID = 'ABCDEF12-3456-7890-ABCD-EF1234567890';
 
-function xmlDe({ uuid = UUID, tipo = 'I', total = '16217.997', rfc = 'DINX800101ABC' } = {}) {
+function xmlDe({ uuid = UUID, tipo = 'I', total = '16217.997', rfc = 'DINX800101ABC', moneda, tipoCambio } = {}) {
+  const extra = (moneda === undefined ? '' : ` Moneda="${moneda}"`) + (tipoCambio === undefined ? '' : ` TipoCambio="${tipoCambio}"`);
   const timbre = uuid === null ? '' : `<cfdi:Complemento><tfd:TimbreFiscalDigital UUID="${uuid}" /></cfdi:Complemento>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Fecha="2026-07-01T12:00:00" Total="${total}" TipoDeComprobante="${tipo}">
+  Version="4.0" Fecha="2026-07-01T12:00:00" Total="${total}" TipoDeComprobante="${tipo}"${extra}>
   <cfdi:Emisor Rfc="${rfc}" Nombre="Distribuidora del Norte SA de CV" />
   <cfdi:Conceptos><cfdi:Concepto ClaveProdServ="52161547" NoIdentificacion="P1" Cantidad="2" Descripcion="AMPLIFICADOR"
     ValorUnitario="100" Importe="200" /></cfdi:Conceptos>
@@ -34,7 +35,7 @@ test('cfdi: agrega total y tipoComprobante sin tocar lo demas', () => {
   const r = parsearFacturaXML(xmlDe());
   assert.equal(r.total, '16217.997');
   assert.equal(r.tipoComprobante, 'I');
-  assert.deepEqual(Object.keys(r).sort(), ['conceptos', 'emisor', 'fecha', 'folioFiscal', 'tipoComprobante', 'total']);
+  assert.deepEqual(Object.keys(r).sort(), ['conceptos', 'emisor', 'fecha', 'folioFiscal', 'moneda', 'tipoCambio', 'tipoComprobante', 'total']);
 });
 
 test('registrar: factura de Ingreso entra por_llegar con total en centavos y uuid normalizado', () => {
@@ -167,4 +168,48 @@ test('permisos nuevos en el catalogo, modulo inventario', () => {
     assert.equal(p.modulo, 'inventario');
     assert.equal(p.implementado, true);
   }
+});
+
+test('cfdi: lee Moneda y TipoCambio tal cual, y null si no vienen', () => {
+  const { parsearFacturaXML } = require('./cfdi');
+  const usd = parsearFacturaXML(xmlDe({ moneda: 'USD', tipoCambio: '17.2540' }));
+  assert.equal(usd.moneda, 'USD');
+  assert.equal(usd.tipoCambio, '17.2540');
+  const sin = parsearFacturaXML(xmlDe());
+  assert.equal(sin.moneda, null);
+  assert.equal(sin.tipoCambio, null);
+});
+
+test('registrar: factura en USD queda con su moneda, marcada prohibida y con nota en el historial', () => {
+  const { sqlite, modulo } = preparar();
+  const f = modulo.registrar(xmlDe({ total: '1000.00', moneda: ' usd ', tipoCambio: '17.2540' }), '7');
+  assert.equal(f.moneda, 'USD');
+  assert.equal(f.tipo_cambio, '17.2540');
+  assert.equal(f.total_centavos, 100000);
+  const h = sqlite.prepare('SELECT accion, detalle FROM facturas_por_llegar_historial').all();
+  assert.deepEqual(h, [{ accion: 'registrar', detalle: 'moneda USD (prohibida)' }]);
+  const lista = modulo.listar().facturas;
+  assert.equal(lista[0].moneda_prohibida, true);
+  assert.equal(lista[0].moneda, 'USD');
+  assert.equal(modulo.listar().prohibidas, 1);
+});
+
+test('registrar: sin Moneda queda MXN y MXN no se marca', () => {
+  const { sqlite, modulo } = preparar();
+  const a = modulo.registrar(xmlDe(), '7');
+  const b = modulo.registrar(xmlDe({ uuid: 'AAAAAAAA-0000-0000-0000-000000000001', moneda: 'MXN', tipoCambio: '1' }), '7');
+  assert.equal(a.moneda, 'MXN');
+  assert.equal(a.tipo_cambio, null);
+  assert.equal(b.moneda, 'MXN');
+  const lista = modulo.listar();
+  assert.deepEqual(lista.facturas.map(f => f.moneda_prohibida), [false, false]);
+  assert.equal(lista.prohibidas, 0);
+  assert.deepEqual(sqlite.prepare('SELECT detalle FROM facturas_por_llegar_historial').all(), [{ detalle: null }, { detalle: null }]);
+});
+
+test('registrar: Moneda XXX no se rechaza y se marca prohibida', () => {
+  const { modulo } = preparar();
+  const f = modulo.registrar(xmlDe({ moneda: 'XXX' }), '7');
+  assert.equal(f.moneda, 'XXX');
+  assert.equal(modulo.listar().facturas[0].moneda_prohibida, true);
 });

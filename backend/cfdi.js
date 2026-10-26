@@ -58,6 +58,8 @@ function parsearFacturaXML(xmlTexto) {
     fecha: comprobante.Fecha || null,
     total: comprobante.Total === undefined ? null : String(comprobante.Total),
     tipoComprobante: comprobante.TipoDeComprobante || null,
+    moneda: comprobante.Moneda === undefined ? null : String(comprobante.Moneda),
+    tipoCambio: comprobante.TipoCambio === undefined ? null : String(comprobante.TipoCambio),
     conceptos,
   };
 }

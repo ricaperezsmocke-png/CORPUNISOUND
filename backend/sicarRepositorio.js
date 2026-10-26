@@ -187,7 +187,8 @@ const ESQUEMA = `
     id INTEGER PRIMARY KEY, uuid TEXT NOT NULL UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT, fecha_emision TEXT,
     total_centavos INTEGER NOT NULL, conceptos_json TEXT NOT NULL,
     estado TEXT NOT NULL CHECK (estado IN ('por_llegar', 'llego', 'cancelada')),
-    creada_por TEXT NOT NULL, creada_en TEXT NOT NULL, llego_en TEXT, llego_por TEXT, motivo TEXT
+    creada_por TEXT NOT NULL, creada_en TEXT NOT NULL, llego_en TEXT, llego_por TEXT, motivo TEXT,
+    moneda TEXT NOT NULL DEFAULT 'MXN', tipo_cambio TEXT
   );
   CREATE TABLE IF NOT EXISTS facturas_por_llegar_historial (
     id INTEGER PRIMARY KEY, factura_id INTEGER NOT NULL, accion TEXT NOT NULL, actor TEXT NOT NULL,

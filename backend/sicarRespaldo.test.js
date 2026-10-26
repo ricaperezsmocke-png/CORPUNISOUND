@@ -836,7 +836,7 @@ const sembrarNuevas = f => f.sqlite.exec(`INSERT OR IGNORE INTO sicar_tiendas(su
   INSERT INTO sicar_traspasos_detalle VALUES (1, 'T1', '9', '2.0000', 1000, 1160);
   INSERT INTO sicar_sucursales_mapa VALUES ('1', 3, 'Victor', 'hoy');
   INSERT INTO sicar_sucursales_mapa_historial VALUES (1, '1', NULL, '3', 'Victor', 'hoy');
-  INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Proveedor', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL);
+  INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Proveedor', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL, 'MXN', NULL);
   INSERT INTO facturas_por_llegar_historial VALUES (1, 7, 'alta', 'Ana', 'hoy', NULL)`);
 const filasNuevas = f => Object.fromEntries(NUEVAS.map(tabla => [tabla, f.sqlite.prepare(`SELECT * FROM ${tabla} ORDER BY rowid`).all()]));
 

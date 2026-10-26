@@ -22,6 +22,23 @@ export function formatoCentavos(centavos) {
   return `${centavos < 0 ? "-" : ""}$${pesos}.${String(abs % 100).padStart(2, "0")}`;
 }
 
+/** Total con su moneda; para MXN queda como siempre. */
+export function textoTotal(f) {
+  const base = formatoCentavos(f?.total_centavos);
+  return f?.moneda && f.moneda !== "MXN" ? `${base} ${f.moneda}` : base;
+}
+
+export function textoMonedaProhibida(f) {
+  if (!f?.moneda_prohibida) return "";
+  return `Factura en ${f.moneda}: las compras en moneda extranjera están prohibidas. Revisar con quién la autorizó.`;
+}
+
+export function resumenProhibidas(datos) {
+  const n = datos?.prohibidas || 0;
+  if (n === 0) return "";
+  return n === 1 ? "1 factura en moneda distinta de MXN (prohibida)." : `${n} facturas en moneda distinta de MXN (prohibida).`;
+}
+
 export function motivoValido(texto) {
   const t = String(texto ?? "").trim();
   return t.length >= 3 && t.length <= 200;

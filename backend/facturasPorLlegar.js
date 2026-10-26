@@ -28,6 +28,11 @@ function centavosDeTexto(texto) {
   return c <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(c) : null;
 }
 
+// Moneda del XML en mayusculas y sin espacios; si no la trae se asume MXN (en CFDI 4.0 es obligatoria y lo usual es MXN).
+function normalizarMoneda(valor) {
+  return String(valor ?? '').replace(/\s+/g, '').toUpperCase() || 'MXN';
+}
+
 function crearFacturasPorLlegar({ sqlite, DB }) {
   const compraRecibida = uuid => (DB.inventario?.compras || []).some(c => normalizarUuid(c.uuid_cfdi) === uuid);
   const historial = (id, accion, actor, detalle) => sqlite.prepare(
@@ -36,7 +41,7 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
   const hidratar = f => {
     if (!f) return f;
     const { conceptos_json: json, ...resto } = f;
-    return { ...resto, conceptos: JSON.parse(json) };
+    return { ...resto, conceptos: JSON.parse(json), moneda_prohibida: resto.moneda !== 'MXN' };
   };
   const obtener = id => hidratar(sqlite.prepare('SELECT * FROM facturas_por_llegar WHERE id = ?').get(id));
   const llegoSola = id => {
@@ -62,12 +67,15 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
     if (sqlite.prepare('SELECT 1 FROM facturas_por_llegar WHERE uuid = ?').get(uuid)) {
       throw error(409, 'Esa factura ya está registrada.');
     }
+    const moneda = normalizarMoneda(cfdi.moneda);
+    const tipoCambio = cfdi.tipoCambio === null || cfdi.tipoCambio === undefined ? null : String(cfdi.tipoCambio).trim();
     return sqlite.transaction(() => {
       const id = Number(sqlite.prepare(`INSERT INTO facturas_por_llegar(uuid, rfc_emisor, nombre_emisor, fecha_emision,
-        total_centavos, conceptos_json, estado, creada_por, creada_en) VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?)`)
+        total_centavos, conceptos_json, estado, creada_por, creada_en, moneda, tipo_cambio)
+        VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?, ?, ?)`)
         .run(uuid, cfdi.emisor.rfc, cfdi.emisor.nombre, cfdi.fecha, total, JSON.stringify(cfdi.conceptos),
-          String(actor), ahora()).lastInsertRowid);
-      historial(id, 'registrar', actor, null);
+          String(actor), ahora(), moneda, tipoCambio).lastInsertRowid);
+      historial(id, 'registrar', actor, moneda === 'MXN' ? null : `moneda ${moneda} (prohibida)`);
       if (compraRecibida(uuid)) llegoSola(id);
       return obtener(id);
     })();
@@ -84,7 +92,10 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
       const espera = f.estado === 'por_llegar' ? Math.floor((ahoraMs - Date.parse(f.creada_en)) / DIA_MS) : null;
       return { ...f, dias_espera: espera, aviso: espera !== null && espera > DIAS_AVISO };
     });
-    return { facturas, vencidas: facturas.filter(f => f.aviso).length, dias_aviso: DIAS_AVISO };
+    return {
+      facturas, vencidas: facturas.filter(f => f.aviso).length, dias_aviso: DIAS_AVISO,
+      prohibidas: facturas.filter(f => f.moneda_prohibida).length,
+    };
   }
 
   function cambiar(id, accion, actor, estadoNuevo, campos, detalle) {

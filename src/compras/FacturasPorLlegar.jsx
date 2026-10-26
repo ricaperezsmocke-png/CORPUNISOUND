@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { contadorDePeticiones } from "../sicar/cortesSicar.js";
 import {
-  textoEspera, nombreEstado, formatoCentavos, motivoValido, puedeRegistrar, resumenFacturas, fechaCorta, archivoXmlValido,
-  mensajeResultado,
+  textoEspera, nombreEstado, motivoValido, puedeRegistrar, resumenFacturas, fechaCorta, archivoXmlValido,
+  mensajeResultado, textoTotal, textoMonedaProhibida, resumenProhibidas,
 } from "./facturasPorLlegar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -56,7 +56,7 @@ function Accion({ accion, onCerrar, onHecho }) {
       <form className={MODAL} onSubmit={enviar}>
         <h2 className="mb-2 text-base font-semibold text-slate-900">{cancelar ? "Cancelar factura" : "Marcar que llegó"}</h2>
         <p className="mb-3 text-sm text-slate-700">
-          {factura.nombre_emisor || factura.rfc_emisor} — {formatoCentavos(factura.total_centavos)}
+          {factura.nombre_emisor || factura.rfc_emisor} — {textoTotal(factura)}
         </p>
         {cancelar ? (
           <label className={ETIQUETA}>Motivo de la cancelación
@@ -155,6 +155,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
 
   const facturas = datos?.facturas || [];
   const aviso = resumenFacturas(datos);
+  const prohibidas = resumenProhibidas(datos);
   const hecho = () => { setAccion(null); cargar(); };
   return (
     <div className={PAGINA}>
@@ -170,6 +171,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
           </select>
         </label>
       </div>
+      {prohibidas && <p role="alert" className={`${NOTA_ROJA} mt-0 mb-3 font-semibold`}>{prohibidas}</p>}
       {aviso && <p role="status" className={NOTA_AMBAR}>{aviso}</p>}
       {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
       {cargando && <p className="mb-2 text-sm text-slate-500">Cargando…</p>}
@@ -192,7 +194,10 @@ export default function FacturasPorLlegar({ permisos = [] }) {
                 <td className={CELDA}>{f.nombre_emisor || "—"}<span className="block text-xs text-slate-500">{f.rfc_emisor}</span></td>
                 <td className={`${CELDA} break-all text-xs`}>{f.uuid}</td>
                 <td className={CELDA}>{fechaCorta(f.fecha_emision)}</td>
-                <td className={`${CELDA} ${DERECHA}`}>{formatoCentavos(f.total_centavos)}</td>
+                <td className={`${CELDA} ${DERECHA}`}>
+                  {textoTotal(f)}
+                  {f.moneda_prohibida && <span role="alert" className="mt-1 block text-left text-xs font-semibold text-red-800">{textoMonedaProhibida(f)}</span>}
+                </td>
                 <td className={CELDA}>
                   {nombreEstado(f.estado)}
                   {f.estado === "cancelada" && f.motivo && <span className="block text-xs text-slate-500">{f.motivo}</span>}
