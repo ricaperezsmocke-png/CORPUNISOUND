@@ -3,6 +3,7 @@
 // incumplida no puede desaparecer del historial.
 const { validarPeriodo } = require("./metasPeriodos");
 const { FUENTES } = require("./metasFuentes");
+const { NUMEROS_META, esFuenteNumero, numeroDeFuente } = require("./cincoCaminos/metaNumero");
 
 const ALCANCES = ["tienda", "persona", "empresa", "corporativo"];
 const PRUEBAS = ["ninguna", "liga", "foto"];
@@ -70,9 +71,12 @@ function validarAlcance(DB, { alcance, sucursal_id, vendedor_id, participantes, 
   return { alcance, sucursal_id: null, vendedor_id: null, usuario_id: null, participantes: ids };
 }
 
-function validarCifra(valor) {
+function validarCifra(valor, fuente = "manual") {
   if (!Number.isInteger(valor) || valor < 1 || valor > 1000000) {
     throw new Error("La cifra meta debe ser un entero entre 1 y 1,000,000");
+  }
+  if (esFuenteNumero(fuente) && valor > NUMEROS_META[numeroDeFuente(fuente)].maximo) {
+    throw new Error(`La cifra meta de este número no puede pasar de ${NUMEROS_META[numeroDeFuente(fuente)].maximo}`);
   }
   return valor;
 }
@@ -145,9 +149,12 @@ function retirarOkr(DB, clave, motivo, usuario) {
 function crearMeta(DB, datos, usuario, { origen = null } = {}) {
   const nombre = texto(datos.nombre, "nombre", 120);
   const descripcion = texto(datos.descripcion, "descripción", 500, { obligatorio: false });
-  const unidad = texto(datos.unidad, "unidad", 40);
+  const fuente = datos.fuente === undefined || datos.fuente === null ? "manual" : datos.fuente;
+  if (!FUENTES.includes(fuente)) throw new Error("La fuente de la meta no es válida");
+  // La unidad de un número de los cinco caminos la pone el servidor: lo que mande el cliente se ignora.
+  const unidad = esFuenteNumero(fuente) ? NUMEROS_META[numeroDeFuente(fuente)].unidad : texto(datos.unidad, "unidad", 40);
   const prueba = validarPrueba(datos.prueba);
-  const valor_meta = validarCifra(datos.valor_meta);
+  const valor_meta = validarCifra(datos.valor_meta, fuente);
   let base = datos;
   let okr_clave = null;
   if (datos.okr_clave !== undefined && datos.okr_clave !== null) {
@@ -159,9 +166,10 @@ function crearMeta(DB, datos, usuario, { origen = null } = {}) {
   validarPeriodo(base.periodo, base.inicio);
   exigirAbierto(DB, base.periodo, base.inicio);
   const alcance = validarAlcance(DB, base);
-  const fuente = datos.fuente === undefined || datos.fuente === null ? "manual" : datos.fuente;
-  if (!FUENTES.includes(fuente)) throw new Error("La fuente de la meta no es válida");
-  if (fuente !== "manual") {
+  if (esFuenteNumero(fuente)) {
+    if (alcance.alcance !== "tienda") throw new Error("Una meta de los cinco caminos es de una tienda");
+    if (prueba !== "ninguna") throw new Error("Una meta que se cuenta sola no lleva prueba");
+  } else if (fuente !== "manual") {
     if (alcance.alcance !== "corporativo") throw new Error("Solo las metas del corporativo se pueden contar solas");
     if (prueba !== "ninguna") throw new Error("Una meta que se cuenta sola no lleva prueba");
   }
@@ -184,12 +192,13 @@ function editarMeta(DB, clave, datos, usuario) {
   const cambios = {};
   if ("nombre" in datos) cambios.nombre = texto(datos.nombre, "nombre", 120);
   if ("descripcion" in datos) cambios.descripcion = texto(datos.descripcion, "descripción", 500, { obligatorio: false });
+  if ("unidad" in datos && esFuenteNumero(fuenteDe(anterior))) throw new Error("La unidad de esta meta la pone el sistema");
   if ("unidad" in datos) cambios.unidad = texto(datos.unidad, "unidad", 40);
   if ("prueba" in datos) cambios.prueba = validarPrueba(datos.prueba);
   if (fuenteDe(anterior) !== "manual" && "prueba" in cambios && cambios.prueba !== "ninguna") {
     throw new Error("Una meta que se cuenta sola no lleva prueba");
   }
-  if ("valor_meta" in datos) cambios.valor_meta = validarCifra(datos.valor_meta);
+  if ("valor_meta" in datos) cambios.valor_meta = validarCifra(datos.valor_meta, fuenteDe(anterior));
   return nuevaVersion(DB.pos.metas_personalizadas, anterior, cambios, motivo, usuario);
 }
 

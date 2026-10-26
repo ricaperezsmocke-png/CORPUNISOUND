@@ -2,10 +2,12 @@
 // y cuándo. Lo que no tiene usuario_id no se le atribuye a nadie. Cada renglón cuenta una vez por su clave.
 const { finDePeriodo } = require("./metasPeriodos");
 const { fechaLocal } = require("./fechas");
+const { NUMEROS_META, PREFIJO, esFuenteNumero, numeroDeFuente, valorDelPeriodo } = require("./cincoCaminos/metaNumero");
 
 const HORAS_SEGUIMIENTO = 48;
+const FUENTES_NUMERO = Object.keys(NUMEROS_META).map((n) => `${PREFIJO}${n}`);
 const FUENTES = ["manual", "radar_seguimiento_a_tiempo", "crm_cambios_estado", "bandeja_respuestas",
-  "revisiones_metas_tienda", "visitas_tienda"];
+  "revisiones_metas_tienda", "visitas_tienda", ...FUENTES_NUMERO];
 const DESCRIPCION_FUENTES = {
   manual: "Se marca \"Hecho\" con su prueba",
   radar_seguimiento_a_tiempo: "Demandas del Radar a las que diste el primer seguimiento antes de 2 días",
@@ -13,6 +15,7 @@ const DESCRIPCION_FUENTES = {
   bandeja_respuestas: "Mensajes que respondiste desde la bandeja",
   revisiones_metas_tienda: "Capturas de metas de tienda que revisaste o anulaste",
   visitas_tienda: "Visitas a tienda terminadas y con ubicación comprobada (una por tienda al mes)",
+  ...Object.fromEntries(FUENTES_NUMERO.map((f) => [f, `Cinco caminos: ${NUMEROS_META[numeroDeFuente(f)].etiqueta} (promedio de las semanas cerradas del periodo)`])),
 };
 const SIN_BANDEJA = "La bandeja de mensajes no está disponible; esta meta no se puede contar ahora";
 
@@ -107,10 +110,22 @@ const CONTADORES = {
   bandeja_respuestas: (DB, meta) => bandejaRespuestas(meta), revisiones_metas_tienda: revisiones, visitas_tienda: visitas,
 };
 
-function contarFuente(DB, meta) {
+const SIN_SICAR = "La conexión con SICAR no está disponible; esta meta no se puede medir ahora";
+
+// Meta de tienda por número: el resultado es el entero escalado, o null ("sin dato") si no hay una sola semana válida.
+function cincoCaminos(DB, meta, hoy) {
+  if (!conexion) return { valor: null, detalle: [], aviso: SIN_SICAR };
+  const r = valorDelPeriodo(conexion, DB, { sucursal_id: meta.sucursal_id, numero: numeroDeFuente(meta.fuente),
+    periodo: meta.periodo, inicio: meta.inicio, hoy });
+  const detalle = r.semanas.map((s) => ({ clave: `semana:${s.lunes}`, fecha: s.lunes, texto: `Semana del ${s.lunes}: ${s.valor}` }));
+  return { valor: r.valor, detalle, aviso: null };
+}
+
+function contarFuente(DB, meta, hoy = fechaLocal(new Date())) {
+  if (esFuenteNumero(meta.fuente)) return cincoCaminos(DB, meta, hoy);
   const contar = CONTADORES[meta.fuente];
   if (!contar) throw new Error(`Fuente de meta desconocida: ${meta.fuente}`);
   return contar(DB, meta);
 }
 
-module.exports = { FUENTES, DESCRIPCION_FUENTES, HORAS_SEGUIMIENTO, configurarFuentes, contarFuente };
+module.exports = { FUENTES, FUENTES_NUMERO, DESCRIPCION_FUENTES, HORAS_SEGUIMIENTO, configurarFuentes, contarFuente };

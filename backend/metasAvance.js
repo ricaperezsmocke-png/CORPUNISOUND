@@ -19,11 +19,14 @@ function resultadoMeta(DB, meta) {
   return validas(DB, meta).reduce((suma, c) => suma + c.cantidad, 0);
 }
 
+// Sin dato (resultado null) no es 0 %: no se le inventa un fracaso a nadie.
 function porcentaje(resultado, valor) {
+  if (resultado === null || resultado === undefined) return null;
   return Math.min(100, Math.round((resultado / valor) * 1000) / 10);
 }
 
 function semaforo(pct, ritmo) {
+  if (pct === null) return null;
   const esperado = ritmo * 100;
   if (pct >= esperado) return "verde";
   if (pct >= esperado * 0.7) return "amarillo";
@@ -117,7 +120,7 @@ function avanceMeta(DB, meta, visor, ritmo, hoy) {
     clave: meta.clave, okr_clave: meta.okr_clave, nombre: meta.nombre, descripcion: meta.descripcion, unidad: meta.unidad,
     prueba: meta.prueba, alcance: meta.alcance, sucursal_id: meta.sucursal_id, vendedor_id: meta.vendedor_id,
     valor_meta: meta.valor_meta, resultado, porcentaje: pct, ritmo, semaforo: semaforo(pct, ritmo),
-    fuente: fuenteDe(meta), usuario_id: meta.usuario_id ?? null,
+    fuente: fuenteDe(meta), usuario_id: meta.usuario_id ?? null, sin_dato: resultado === null,
     detalle: auto ? detalleSellado(DB, meta) ?? auto.detalle : null, aviso: auto?.aviso || null,
     mis_capturas: capturasPropias(DB, meta, visor).map(capturaParaRespuesta),
     puede_capturar: puedeCapturar(DB, meta, visor, hoy),
@@ -147,7 +150,8 @@ function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id =
     .filter((o) => o.vigente && o.periodo === periodo && o.inicio === inicio)
     .map((o) => {
       const suyas = metas.filter((m) => m.okr_clave === o.clave);
-      const pct = suyas.length ? Math.round((suyas.reduce((s, m) => s + m.porcentaje, 0) / suyas.length) * 10) / 10 : null;
+      const conDato = suyas.filter((m) => m.porcentaje !== null);
+      const pct = conDato.length ? Math.round((conDato.reduce((s, m) => s + m.porcentaje, 0) / conDato.length) * 10) / 10 : null;
       return { clave: o.clave, titulo: o.titulo, descripcion: o.descripcion, alcance: o.alcance, sucursal_id: o.sucursal_id,
         vendedor_id: o.vendedor_id, porcentaje: pct, metas: suyas };
     })

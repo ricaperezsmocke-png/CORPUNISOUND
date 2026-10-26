@@ -14,7 +14,9 @@ const DBBase = () => ({
 
 test("catalogo cerrado de fuentes", () => {
   assert.deepEqual(FUENTES, ["manual", "radar_seguimiento_a_tiempo", "crm_cambios_estado", "bandeja_respuestas",
-    "revisiones_metas_tienda", "visitas_tienda"]);
+    "revisiones_metas_tienda", "visitas_tienda", "cinco_caminos:pct_con_cliente", "cinco_caminos:recompra_90",
+    "cinco_caminos:pct_instrumento_con_accesorio", "cinco_caminos:conversion", "cinco_caminos:ticket_promedio_centavos",
+    "cinco_caminos:clientes_nuevos", "cinco_caminos:articulos_por_ticket"]);
 });
 
 test("radar: cuenta el primer seguimiento propio dentro de 48 h, no el de 3 dias ni el ajeno", () => {
