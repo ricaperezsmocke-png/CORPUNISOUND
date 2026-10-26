@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
+import { hayBarra, textoResultadoMeta } from "./avanceMetas";
 import { cuerpoCaptura, fechaPropuestaCaptura, nuevaOperacion, queryTablero, textoFaltan } from "./metas";
 import {
   ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta, fechaHora, leerArchivoComoBase64,
@@ -55,9 +56,9 @@ export default function MisMetas({ periodo, inicio, hoy }) {
                       <strong className="text-slate-800">{meta.nombre}</strong>
                       <span className="text-xs bg-slate-100 text-slate-600 rounded px-2 py-0.5">{DE_QUIEN[meta.alcance]}</span>
                     </div>
-                    <p className="text-sm text-slate-700">{meta.resultado} de {meta.valor_meta} {meta.unidad}</p>
+                    <p className="text-sm text-slate-700">{textoResultadoMeta(meta)}</p>
                     <p className="text-xs text-slate-600">{textoFaltan(meta, tablero.fin, hoy)}</p>
-                    <Barra porcentaje={meta.porcentaje} />
+                    {hayBarra(meta) && <Barra porcentaje={meta.porcentaje} />}
                     <div className="flex flex-wrap gap-4 items-center">
                       <Semaforo semaforo={meta.semaforo} />
                       {!["persona", "corporativo"].includes(meta.alcance) && <span className="text-xs text-slate-600">Tú llevas {mias}</span>}

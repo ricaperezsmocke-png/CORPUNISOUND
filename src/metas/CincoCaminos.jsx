@@ -5,6 +5,8 @@ import { contadorDePeticiones, tiendasDelSelector } from "../sicar/cortesSicar";
 import { diaDeLaTienda, opcionesSemanas, semanaPorDefecto, tarjetasDelTablero } from "./tableroCincoCaminos.js";
 import CategoriasCincoCaminos from "./CategoriasCincoCaminos.jsx";
 import ManualTacticas from "./ManualTacticas.jsx";
+import JuntaLunes from "./JuntaLunes.jsx";
+import { textoIndicador } from "./juntaLunes.js";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
 const ETIQUETA = "text-sm text-slate-600";
@@ -59,6 +61,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
   const [pantalla, setPantalla] = useState("tablero");
+  const [indicador, setIndicador] = useState(null);
   const verCategorias = pantalla === "categorias";
   const enTablero = pantalla === "tablero";
   const peticiones = useRef(contadorDePeticiones());
@@ -133,6 +136,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
       {pantalla === "manual" ? <ManualTacticas permisos={permisos} /> : verCategorias ? <CategoriasCincoCaminos /> : (
         <>
           <p className="text-sm font-semibold text-slate-700">Ventas con cliente y de mostrador. Cifras según SICAR.</p>
+          {indicador && <p className="text-sm text-slate-700" aria-label="Juntas hechas">{textoIndicador(indicador)}</p>}
           {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
           {cargando && <p className="text-sm text-slate-500">Cargando…</p>}
           {vista && (
@@ -152,6 +156,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
               </div>
             </>
           )}
+          {sucursal && <JuntaLunes sucursal={sucursal} lunes={semana} permisos={permisos} usuario={usuario} alIndicador={setIndicador} />}
         </>
       )}
     </div>

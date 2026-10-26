@@ -32,6 +32,7 @@ export function Barra({ porcentaje }) {
 }
 
 export function Semaforo({ semaforo }) {
+  if (!semaforo) return null;
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
       <span className={`inline-block w-2.5 h-2.5 rounded-full ${COLOR_SEMAFORO[semaforo]}`} aria-hidden="true" />

@@ -3,6 +3,7 @@ import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
 import { TEXTO_PRUEBA, cuerpoMeta, etiquetaPeriodo, queryTablero } from "./metas";
+import { enteroALegible, esMetaNumero, etiquetaCapturaCifra, legibleAEntero, textoCifra } from "./avanceMetas";
 import { ALERTA, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, TARJETA, fechaHora } from "./Comunes";
 import SelloMetas from "./SelloMetas";
 import PlaneadorIA from "./PlaneadorIA";
@@ -103,24 +104,29 @@ const FORM_VACIO = { titulo: "", descripcion: "", nombre: "", unidad: "", prueba
 // Crear o editar un OKR o una meta. Al editar solo se mandan los campos que cambiaron, más el motivo.
 function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, vendedores, personas, fuentes, cerrar, alTerminar }) {
   const editando = Boolean(registro);
-  const [form, setForm] = useState(() => (registro ? { ...FORM_VACIO, ...registro, valor_meta: String(registro.valor_meta ?? ""),
-    descripcion: registro.descripcion || "", motivo: "" } : FORM_VACIO));
+  const [form, setForm] = useState(() => (registro ? { ...FORM_VACIO, ...registro, descripcion: registro.descripcion || "", motivo: "",
+    valor_meta: esMetaNumero(registro.fuente) ? enteroALegible(registro.fuente, registro.valor_meta) : String(registro.valor_meta ?? "") }
+    : FORM_VACIO));
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
   const cambiar = (campo) => (valor) => setForm((f) => ({ ...f, [campo]: valor }));
   const esOkr = tipo === "okr";
+  const numero = !esOkr && esMetaNumero(form.fuente);
+  const cifraOk = numero ? legibleAEntero(form.fuente, form.valor_meta).ok : Number(form.valor_meta) >= 1;
   const listo = editando ? form.motivo.trim() : esOkr
     ? form.titulo.trim() && alcanceCompleto(form)
-    : form.nombre.trim() && form.unidad.trim() && Number(form.valor_meta) >= 1 && (form.okr_clave || alcanceCompleto(form));
+    : form.nombre.trim() && (numero || form.unidad.trim()) && cifraOk && (form.okr_clave || alcanceCompleto(form));
 
   const cuerpo = () => {
     if (!editando) {
       return esOkr ? { titulo: form.titulo, descripcion: form.descripcion || undefined, periodo, inicio, ...alcanceDe(form) }
         : cuerpoMeta({ ...form, periodo, inicio });
     }
-    const campos = esOkr ? ["titulo", "descripcion"] : ["nombre", "descripcion", "unidad", "prueba", "valor_meta"];
+    const campos = esOkr ? ["titulo", "descripcion"] : numero ? ["nombre", "descripcion", "valor_meta"]
+      : ["nombre", "descripcion", "unidad", "prueba", "valor_meta"];
+    const cifra = (c) => (numero ? legibleAEntero(form.fuente, form[c]).valor : Number(form[c]));
     const cambios = Object.fromEntries(campos
-      .map((c) => [c, c === "valor_meta" ? Number(form[c]) : form[c]])
+      .map((c) => [c, c === "valor_meta" ? cifra(c) : form[c]])
       .filter(([c, v]) => v !== (registro[c] ?? "")));
     return { ...cambios, motivo: form.motivo.trim() };
   };
@@ -143,7 +149,7 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
         <>
           {!editando && okrs.length > 0 && (
             <label className="text-sm block">¿Pertenece a un OKR?
-              <select className={SELECT} value={form.okr_clave} onChange={(e) => cambiar("okr_clave")(e.target.value)}>
+              <select className={SELECT} value={form.okr_clave} onChange={(e) => { cambiar("okr_clave")(e.target.value); cambiar("fuente")("manual"); }}>
                 <option value="">Ninguno</option>
                 {okrs.map((o) => <option key={o.clave} value={o.clave}>{o.titulo}</option>)}
               </select>
@@ -151,13 +157,17 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
           )}
           <Campo etiqueta="Nombre (ej. Videos de tips)" valor={form.nombre} cambiar={cambiar("nombre")} />
           <div className="grid grid-cols-2 gap-3">
-            <Campo etiqueta="Cifra meta" tipo="number" min="1" valor={form.valor_meta} cambiar={cambiar("valor_meta")} />
-            <Campo etiqueta="Unidad (ej. videos)" valor={form.unidad} cambiar={cambiar("unidad")} />
+            {numero
+              ? <Campo etiqueta={etiquetaCapturaCifra(form.fuente)} valor={form.valor_meta} cambiar={cambiar("valor_meta")} />
+              : <Campo etiqueta="Cifra meta" tipo="number" min="1" valor={form.valor_meta} cambiar={cambiar("valor_meta")} />}
+            {!numero && <Campo etiqueta="Unidad (ej. videos)" valor={form.unidad} cambiar={cambiar("unidad")} />}
           </div>
-          {!editando && !form.okr_clave && form.alcance === "corporativo" && (
+          {!editando && !form.okr_clave && ["corporativo", "tienda"].includes(form.alcance) && (
             <label className="text-sm block">¿Cómo se cuenta?
               <select className={SELECT} value={form.fuente} onChange={(e) => cambiar("fuente")(e.target.value)}>
-                {fuentes.map((f) => <option key={f.clave} value={f.clave}>{f.descripcion}</option>)}
+                {fuentes.filter((f) => f.clave === "manual" || esMetaNumero(f.clave) === (form.alcance === "tienda")).map((f) => (
+                  <option key={f.clave} value={f.clave}>{f.descripcion}</option>
+                ))}
               </select>
             </label>
           )}
@@ -170,7 +180,7 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
       {!editando && (esOkr || !form.okr_clave) && (
         <ParaQuien form={form} cambiar={(campo) => (valor) => {
           cambiar(campo)(valor);
-          if (campo === "alcance" && valor !== "corporativo") cambiar("fuente")("manual");
+          if (campo === "alcance") cambiar("fuente")("manual");
         }} sucursales={sucursales} vendedores={vendedores} personas={personas} />
       )}
       {editando && <Campo etiqueta="Motivo del cambio" valor={form.motivo} cambiar={cambiar("motivo")} area />}
@@ -179,6 +189,7 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
 }
 
 function Historial({ registro, cerrar }) {
+  const cifra = (v) => (esMetaNumero(registro.fuente) ? textoCifra(registro.fuente, v.valor_meta) : `${v.valor_meta} ${v.unidad}`);
   const [versiones, setVersiones] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -191,7 +202,7 @@ function Historial({ registro, cerrar }) {
         <ul className="space-y-2 text-sm">
           {versiones.map((v) => (
             <li key={v.id} className="border rounded-lg p-3">
-              <strong>Versión {v.version}: {v.valor_meta} {v.unidad} — {v.nombre}</strong>
+              <strong>Versión {v.version}: {cifra(v)} — {v.nombre}</strong>
               <p className="text-slate-500">{v.creado_por} · {fechaHora(v.creado_en)}</p>
               {v.motivo && <p>Motivo: {v.motivo}</p>}
               {v.origen?.tipo === "plan_ia" && (
@@ -302,7 +313,7 @@ export default function AdministrarMetas({ periodo, inicio, hoy, sucursales, ven
                   <div className="flex-1 min-w-0">
                     <strong className="text-slate-800">{m.nombre}</strong>
                     <span className="text-slate-500">
-                      {` · ${m.valor_meta} ${m.unidad} · `}
+                      {` · ${esMetaNumero(m.fuente) ? textoCifra(m.fuente, m.valor_meta) : `${m.valor_meta} ${m.unidad}`} · `}
                       {m.fuente && m.fuente !== "manual" ? "Se cuenta sola" : TEXTO_PRUEBA[m.prueba]}
                       {` · ${paraQuien(m, sucursales, vendedores, personas)}`}
                     </span>

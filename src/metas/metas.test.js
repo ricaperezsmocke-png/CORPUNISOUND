@@ -119,3 +119,18 @@ test("cuerpoMeta del corporativo: cuenta, tienda opcional y fuente; automatica s
   assert.equal(manual.sucursal_id, 1);
   assert.equal(manual.fuente, "manual");
 });
+
+test("cuerpoMeta de cinco caminos: cifra legible a entero escalado, tienda, sin prueba y sin unidad del usuario", () => {
+  const form = { nombre: "% con cliente", unidad: "lo que sea", prueba: "liga", valor_meta: "45.2", periodo: "semanal", inicio: "2026-10-26",
+    alcance: "tienda", sucursal_id: "1", fuente: "cinco_caminos:pct_con_cliente" };
+  const cuerpo = cuerpoMeta(form);
+  assert.equal(cuerpo.valor_meta, 452);
+  assert.equal(cuerpo.fuente, "cinco_caminos:pct_con_cliente");
+  assert.equal(cuerpo.prueba, "ninguna");
+  assert.equal(cuerpo.alcance, "tienda");
+  assert.equal(cuerpo.sucursal_id, 1);
+  assert.equal("unidad" in cuerpo, false);
+  assert.equal(cuerpoMeta({ ...form, fuente: "cinco_caminos:ticket_promedio_centavos", valor_meta: "$850.5" }).valor_meta, 85050);
+  assert.equal(cuerpoMeta({ ...form, fuente: "cinco_caminos:articulos_por_ticket", valor_meta: "1.85" }).valor_meta, 185);
+  assert.throws(() => cuerpoMeta({ ...form, valor_meta: "45.25" }));
+});
