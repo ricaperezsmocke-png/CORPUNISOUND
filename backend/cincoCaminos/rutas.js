@@ -7,6 +7,13 @@
 const { tableroTienda, TIPOS } = require('./tablero');
 const { semanaDe, ultimaSemanaCompleta } = require('./semanas');
 const { fechaLocal } = require('../fechas');
+const { vistaManual, crearTactica, cambiarTactica, retirarTactica, reactivarTactica, historialDe } = require('./manual');
+
+// Texto fijo del manual v1 (seccion "Excluidas a proposito"); no son tacticas y no se siembran.
+const EXCLUIDAS_TEXTO = '2x1, 4x3 y descuentos como táctica (comen margen); deshacerse de clientes C/D o atender solo clientes A '
+  + '(en pueblo, el que hoy compra cuerdas mañana compra el bafle); subir precios contra MercadoLibre; comprar, rentar o vender bases '
+  + 'de datos (ilegal por la ley de protección de datos); subir niveles de crédito; equipos solo a comisión; no pagar tiempo extra; '
+  + 'publicidad cara (TV, cine, dirigibles), libro, multinivel.';
 
 const MAX_TEXTO = 100;
 const MAX_REGLAS = 500;
@@ -107,6 +114,58 @@ function registrarRutasCincoCaminos(app, deps) {
       categorias: categorias.map(r => ({ ...r })) });
     res.json({ categorias });
   }));
+
+  // Manual de tácticas. Quién escribe y qué tienda se ve salen SIEMPRE del token. La etiqueta no tiene ruta de escritura.
+  const alcanceManual = req => {
+    const a = resolverAlcanceAutorizado(req);
+    return { verTodas: a.verTodas, sucursalId: Number(req.usuarioToken.sucursal_id) };
+  };
+  const usuarioDelToken = req => Number(req.usuarioToken.id);
+  const vistaDe = (req, id) => vistaManual(DB, alcanceManual(req)).find(t => t.id === id);
+  const idDeRuta = req => req.params.id;
+  // El nombre se arma al leer, nunca se guarda: quien ya no existe queda señalado, y null es "el sistema".
+  const nombreDeUsuario = usuarioId => {
+    if (usuarioId === null || usuarioId === undefined) return null;
+    const u = (DB.admin?.usuarios || []).find(x => Number(x.id) === Number(usuarioId));
+    return u && u.nombre ? u.nombre : `Usuario #${usuarioId} (ya no existe)`;
+  };
+
+  app.get('/api/cinco-caminos/manual', ...permiso('ver_cinco_caminos'), ejecutar('/api/cinco-caminos/manual', (req, res) => {
+    res.json({ tacticas: vistaManual(DB, alcanceManual(req)), excluidas_texto: EXCLUIDAS_TEXTO });
+  }));
+
+  app.post('/api/cinco-caminos/manual', ...permiso('administrar_manual_tacticas'), ejecutar('/api/cinco-caminos/manual', (req, res) => {
+    const t = crearTactica(DB, req.body, usuarioDelToken(req));
+    res.status(201).json({ tactica: vistaDe(req, t.id) });
+  }));
+
+  app.put('/api/cinco-caminos/manual/:id', ...permiso('administrar_manual_tacticas'), ejecutar('/api/cinco-caminos/manual/:id', (req, res) => {
+    const t = cambiarTactica(DB, idDeRuta(req), req.body, usuarioDelToken(req));
+    res.json({ tactica: vistaDe(req, t.id) });
+  }));
+
+  app.post('/api/cinco-caminos/manual/:id/retirar', ...permiso('administrar_manual_tacticas'),
+    ejecutar('/api/cinco-caminos/manual/:id/retirar', (req, res) => {
+      const motivo = req.body && typeof req.body === 'object' ? req.body.motivo : undefined;
+      const t = retirarTactica(DB, idDeRuta(req), motivo, usuarioDelToken(req));
+      res.json({ tactica: vistaDe(req, t.id) });
+    }));
+
+  app.post('/api/cinco-caminos/manual/:id/reactivar', ...permiso('administrar_manual_tacticas'),
+    ejecutar('/api/cinco-caminos/manual/:id/reactivar', (req, res) => {
+      const t = reactivarTactica(DB, idDeRuta(req), usuarioDelToken(req));
+      res.json({ tactica: vistaDe(req, t.id) });
+    }));
+
+  // Sin "ver todas", las entradas de etiqueta de otras tiendas no se muestran: revelarían qué probó cada una.
+  app.get('/api/cinco-caminos/manual/:id/historial', ...permiso('ver_cinco_caminos'),
+    ejecutar('/api/cinco-caminos/manual/:id/historial', (req, res) => {
+      const { verTodas, sucursalId } = alcanceManual(req);
+      const historial = historialDe(DB, idDeRuta(req))
+        .filter(h => verTodas || h.accion !== 'etiqueta' || (h.despues && h.despues.sucursal_id === sucursalId))
+        .map(h => ({ ...h, usuario_nombre: nombreDeUsuario(h.usuario_id) }));
+      res.json({ historial });
+    }));
 }
 
 module.exports = { registrarRutasCincoCaminos, validarCategorias };
