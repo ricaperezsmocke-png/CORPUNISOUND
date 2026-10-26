@@ -4,6 +4,7 @@ import { apiFetch } from "../api";
 import { contadorDePeticiones, tiendasDelSelector } from "../sicar/cortesSicar";
 import { diaDeLaTienda, opcionesSemanas, semanaPorDefecto, tarjetasDelTablero } from "./tableroCincoCaminos.js";
 import CategoriasCincoCaminos from "./CategoriasCincoCaminos.jsx";
+import ManualTacticas from "./ManualTacticas.jsx";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
 const ETIQUETA = "text-sm text-slate-600";
@@ -57,7 +58,9 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
   const [tablero, setTablero] = useState(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
-  const [verCategorias, setVerCategorias] = useState(false);
+  const [pantalla, setPantalla] = useState("tablero");
+  const verCategorias = pantalla === "categorias";
+  const enTablero = pantalla === "tablero";
   const peticiones = useRef(contadorDePeticiones());
   const puedeConfigurar = permisos.includes("administrar_manual_tacticas");
 
@@ -97,7 +100,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
     }
   }, [sucursal, semana]);
 
-  useEffect(() => { if (!verCategorias) cargar(); }, [cargar, verCategorias]);
+  useEffect(() => { if (enTablero) cargar(); }, [cargar, enTablero]);
 
   const vista = tablero ? tarjetasDelTablero(tablero) : null;
   const nombreTienda = tiendas.find((t) => String(t.id) === String(sucursal))?.nombre || `Tienda ${sucursal}`;
@@ -105,26 +108,29 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
     <div className="space-y-4 min-w-0 max-w-full">
       <div className="flex flex-wrap gap-3 items-end">
         <h2 className="text-lg font-bold text-slate-900 mr-auto">Cinco caminos</h2>
-        {!verCategorias && selector.todas && (
+        {enTablero && selector.todas && (
           <label className={ETIQUETA}>Tienda
             <select className={CAMPO} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
               {selector.tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </select>
           </label>
         )}
-        {!verCategorias && <label className={ETIQUETA}>Semana
+        {enTablero && <label className={ETIQUETA}>Semana
           <select className={CAMPO} value={semana} onChange={(e) => setSemana(e.target.value)}>
             {semanas.map((s) => <option key={s.lunes} value={s.lunes}>{s.etiqueta}</option>)}
           </select>
         </label>}
-        {!verCategorias && <button type="button" className={BOTON} onClick={cargar}><RefreshCw size={16} aria-hidden="true" />Actualizar</button>}
+        {enTablero && <button type="button" className={BOTON} onClick={cargar}><RefreshCw size={16} aria-hidden="true" />Actualizar</button>}
+        <button type="button" className={BOTON} aria-pressed={pantalla === "manual"} onClick={() => setPantalla(pantalla === "manual" ? "tablero" : "manual")}>
+          {pantalla === "manual" ? "Volver al tablero" : "Manual de tácticas"}
+        </button>
         {puedeConfigurar && (
-          <button type="button" className={BOTON} aria-pressed={verCategorias} onClick={() => setVerCategorias((v) => !v)}>
+          <button type="button" className={BOTON} aria-pressed={verCategorias} onClick={() => setPantalla(verCategorias ? "tablero" : "categorias")}>
             {verCategorias ? "Volver al tablero" : "Categorías"}
           </button>
         )}
       </div>
-      {verCategorias ? <CategoriasCincoCaminos /> : (
+      {pantalla === "manual" ? <ManualTacticas permisos={permisos} /> : verCategorias ? <CategoriasCincoCaminos /> : (
         <>
           <p className="text-sm font-semibold text-slate-700">Ventas con cliente y de mostrador. Cifras según SICAR.</p>
           {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
