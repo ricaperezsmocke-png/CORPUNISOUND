@@ -79,10 +79,13 @@ function FormularioTactica({ tactica, cerrar, alGuardar }) {
         <textarea className={CAMPO} rows={3} value={f.descripcion} maxLength={600} onChange={poner("descripcion")} />
       </label>
       <label className={ETIQUETA}>Camino
-        <select className={CAMPO} value={f.camino} onChange={poner("camino")}><Opciones lista={CAMINOS} /></select>
+        <select className={CAMPO} value={f.camino} onChange={poner("camino")}>
+          <option value="">Elige…</option><Opciones lista={CAMINOS} />
+        </select>
       </label>
       <label className={ETIQUETA}>Número que mueve
         <select className={CAMPO} value={f.numero_que_mueve} onChange={poner("numero_que_mueve")}>
+          <option value="">Elige…</option>
           {numeros.map(([clave, nombre]) => <option key={clave} value={clave}>{nombre}</option>)}
         </select>
       </label>
@@ -101,7 +104,9 @@ function FormularioTactica({ tactica, cerrar, alGuardar }) {
         ))}
       </fieldset>
       <label className={ETIQUETA}>Cómo se mide
-        <select className={CAMPO} value={f.como_se_mide} onChange={poner("como_se_mide")}><Opciones lista={MEDICIONES} /></select>
+        <select className={CAMPO} value={f.como_se_mide} onChange={poner("como_se_mide")}>
+          <option value="">Elige…</option><Opciones lista={MEDICIONES} />
+        </select>
       </label>
       <label className={ETIQUETA}>Referencia al PDF
         <input className={CAMPO} value={f.referencia_pdf} maxLength={60} onChange={poner("referencia_pdf")} />
@@ -190,7 +195,7 @@ function Tactica({ t, puedeAdministrar, accion }) {
       {t.descripcion && <p className="text-sm text-slate-700 break-words">{t.descripcion}</p>}
       <p className={NOTA_GRIS}>Quién: {nombreQuien(t.quien)}</p>
       <p className={NOTA_GRIS}>Mueve: {nombreNumero(t.numero_que_mueve)}{t.candado ? ` · Candado: ${nombreNumero(t.candado)}` : ""}</p>
-      <p className={NOTA_GRIS}>Cómo se mide: {nombreMedicion(t.como_se_mide)}{t.referencia_pdf ? ` · PDF: ${t.referencia_pdf}` : ""}</p>
+      <p className={NOTA_GRIS}>Cómo se mide: {nombreMedicion(t.como_se_mide)}{t.referencia_pdf ? ` · Hoja: ${t.referencia_pdf}` : ""}</p>
       {!t.activa && t.motivo_retiro && <p className={NOTA_GRIS}>Motivo del retiro: {t.motivo_retiro}</p>}
       <p className="text-sm text-slate-800">
         <span className={PASTILLA}>{textoEtiqueta(t.etiqueta_tienda)}</span> <span className={NOTA_GRIS}>{textoProbadaEn(t.probada_en)}</span>

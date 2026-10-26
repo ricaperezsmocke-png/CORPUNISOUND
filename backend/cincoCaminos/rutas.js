@@ -123,6 +123,12 @@ function registrarRutasCincoCaminos(app, deps) {
   const usuarioDelToken = req => Number(req.usuarioToken.id);
   const vistaDe = (req, id) => vistaManual(DB, alcanceManual(req)).find(t => t.id === id);
   const idDeRuta = req => req.params.id;
+  // El nombre se arma al leer, nunca se guarda: quien ya no existe queda señalado, y null es "el sistema".
+  const nombreDeUsuario = usuarioId => {
+    if (usuarioId === null || usuarioId === undefined) return null;
+    const u = (DB.admin?.usuarios || []).find(x => Number(x.id) === Number(usuarioId));
+    return u && u.nombre ? u.nombre : `Usuario #${usuarioId} (ya no existe)`;
+  };
 
   app.get('/api/cinco-caminos/manual', ...permiso('ver_cinco_caminos'), ejecutar('/api/cinco-caminos/manual', (req, res) => {
     res.json({ tacticas: vistaManual(DB, alcanceManual(req)), excluidas_texto: EXCLUIDAS_TEXTO });
@@ -156,7 +162,8 @@ function registrarRutasCincoCaminos(app, deps) {
     ejecutar('/api/cinco-caminos/manual/:id/historial', (req, res) => {
       const { verTodas, sucursalId } = alcanceManual(req);
       const historial = historialDe(DB, idDeRuta(req))
-        .filter(h => verTodas || h.accion !== 'etiqueta' || (h.despues && h.despues.sucursal_id === sucursalId));
+        .filter(h => verTodas || h.accion !== 'etiqueta' || (h.despues && h.despues.sucursal_id === sucursalId))
+        .map(h => ({ ...h, usuario_nombre: nombreDeUsuario(h.usuario_id) }));
       res.json({ historial });
     }));
 }

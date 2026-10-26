@@ -14,6 +14,7 @@ export const CAMINOS = [
 // Mismos nombres legibles que el tablero; margen y descuento son de la fase 3 y aún no tienen cálculo.
 export const NOMBRES_NUMERO = {
   ...Object.fromEntries(NUMEROS.map((n) => [n.clave, n.etiqueta])),
+  registros_por_10_tickets: "Registros al Radar por cada 10 tickets",
   margen: "Margen (fase 3)",
   descuento_promedio: "Descuento promedio (fase 3)",
 };
@@ -37,7 +38,7 @@ export const MEDICIONES = [
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const CAMPOS = ["nombre", "descripcion", "camino", "numero_que_mueve", "candado", "quien", "como_se_mide", "referencia_pdf"];
 const NOMBRES_CAMPO = {
-  nombre: "Nombre", descripcion: "Descripción", camino: "Camino", numero_que_mueve: "Número que mueve", candado: "Candado",
+  numero_v1: "Número en el manual v1", nombre: "Nombre", descripcion: "Descripción", camino: "Camino", numero_que_mueve: "Número que mueve", candado: "Candado",
   quien: "Quién", como_se_mide: "Cómo se mide", referencia_pdf: "Referencia PDF", activa: "Activa", motivo_retiro: "Motivo del retiro",
 };
 const ACCIONES = { alta: "Alta", cambio: "Cambio", retiro: "Retiro", reactivacion: "Reactivación", etiqueta: "Etiqueta de prueba" };
@@ -79,8 +80,8 @@ export function agruparPorCamino(tacticas, { camino = "", retiradas = false } = 
 }
 
 export function formularioVacio() {
-  return { nombre: "", descripcion: "", camino: "calidad_dato", numero_que_mueve: "pct_con_cliente", candado: "", quien: ["cajera"],
-    como_se_mide: "sistema", referencia_pdf: "" };
+  // Nada viene escogido: lo que se elige lo decide la persona, no el sistema.
+  return { nombre: "", descripcion: "", camino: "", numero_que_mueve: "", candado: "", quien: [], como_se_mide: "", referencia_pdf: "" };
 }
 
 export function formularioDeTactica(t) {
@@ -117,7 +118,10 @@ export function errorDelFormulario(f) {
   if (n < 3 || n > 120) return "El nombre debe tener de 3 a 120 caracteres.";
   if (f.descripcion.trim().length > 600) return "La descripción puede tener hasta 600 caracteres.";
   if (f.referencia_pdf.trim().length > 60) return "La referencia al PDF puede tener hasta 60 caracteres.";
+  if (!f.camino) return "Elige el camino.";
+  if (!f.numero_que_mueve) return "Elige el número que mueve.";
   if (f.quien.length === 0) return "Elige al menos un responsable.";
+  if (!f.como_se_mide) return "Elige cómo se mide.";
   if (f.candado && f.candado === f.numero_que_mueve) return "El candado debe ser un número distinto al que mueve.";
   return "";
 }
@@ -135,13 +139,13 @@ function textoValor(campo, valor) {
 function cambioDeCampo(h, antes, despues, campo) {
   const nuevo = textoValor(campo, despues[campo]);
   const previo = h.accion === "alta" ? "" : `${textoValor(campo, antes[campo])} → `;
-  return `${NOMBRES_CAMPO[campo] || campo}: ${previo}${nuevo}`;
+  return `${NOMBRES_CAMPO[campo] || "Otro dato"}: ${previo}${nuevo}`;
 }
 
-/** Entrada del historial lista para mostrar: quién, cuándo, qué acción y qué cambió. `nombrePersona` es opcional. */
-export function entradaHistorial(h, nombrePersona = () => "") {
+/** Entrada del historial lista para mostrar: quién (nombre que manda el servidor), cuándo, qué acción y qué cambió. */
+export function entradaHistorial(h) {
   const id = h.usuario_id;
-  const quien = id === null || id === undefined ? "El sistema" : nombrePersona(id) || `Usuario #${id}`;
+  const quien = id === null || id === undefined ? "El sistema" : h.usuario_nombre || `Usuario #${id}`;
   const despues = h.despues && typeof h.despues === "object" ? h.despues : {};
   const antes = h.antes && typeof h.antes === "object" ? h.antes : {};
   const cambios = h.accion === "etiqueta"

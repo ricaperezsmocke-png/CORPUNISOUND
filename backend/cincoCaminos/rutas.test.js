@@ -242,3 +242,19 @@ test('manual: el id de texto funciona y los ids raros son 404', async t => {
     assert.equal((await pedir(`${MANUAL}/${malo}`, 974, { method: 'PUT', body: cuerpo })).status, 404, malo);
   }
 });
+
+test('manual: el historial trae el nombre de quien hizo cada cambio, sin guardarlo en la base', async t => {
+  const pedir = await conServidor(t);
+  const { fijarEtiqueta } = require('./manual');
+  const tactica = app.DB.pos.cinco_caminos.tacticas.find(x => x.id === 5);
+  tactica.historial.push({ fecha_hora: '2026-10-01T00:00:00.000Z', usuario_id: 9999, accion: 'cambio', antes: {}, despues: {} });
+  fijarEtiqueta(app.DB, 5, 1, { estado: 'probada', mes: '2026-09', resultado: 'Hecha por el sistema' });
+  await pedir(`${MANUAL}/5`, 974, { method: 'PUT', body: JSON.stringify({ descripcion: 'Con nombre de usuario' }) });
+  const hist = (await pedir(`${MANUAL}/5/historial`, 972)).datos.historial;
+  assert.equal(hist.find(h => h.usuario_id === 9999).usuario_nombre, 'Usuario #9999 (ya no existe)');
+  assert.equal(hist.find(h => h.usuario_id === 974).usuario_nombre, 'Prueba 974');
+  const sistema = hist.find(h => h.accion === 'etiqueta');
+  assert.equal(sistema.usuario_id, null);
+  assert.equal(sistema.usuario_nombre, null);
+  assert.equal(JSON.stringify(app.DB.pos.cinco_caminos.tacticas).includes('Prueba 974'), false, 'el nombre no se guarda');
+});
