@@ -297,3 +297,84 @@ test('mostrador opcional acepta fila completa y cancelacion corta, y rechaza dat
   const mil = { ...solo, mostrador: [fila('1', 500), fila('2', 500)] };
   assert.deepEqual(validarLoteSicar(mil), mil);
 });
+
+function traspasoValido(id = '7') {
+  return { tra_id: id, folio: 'T-0001', suc_origen: '1', suc_destino: '2', fecha: '2026-10-22', estado: 'enviado',
+    fecha_aplicado: null, fecha_cancelado: null, total: '1500.50',
+    detalle: [{ art_id: '10', cantidad: '3.0000', precio_sin: '100.00', precio_con: '116.00' },
+      { art_id: '11', cantidad: '1.5000', precio_sin: '50.00', precio_con: '58.00' }] };
+}
+const renglonesTraspaso = n => Array.from({ length: n }, (_, i) => ({ art_id: String(i + 1), cantidad: '1.0000', precio_sin: '1.00', precio_con: '1.16' }));
+
+test('traspasos opcionales aceptan lote exclusivo y rechazan estados, fechas, importes, duplicados, limites y propiedades', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const solo = { ...lote(), clientes: [], ventas: [], traspasos: [traspasoValido()] };
+  assert.deepEqual(validarLoteSicar(solo), solo);
+  const recibido = structuredClone(solo);
+  Object.assign(recibido.traspasos[0], { estado: 'recibido', fecha_aplicado: '2026-10-23T09:30:00' });
+  assert.deepEqual(validarLoteSicar(recibido), recibido);
+  const cancelado = structuredClone(solo);
+  Object.assign(cancelado.traspasos[0], { estado: 'cancelado', fecha_cancelado: '2026-10-23T09:30:00' });
+  assert.deepEqual(validarLoteSicar(cancelado), cancelado);
+  for (const [nombre, cambiar, codigo] of [
+    ['estado', b => { b.traspasos[0].estado = 'perdido'; }, 'ESTADO_INVALIDO'],
+    ['fecha con hora', b => { b.traspasos[0].fecha = '2026-10-22T10:00:00'; }, 'FECHA_INVALIDA'],
+    ['fecha inexistente', b => { b.traspasos[0].fecha = '2026-02-30'; }, 'FECHA_INVALIDA'],
+    ['fecha_aplicado solo dia', b => { b.traspasos[0].fecha_aplicado = '2026-10-23'; }, 'FECHA_INVALIDA'],
+    ['fecha_cancelado invalida', b => { b.traspasos[0].fecha_cancelado = '2026-13-01T00:00:00'; }, 'FECHA_INVALIDA'],
+    ['fecha_aplicado ausente', b => { delete b.traspasos[0].fecha_aplicado; }, 'FECHA_INVALIDA'],
+    ['total un decimal', b => { b.traspasos[0].total = '1.5'; }, 'IMPORTE_INVALIDO'],
+    ['total numero', b => { b.traspasos[0].total = 1.5; }, 'IMPORTE_INVALIDO'],
+    ['total mayor a safe integer', b => { b.traspasos[0].total = '99999999999999999.00'; }, 'IMPORTE_INVALIDO'],
+    ['cantidad 2 decimales', b => { b.traspasos[0].detalle[0].cantidad = '2.00'; }, 'IMPORTE_INVALIDO'],
+    ['precio_sin un decimal', b => { b.traspasos[0].detalle[0].precio_sin = '1.0'; }, 'IMPORTE_INVALIDO'],
+    ['precio_con 4 decimales', b => { b.traspasos[0].detalle[0].precio_con = '1.0000'; }, 'IMPORTE_INVALIDO'],
+    ['tra repetido', b => { b.traspasos.push(traspasoValido()); }, 'ID_DUPLICADO'],
+    ['art repetido', b => { b.traspasos[0].detalle[1].art_id = '10'; }, 'ID_DUPLICADO'],
+    ['101 traspasos', b => { b.traspasos = Array.from({ length: 101 }, (_, i) => traspasoValido(String(i + 1))); }, 'LIMITE_ENTIDADES'],
+    ['501 renglones', b => { b.traspasos[0].detalle = renglonesTraspaso(501); }, 'LIMITE_ENTIDADES'],
+    ['1001 renglones en el lote', b => {
+      b.traspasos = [1, 2, 3].map(n => ({ ...traspasoValido(String(n)), detalle: renglonesTraspaso(n === 3 ? 1 : 500) }));
+    }, 'LIMITE_ENTIDADES'],
+    ['detalle vacio', b => { b.traspasos[0].detalle = []; }, 'DETALLE_VACIO'],
+    ['folio largo', b => { b.traspasos[0].folio = 'F'.repeat(46); }, 'DATOS_INVALIDOS'],
+    ['folio vacio', b => { b.traspasos[0].folio = ' '; }, 'DATOS_INVALIDOS'],
+    ['tra invalido', b => { b.traspasos[0].tra_id = 7; }, 'ID_INVALIDO'],
+    ['art invalido', b => { b.traspasos[0].detalle[0].art_id = '0'; }, 'ID_INVALIDO'],
+    ['origen invalido', b => { b.traspasos[0].suc_origen = 1; }, 'ID_INVALIDO'],
+    ['destino invalido', b => { b.traspasos[0].suc_destino = null; }, 'ID_INVALIDO'],
+    ['aliasOri', b => { b.traspasos[0].aliasOri = 'Ocosingo'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['propiedad extra en renglon', b => { b.traspasos[0].detalle[0].clave = 'X'; }, 'PROPIEDAD_NO_DECLARADA'],
+  ]) {
+    const entrada = structuredClone(solo);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+  const mil = { ...solo, traspasos: [1, 2].map(n => ({ ...traspasoValido(String(n)), detalle: renglonesTraspaso(500) })) };
+  assert.deepEqual(validarLoteSicar(mil), mil);
+});
+
+test('traspasos_omitidos: opcional, hasta 1000, ids validos y unicos, solo tra_id y codigo; un codigo raro no tumba el lote', () => {
+  const { validarLoteSicar } = require('./sicarIngesta');
+  const solo = { ...lote(), clientes: [], ventas: [], traspasos_omitidos: [{ tra_id: '41', codigo: 'DETALLE_FUERA_DE_LIMITE' }] };
+  assert.deepEqual(validarLoteSicar(solo), solo);
+  const raro = { ...solo, traspasos_omitidos: [{ tra_id: '41', codigo: 'NADIE_LO_CONOCE' }, { tra_id: '42', codigo: 7 }] };
+  assert.deepEqual(validarLoteSicar(raro), raro);
+  const conTraspasos = { ...solo, traspasos: [traspasoValido('40')] };
+  assert.deepEqual(validarLoteSicar(conTraspasos), conTraspasos);
+  const mil = { ...solo, traspasos_omitidos: Array.from({ length: 1000 }, (_, i) => ({ tra_id: String(i + 1), codigo: 'OTRO' })) };
+  assert.deepEqual(validarLoteSicar(mil), mil);
+  for (const [nombre, cambiar, codigo] of [
+    ['1001', b => { b.traspasos_omitidos = Array.from({ length: 1001 }, (_, i) => ({ tra_id: String(i + 1), codigo: 'OTRO' })); },
+      'LIMITE_ENTIDADES'],
+    ['no arreglo', b => { b.traspasos_omitidos = {}; }, 'LIMITE_ENTIDADES'],
+    ['repetido', b => { b.traspasos_omitidos.push({ tra_id: '41', codigo: 'OTRO' }); }, 'ID_DUPLICADO'],
+    ['tra numero', b => { b.traspasos_omitidos[0].tra_id = 41; }, 'ID_INVALIDO'],
+    ['tra cero', b => { b.traspasos_omitidos[0].tra_id = '0'; }, 'ID_INVALIDO'],
+    ['propiedad extra', b => { b.traspasos_omitidos[0].folio = 'T-1'; }, 'PROPIEDAD_NO_DECLARADA'],
+  ]) {
+    const entrada = structuredClone(solo);
+    cambiar(entrada);
+    assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
+  }
+});

@@ -1,4 +1,4 @@
-const { PUBLICOS } = require('./formato');
+const { PUBLICOS, traspasoConFechaInvalida } = require('./formato');
 // Único diccionario del esquema SICAR. Los nombres no confirmados se verifican al arrancar.
 const COLUMNAS = {
   cliente: ['cli_id', 'nombre', 'telefono', 'celular', 'mail', 'rfc', 'status', 'clave'],
@@ -39,6 +39,21 @@ const ventasDeCortes = (leer, ids) => leer('SELECT r.`cor_id`, v.`ven_id`, v.`to
 // de 2025 se toma por ven_id con ORDER BY ... LIMIT 1, que da lo mismo.
 const INICIO_MOSTRADOR = '2025-01-01 00:00:00';
 const PRIMERA_VENTA_DESDE = 'SELECT v.`ven_id` AS desde FROM `venta` v WHERE v.`fecha` >= ? ORDER BY v.`ven_id` LIMIT 1';
+// Traspasos entre sucursales (Seguimiento de facturas, 2026-10-25). Confirmado en Ocosingo: tra_id PRIMARY, status 2
+// recibido / 1 enviado / -1 cancelado, detallet con PK (tra_id, art_id). Nunca se leen aliasOri/aliasDes (nombres) ni
+// sucCan. Opcionales: si falta una columna, se sigue con todo lo demás y no se mandan.
+const COLUMNAS_TRASPASOS = { traspaso: ['tra_id', 'folio', 'sucOri', 'sucDes', 'fecha', 'total', 'status', 'fechaApl', 'fechaCan'],
+  detallet: ['tra_id', 'art_id', 'cantidad', 'precioSin', 'precioCon'] };
+const SELECCIONAR_TRASPASO = 'SELECT t.`tra_id`, t.`folio`, t.`sucOri`, t.`sucDes`, t.`fecha`, t.`total`, t.`status`, t.`fechaApl`, '
+  + 't.`fechaCan` FROM `traspaso` t ';
+const LEER_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? ORDER BY t.`tra_id` LIMIT ?';
+// Relectura: abiertos (status 1) y los de fecha, aplicado o cancelado desde el día dado. La guardia toma un paréntesis
+// tras WHERE por función: AND pesa más que OR, así que el cursor se repite en cada rama.
+const RELEER_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? AND t.`status` = 1 OR t.`tra_id` > ? AND t.`fecha` >= ? '
+  + 'OR t.`tra_id` > ? AND t.`fechaApl` >= ? OR t.`tra_id` > ? AND t.`fechaCan` >= ? ORDER BY t.`tra_id` LIMIT ?';
+// --verificar: los enviados sin recibir, por páginas, para contar cuántos se omitirían por fecha inválida.
+const ABIERTOS_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? AND t.`status` = 1 ORDER BY t.`tra_id` LIMIT ?';
+const MAXIMO_TRASPASOS = 100;
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -59,6 +74,8 @@ function crearFuente(lector, config = {}) {
   let columnasExistencias = [];
   let cortesFaltantes = null;
   let columnasCortes = [];
+  let traspasosFaltantes = null;
+  let columnasTraspasos = [];
   // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
   const paginaExistencias = limite => Math.min(limite, lector.tamano * 5);
   const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
@@ -166,6 +183,22 @@ function crearFuente(lector, config = {}) {
         return { cortes, pagos, cajeros, resumenes, ventas };
       });
     },
+    get traspasosDisponibles() { return Array.isArray(traspasosFaltantes) && !traspasosFaltantes.length; },
+    // Una sola página (misma transacción): los traspasos y el detalle de esos tra_id. Con desde (YYYY-MM-DD), la relectura.
+    async traspasos(cursor, limite, desde = null) {
+      comprobar();
+      if (traspasosFaltantes.length) throw new Error('TRASPASOS_NO_DISPONIBLES');
+      const n = Math.min(limite, lector.tamano, MAXIMO_TRASPASOS);
+      return lector.pagina(async leer => {
+        const traspasos = desde === null ? await leer(LEER_TRASPASOS, [cursor, n])
+          : await leer(RELEER_TRASPASOS, [cursor, cursor, desde, cursor, desde, cursor, desde, n]);
+        if (!traspasos.length) return { traspasos, detalles: [] };
+        const ids = traspasos.map(t => String(t.tra_id));
+        const detalles = await leer('SELECT d.`tra_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon` FROM `detallet` d '
+          + `WHERE d.\`tra_id\` IN (${huecos(ids)}) ORDER BY d.\`tra_id\`, d.\`art_id\``, ids);
+        return { traspasos, detalles };
+      });
+    },
     async validar() {
       await lector.pagina(async leer => {
         const columnas = await leer('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE()');
@@ -207,6 +240,9 @@ function crearFuente(lector, config = {}) {
         const requeridasCortes = Object.entries(COLUMNAS_CORTES).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`));
         columnasCortes = requeridasCortes.filter(c => presentes.has(c));
         cortesFaltantes = requeridasCortes.filter(c => !presentes.has(c));
+        const requeridasTraspasos = Object.entries(COLUMNAS_TRASPASOS).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`));
+        columnasTraspasos = requeridasTraspasos.filter(c => presentes.has(c));
+        traspasosFaltantes = requeridasTraspasos.filter(c => !presentes.has(c));
         validado = true;
       });
     },
@@ -271,8 +307,29 @@ function crearFuente(lector, config = {}) {
           : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
         cortes: cortesFaltantes.length ? { columnas: columnasCortes, faltantes: cortesFaltantes, total: null, ms: null }
           : { columnas: columnasCortes, faltantes: [], ...await medirCortes(leer) },
+        traspasos: traspasosFaltantes.length ? { columnas: columnasTraspasos, faltantes: traspasosFaltantes, total: null, abiertos: null }
+          : { columnas: columnasTraspasos, faltantes: [], total: String((await leer('SELECT COUNT(*) AS total FROM `traspaso`'))[0].total),
+            abiertos: String((await leer('SELECT COUNT(*) AS total FROM `traspaso` WHERE `status` = 1'))[0].total) },
       }));
-      return { ...info, mostrador: await medirMostrador() };
+      // Enviados sin recibir (status 1) que se omitirían por fecha inválida, por ejemplo una fecha cero que no sea
+      // 0000-00-00 00:00:00. Si la lectura falla, sale null ("sin dato") sin tumbar el resto de --verificar.
+      const medirFechasTraspasos = async () => {
+        if (traspasosFaltantes.length) return null;
+        try {
+          return await lector.pagina(async leer => {
+            let cursor = '0', invalidos = 0;
+            for (let paginas = 0; paginas < 1000; paginas++) {
+              const filas = await leer(ABIERTOS_TRASPASOS, [cursor, Math.min(lector.tamano, MAXIMO_TRASPASOS)]);
+              if (!filas.length) break;
+              invalidos += filas.filter(traspasoConFechaInvalida).length;
+              cursor = String(filas.at(-1).tra_id);
+            }
+            return String(invalidos);
+          });
+        } catch { return null; }
+      };
+      const abiertosFechaInvalida = await medirFechasTraspasos();
+      return { ...info, traspasos: { ...info.traspasos, abiertos_fecha_invalida: abiertosFechaInvalida }, mostrador: await medirMostrador() };
     },
   };
 }

@@ -3152,6 +3152,13 @@ require("./cincoCaminos/rutas").registrarRutasCincoCaminos(app, {
   tiendas: () => DB.pos.sucursales, capturarError: (e) => Sentry.captureException(e),
 });
 
+// Facturas por llegar (XML del proveedor). Viven en la SQLite de SICAR; sin ella no hay rutas.
+if (repoSicar) {
+  require("./facturasPorLlegar").registrarRutasFacturasPorLlegar(app, {
+    DB, sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol,
+  });
+}
+
 // Supervisión de tiendas: visita mensual y fallas. Ver supervisionRutas.js.
 require("./supervisionRutas")(app, { DB, drive, requiereLogin, resolverPermisosDeRol, resolverAlcanceAutorizado });
 

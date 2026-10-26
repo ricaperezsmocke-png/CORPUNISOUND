@@ -264,3 +264,27 @@ test('15. un lote solo de mostrador avanza la secuencia, se guarda por tienda si
   assert.equal((await enviar(malo)).status, 400);
   } finally { llave = llaveAnterior; }
 });
+
+test('16. un lote solo de traspasos avanza la secuencia, se guarda por tienda y el reenvio no duplica', async () => {
+  // El ritmo es de 12 solicitudes por minuto por llave y este archivo ya las gasta: una llave nueva de la misma tienda.
+  const llaveAnterior = llave;
+  llave = crearLlaveSicar(repo, 1, 961).llave;
+  try {
+  const traspaso = { tra_id: '77', folio: 'T-0077', suc_origen: '1', suc_destino: '2', fecha: '2026-10-22', estado: 'enviado',
+    fecha_aplicado: null, fecha_cancelado: null, total: '10.33',
+    detalle: [{ art_id: '7', cantidad: '1.5000', precio_sin: '5.00', precio_con: '5.80' }] };
+  const cuerpo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000020', sequence: '12', clientes: [], ventas: [],
+    traspasos: [traspaso] });
+  const r = await enviar(cuerpo);
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  assert.deepEqual(r.datos.aceptados, { clientes: 0, ventas: 0, traspasos: 1 });
+  assert.equal(r.datos.next_sequence, '13');
+  assert.deepEqual(await enviar(cuerpo), r);
+  assert.deepEqual(sqlite.prepare('SELECT sucursal_id, tra_id, total_centavos, estado FROM sicar_traspasos').all(),
+    [{ sucursal_id: 1, tra_id: '77', total_centavos: 1033, estado: 'enviado' }]);
+  assert.deepEqual(sqlite.prepare('SELECT cantidad, precio_con_centavos FROM sicar_traspasos_detalle').all(), [{ cantidad: '1.5000', precio_con_centavos: 580 }]);
+  const malo = JSON.stringify({ ...SOBRE, batch_id: '6f1c2a90-0000-4000-8000-000000000021', sequence: '13', clientes: [], ventas: [],
+    traspasos: [{ ...traspaso, aliasOri: 'Ocosingo' }] });
+  assert.equal((await enviar(malo)).status, 400);
+  } finally { llave = llaveAnterior; }
+});

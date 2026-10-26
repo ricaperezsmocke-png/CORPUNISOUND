@@ -104,6 +104,20 @@ documento lo comprueba `backend/sicarContrato.test.js`; si cambias uno, cambia e
   cancelada, el servidor borra la fila de mostrador y sus renglones en la misma transacción. El recibo incluye
   `aceptados.mostrador` cuando el lote trae esta colección. Un servidor anterior rechaza la llave `mostrador` con 400:
   el agente la manda solo con `"mostrador": true` en su configuración.
+- `traspasos` es otra colección opcional independiente (Seguimiento de facturas, 2026-10-25): movimientos de mercancía entre
+  sucursales. Misma regla: puede ser el único contenido del lote, no cambia `schema_version`, hasta 100 traspasos y 1,000
+  renglones por lote, y el mismo `tra_id` no se repite. Cada fila es exactamente `{ tra_id, folio, suc_origen,
+  suc_destino, fecha, estado, fecha_aplicado, fecha_cancelado, total, detalle }`: `tra_id`, `suc_origen` y `suc_destino`
+  son ids texto (nunca nombres de sucursal: `aliasOri`/`aliasDes` no se mandan y, si llegan, responde 400
+  `PROPIEDAD_NO_DECLARADA`); `folio` es texto no vacío de hasta 45 caracteres; `fecha` es una fecha de calendario real
+  `YYYY-MM-DD` (otra cosa, 422 `FECHA_INVALIDA`); `estado` es `enviado`, `recibido` o `cancelado` (otro valor, 422
+  `ESTADO_INVALIDO`); `fecha_aplicado` y `fecha_cancelado` llevan el formato de `ventas` (`YYYY-MM-DDTHH:MM:SS`) o
+  `null`, y las dos llaves son obligatorias. `total` lleva exactamente 2 decimales. `detalle` es un arreglo de 1 a 500
+  `{ art_id, cantidad, precio_sin, precio_con }` sin `art_id` repetido: `cantidad` con 4 decimales y los precios con 2
+  (otra cosa, 422 `IMPORTE_INVALIDO`). El servidor guarda centavos enteros y la cantidad como texto de 4 decimales por
+  tienda (la de la llave); reenviar un traspaso lo reemplaza junto con su detalle en la misma transacción. El recibo
+  incluye `aceptados.traspasos` cuando el lote trae esta colección. Un servidor anterior rechaza la llave `traspasos`
+  con 400: el agente la manda solo con `"traspasos": true` en su configuración.
 
 ## 3. Qué venta mandar y con qué estado
 

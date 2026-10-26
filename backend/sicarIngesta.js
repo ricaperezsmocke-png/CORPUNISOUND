@@ -35,6 +35,12 @@ function fecha(valor, local = false) {
   if (!Number.isFinite(instante.getTime()) || instante.toISOString().slice(0, 19) !== base) fallar('FECHA_INVALIDA');
   if (!local && !Number.isFinite(Date.parse(valor))) fallar('FECHA_INVALIDA');
 }
+// Fecha de calendario sola (YYYY-MM-DD), real: rechaza 2026-02-30.
+function fechaDia(valor) {
+  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) fallar('FECHA_INVALIDA');
+  const instante = new Date(`${valor}T00:00:00Z`);
+  if (!Number.isFinite(instante.getTime()) || instante.toISOString().slice(0, 10) !== valor) fallar('FECHA_INVALIDA');
+}
 function arreglo(valor, maximo, id, unico = true) {
   if (!Array.isArray(valor) || valor.length > maximo) fallar('LIMITE_ENTIDADES');
   const vistos = new Set();
@@ -149,6 +155,26 @@ function validarMostrador(m, indice) {
   return m.detalle.length;
 }
 
+// Traspaso de SICAR entre sucursales: solo ids (nunca nombres de sucursal). Devuelve cuantos renglones trae.
+function validarTraspaso(t, indice) {
+  objeto(t, ['tra_id', 'folio', 'suc_origen', 'suc_destino', 'fecha', 'estado', 'fecha_aplicado', 'fecha_cancelado', 'total', 'detalle']);
+  if (!esId(t.tra_id) || !esId(t.suc_origen) || !esId(t.suc_destino)) fallar('ID_INVALIDO');
+  if (!['enviado', 'recibido', 'cancelado'].includes(t.estado)) fallar('ESTADO_INVALIDO');
+  texto(t.folio, 45);
+  fechaDia(t.fecha);
+  for (const campo of ['fecha_aplicado', 'fecha_cancelado']) if (t[campo] !== null) fecha(t[campo], true);
+  decimal(t.total, 2);
+  arreglo(t.detalle, 500, 'art_id');
+  if (!t.detalle.length) fallar('DETALLE_VACIO');
+  t.detalle.forEach((d, i) => enReferencia(`traspasos[${indice}].detalle[${i}]`, () => {
+    objeto(d, ['art_id', 'cantidad', 'precio_sin', 'precio_con']);
+    decimal(d.cantidad, 4);
+    decimal(d.precio_sin, 2);
+    decimal(d.precio_con, 2);
+  }));
+  return t.detalle.length;
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -168,7 +194,7 @@ function validarVenta(v, indice) {
 
 function validarSobreSicar(body) {
   objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
-    'proveedores', 'existencias', 'cortes', 'mostrador']);
+    'proveedores', 'existencias', 'cortes', 'mostrador', 'traspasos', 'traspasos_omitidos']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -208,6 +234,20 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
       renglones += enReferencia(`mostrador[${i}]`, () => validarMostrador(m, i));
       if (renglones > 1000) fallar('LIMITE_ENTIDADES');
     });
+  }
+  if (body.traspasos !== undefined) {
+    arreglo(body.traspasos, 100, 'tra_id');
+    let renglones = 0;
+    body.traspasos.forEach((t, i) => {
+      renglones += enReferencia(`traspasos[${i}]`, () => validarTraspaso(t, i));
+      if (renglones > 1000) fallar('LIMITE_ENTIDADES');
+    });
+  }
+  // Traspasos que el agente no pudo mandar: solo su tra_id y el codigo del motivo. Un codigo desconocido no tumba el lote
+  // (las ventas del mismo envio no se pueden frenar por una alerta): el repositorio lo guarda como OTRO.
+  if (body.traspasos_omitidos !== undefined) {
+    arreglo(body.traspasos_omitidos, 1000, 'tra_id');
+    body.traspasos_omitidos.forEach((o, i) => enReferencia(`traspasos_omitidos[${i}]`, () => objeto(o, ['tra_id', 'codigo'])));
   }
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);

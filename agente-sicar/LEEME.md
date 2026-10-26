@@ -234,6 +234,49 @@ descripción ni clave del artículo. No llegan al CRM ni a la lista de clientes.
   tarea (la carga vuelve a pasar desde 2025; el servidor no las duplica).
 - Una venta de público con un dato que el agente no sabe leer se salta y queda `VENTA_OMITIDA ven_id=... codigo=...`.
 
+### Traspasos entre sucursales
+
+Con `"traspasos": true` el agente manda los traspasos de SICAR de esta tienda (los que mandó y los que recibió) para
+verlos en CORPUNISOUND con sus alertas: número de traspaso, folio, sucursal que envía y que recibe (**solo el número
+de sucursal de SICAR**, nunca su nombre), fecha, estado (enviado sin recibir, recibido o cancelado), fecha en que se
+recibió o se canceló, total y, por artículo, cantidad y precio sin y con impuestos.
+
+- **La primera carga es de noche** (20:00-07:00): manda toda la historia (unos 2,500 traspasos en Ocosingo,
+  **estimado**: unos 25 paquetes de 100). Mientras no termine, de día no se manda ningún traspaso. Se puede hacer de día,
+  a mano: `C:\UnisoundSICAR\agente-sicar\correr.cmd --traspasos-ahora` (queda `TRASPASOS_AUTORIZADOS_DE_DIA`).
+- **En cada corrida, al final de todo** (después de cortes y mostrador): manda los traspasos nuevos (`traspasos_cursor`
+  en `estado.json`) y **relee** los que siguen enviados sin recibir y los que tienen fecha, recepción o cancelación en
+  los últimos 30 días. Un traspaso cambia después de creado (enviado → recibido o cancelado) y SICAR no anota cuándo:
+  por eso se relee. Solo se reenvían los que cambiaron desde lo último que el servidor confirmó (`traspasos_firmas`).
+- **Una vez por semana, de noche**, se releen y mandan todos otra vez (`traspasos_semana`), para corregir cambios de
+  traspasos viejos. Si esa vuelta se corta, la siguiente noche sigue donde iba (`traspasos_vuelta`).
+- Todo avanza solo cuando el servidor confirma. Si un paquete de solo traspasos no se puede mandar tras sus reintentos,
+  se descarta (`TRASPASOS_DESCARTADOS`) **para no frenar las ventas** y se vuelve a leer y mandar después.
+- Un traspaso con un dato que el agente no sabe leer (estado que no es 2, 1 ni -1; fecha imposible; importe con más
+  decimales; folio vacío; sin artículos, con más de 500 o con un artículo repetido) se salta y queda
+  `TRASPASO_OMITIDO tra_id=... codigo=...` una vez al día en el registro de esta PC. **Además se avisa al servidor**:
+  en el mismo paquete de traspasos va `traspasos_omitidos` con su número y el código del motivo (nada más), y en
+  CORPUNISOUND (Traspasos SICAR) sale arriba, en rojo: "Traspaso SICAR #N de <tienda> no llegó al sistema: <motivo>.
+  Revísalo en SICAR." La alerta se ve siempre, sin importar las fechas del filtro, hasta que el traspaso llega bien.
+  Si está entre los que se releen, llega bien en cuanto SICAR lo tenga corregido (y la alerta se borra sola); si no,
+  en la vuelta semanal. Un omitido que no cambió no se reenvía en cada corrida (tiene su huella, como los demás),
+  pero la vuelta semanal sí los vuelve a mandar todos.
+- **Respaldos y omitidos.** La lista de omitidos del servidor no va en el respaldo SICAR. Tras restaurar un respaldo
+  queda la lista como estaba antes de restaurar; la siguiente vuelta semanal (o `--traspasos-ahora`) vuelve a mandar
+  **todos** los omitidos, porque recorre toda la historia desde el traspaso 1 sin importar estado ni fecha.
+- De día, con `"traspasos": true` y sin la primera carga hecha, queda `TRASPASOS_ESPERANDO_NOCHE` una vez al día.
+- **Orden de despliegue: primero el servidor, después el agente. Un agente nuevo contra un servidor viejo detiene TODO
+  el envío, ventas incluidas.**
+- **Viene apagado.** Se prende poniendo `"traspasos": true` en `config.json`, **solo después** de que el servidor de
+  CORPUNISOUND tenga esta versión (uno viejo rechaza el paquete con `HTTP_400` y **el agente se detendría, ventas
+  incluidas**) y de que `--verificar` diga `Traspasos en SICAR: N, M enviados sin recibir`. Si además dice
+  `K de ellos se omitirían por fecha inválida`, esos K enviados tienen una fecha que el agente no sabe leer (por
+  ejemplo una fecha cero distinta de `0000-00-00 00:00:00`): solo llegarían como alerta; avisar antes de prender. Si dice `Traspasos APAGADOS,
+  faltan columnas`, el agente sigue con todo lo demás pero no manda traspasos: hay que ajustar `COLUMNAS_TRASPASOS` en
+  `mapeo.js`.
+- Tras restaurar un respaldo del servidor (y quitar el alto de `SECUENCIA_RETROCEDIO`), `--traspasos-ahora` vuelve a
+  mandar todos los traspasos (el servidor no los duplica).
+
 ## 4. Programar la tarea
 
 En una ventana de comandos **como administrador** (cambia `USUARIO` por el usuario de Windows de esa PC):
@@ -271,6 +314,11 @@ En CORPUNISOUND → CRM → SICAR se ven los envíos recibidos.
 | `EXISTENCIAS_NO_DISPONIBLES` | `"existencias": true` pero no encontró las columnas de existencia. Sale una vez al día. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_EXISTENCIAS`, o apagar `"existencias"`. |
 | `EXISTENCIAS_DESCARTADAS` | Un paquete de solo existencias (o de existencias y cortes) no se pudo mandar tras sus reintentos (servidor caído o sin internet). Se tiró **para que las ventas sigan saliendo**; no se pierde nada: la siguiente corrida vuelve a comparar y manda lo que falte. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
 | `CORTES_DESCARTADOS` | Un paquete de solo cortes (o de cortes y existencias) no se pudo mandar tras sus reintentos. Se tiró **para que las ventas sigan saliendo**; no se pierde ningún corte: el cursor no avanzó y se vuelven a mandar en las siguientes corridas. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `TRASPASO_OMITIDO tra_id=… codigo=…` | Un traspaso con un dato que el agente no sabe leer. **Se saltó**; los demás siguen. Sale una vez al día. También aparece como alerta roja en CORPUNISOUND. | Revisar ese traspaso en SICAR; si no se corrige, avisar. |
+| `TRASPASOS_NO_DISPONIBLES` | `"traspasos": true` pero no encontró las columnas de traspasos. Sale una vez al día. Todo lo demás sigue normal. | Correr `--verificar` y ajustar `COLUMNAS_TRASPASOS`, o apagar `"traspasos"`. |
+| `TRASPASOS_DESCARTADOS` | Un paquete de solo traspasos (o con existencias o cortes) no se pudo mandar tras sus reintentos. Se tiró **para que las ventas sigan saliendo**; no se pierde nada: se vuelve a leer y mandar. | Nada. Si sale en muchas corridas seguidas, ver `HTTP_503`. |
+| `TRASPASOS_AUTORIZADOS_DE_DIA` | Alguien corrió `--traspasos-ahora` con `"traspasos": true`: se mandó de día la vuelta completa de traspasos. | Nada. |
+| `TRASPASOS_ESPERANDO_NOCHE` | `"traspasos": true` pero la primera carga de traspasos todavía no se hace: de día no se manda ninguno. Sale una vez al día. | Nada: se hace sola de noche. Para hacerla ya, `--traspasos-ahora`. |
 | `MOSTRADOR_AUTORIZADO_DE_DIA` | Alguien corrió `--mostrador-ahora`: se adelantó de día un tramo de la carga de mostrador desde 2025. | Nada. |
 | `EXISTENCIAS_AUTORIZADAS_DE_DIA` | Alguien corrió `--existencias-ahora`: se mandó la vuelta completa de día. | Nada. |
 | `CORTE_SIN_CAJERO cor_id=…` | SICAR no anotó quién cerró ese corte (o anotó a dos). Se mandó igual, sin quién lo cerró. | Nada si es raro. Si sale en todos los cortes, avisar. |

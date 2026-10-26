@@ -46,6 +46,8 @@ async function leerConfiguracion(archivo) {
   // Y la de ventas de mostrador (público en general, Cinco Caminos P1): solo true la prende; un servidor viejo rechaza la
   // colección con 400 y detendría las ventas.
   if (config.mostrador !== undefined && typeof config.mostrador !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
+  // Y la de traspasos (Seguimiento de facturas, 2026-10-25): solo true la prende; primero el servidor nuevo en producción.
+  if (config.traspasos !== undefined && typeof config.traspasos !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   return config;
 }
 module.exports = { leerConfiguracion };

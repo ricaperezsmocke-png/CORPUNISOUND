@@ -78,6 +78,9 @@ function cabe(lote) {
     && mostrador.every(m => (m.detalle?.length || 0) <= 500) && mostrador.reduce((n, m) => n + (m.detalle?.length || 0), 0) <= 1000
     && (lote.articulos?.length || 0) <= 500
     && (lote.proveedores?.length || 0) <= 500 && (lote.existencias?.length || 0) <= 500 && (lote.cortes?.length || 0) <= 100
+    && (lote.traspasos?.length || 0) <= 100 && (lote.traspasos || []).every(t => (t.detalle?.length || 0) <= 500)
+    && (lote.traspasos || []).reduce((n, t) => n + (t.detalle?.length || 0), 0) <= 1000
+    && (lote.traspasos_omitidos?.length || 0) <= 1000
     && lote.ventas.every(v => (v.detalle?.length || 0) <= 500)
     && lote.ventas.reduce((n, v) => n + (v.detalle?.length || 0), 0) <= 1000
     && Buffer.byteLength(JSON.stringify(lote), 'utf8') <= 1024 * 1024;
@@ -89,7 +92,8 @@ function esHorarioHistorico(ahora) {
 // Datos de SICAR que el agente no sabe leer. Decisión de Victor (2026-10-15): se salta esa venta o ese cliente,
 // queda en el registro con su id y el motivo, y la carga sigue. Cualquier otro error sí detiene la corrida.
 const DATOS_RAROS = new Set(['ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO',
-  'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE']);
+  'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE',
+  'ESTADO_TRASPASO_DESCONOCIDO']);
 function clienteSeguro(c, avisar) {
   try { return { cliente: cliente(c, avisar), omitido: null }; }
   catch (error) {
@@ -262,5 +266,51 @@ function ventaClienteSegura(v, c, detalles, enviada, avisar) {
     return { venta: enviada ? { ven_id: error.ven_id, estado: 'excluida' } : null, omitida };
   }
 }
+// Traspaso de SICAR entre sucursales (Seguimiento de facturas, 2026-10-25). status 2 = recibido (aplicado), 1 = enviado
+// sin recibir, -1 = cancelado. Solo números de sucursal: aliasOri/aliasDes (nombres) nunca se mandan.
+const ESTADOS_TRASPASO = new Map([['2', 'recibido'], ['1', 'enviado'], ['-1', 'cancelado']]);
+// fecha es date en SICAR; si llegara con hora, cuenta el día. Mismo criterio que el servidor: 2026-02-30 no es fecha.
+function fechaDia(valor) {
+  const dia = /^(\d{4}-\d{2}-\d{2})(?: \d{2}:\d{2}:\d{2})?$/.exec(String(valor))?.[1];
+  if (!dia) throw new Error('FECHA_INVALIDA');
+  return fechaLocal(`${dia} 00:00:00`).slice(0, 10);
+}
+// fechaApl / fechaCan: sin fecha (null, o la fecha cero de MySQL) va como null; una imposible es dato raro.
+const fechaHora = valor => (valor == null || String(valor) === '0000-00-00 00:00:00' ? null : fechaLocal(valor));
+function traspaso({ traspaso: t, detalles }) {
+  const tra_id = id(t.tra_id);
+  const estado = ESTADOS_TRASPASO.get(String(t.status));
+  if (!estado) throw new Error('ESTADO_TRASPASO_DESCONOCIDO');
+  const suyos = detalles.filter(d => String(d.tra_id) === tra_id);
+  if (!suyos.length || suyos.length > 500) throw new Error('DETALLE_FUERA_DE_LIMITE');
+  const detalle = suyos.map(d => ({ art_id: id(d.art_id), cantidad: decimal(d.cantidad, 4), precio_sin: decimal(d.precioSin, 2),
+    precio_con: decimal(d.precioCon, 2) }));
+  // Un art_id repetido lo rechaza el servidor (ID_DUPLICADO, 422) y detendría el agente entero: mejor se omite el traspaso.
+  if (new Set(detalle.map(x => x.art_id)).size !== detalle.length) throw new Error('ID_INVALIDO');
+  return { tra_id, folio: texto(String(t.folio ?? '').trim(), 45, false), suc_origen: id(t.sucOri), suc_destino: id(t.sucDes),
+    fecha: fechaDia(t.fecha), estado, fecha_aplicado: fechaHora(t.fechaApl), fecha_cancelado: fechaHora(t.fechaCan),
+    total: decimal(t.total, 2), detalle };
+}
+// Para --verificar: true si las fechas del traspaso (fecha, fechaApl, fechaCan) harían que se omitiera con FECHA_INVALIDA.
+function traspasoConFechaInvalida(t) {
+  try {
+    fechaDia(t.fecha);
+    fechaHora(t.fechaApl);
+    fechaHora(t.fechaCan);
+    return false;
+  } catch (error) {
+    if (error.message !== 'FECHA_INVALIDA') throw error;
+    return true;
+  }
+}
+// Un traspaso que el contrato no acepta no detiene la carga: se salta con su tra_id. Un tra_id inválido sí detiene.
+function traspasoSeguro(datos) {
+  const tra_id = id(datos?.traspaso?.tra_id);
+  try { return { traspaso: traspaso(datos), omitido: null }; }
+  catch (error) {
+    if (!DATOS_RAROS.has(error.message)) throw error;
+    return { traspaso: null, omitido: { tra_id, codigo: error.message } };
+  }
+}
 module.exports = { PUBLICOS, esPublico, id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura, corteSeguro };
+  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro, traspasoConFechaInvalida };
