@@ -54,6 +54,21 @@ function quienValido(v) {
   return QUIEN.filter(x => v.includes(x));
 }
 
+const INVALIDO = Symbol('invalido');
+const opcional = (v, min, max, conSaltos) => (v === '' ? '' : (texto(v, min, max, conSaltos) ?? INVALIDO));
+const dentro = (v, catalogo) => (catalogo.includes(v) ? v : INVALIDO);
+// Un validador por campo; devuelve el valor limpio o INVALIDO.
+const VALIDADORES = {
+  nombre: v => texto(v, 3, 120, false) ?? INVALIDO,
+  descripcion: v => opcional(v, 0, 600, true),
+  referencia_pdf: v => opcional(v, 0, 60, false),
+  camino: v => dentro(v, CAMINOS),
+  numero_que_mueve: v => dentro(v, NUMEROS),
+  candado: v => (v === null ? null : dentro(v, NUMEROS)),
+  quien: v => quienValido(v) ?? INVALIDO,
+  como_se_mide: v => dentro(v, MEDICIONES),
+};
+
 /**
  * Valida con lista de lo permitido. Devuelve el objeto limpio o null; null rechaza la petición entera.
  * Con `parcial` solo exige que venga al menos un campo; sin él, exige los obligatorios.
@@ -64,37 +79,10 @@ function validarTactica(body, { parcial = false } = {}) {
   if (claves.length === 0 || claves.some(k => !CAMPOS.includes(k))) return null;
   if (!parcial && OBLIGATORIOS.some(k => body[k] === undefined)) return null;
   const limpio = {};
-  if (body.nombre !== undefined) {
-    limpio.nombre = texto(body.nombre, 3, 120, false);
-    if (limpio.nombre === null) return null;
-  }
-  if (body.descripcion !== undefined) {
-    limpio.descripcion = body.descripcion === '' ? '' : texto(body.descripcion, 0, 600, true);
-    if (limpio.descripcion === null) return null;
-  }
-  if (body.referencia_pdf !== undefined) {
-    limpio.referencia_pdf = body.referencia_pdf === '' ? '' : texto(body.referencia_pdf, 0, 60, false);
-    if (limpio.referencia_pdf === null) return null;
-  }
-  if (body.camino !== undefined) {
-    if (!CAMINOS.includes(body.camino)) return null;
-    limpio.camino = body.camino;
-  }
-  if (body.numero_que_mueve !== undefined) {
-    if (!NUMEROS.includes(body.numero_que_mueve)) return null;
-    limpio.numero_que_mueve = body.numero_que_mueve;
-  }
-  if (body.candado !== undefined) {
-    if (body.candado !== null && !NUMEROS.includes(body.candado)) return null;
-    limpio.candado = body.candado;
-  }
-  if (body.quien !== undefined) {
-    limpio.quien = quienValido(body.quien);
-    if (limpio.quien === null) return null;
-  }
-  if (body.como_se_mide !== undefined) {
-    if (!MEDICIONES.includes(body.como_se_mide)) return null;
-    limpio.como_se_mide = body.como_se_mide;
+  for (const k of claves) {
+    if (body[k] === undefined) continue;
+    limpio[k] = VALIDADORES[k](body[k]);
+    if (limpio[k] === INVALIDO) return null;
   }
   if (limpio.candado && limpio.candado === limpio.numero_que_mueve) return null;
   return limpio;
@@ -106,26 +94,30 @@ function lista(DB) {
   return DB.pos.cinco_caminos.tacticas;
 }
 
+// Solo texto de puros dígitos o un entero positivo: '1e1', '0x10', true y similares se rechazan.
 function normalizarId(id) {
-  if (id === null || id === undefined || (typeof id === 'string' && id.trim() === '')) return null;
+  const valido = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id));
+  if (!valido) return null;
   const n = Number(id);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 function buscar(DB, id) {
   const n = normalizarId(id);
-  const t = n === null ? null : lista(DB).find(x => x.id === n);
+  const t = n === null ? null : lista(DB).find(x => esObjeto(x) && x.id === n);
   if (!t) throw error(404, 'Táctica no encontrada');
   return t;
 }
 
-function usuarioDe(usuarioId) {
+// Ninguna operación humana queda sin nombre: sin usuario válido no se hace nada. El null solo es de la siembra y fijarEtiqueta.
+function exigirUsuario(usuarioId) {
   const n = normalizarId(usuarioId);
-  return n === null ? null : n;
+  if (n === null) throw error(500, 'Operación sin usuario');
+  return n;
 }
 
 function entrada(usuarioId, accion, antes, despues, extra = {}) {
-  return { fecha_hora: ahora(), usuario_id: usuarioDe(usuarioId), accion, antes, despues, ...extra };
+  return { fecha_hora: ahora(), usuario_id: usuarioId, accion, antes, despues, ...extra };
 }
 
 /** Siembra v1: solo si la lista no existe todavía. Una lista vacía o corregida no se toca. Devuelve cuántas sembró. */
@@ -133,6 +125,10 @@ function sembrarManual(DB) {
   if (!DB.pos.cinco_caminos || typeof DB.pos.cinco_caminos !== 'object') DB.pos.cinco_caminos = {};
   const cc = DB.pos.cinco_caminos;
   if (Array.isArray(cc.tacticas)) return 0;
+  if (cc.tacticas !== undefined) {
+    console.warn('Manual de tácticas: DB.pos.cinco_caminos.tacticas existe pero no es un arreglo; no se siembra encima.');
+    return 0;
+  }
   const hora = ahora();
   cc.tacticas = TACTICAS_V1.map(t => ({
     id: t.numero_v1,
@@ -151,14 +147,15 @@ function errorDeValidacion() {
   return error(400, 'Datos de la táctica no válidos');
 }
 
-function crearTactica(DB, body, usuarioId) {
+function crearTactica(DB, body, usuarioIdCrudo) {
+  const usuarioId = exigirUsuario(usuarioIdCrudo);
   const limpio = validarTactica(body, { parcial: false });
   if (!limpio) throw errorDeValidacion();
   const todas = lista(DB);
   const hora = ahora();
   const datos = { descripcion: '', candado: null, referencia_pdf: '', ...limpio };
   const t = {
-    id: todas.reduce((max, x) => Math.max(max, x.id), 0) + 1,
+    id: todas.reduce((max, x) => (esObjeto(x) && Number.isInteger(x.id) ? Math.max(max, x.id) : max), 0) + 1,
     numero_v1: null,
     ...datos,
     activa: true,
@@ -172,7 +169,8 @@ function crearTactica(DB, body, usuarioId) {
   return copia(t);
 }
 
-function cambiarTactica(DB, id, body, usuarioId) {
+function cambiarTactica(DB, id, body, usuarioIdCrudo) {
+  const usuarioId = exigirUsuario(usuarioIdCrudo);
   const limpio = validarTactica(body, { parcial: true });
   if (!limpio) throw errorDeValidacion();
   const t = buscar(DB, id);
@@ -182,20 +180,21 @@ function cambiarTactica(DB, id, body, usuarioId) {
   for (const [campo, valor] of Object.entries(limpio)) {
     if (JSON.stringify(t[campo]) !== JSON.stringify(valor)) {
       antes[campo] = copia(t[campo]);
-      despues[campo] = valor;
+      despues[campo] = copia(valor);
     }
   }
   if (Object.keys(despues).length === 0) return copia(t);
   const candado = despues.candado !== undefined ? despues.candado : t.candado;
   const numero = despues.numero_que_mueve !== undefined ? despues.numero_que_mueve : t.numero_que_mueve;
   if (candado && candado === numero) throw errorDeValidacion();
-  Object.assign(t, despues);
+  Object.assign(t, copia(despues));
   t.historial.push(entrada(usuarioId, 'cambio', antes, despues));
   t.actualizada_en = ahora();
   return copia(t);
 }
 
-function retirarTactica(DB, id, motivo, usuarioId) {
+function retirarTactica(DB, id, motivo, usuarioIdCrudo) {
+  const usuarioId = exigirUsuario(usuarioIdCrudo);
   const t = buscar(DB, id);
   const limpio = texto(motivo, 3, 200, false);
   if (limpio === null) throw error(400, 'El motivo del retiro debe tener de 3 a 200 caracteres');
@@ -207,7 +206,8 @@ function retirarTactica(DB, id, motivo, usuarioId) {
   return copia(t);
 }
 
-function reactivarTactica(DB, id, usuarioId) {
+function reactivarTactica(DB, id, usuarioIdCrudo) {
+  const usuarioId = exigirUsuario(usuarioIdCrudo);
   const t = buscar(DB, id);
   if (t.activa) throw error(409, 'La táctica ya está activa');
   const antes = { activa: false, motivo_retiro: t.motivo_retiro };
@@ -243,8 +243,11 @@ function fijarEtiqueta(DB, id, sucursalId, { estado, mes = null, resultado = nul
  */
 function vistaManual(DB, { verTodas = false, sucursalId = null } = {}) {
   const suc = normalizarId(sucursalId);
-  return lista(DB).map(t => {
-    const { etiquetas, historial, ...resto } = copia(t);
+  return lista(DB).filter(esObjeto).map(t => {
+    const resto = copia(t);
+    const etiquetas = resto.etiquetas || {};
+    delete resto.etiquetas;
+    delete resto.historial;
     const propia = suc === null ? null : etiquetas[String(suc)];
     const vista = {
       ...resto,

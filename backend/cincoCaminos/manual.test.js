@@ -276,3 +276,58 @@ test('vistaManual no deja que el llamador modifique la base, y trae las retirada
   assert.notEqual(DB.pos.cinco_caminos.tacticas[0].nombre, 'Cambiado afuera');
   assert.deepEqual(DB.pos.cinco_caminos.tacticas[0].quien, ['cajera', 'vendedor']);
 });
+
+test('sembrarManual: tacticas que existe pero no es arreglo no se pisa; undefined si siembra', () => {
+  const originalWarn = console.warn;
+  let avisos = 0;
+  console.warn = () => { avisos++; };
+  try {
+    for (const raro of [{}, null, 'texto', 5]) {
+      const DB = prepararDB();
+      DB.pos.cinco_caminos.tacticas = raro;
+      assert.equal(sembrarManual(DB), 0);
+      assert.equal(DB.pos.cinco_caminos.tacticas, raro);
+    }
+  } finally { console.warn = originalWarn; }
+  assert.equal(avisos, 4);
+  const DB = prepararDB();
+  DB.pos.cinco_caminos.tacticas = undefined;
+  assert.equal(sembrarManual(DB), 30);
+});
+
+test('crearTactica ignora elementos que no son objeto al calcular el id', () => {
+  const DB = prepararDB();
+  DB.pos.cinco_caminos.tacticas = [null, 'x', 7, { id: 4, activa: true, historial: [], etiquetas: {} }];
+  assert.equal(crearTactica(DB, BASE, 1).id, 5);
+  assert.equal(vistaManual(DB, { verTodas: true }).length, 2);
+});
+
+test('el historial no comparte referencias con la tactica', () => {
+  const DB = sembrada();
+  const t = cambiarTactica(DB, 5, { quien: ['encargado', 'gerente'] }, 1);
+  const real = DB.pos.cinco_caminos.tacticas[4];
+  assert.notEqual(real.historial[1].despues.quien, real.quien);
+  assert.deepEqual(real.historial[1].despues.quien, ['encargado', 'gerente']);
+  assert.equal(t.historial[1].usuario_id, 1);
+});
+
+test('las operaciones humanas exigen usuario entero positivo (500 Operacion sin usuario)', () => {
+  const DB = sembrada();
+  const sinUsuario = e => e.status === 500 && e.message === 'Operación sin usuario';
+  for (const malo of [null, undefined, 0, -1, 1.5, '', 'abc', '1e1', true, {}]) {
+    assert.throws(() => crearTactica(DB, BASE, malo), sinUsuario);
+    assert.throws(() => cambiarTactica(DB, 2, { nombre: 'Nombre válido nuevo' }, malo), sinUsuario);
+    assert.throws(() => retirarTactica(DB, 2, 'No aplica ya', malo), sinUsuario);
+    assert.throws(() => reactivarTactica(DB, 2, malo), sinUsuario);
+  }
+  assert.equal(DB.pos.cinco_caminos.tacticas.length, 30);
+  assert.equal(DB.pos.cinco_caminos.tacticas[1].historial.length, 1);
+});
+
+test('el id solo acepta digitos o entero positivo', () => {
+  const DB = sembrada();
+  for (const malo of ['1e1', '0x10', true, '', ' 3', '-3', '3.0', 0, 1.5]) {
+    assert.throws(() => cambiarTactica(DB, malo, { nombre: 'Nombre válido nuevo' }, 1), status(404), String(malo));
+  }
+  assert.equal(cambiarTactica(DB, 3, { nombre: 'Nombre válido nuevo' }, 1).id, 3);
+});

@@ -138,7 +138,7 @@ test('un error inesperado se registra (consola y Sentry) antes de responder 500'
   const rutas = {};
   const registrar = metodo => (ruta, ...h) => { rutas[`${metodo} ${ruta}`] = h.at(-1); };
   const capturados = [];
-  registrarRutasCincoCaminos({ get: registrar('GET'), put: registrar('PUT') }, {
+  registrarRutasCincoCaminos({ get: registrar('GET'), put: registrar('PUT'), post: registrar('POST') }, {
     DB: { pos: { cinco_caminos: { categorias: [] } }, radar_demanda: { registros: [] } },
     sqlite: () => ({ prepare() { throw new Error('disco roto'); } }),
     requiereLogin: () => {}, requierePermiso: () => () => {}, resolverPermisosDeRol: () => [],
@@ -155,4 +155,90 @@ test('un error inesperado se registra (consola y Sentry) antes de responder 500'
   assert.equal(res.codigo, 500);
   assert.deepEqual(capturados, ['disco roto']);
   assert.ok(lineas.some(l => l.includes('/api/cinco-caminos/tablero') && l.includes('disco roto')), lineas.join('|'));
+});
+
+const MANUAL = '/api/cinco-caminos/manual';
+const NUEVA = { nombre: 'Táctica de ruta', camino: 'prospectos', numero_que_mueve: 'clientes_nuevos', quien: ['gerente'], como_se_mide: 'evidencia' };
+
+test('manual: permisos por rol vecino, lectura y escritura', async t => {
+  const pedir = await conServidor(t);
+  const enviar = (id, ruta, metodo, body) => pedir(MANUAL + ruta, id, { method: metodo, body: JSON.stringify(body) });
+  assert.equal((await pedir(MANUAL, 971)).status, 403, 'otros permisos pos no leen');
+  assert.equal((await pedir(MANUAL, 975)).status, 403, 'administrar sin ver no lee');
+  assert.equal((await pedir(`${MANUAL}/1/historial`, 971)).status, 403);
+  const lectura = await pedir(MANUAL, 972);
+  assert.equal(lectura.status, 200);
+  assert.equal(lectura.datos.tacticas.length, 30);
+  assert.match(lectura.datos.excluidas_texto, /2x1, 4x3/);
+  assert.equal(lectura.datos.tacticas[0].historial, undefined);
+  assert.equal((await enviar(972, '', 'POST', NUEVA)).status, 403, 'ver no da para crear');
+  assert.equal((await enviar(972, '/1', 'PUT', { nombre: 'Nombre válido nuevo' })).status, 403);
+  assert.equal((await enviar(972, '/1/retirar', 'POST', { motivo: 'No aplica ya' })).status, 403);
+  assert.equal((await enviar(972, '/1/reactivar', 'POST', {})).status, 403);
+  assert.equal((await enviar(973, '', 'POST', NUEVA)).status, 403, 'ver todas tampoco');
+  assert.equal(app.DB.pos.cinco_caminos.tacticas.length, 30);
+
+  const creada = await enviar(974, '', 'POST', NUEVA);
+  assert.equal(creada.status, 201);
+  assert.equal(creada.datos.tactica.id, 31);
+  const id = creada.datos.tactica.id;
+  const hist = (await pedir(`${MANUAL}/${id}/historial`, 972)).datos.historial;
+  assert.equal(hist.length, 1);
+  assert.equal(hist[0].usuario_id, 974, 'el usuario sale del token');
+  assert.equal((await enviar(974, `/${id}`, 'PUT', { nombre: 'Nombre ruta cambiado', usuario_id: 1 })).status, 400);
+  assert.equal((await enviar(974, `/${id}`, 'PUT', { nombre: 'Nombre ruta cambiado' })).datos.tactica.nombre, 'Nombre ruta cambiado');
+  assert.equal((await enviar(974, `/${id}/retirar`, 'POST', {})).status, 400);
+  assert.equal((await enviar(974, `/${id}/retirar`, 'POST', { motivo: 'Se creó por error' })).datos.tactica.activa, false);
+  assert.equal((await enviar(974, `/${id}/retirar`, 'POST', { motivo: 'Otra vez retirada' })).status, 409);
+  assert.equal((await enviar(974, `/${id}/reactivar`, 'POST', {})).datos.tactica.activa, true);
+  const completo = (await pedir(`${MANUAL}/${id}/historial`, 972)).datos.historial;
+  assert.deepEqual(completo.map(h => h.accion), ['alta', 'cambio', 'retiro', 'reactivacion']);
+  assert.ok(completo.every(h => h.usuario_id === 974));
+  assert.equal((await enviar(974, '', 'POST', { ...NUEVA, etiquetas: {} })).status, 400);
+  assert.equal((await enviar(974, '', 'POST', [])).status, 400);
+});
+
+test('manual: la etiqueta no se escribe por ninguna ruta y un PUT con etiquetas no cambia nada', async t => {
+  const pedir = await conServidor(t);
+  const antes = JSON.stringify(app.DB.pos.cinco_caminos.tacticas[2]);
+  for (const body of [{ etiquetas: { 1: { estado: 'probada' } } }, { nombre: 'Nombre válido nuevo', etiquetas: {} },
+    { 'etiquetas.1': 'probada' }, { etiqueta_tienda: { estado: 'probada' } }, { historial: [] }]) {
+    assert.equal((await pedir(`${MANUAL}/3`, 974, { method: 'PUT', body: JSON.stringify(body) })).status, 400);
+  }
+  assert.equal(JSON.stringify(app.DB.pos.cinco_caminos.tacticas[2]), antes);
+});
+
+test('manual: ?sucursal_id= no amplia el alcance de las etiquetas; ver todas si ve todas', async t => {
+  const pedir = await conServidor(t);
+  const { fijarEtiqueta } = require('./manual');
+  fijarEtiqueta(app.DB, 4, 1, { estado: 'probada', mes: '2026-09', resultado: 'Propia' });
+  fijarEtiqueta(app.DB, 4, 2, { estado: 'probada', mes: '2026-10', resultado: 'Secreto de la tienda dos' });
+  const propia = await pedir(`${MANUAL}?sucursal_id=2`, 972);
+  const t4 = propia.datos.tacticas.find(x => x.id === 4);
+  assert.equal(t4.etiqueta_tienda.resultado, 'Propia');
+  assert.equal(t4.probada_en, 2);
+  assert.equal(t4.etiquetas, undefined);
+  assert.equal(JSON.stringify(propia.datos).includes('Secreto de la tienda dos'), false);
+  const hist = await pedir(`${MANUAL}/4/historial?sucursal_id=2`, 972);
+  assert.equal(JSON.stringify(hist.datos).includes('Secreto de la tienda dos'), false);
+  assert.ok(JSON.stringify(hist.datos).includes('Propia'));
+  const todas = await pedir(`${MANUAL}?sucursal_id=2`, 973);
+  const v4 = todas.datos.tacticas.find(x => x.id === 4);
+  assert.equal(v4.etiquetas['2'].resultado, 'Secreto de la tienda dos');
+  assert.equal(v4.etiqueta_tienda.resultado, 'Propia', 'la etiqueta de la tienda sale del token, no del filtro');
+  assert.ok(JSON.stringify((await pedir(`${MANUAL}/4/historial`, 973)).datos).includes('Secreto de la tienda dos'));
+  // Un administrador sin ver todas tampoco recibe etiquetas ajenas en la respuesta de escribir.
+  const resp = await pedir(`${MANUAL}/4`, 974, { method: 'PUT', body: JSON.stringify({ descripcion: 'Texto nuevo' }) });
+  assert.equal(resp.status, 200);
+  assert.equal(JSON.stringify(resp.datos).includes('Secreto de la tienda dos'), false);
+});
+
+test('manual: el id de texto funciona y los ids raros son 404', async t => {
+  const pedir = await conServidor(t);
+  assert.equal((await pedir(`${MANUAL}/3/historial`, 972)).status, 200);
+  const cuerpo = JSON.stringify({ nombre: 'Nombre válido nuevo' });
+  for (const malo of ['3abc', '1e1', '0x10', '0', '-1', '3.5', '999']) {
+    assert.equal((await pedir(`${MANUAL}/${malo}/historial`, 972)).status, 404, malo);
+    assert.equal((await pedir(`${MANUAL}/${malo}`, 974, { method: 'PUT', body: cuerpo })).status, 404, malo);
+  }
 });
