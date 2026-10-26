@@ -257,4 +257,4 @@ function tableroTienda(sqlite, DB, { sucursal_id, lunes }) {
   };
 }
 
-module.exports = { numerosSemana, tableroTienda, MINIMO_VENTAS, TIPOS };
+module.exports = { numerosSemana, tableroTienda, promedio, registrosDeTienda, MINIMO_VENTAS, TIPOS };

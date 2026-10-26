@@ -3,6 +3,7 @@ import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { Campo, Modal } from "../objetivos/DialogosObjetivos";
 import { periodoTerminado, queryTablero } from "./metas";
+import { enteroALegible, esMetaNumero, legibleAEntero, textoCifra, textoPorcentajeMeta, textoResultadoMeta } from "./avanceMetas";
 import { ENLACE, fechaHora } from "./Comunes";
 
 const TABLA = "w-full text-sm border-collapse";
@@ -65,7 +66,7 @@ export default function SelloMetas({ periodo, inicio, hoy, sello, sucursales, ve
                 {previo.resultados.map((r) => (
                   <tr key={r.clave} className={FILA}>
                     <td className="py-1">{r.nombre}</td><td>{deQuien(r, sucursales, vendedores)}</td>
-                    <td>{r.resultado} de {r.valor_meta}</td><td>{r.porcentaje}%</td>
+                    <td>{textoResultadoMeta(r)}</td><td>{textoPorcentajeMeta(r)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -91,8 +92,8 @@ export default function SelloMetas({ periodo, inicio, hoy, sello, sucursales, ve
                 <td className="py-1">{r.nombre}</td>
                 <td>{deQuien(r, sucursales, vendedores)}</td>
                 <td>
-                  {vigente !== r.resultado && <del className="text-slate-400 mr-2">{r.resultado}</del>}
-                  {vigente} de {r.valor_meta}
+                  {vigente !== r.resultado && <del className="text-slate-400 mr-2">{textoCifra(r.fuente, r.resultado)}</del>}
+                  {textoResultadoMeta({ ...r, resultado: vigente })}
                 </td>
                 <td><button type="button" className={ENLACE} onClick={() => setCorrigiendo({ ...r, vigente })}>Corregir</button></td>
               </tr>
@@ -122,26 +123,28 @@ export default function SelloMetas({ periodo, inicio, hoy, sello, sucursales, ve
 }
 
 function Corregir({ sello, meta, cerrar, alTerminar }) {
-  const [valor, setValor] = useState(String(meta.vigente));
+  const numero = esMetaNumero(meta.fuente);
+  const [valor, setValor] = useState(meta.vigente == null ? "" : numero ? enteroALegible(meta.fuente, meta.vigente) : String(meta.vigente));
   const [motivo, setMotivo] = useState("");
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
-  const listo = valor !== "" && Number.isInteger(Number(valor)) && Number(valor) >= 0 && motivo.trim();
+  const convertido = numero ? legibleAEntero(meta.fuente, valor, { minimo: 0 }) : { ok: valor !== "" && Number.isInteger(Number(valor)) && Number(valor) >= 0, valor: Number(valor) };
+  const listo = convertido.ok && motivo.trim();
   const guardar = async () => {
     if (enviando || !listo) return;
     setEnviando(true);
     setError("");
     try {
       await apiFetch(`/metas/sello/${sello.id}/rectificar`, {
-        method: "POST", body: JSON.stringify({ meta_clave: meta.clave, valor_nuevo: Number(valor), motivo: motivo.trim() }),
+        method: "POST", body: JSON.stringify({ meta_clave: meta.clave, valor_nuevo: convertido.valor, motivo: motivo.trim() }),
       }).then((r) => leer(r, "No se pudo corregir"));
       await alTerminar();
     } catch (e) { setError(e.message); } finally { setEnviando(false); }
   };
   return (
     <Modal titulo={`Corregir resultado: ${meta.nombre}`} cerrar={cerrar} guardar={guardar} deshabilitado={enviando || !listo} error={error}>
-      <p className="text-sm text-slate-600">El resultado sellado ({meta.resultado}) queda a la vista; la cifra meta no se puede cambiar.</p>
-      <Campo etiqueta="Resultado correcto" tipo="number" valor={valor} cambiar={setValor} />
+      <p className="text-sm text-slate-600">El resultado sellado ({textoCifra(meta.fuente, meta.resultado)}) queda a la vista; la cifra meta no se puede cambiar.</p>
+      <Campo etiqueta={numero ? "Resultado correcto (en su unidad, ej. 45.2)" : "Resultado correcto"} tipo={numero ? "text" : "number"} valor={valor} cambiar={setValor} />
       <Campo etiqueta="Motivo" valor={motivo} cambiar={setMotivo} area />
     </Modal>
   );

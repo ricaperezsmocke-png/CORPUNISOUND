@@ -1,3 +1,5 @@
+import { esMetaNumero, legibleAEntero, textoFaltante } from "./avanceMetas.js";
+
 // Funciones puras de las metas de Objetivos. Los periodos son los MISMOS que valida el
 // servidor (backend/metasPeriodos.js): semana de lunes a domingo, mes y trimestre de calendario.
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -59,7 +61,16 @@ export function etiquetaPeriodo(periodo, inicio) {
 
 export const periodoTerminado = (periodo, inicio, hoy) => hoy > finDePeriodo(periodo, inicio);
 
+// Meta de los cinco caminos: la cifra se escribe en su unidad legible y viaja como entero escalado; la unidad la pone el servidor.
+function cuerpoMetaNumero(form) {
+  const cifra = legibleAEntero(form.fuente, form.valor_meta);
+  if (!cifra.ok) throw new Error(cifra.error);
+  return { nombre: form.nombre, descripcion: form.descripcion || undefined, prueba: "ninguna", valor_meta: cifra.valor,
+    periodo: form.periodo, inicio: form.inicio, alcance: "tienda", sucursal_id: Number(form.sucursal_id), fuente: form.fuente };
+}
+
 export function cuerpoMeta(form) {
+  if (!form.okr_clave && form.alcance === "tienda" && esMetaNumero(form.fuente)) return cuerpoMetaNumero(form);
   const comun = { nombre: form.nombre, descripcion: form.descripcion || undefined, unidad: form.unidad, prueba: form.prueba,
     valor_meta: Number(form.valor_meta) };
   if (form.okr_clave) return { ...comun, okr_clave: Number(form.okr_clave) };
@@ -85,12 +96,14 @@ const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "
 
 // "Faltan 4 videos · termina el domingo 18 de octubre": lo que le falta a la meta y cuánto tiempo queda.
 export function textoFaltan(meta, fin, hoy) {
+  if (meta.sin_dato === true || meta.resultado === null || meta.resultado === undefined) return hoy > fin ? "Sin dato" : "Sin dato todavía";
   const faltan = meta.valor_meta - meta.resultado;
   if (faltan <= 0) return "Meta cumplida";
-  if (hoy > fin) return `Faltaron ${faltan} ${meta.unidad}`;
+  const falta = textoFaltante(meta, faltan);
+  if (hoy > fin) return `Faltaron ${falta}`;
   const { dia, mes } = partes(fin);
   const cuando = hoy === fin ? "termina hoy" : `termina el ${DIAS[aUTC(fin).getUTCDay()]} ${dia} de ${MESES[mes]}`;
-  return `Faltan ${faltan} ${meta.unidad} · ${cuando}`;
+  return `Faltan ${falta} · ${cuando}`;
 }
 
 // Id de la ventana de "Hecho": si la señal falla y se vuelve a guardar, el servidor no la cuenta dos veces.

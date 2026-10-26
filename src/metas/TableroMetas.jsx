@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { queryTablero } from "./metas";
+import { hayBarra, textoPorcentajeMeta, textoResultadoMeta } from "./avanceMetas";
 import { ALERTA, Anulada, Barra, DialogoMotivo, ENLACE, ENLACE_ROJO, EXITO, Prueba, Semaforo, TARJETA, fechaCorta } from "./Comunes";
 
 const SELECT = "block neu-campo rounded-lg px-3 py-2 mt-1";
@@ -107,9 +108,9 @@ export default function TableroMetas({ periodo, inicio, permisos, sucursales, ve
                 <button type="button" className={RENGLON} aria-expanded={abierta === meta.clave} disabled={!meta.por_persona}
                   onClick={() => setAbierta(abierta === meta.clave ? null : meta.clave)}>
                   <span className="truncate text-slate-700" title={meta.nombre}>{meta.nombre}</span>
-                  <Barra porcentaje={meta.porcentaje} />
-                  <strong className="text-right">{meta.porcentaje}%</strong>
-                  <span className="text-slate-500">{meta.resultado} de {meta.valor_meta} {meta.unidad}</span>
+                  {hayBarra(meta) ? <Barra porcentaje={meta.porcentaje} /> : <span aria-hidden="true" />}
+                  <strong className="text-right">{textoPorcentajeMeta(meta)}</strong>
+                  <span className="text-slate-500">{textoResultadoMeta(meta)}</span>
                 </button>
                 <div className="pb-2 flex gap-3 items-center">
                   <Semaforo semaforo={meta.semaforo} />

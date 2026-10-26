@@ -161,3 +161,16 @@ test("el ensayo sobre copia tambien siembra el manual sin tocar la foto original
   assert.doesNotThrow(() => validarAntesDeRestaurar(DB));
   assert.strictEqual(DB.pos.cinco_caminos.tacticas, undefined);
 });
+
+test("restaurar una foto sin juntas ni compromisos de Cinco Caminos deja arreglos, y no pisa los que ya hay", () => {
+  const DB = fotoVieja();
+  DB.pos.cinco_caminos = { categorias: [], categorias_historial: [] };
+  const { db } = reconciliarTrasRestaurar(DB);
+  assert.deepStrictEqual(db.pos.cinco_caminos.juntas, []);
+  assert.deepStrictEqual(db.pos.cinco_caminos.compromisos, []);
+
+  const D2 = fotoVieja();
+  const juntas = [{ sucursal_id: 1, lunes: "2026-10-19", por_id: 3, en: "x" }];
+  D2.pos.cinco_caminos = { categorias: [], categorias_historial: [], juntas };
+  assert.deepStrictEqual(reconciliarTrasRestaurar(D2).db.pos.cinco_caminos.juntas, juntas);
+});

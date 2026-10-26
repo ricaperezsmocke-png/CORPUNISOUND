@@ -173,3 +173,17 @@ test("ningun texto libre del historial envia datos personales", () => {
   assert.ok(!JSON.stringify({ datos, catalogo }).includes("Ana"));
   assert.ok(!JSON.stringify({ datos, catalogo }).includes("@example.com"));
 });
+
+test("armarDatosPlan: las metas por numero de cinco caminos no llegan a la IA (ni historial, ni periodo, ni catalogo)", () => {
+  const db = dbFalso();
+  const comun = { vigente: true, unidad: "%", prueba: "ninguna", valor_meta: 452, alcance: "tienda", sucursal_id: 1,
+    fuente: "cinco_caminos:pct_con_cliente" };
+  db.pos.metas_personalizadas.push(
+    { ...comun, id: 2, clave: 2, nombre: "Con cliente pasada", periodo: "semanal", inicio: "2026-09-07" },
+    { ...comun, id: 3, clave: 3, nombre: "Con cliente actual", periodo: "mensual", inicio: "2026-11-01" });
+  const { datos, catalogo } = armarDatosPlan(db, { sucursal_id: 1, periodo: "mensual", inicio: "2026-11-01" }, HOY);
+  assert.deepEqual(datos.metas_anteriores.map((m) => m.accion), ["meta:1"]);
+  assert.deepEqual(datos.metas_del_periodo, []);
+  assert.ok(!catalogo.some((c) => c.accion === "meta:2" || c.accion === "meta:3"));
+  assert.ok(!JSON.stringify(datos).includes("452"));
+});

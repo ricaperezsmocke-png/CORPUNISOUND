@@ -3,6 +3,7 @@
 const { validarPeriodo, finDePeriodo, ritmoEsperado } = require("./metasPeriodos");
 const { periodoSellado, fuenteDe } = require("./metasPersonalizadas");
 const { contarFuente } = require("./metasFuentes");
+const { esFuenteNumero } = require("./cincoCaminos/metaNumero");
 const { capturaParaRespuesta, validarParticipacion } = require("./metasCapturas");
 const { plantillaDelMes } = require("./objetivos");
 const { fechaLocal } = require("./fechas");
@@ -11,19 +12,22 @@ const { fechaLocal } = require("./fechas");
 const validas = (DB, meta) => DB.pos.meta_capturas.filter((c) => c.meta_clave === meta.clave && !c.anulada);
 
 // Una meta automática no suma capturas: su resultado lo da la fuente (spec 2026-10-22 §4.3).
-const conteoAutomatico = (DB, meta) => (fuenteDe(meta) === "manual" ? null : contarFuente(DB, meta));
+const conteoAutomatico = (DB, meta, hoy) => (fuenteDe(meta) === "manual" ? null : contarFuente(DB, meta, hoy));
 
-function resultadoMeta(DB, meta) {
-  const auto = conteoAutomatico(DB, meta);
+function resultadoMeta(DB, meta, hoy) {
+  const auto = conteoAutomatico(DB, meta, hoy);
   if (auto) return auto.valor;
   return validas(DB, meta).reduce((suma, c) => suma + c.cantidad, 0);
 }
 
+// Sin dato (resultado null) no es 0 %: no se le inventa un fracaso a nadie.
 function porcentaje(resultado, valor) {
+  if (resultado === null || resultado === undefined) return null;
   return Math.min(100, Math.round((resultado / valor) * 1000) / 10);
 }
 
 function semaforo(pct, ritmo) {
+  if (pct === null) return null;
   const esperado = ritmo * 100;
   if (pct >= esperado) return "verde";
   if (pct >= esperado * 0.7) return "amarillo";
@@ -34,13 +38,13 @@ function selloDe(DB, periodo, inicio) {
   return (DB.pos.meta_sellos || []).find((s) => s.periodo === periodo && s.inicio === inicio) || null;
 }
 
-function resultadoRectificado(DB, meta) {
+function resultadoRectificado(DB, meta, hoy) {
   const sello = selloDe(DB, meta.periodo, meta.inicio);
-  if (!sello) return resultadoMeta(DB, meta);
+  if (!sello) return resultadoMeta(DB, meta, hoy);
   const rectificaciones = (sello.rectificaciones || []).filter((r) => r.meta_clave === meta.clave);
   if (rectificaciones.length) return rectificaciones.at(-1).valor_nuevo;
   const sellado = (sello.foto?.resultados || []).find((r) => r.clave === meta.clave);
-  return sellado ? sellado.resultado : resultadoMeta(DB, meta);
+  return sellado ? sellado.resultado : resultadoMeta(DB, meta, hoy);
 }
 
 function participoEnTienda(DB, meta, vendedor_id) {
@@ -108,16 +112,18 @@ function detalleSellado(DB, meta) {
   return sello ? (sello.foto?.resultados || []).find((r) => r.clave === meta.clave)?.detalle || [] : null;
 }
 
-function avanceMeta(DB, meta, visor, ritmo, hoy) {
-  const auto = conteoAutomatico(DB, meta);
-  const resultado = resultadoRectificado(DB, meta);
+function avanceMeta(DB, meta, visor, ritmoDelPeriodo, hoy) {
+  // Un promedio no se acumula con los días: una meta por número se compara siempre contra la meta completa.
+  const ritmo = esFuenteNumero(fuenteDe(meta)) ? 1 : ritmoDelPeriodo;
+  const auto = conteoAutomatico(DB, meta, hoy);
+  const resultado = resultadoRectificado(DB, meta, hoy);
   const pct = porcentaje(resultado, meta.valor_meta);
   const capturas = validas(DB, meta);
   const avance = {
     clave: meta.clave, okr_clave: meta.okr_clave, nombre: meta.nombre, descripcion: meta.descripcion, unidad: meta.unidad,
     prueba: meta.prueba, alcance: meta.alcance, sucursal_id: meta.sucursal_id, vendedor_id: meta.vendedor_id,
     valor_meta: meta.valor_meta, resultado, porcentaje: pct, ritmo, semaforo: semaforo(pct, ritmo),
-    fuente: fuenteDe(meta), usuario_id: meta.usuario_id ?? null,
+    fuente: fuenteDe(meta), usuario_id: meta.usuario_id ?? null, sin_dato: resultado === null,
     detalle: auto ? detalleSellado(DB, meta) ?? auto.detalle : null, aviso: auto?.aviso || null,
     mis_capturas: capturasPropias(DB, meta, visor).map(capturaParaRespuesta),
     puede_capturar: puedeCapturar(DB, meta, visor, hoy),
@@ -147,7 +153,8 @@ function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id =
     .filter((o) => o.vigente && o.periodo === periodo && o.inicio === inicio)
     .map((o) => {
       const suyas = metas.filter((m) => m.okr_clave === o.clave);
-      const pct = suyas.length ? Math.round((suyas.reduce((s, m) => s + m.porcentaje, 0) / suyas.length) * 10) / 10 : null;
+      const conDato = suyas.filter((m) => m.porcentaje !== null);
+      const pct = conDato.length ? Math.round((conDato.reduce((s, m) => s + m.porcentaje, 0) / conDato.length) * 10) / 10 : null;
       return { clave: o.clave, titulo: o.titulo, descripcion: o.descripcion, alcance: o.alcance, sucursal_id: o.sucursal_id,
         vendedor_id: o.vendedor_id, porcentaje: pct, metas: suyas };
     })

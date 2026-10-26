@@ -2,6 +2,7 @@
 // (regla de Victor 2026-10-12). Todo o nada: si una sola cosa no se puede crear, no se crea ninguna.
 const M = require("./metasPersonalizadas");
 const { estaActivo } = require("./vendedores");
+const { esFuenteNumero } = require("./cincoCaminos/metaNumero");
 
 const DECISIONES = ["aceptar", "rechazar"];
 const CAMBIABLES_OKR = ["titulo", "descripcion"];
@@ -60,6 +61,10 @@ function validarPlan(DB, id, cuerpo, usuario) {
   const { periodo, inicio } = plan.entrada;
   const base = alcanceBase(DB, plan.entrada);
   for (const m of metas) {
+    if (m.decision === "aceptar") {
+      const deNumero = DB.pos.metas_personalizadas.find((x) => `meta:${x.clave}` === m.original.accion && esFuenteNumero(x.fuente));
+      if (deNumero) throw new Error("Una meta por número de cinco caminos no se puede crear desde el planeador; se crea desde Metas");
+    }
     if (!m.persona) { m.vendedor_id = null; continue; }
     const id = typeof m.vendedor_id === "number" || typeof m.vendedor_id === "string" ? Number(m.vendedor_id) : NaN;
     m.vendedor_id = Number.isSafeInteger(id) && id > 0 ? id : null;
