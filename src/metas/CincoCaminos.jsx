@@ -156,7 +156,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
               </div>
             </>
           )}
-          {sucursal && <JuntaLunes sucursal={sucursal} lunes={semana} permisos={permisos} usuario={usuario} alIndicador={setIndicador} />}
+          {sucursal && <JuntaLunes sucursal={sucursal} permisos={permisos} usuario={usuario} alIndicador={setIndicador} />}
         </>
       )}
     </div>

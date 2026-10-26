@@ -113,7 +113,8 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
   const esOkr = tipo === "okr";
   const numero = !esOkr && esMetaNumero(form.fuente);
   const cifraOk = numero ? legibleAEntero(form.fuente, form.valor_meta).ok : Number(form.valor_meta) >= 1;
-  const listo = editando ? form.motivo.trim() : esOkr
+  const errorCifra = numero ? legibleAEntero(form.fuente, form.valor_meta) : { ok: true };
+  const listo = editando ? form.motivo.trim() && (esOkr || !numero || cifraOk) : esOkr
     ? form.titulo.trim() && alcanceCompleto(form)
     : form.nombre.trim() && (numero || form.unidad.trim()) && cifraOk && (form.okr_clave || alcanceCompleto(form));
 
@@ -160,6 +161,7 @@ function DialogoEdicion({ tipo, registro, okrs, periodo, inicio, sucursales, ven
             {numero
               ? <Campo etiqueta={etiquetaCapturaCifra(form.fuente)} valor={form.valor_meta} cambiar={cambiar("valor_meta")} />
               : <Campo etiqueta="Cifra meta" tipo="number" min="1" valor={form.valor_meta} cambiar={cambiar("valor_meta")} />}
+            {numero && form.valor_meta !== "" && !errorCifra.ok && <p role="alert" className="col-span-2 text-xs text-red-700">{errorCifra.error}</p>}
             {!numero && <Campo etiqueta="Unidad (ej. videos)" valor={form.unidad} cambiar={cambiar("unidad")} />}
           </div>
           {!editando && !form.okr_clave && ["corporativo", "tienda"].includes(form.alcance) && (

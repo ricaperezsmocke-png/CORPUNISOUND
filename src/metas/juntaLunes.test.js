@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   textoEstadoCompromiso, estadoCompromiso, textoIndicador, rangoFechaCompromiso, fechaCompromisoInicial, cuerpoCompromiso,
-  cuerpoCancelar, cuerpoJuntaHecha, compromisoValido, puedeMarcarJunta, puedeEscribirJunta, queryJunta,
+  cuerpoCancelar, cuerpoJuntaHecha, compromisoValido, puedeMarcarJunta, puedeEscribirJunta, queryJunta, esSemanaActual, puedeAgregarEnSemana,
+  textoJuntaHecha, textoRegistrado, opcionesSemanasJunta,
 } from "./juntaLunes.js";
 
 const base = { id: 1, sucursal_id: 1, lunes: "2026-10-19", texto: "Llamar a clientes", responsable: "Gerente", fecha_compromiso: "2026-10-22",
@@ -18,6 +19,8 @@ test("textoEstadoCompromiso: pendiente, hecho por X el dia Y, cancelado con moti
   assert.equal(textoEstadoCompromiso(sinNombre), "Hecho el 22/10/2026");
   const cancelado = { ...base, cancelado: { por_id: 3, motivo: "Ya no aplica", en: "2026-10-21T20:00:00.000Z" } };
   assert.equal(textoEstadoCompromiso(cancelado), "Cancelado el 21/10/2026: Ya no aplica");
+  const conNombre = { ...base, cancelado: { por_id: 3, por_nombre: "Luis", motivo: "Ya no aplica", en: "2026-10-21T20:00:00.000Z" } };
+  assert.equal(textoEstadoCompromiso(conNombre), "Cancelado por Luis el 21/10/2026: Ya no aplica");
   assert.equal(estadoCompromiso(cancelado), "cancelado");
 });
 
@@ -74,4 +77,31 @@ test("puedeEscribirJunta: permiso y la tienda del propio usuario (el servidor es
 
 test("queryJunta lleva tienda y lunes explicitos", () => {
   assert.equal(queryJunta("2", "2026-10-19"), "sucursal_id=2&lunes=2026-10-19");
+});
+
+test("semana actual: solo ahi se agrega compromiso y se marca la junta", () => {
+  assert.equal(esSemanaActual("2026-10-26", "2026-10-28"), true);
+  assert.equal(esSemanaActual("2026-10-19", "2026-10-28"), false);
+  assert.equal(puedeAgregarEnSemana(true, "2026-10-26", "2026-10-28"), true);
+  assert.equal(puedeAgregarEnSemana(true, "2026-10-19", "2026-10-28"), false);
+  assert.equal(puedeAgregarEnSemana(false, "2026-10-26", "2026-10-28"), false);
+});
+
+test("cuerpoCompromiso en semana pasada no manda lunes", () => {
+  const form = { texto: "Llamar", responsable: "Ana", fecha_compromiso: "2026-10-22" };
+  assert.equal("lunes" in cuerpoCompromiso(form, "2026-10-19", false), false);
+  assert.equal(cuerpoCompromiso(form, "2026-10-19", true).lunes, "2026-10-19");
+});
+
+test("textos con el nombre de quien lo hizo", () => {
+  assert.equal(textoJuntaHecha({ por_id: 1, por_nombre: "Ana", en: "2026-10-22T18:30:00.000Z" }), "Junta hecha por Ana el 22/10/2026");
+  assert.equal(textoJuntaHecha({ por_id: 1, en: "2026-10-22T18:30:00.000Z" }), "Junta hecha el 22/10/2026");
+  assert.equal(textoRegistrado({ ...base, creado_por_nombre: "Luis" }), "Registrado por Luis");
+  assert.equal(textoRegistrado(base), "");
+});
+
+test("opcionesSemanasJunta: la semana actual primero y luego las completas", () => {
+  const o = opcionesSemanasJunta("2026-10-28", 3);
+  assert.deepEqual(o.map((x) => x.lunes), ["2026-10-26", "2026-10-19", "2026-10-12", "2026-10-05"]);
+  assert.match(o[0].etiqueta, /^Esta semana/);
 });

@@ -96,7 +96,7 @@ const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "
 
 // "Faltan 4 videos · termina el domingo 18 de octubre": lo que le falta a la meta y cuánto tiempo queda.
 export function textoFaltan(meta, fin, hoy) {
-  if (meta.sin_dato === true || meta.resultado === null || meta.resultado === undefined) return "Sin dato todavía";
+  if (meta.sin_dato === true || meta.resultado === null || meta.resultado === undefined) return hoy > fin ? "Sin dato" : "Sin dato todavía";
   const faltan = meta.valor_meta - meta.resultado;
   if (faltan <= 0) return "Meta cumplida";
   const falta = textoFaltante(meta, faltan);

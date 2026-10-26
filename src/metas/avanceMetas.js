@@ -24,11 +24,16 @@ export const esMetaNumero = (fuente) => Boolean(escalaDe(fuente));
 export function legibleAEntero(fuente, texto, { minimo = 1 } = {}) {
   const escala = escalaDe(fuente);
   if (!escala) return { ok: false, error: "Esta meta no es de los cinco caminos." };
-  const limpio = String(texto ?? "").trim().replace(/^\$/, "").replace(/%$/, "").trim();
+  const sinSimbolos = String(texto ?? "").trim().replace(/^\$/, "").replace(/%$/, "").trim();
+  // Una sola coma y ningún punto: coma decimal (45,2).
+  const limpio = /^\d+,\d+$/.test(sinSimbolos) ? sinSimbolos.replace(",", ".") : sinSimbolos;
   if (!/^\d{1,9}(\.\d+)?$/.test(limpio)) return { ok: false, error: "Escribe un número, por ejemplo 45.2." };
-  const [entera, fraccion = ""] = limpio.split(".");
+  const [entera, cruda = ""] = limpio.split(".");
+  // Ceros de sobra no cambian la cifra (45.20 = 45.2); un dígito distinto de cero fuera de la escala sí se rechaza.
+  const fraccion = cruda.length > escala.decimales && /^0*$/.test(cruda.slice(escala.decimales)) ? cruda.slice(0, escala.decimales) : cruda;
   if (fraccion.length > escala.decimales) {
-    return { ok: false, error: escala.decimales ? `Usa máximo ${escala.decimales} decimales.` : "Usa un número entero." };
+    const dec = escala.decimales === 1 ? "1 decimal" : `${escala.decimales} decimales`;
+    return { ok: false, error: escala.decimales ? `Usa máximo ${dec}.` : "Usa un número entero." };
   }
   const valor = Number(entera + fraccion.padEnd(escala.decimales, "0"));
   if (valor < minimo || valor > escala.maximo) return { ok: false, error: "La cifra está fuera del rango permitido." };

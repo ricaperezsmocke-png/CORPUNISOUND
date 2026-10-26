@@ -24,6 +24,13 @@ test("legibleAEntero: 45.2 % es 452, 45 es 450, 45.25 se rechaza", () => {
   assert.deepEqual(legibleAEntero(PCT, "45"), { ok: true, valor: 450 });
   assert.deepEqual(legibleAEntero(PCT, " 45.2 % "), { ok: true, valor: 452 });
   assert.equal(legibleAEntero(PCT, "45.25").ok, false);
+  assert.match(legibleAEntero(PCT, "45.25").error, /1 decimal./);
+  assert.match(legibleAEntero(TICKET, "1.555").error, /2 decimales/);
+  assert.deepEqual(legibleAEntero(PCT, "45,2"), { ok: true, valor: 452 });
+  assert.deepEqual(legibleAEntero(PCT, "45.20"), { ok: true, valor: 452 });
+  assert.deepEqual(legibleAEntero(NUEVOS, "12.0"), { ok: true, valor: 12 });
+  assert.equal(legibleAEntero(PCT, "1,234.5").ok, false);
+  assert.equal(legibleAEntero(PCT, "45.25"+"0").ok, false);
   assert.equal(legibleAEntero(PCT, "100.1").ok, false);
   assert.equal(legibleAEntero(PCT, "0").ok, false);
   assert.equal(legibleAEntero(PCT, "").ok, false);
@@ -99,6 +106,7 @@ test("porcentaje null o sin_dato: Sin dato, sin barra y sin %", () => {
 test("textoFaltan: sin dato no inventa faltantes y las cifras salen en su unidad", () => {
   assert.equal(textoFaltan({ fuente: PCT, resultado: null, valor_meta: 450, unidad: "%", sin_dato: true }, "2026-10-31", "2026-10-20"),
     "Sin dato todavía");
+  assert.equal(textoFaltan({ fuente: PCT, resultado: null, valor_meta: 450, unidad: "%", sin_dato: true }, "2026-10-18", "2026-10-20"), "Sin dato");
   assert.equal(textoFaltan({ fuente: "manual", resultado: 6, valor_meta: 10, unidad: "videos" }, "2026-10-18", "2026-10-19"),
     "Faltaron 4 videos");
   assert.equal(textoFaltan({ fuente: PCT, resultado: 400, valor_meta: 452, unidad: "%" }, "2026-10-18", "2026-10-19"), "Faltaron 5.2 %");
