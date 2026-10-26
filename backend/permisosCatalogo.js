@@ -122,6 +122,8 @@ const PERMISOS = [
   // son instrumento o accesorio (y el manual de tácticas), porque eso mueve un número del tablero.
   { clave: "ver_cinco_caminos", etiqueta: "Ver Tablero de los Cinco Caminos", modulo: "pos", implementado: true },
   { clave: "administrar_manual_tacticas", etiqueta: "Administrar Manual de Tácticas y Categorías", modulo: "pos", implementado: true },
+  // Junta del lunes: verla es ver_cinco_caminos; crear compromisos, marcarlos y dar la junta por hecha es de quien la dirige.
+  { clave: "marcar_junta_cinco_caminos", etiqueta: "Registrar Compromisos y Junta del Lunes (Cinco Caminos)", modulo: "pos", implementado: true },
   // Dar de alta/editar el catalogo de quien vende. Permiso propio y no
   // prestado de dar_alta_personal: son cosas distintas -- un vendedor es un
   // renglon del catalogo de ventas, una cuenta es un acceso al sistema.

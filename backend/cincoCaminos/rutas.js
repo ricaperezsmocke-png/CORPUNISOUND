@@ -9,6 +9,10 @@ const { semanaDe, ultimaSemanaCompleta } = require('./semanas');
 const { fechaLocal } = require('../fechas');
 const { vistaManual, crearTactica, cambiarTactica, retirarTactica, reactivarTactica, historialDe } = require('./manual');
 
+const {
+  crearCompromiso, marcarHecho, cancelarCompromiso, marcarJunta, vista: vistaJunta, lunesValido,
+} = require('./juntas');
+
 // Texto fijo del manual v1 (seccion "Excluidas a proposito"); no son tacticas y no se siembran.
 const EXCLUIDAS_TEXTO = '2x1, 4x3 y descuentos como táctica (comen margen); deshacerse de clientes C/D o atender solo clientes A '
   + '(en pueblo, el que hoy compra cuerdas mañana compra el bafle); subir precios contra MercadoLibre; comprar, rentar o vender bases '
@@ -166,6 +170,45 @@ function registrarRutasCincoCaminos(app, deps) {
         .map(h => ({ ...h, usuario_nombre: nombreDeUsuario(h.usuario_id) }));
       res.json({ historial });
     }));
+
+  // Junta del lunes. Escribir: la tienda y el usuario salen SIEMPRE del token (el cuerpo no elige tienda, y no hay ruta
+  // para editar el texto de un compromiso). Leer: con "ver todas" el filtro elige tienda; sin él, solo la del token.
+  const contextoJunta = req => ({
+    usuarioId: usuarioDelToken(req), usuarioNombre: nombreDeUsuario(usuarioDelToken(req)),
+    sucursalId: Number(req.usuarioToken.sucursal_id), hoy: fechaLocal(),
+  });
+  const RUTA_JUNTA = '/api/cinco-caminos/junta';
+
+  app.get(RUTA_JUNTA, ...permiso('ver_cinco_caminos'), ejecutar(RUTA_JUNTA, (req, res) => {
+    const alcance = resolverAlcanceAutorizado(req);
+    const ctx = contextoJunta(req);
+    let sucursalId = ctx.sucursalId;
+    if (alcance.verTodas && req.query.sucursal_id !== undefined && req.query.sucursal_id !== '') sucursalId = Number(req.query.sucursal_id);
+    if (!Number.isSafeInteger(sucursalId) || sucursalId <= 0) return res.status(403).json({ error: 'No hay una tienda autorizada para la junta.' });
+    const pedido = req.query.lunes;
+    const lunes = pedido === undefined || pedido === '' ? semanaDe(ctx.hoy).lunes : lunesValido(String(pedido), ctx.hoy);
+    res.json(vistaJunta(DB, sucursalId, lunes, ctx.hoy));
+  }));
+
+  app.post(`${RUTA_JUNTA}/compromisos`, ...permiso('marcar_junta_cinco_caminos'), ejecutar(`${RUTA_JUNTA}/compromisos`, (req, res) => {
+    res.status(201).json({ compromiso: crearCompromiso(DB, req.body, contextoJunta(req)) });
+  }));
+
+  app.post(`${RUTA_JUNTA}/compromisos/:id/hecho`, ...permiso('marcar_junta_cinco_caminos'),
+    ejecutar(`${RUTA_JUNTA}/compromisos/:id/hecho`, (req, res) => {
+      res.json({ compromiso: marcarHecho(DB, req.params.id, contextoJunta(req)) });
+    }));
+
+  app.post(`${RUTA_JUNTA}/compromisos/:id/cancelar`, ...permiso('marcar_junta_cinco_caminos'),
+    ejecutar(`${RUTA_JUNTA}/compromisos/:id/cancelar`, (req, res) => {
+      const motivo = req.body && typeof req.body === 'object' ? req.body.motivo : undefined;
+      res.json({ compromiso: cancelarCompromiso(DB, req.params.id, motivo, contextoJunta(req)) });
+    }));
+
+  app.post(`${RUTA_JUNTA}/hecha`, ...permiso('marcar_junta_cinco_caminos'), ejecutar(`${RUTA_JUNTA}/hecha`, (req, res) => {
+    const lunes = req.body && typeof req.body === 'object' ? req.body.lunes : undefined;
+    res.json({ junta: marcarJunta(DB, lunes, contextoJunta(req)) });
+  }));
 }
 
 module.exports = { registrarRutasCincoCaminos, validarCategorias };

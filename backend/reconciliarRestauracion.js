@@ -53,6 +53,9 @@ function reconciliarTrasRestaurar(db) {
   // Un respaldo anterior al manual de Cinco Caminos no trae las tacticas: se siembran (no pisa un manual ya corregido).
   require("./cincoCaminos/manual").sembrarManual(db);
 
+  // Un respaldo anterior a la junta del lunes no trae compromisos ni juntas: arrancan como arreglos.
+  require("./cincoCaminos/juntas").asegurar(db);
+
   if (!Array.isArray(db.pos.cajas)) db.pos.cajas = [];
   const { reparaciones } = repararCajas(db);
 

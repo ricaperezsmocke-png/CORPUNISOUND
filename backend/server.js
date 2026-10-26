@@ -377,6 +377,7 @@ sembrarCategoriasGastos(DB);
 
 // Manual de tácticas de Cinco Caminos: siembra v1 solo si la lista no existe todavía (nunca pisa lo corregido).
 if (require("./cincoCaminos/manual").sembrarManual(DB) > 0) guardar(DB);
+require("./cincoCaminos/juntas").asegurar(DB);
 
 // Garantiza que CEDIS (sucursal 6) exista y que 5/6 tengan sin_ubicacion=true,
 // tanto si el DB viene del seed fresco como si viene de datos persistidos

@@ -35,6 +35,9 @@ const roles = {
   973: [...vecinos, 'ver_cinco_caminos', 'ver_todas_las_sucursales'],
   974: [...vecinos, 'ver_cinco_caminos', 'administrar_manual_tacticas'],
   975: [...vecinos, 'administrar_manual_tacticas'],
+  976: [...vecinos, 'ver_cinco_caminos', 'marcar_junta_cinco_caminos'],
+  977: [...vecinos, 'marcar_junta_cinco_caminos'],
+  978: [...vecinos, 'ver_cinco_caminos', 'marcar_junta_cinco_caminos', 'ver_todas_las_sucursales'],
 };
 for (const [id, permisos] of Object.entries(roles)) {
   app.DB.admin.roles.push({ id: Number(id), nombre: `Cinco ${id}`, permisos, modulos: ['pos'] });
@@ -49,12 +52,12 @@ async function conServidor(t) {
   const base = `http://127.0.0.1:${servidor.address().port}`;
   return (ruta, id, opciones = {}) => fetch(base + ruta, { ...opciones,
     headers: { Authorization: `Bearer ${token(id)}`, 'Content-Type': 'application/json' } })
-    .then(async r => ({ status: r.status, datos: await r.json() }));
+    .then(async r => ({ status: r.status, datos: await r.json().catch(() => ({})) }));
 }
 
 test('permisos nuevos en el catálogo (módulo pos) y el guard de arranque los acepta', () => {
   const { PERMISOS } = require('../permisosCatalogo');
-  for (const clave of ['ver_cinco_caminos', 'administrar_manual_tacticas']) {
+  for (const clave of ['ver_cinco_caminos', 'administrar_manual_tacticas', 'marcar_junta_cinco_caminos']) {
     const p = PERMISOS.find(x => x.clave === clave);
     assert.ok(p, clave);
     assert.equal(p.modulo, 'pos');
@@ -257,4 +260,94 @@ test('manual: el historial trae el nombre de quien hizo cada cambio, sin guardar
   assert.equal(sistema.usuario_id, null);
   assert.equal(sistema.usuario_nombre, null);
   assert.equal(JSON.stringify(app.DB.pos.cinco_caminos.tacticas).includes('Prueba 974'), false, 'el nombre no se guarda');
+});
+
+// ---- Junta del lunes ----
+const JUNTA = '/api/cinco-caminos/junta';
+const { sumarDias } = require('./semanas');
+const hoyJ = fechaLocal();
+const lunesJ = semanaDe(hoyJ).lunes;
+const POST = datos => ({ method: 'POST', body: JSON.stringify(datos) });
+const compromisoBase = (extra = {}) => ({ texto: 'Pedir el teléfono en cada venta', responsable: 'Cajera', fecha_compromiso: sumarDias(lunesJ, 1), ...extra });
+const limpiarJunta = () => { app.DB.pos.cinco_caminos.compromisos = []; app.DB.pos.cinco_caminos.juntas = []; };
+
+test('junta: los roles vecinos no escriben sin el permiso de marcar, y marcar no da para ver', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  assert.equal((await pedir(`${JUNTA}?lunes=${lunesJ}`, 972)).status, 200);
+  assert.equal((await pedir(`${JUNTA}?lunes=${lunesJ}`, 971)).status, 403);
+  assert.equal((await pedir(`${JUNTA}?lunes=${lunesJ}`, 977)).status, 403, 'marcar no da para ver');
+  for (const id of [971, 972, 974, 975]) {
+    assert.equal((await pedir(`${JUNTA}/compromisos`, id, POST(compromisoBase()))).status, 403, `crear ${id}`);
+    assert.equal((await pedir(`${JUNTA}/compromisos/1/hecho`, id, POST({}))).status, 403, `hecho ${id}`);
+    assert.equal((await pedir(`${JUNTA}/compromisos/1/cancelar`, id, POST({ motivo: 'Motivo' }))).status, 403, `cancelar ${id}`);
+    assert.equal((await pedir(`${JUNTA}/hecha`, id, POST({ lunes: lunesJ }))).status, 403, `hecha ${id}`);
+  }
+  assert.equal(app.DB.pos.cinco_caminos.compromisos.length, 0);
+});
+
+test('junta: flujo completo con el usuario del token y errores 400/409', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  assert.equal((await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: lunesJ }))).status, 400, 'sin compromisos');
+  const c = await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase()));
+  assert.equal(c.status, 201);
+  assert.equal(c.datos.compromiso.creado_por_id, 976);
+  assert.equal(c.datos.compromiso.sucursal_id, 1);
+  assert.equal(c.datos.compromiso.lunes, lunesJ);
+  const id = c.datos.compromiso.id;
+  assert.equal((await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase({ texto: 'x' })))).status, 400);
+  assert.equal((await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase({ sucursal_id: 2 })))).status, 400, 'el cuerpo no elige tienda');
+  assert.equal((await pedir(`${JUNTA}/compromisos/${id}/cancelar`, 976, POST({}))).status, 400, 'sin motivo');
+  const otro = (await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase()))).datos.compromiso.id;
+  assert.equal((await pedir(`${JUNTA}/compromisos/${otro}/cancelar`, 976, POST({ motivo: 'Ya no aplica' }))).status, 200);
+  assert.equal((await pedir(`${JUNTA}/compromisos/${otro}/hecho`, 976, POST({}))).status, 409, 'cancelado no se marca hecho');
+  const h = await pedir(`${JUNTA}/compromisos/${id}/hecho`, 976, POST({}));
+  assert.equal(h.status, 200);
+  assert.equal(h.datos.compromiso.hecho.por_id, 976);
+  assert.equal(h.datos.compromiso.hecho.por_nombre, 'Prueba 976');
+  assert.equal((await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: sumarDias(lunesJ, 7) }))).status, 400, 'lunes futuro');
+  assert.equal((await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: sumarDias(lunesJ, 1) }))).status, 400, 'no es lunes');
+  const j = await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: lunesJ }));
+  assert.equal(j.status, 200);
+  assert.equal(j.datos.junta.por_id, 976);
+  assert.equal((await pedir(`${JUNTA}/hecha`, 976, POST({ lunes: lunesJ }))).status, 409);
+  const v = await pedir(`${JUNTA}?lunes=${lunesJ}`, 972);
+  assert.equal(v.datos.compromisos.length, 2);
+  assert.equal(v.datos.junta.por_id, 976);
+  assert.equal(v.datos.indicador.semanas, 8);
+  assert.equal(app.DB.pos.cinco_caminos.compromisos.length, 2, 'nada se borra');
+});
+
+test('junta: ?sucursal_id= no amplía el alcance; con "ver todas" solo filtra la lectura', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  app.DB.pos.cinco_caminos.compromisos.push({ id: 50, sucursal_id: 2, lunes: lunesJ, texto: 'De la tienda dos', responsable: 'Gerente',
+    fecha_compromiso: sumarDias(lunesJ, 1), hecho: null, cancelado: null, creado_por_id: 1, creado_en: 'x' });
+  const propia = await pedir(`${JUNTA}?sucursal_id=2&lunes=${lunesJ}`, 972);
+  assert.equal(propia.datos.compromisos.length, 0);
+  const ajena = await pedir(`${JUNTA}?sucursal_id=2&lunes=${lunesJ}`, 978);
+  assert.equal(ajena.datos.compromisos.length, 1);
+  assert.equal((await pedir(`${JUNTA}/compromisos/50/hecho?sucursal_id=2`, 976, POST({}))).status, 404);
+  assert.equal((await pedir(`${JUNTA}/compromisos/50/hecho?sucursal_id=2`, 978, POST({}))).status, 404);
+  const c = await pedir(`${JUNTA}/compromisos?sucursal_id=2`, 978, POST(compromisoBase()));
+  assert.equal(c.datos.compromiso.sucursal_id, 1);
+});
+
+test('junta: el indicador cuenta con huecos y no hay ruta para editar el texto', async t => {
+  limpiarJunta();
+  const pedir = await conServidor(t);
+  const previa = ultimaSemanaCompleta(hoyJ);
+  for (const lunes of [previa, sumarDias(previa, -14), sumarDias(previa, -28), sumarDias(previa, -70)]) {
+    app.DB.pos.cinco_caminos.juntas.push({ sucursal_id: 1, lunes, por_id: 1, en: 'x' });
+  }
+  app.DB.pos.cinco_caminos.juntas.push({ sucursal_id: 2, lunes: sumarDias(previa, -7), por_id: 1, en: 'x' });
+  const v = await pedir(`${JUNTA}?lunes=${lunesJ}`, 972);
+  assert.deepEqual(v.datos.indicador, { semanas: 8, con_junta: 3, pct: 38 }, 'la de hace 10 semanas queda fuera');
+  const c = (await pedir(`${JUNTA}/compromisos`, 976, POST(compromisoBase()))).datos.compromiso;
+  for (const metodo of ['PUT', 'PATCH', 'DELETE']) {
+    const r = await pedir(`${JUNTA}/compromisos/${c.id}`, 976, { method: metodo, body: JSON.stringify({ texto: 'Otro texto distinto' }) });
+    assert.equal(r.status, 404, metodo);
+  }
+  assert.equal(app.DB.pos.cinco_caminos.compromisos.find(x => x.id === c.id).texto, c.texto);
 });
