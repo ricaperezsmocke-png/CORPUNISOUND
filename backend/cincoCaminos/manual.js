@@ -252,7 +252,7 @@ function vistaManual(DB, { verTodas = false, sucursalId = null } = {}) {
     const vista = {
       ...resto,
       etiqueta_tienda: propia || { estado: 'por_probar', mes: null, resultado: null },
-      probada_en: Object.values(etiquetas).filter(e => e.estado === 'probada').length,
+      probada_en: Object.values(etiquetas).filter(e => e && e.estado === 'probada').length,
     };
     if (verTodas) vista.etiquetas = etiquetas;
     return vista;

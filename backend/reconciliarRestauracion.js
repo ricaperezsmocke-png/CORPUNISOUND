@@ -50,6 +50,9 @@ function reconciliarTrasRestaurar(db) {
   // Un respaldo anterior a la supervisión de tiendas la trae vacía: se siembra su checklist.
   require("./supervision").asegurarChecklistInicial(db);
 
+  // Un respaldo anterior al manual de Cinco Caminos no trae las tacticas: se siembran (no pisa un manual ya corregido).
+  require("./cincoCaminos/manual").sembrarManual(db);
+
   if (!Array.isArray(db.pos.cajas)) db.pos.cajas = [];
   const { reparaciones } = repararCajas(db);
 

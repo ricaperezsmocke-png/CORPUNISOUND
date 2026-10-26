@@ -136,3 +136,28 @@ test("una foto sana no reporta reparaciones que nadie hizo", () => {
 
   assert.deepStrictEqual(reparaciones, []);
 });
+
+test("restaurar una foto anterior al manual de Cinco Caminos deja las 30 tacticas sembradas", () => {
+  const DB = fotoVieja();
+  DB.pos.cinco_caminos = { categorias: [], categorias_historial: [] }; // foto previa a P2: sin tacticas
+  const { db } = reconciliarTrasRestaurar(DB);
+
+  assert.ok(Array.isArray(db.pos.cinco_caminos.tacticas));
+  assert.strictEqual(db.pos.cinco_caminos.tacticas.length, 30);
+});
+
+test("restaurar no toca un manual de Cinco Caminos que ya traia correcciones", () => {
+  const DB = fotoVieja();
+  const corregido = [{ id: 1, titulo: "Corregida a mano", etiquetas: {}, historial: [] }];
+  DB.pos.cinco_caminos = { categorias: [], categorias_historial: [], tacticas: corregido };
+  const { db } = reconciliarTrasRestaurar(DB);
+
+  assert.deepStrictEqual(db.pos.cinco_caminos.tacticas, corregido);
+});
+
+test("el ensayo sobre copia tambien siembra el manual sin tocar la foto original", () => {
+  const DB = fotoVieja();
+  DB.pos.cinco_caminos = { categorias: [], categorias_historial: [] };
+  assert.doesNotThrow(() => validarAntesDeRestaurar(DB));
+  assert.strictEqual(DB.pos.cinco_caminos.tacticas, undefined);
+});

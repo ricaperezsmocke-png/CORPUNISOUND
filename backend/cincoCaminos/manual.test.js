@@ -331,3 +331,11 @@ test('el id solo acepta digitos o entero positivo', () => {
   }
   assert.equal(cambiarTactica(DB, 3, { nombre: 'Nombre válido nuevo' }, 1).id, 3);
 });
+
+test('vistaManual: una etiqueta null no revienta el conteo probada_en', () => {
+  const DB = sembrada();
+  fijarEtiqueta(DB, 1, 1, { estado: 'probada', mes: '2026-09', resultado: 'Funcionó' });
+  DB.pos.cinco_caminos.tacticas[0].etiquetas['2'] = null;
+  const vista = vistaManual(DB, { verTodas: false, sucursalId: 1 });
+  assert.equal(vista[0].probada_en, 1);
+});
