@@ -56,6 +56,9 @@ function reconciliarTrasRestaurar(db) {
   // Un respaldo anterior a la junta del lunes o al plan del mes no trae compromisos, juntas ni planes_mes: arrancan como arreglos.
   require("./cincoCaminos/juntas").asegurar(db);
 
+  // Un respaldo anterior al cierre del mes no trae los cierres: arrancan como arreglo (no se pisa uno que ya traiga).
+  require("./cincoCaminos/cierreMes").asegurarCierres(db);
+
   // Un respaldo anterior a los planes con IA no trae la coleccion; y un plan "pendiente" de la foto ya no tiene
   // quien lo esté esperando: queda fallido, igual que al arrancar.
   if (!Array.isArray(db.pos.planes_ia)) db.pos.planes_ia = [];
@@ -88,4 +91,15 @@ function validarAntesDeRestaurar(datos) {
   reconciliarTrasRestaurar(copia);
 }
 
-module.exports = { reconciliarTrasRestaurar, validarAntesDeRestaurar };
+/**
+ * Tras restaurar se cierran los meses de Cinco Caminos que la foto dejó pendientes. Va aparte de reconciliarTrasRestaurar
+ * porque necesita la conexión SICAR ya restaurada (la foto de SICAR se aplica después de esa reconciliación) y porque
+ * validarAntesDeRestaurar corre la reconciliación sobre una copia sin SICAR. Devuelve los cierres nuevos.
+ */
+function cerrarTrasRestaurar(db, sqlite, { hoy }) {
+  const { asegurarCierres, cerrarMesesPendientes } = require("./cincoCaminos/cierreMes");
+  asegurarCierres(db);
+  return cerrarMesesPendientes(sqlite, db, { hoy });
+}
+
+module.exports = { reconciliarTrasRestaurar, validarAntesDeRestaurar, cerrarTrasRestaurar };

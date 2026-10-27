@@ -37,7 +37,7 @@ const {
 const { crearVenta, listarVentas, obtenerVentaDetalle, cancelarVenta, cambiarCajaVenta } = require("./ventas");
 const { sembrarCajas } = require("./cajas");
 const { avisarSiLaEpocaEstaEnElFuturo } = require("./corteEpoca");
-const { reconciliarTrasRestaurar } = require("./reconciliarRestauracion");
+const { reconciliarTrasRestaurar, cerrarTrasRestaurar } = require("./reconciliarRestauracion");
 const {
   crearApartado, registrarAbono, cancelarApartado, listarApartados, obtenerApartadosProximosAVencer,
 } = require("./apartados");
@@ -1996,6 +1996,24 @@ if (require.main === module) {
   setTimeout(cicloEstadosCRM, 30_000).unref();
 }
 
+// Cierre del mes de Cinco Caminos (plan 2026-10-27 P5): al arrancar y cada hora se califican solas las tácticas de los
+// meses que ya pasaron su gracia. No hay ruta ni botón. Sin SICAR no se cierra nada y se reintenta en la siguiente vuelta.
+const { cerrarMesesPendientes, asegurarCierres } = require("./cincoCaminos/cierreMes");
+asegurarCierres(DB);
+function cicloCierreMes() {
+  // Durante una restauración nadie escribe: el estado se está reemplazando entero.
+  if (mantenimiento.estaActivo()) return;
+  try {
+    if (cerrarMesesPendientes(conexionSqlite, DB, { hoy: fechaLocal() }).length) guardar(DB);
+  } catch (e) {
+    console.error('⚠️  Falló el cierre del mes de Cinco Caminos:', e.message);
+  }
+}
+if (require.main === module) {
+  setInterval(cicloCierreMes, 3600000).unref();
+  setTimeout(cicloCierreMes, 45_000).unref();
+}
+
 // ---------- Ventas (registro real, alimenta Consultas de Ventas y el CRM) ----------
 app.get("/api/ventas", requiereLogin, requierePermiso("ver_lista_ventas", resolverPermisosDeRol), (req, res) => {
   const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
@@ -3240,6 +3258,12 @@ app.post("/api/respaldos/:id/restaurar", requiereLogin, requierePermiso("restaur
       alTerminar: reconciliarTrasRestaurar,
     });
     registrarExito(intentosRestauracion, usuario);
+    // Los meses de Cinco Caminos que la foto dejó sin cerrar se cierran ya, con SICAR ya restaurado (ver reconciliarRestauracion.js).
+    try {
+      if (cerrarTrasRestaurar(DB, conexionSqlite, { hoy: fechaLocal() }).length) guardar(DB);
+    } catch (e) {
+      console.error('⚠️  Falló el cierre del mes de Cinco Caminos tras restaurar:', e.message);
+    }
     // Corte REAL de las sesiones abiertas. Antes esto era solo una frase en la
     // respuesta: los tokens siguen siendo válidos 12 h y `requierePermiso`
     // resuelve los permisos con el `rol_id` que trae el token, contra el DB YA
