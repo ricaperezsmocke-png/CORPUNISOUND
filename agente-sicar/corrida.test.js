@@ -1288,16 +1288,50 @@ test('traspasos: la primera vuelta es de noche, completa, en lotes de 100, y dej
   await ejecutar(p.archivo, { traspasos: true }, p.deps);
   assert.equal(p.lotes.length, 0, 'sin cambios no gasta envio');
 });
-test('traspasos: de dia sin la primera vuelta no se lee nada; con traspasosAhora si', async t => {
-  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+test('traspasos: de dia con la vuelta de la semana al corriente no se hace la vuelta completa; con traspasosAhora si', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_semana: '2026-10-14' });
   p.deps.reloj = DE_DIA;
   const leidos = conTraspasos(p, [traspasoSicar(1)]);
   await ejecutar(p.archivo, { traspasos: true }, p.deps);
-  assert.deepEqual(leidos, []);
-  assert.equal(p.lotes.length, 0);
+  assert.deepEqual(traspasosMandados(p).map(l => l.map(x => x.tra_id)), [['1']], 'solo el nuevo por cursor');
+  p.lotes.length = 0;
   await ejecutar(p.archivo, { traspasos: true }, { ...p.deps, traspasosAhora: true });
-  assert.deepEqual(traspasosMandados(p).map(l => l.map(x => x.tra_id)), [['1']]);
   assert.equal((await cargar(p.archivo)).traspasos_semana, '2026-10-15');
+});
+// Tiendas que apagan la PC de noche: de dia la vuelta completa toca si la ultima tiene mas de 8 dias (7 + 1 de gracia) o nunca se hizo.
+const filasVuelta = () => [traspasoSicar(1, { fecha: '2024-05-01', fechaApl: '2024-05-02 09:00:00' }), traspasoSicar(2)];
+test('traspasos: de dia con la vuelta de hace 9 dias o sin primera carga hace la vuelta completa', async t => {
+  for (const semana of ['2026-10-06', null]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_semana: semana });
+    p.deps.reloj = DE_DIA;
+    conTraspasos(p, filasVuelta());
+    await ejecutar(p.archivo, { traspasos: true }, p.deps);
+    assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), ['1', '2'], String(semana));
+    const estado = await cargar(p.archivo);
+    assert.deepEqual([estado.traspasos_semana, estado.traspasos_vuelta], ['2026-10-15', null]);
+    assert.equal(p.mensajes.includes('TRASPASOS_ESPERANDO_NOCHE'), false);
+  }
+});
+test('traspasos: de dia con la vuelta de hace 3 u 8 dias no hace la vuelta completa', async t => {
+  for (const semana of ['2026-10-12', '2026-10-07']) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '2', traspasos_semana: semana });
+    p.deps.reloj = DE_DIA;
+    const leidos = conTraspasos(p, filasVuelta());
+    await ejecutar(p.archivo, { traspasos: true }, p.deps);
+    assert.equal(leidos.some(([cursor, desde]) => cursor === '0' && !desde), false, semana);
+    assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), ['2'], 'solo la relectura de 30 dias');
+    assert.equal((await cargar(p.archivo)).traspasos_semana, semana);
+  }
+});
+test('traspasos: de dia con una vuelta a medias y la semana atrasada la sigue donde iba', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '3', traspasos_semana: '2026-10-01',
+    traspasos_vuelta: '1' });
+  p.deps.reloj = DE_DIA;
+  conTraspasos(p, [1, 2, 3].map(n => traspasoSicar(n, { fecha: '2024-05-01', fechaApl: '2024-05-02 09:00:00' })));
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  assert.deepEqual(traspasosMandados(p).flat().map(x => x.tra_id), ['2', '3']);
+  const estado = await cargar(p.archivo);
+  assert.deepEqual([estado.traspasos_vuelta, estado.traspasos_semana], [null, '2026-10-15']);
 });
 test('traspasos: uno nuevo sale por cursor; uno enviado que pasa a recibido o cancelado se reenvia; el resto no', async t => {
   const p = await preparar(t, { ...inicial(), fase: 'incremental' });
@@ -1435,7 +1469,7 @@ test('traspasos: vuelta completa semanal de noche; antes de 7 dias solo cambios'
   }
 });
 test('traspasos: una vuelta cortada sigue donde iba la siguiente noche, no de dia', async t => {
-  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '3', traspasos_semana: '2026-10-01',
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', traspasos_cursor: '3', traspasos_semana: '2026-10-10',
     traspasos_vuelta: '1' });
   const leidos = conTraspasos(p, [1, 2, 3].map(n => traspasoSicar(n, { fecha: '2024-05-01', fechaApl: '2024-05-02 09:00:00' })));
   p.deps.reloj = DE_DIA;
@@ -1590,17 +1624,12 @@ test('traspasos omitidos: con el interruptor apagado ningun lote lleva la llave'
     assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
   }
 });
-test('traspasos: de dia sin la primera vuelta avisa una vez al dia que espera la noche', async t => {
+test('traspasos: la vuelta de dia completa no deja el aviso de esperar la noche', async t => {
   const p = await preparar(t, { ...inicial(), fase: 'incremental' });
   p.deps.reloj = DE_DIA;
   conTraspasos(p, [traspasoSicar(1)]);
   await ejecutar(p.archivo, { traspasos: true }, p.deps);
   await ejecutar(p.archivo, { traspasos: true }, p.deps);
-  assert.equal(p.mensajes.filter(m => m === 'TRASPASOS_ESPERANDO_NOCHE').length, 1);
-  const q = await preparar(t, { ...inicial(), fase: 'incremental' });
-  q.deps.reloj = DE_DIA;
-  conTraspasos(q, [traspasoSicar(1)]);
-  await ejecutar(q.archivo, {}, q.deps);
-  await ejecutar(q.archivo, { traspasos: true }, { ...q.deps, traspasosAhora: true });
-  assert.equal(q.mensajes.includes('TRASPASOS_ESPERANDO_NOCHE'), false, 'apagado o con --traspasos-ahora no avisa');
+  assert.equal(p.mensajes.includes('TRASPASOS_ESPERANDO_NOCHE'), false);
+  assert.equal((await cargar(p.archivo)).traspasos_semana, '2026-10-15');
 });

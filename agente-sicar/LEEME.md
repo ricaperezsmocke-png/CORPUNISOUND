@@ -250,6 +250,8 @@ recibió o se canceló, total y, por artículo, cantidad y precio sin y con impu
   por eso se relee. Solo se reenvían los que cambiaron desde lo último que el servidor confirmó (`traspasos_firmas`).
 - **Una vez por semana, de noche**, se releen y mandan todos otra vez (`traspasos_semana`), para corregir cambios de
   traspasos viejos. Si esa vuelta se corta, la siguiente noche sigue donde iba (`traspasos_vuelta`).
+  En tiendas que apagan la PC de noche, si la última vuelta completa tiene más de 8 días (o nunca se hizo), se hace de día
+  en la primera corrida; de día también sigue una vuelta cortada si ya pasó ese plazo.
 - Todo avanza solo cuando el servidor confirma. Si un paquete de solo traspasos no se puede mandar tras sus reintentos,
   se descarta (`TRASPASOS_DESCARTADOS`) **para no frenar las ventas** y se vuelve a leer y mandar después.
 - Un traspaso con un dato que el agente no sabe leer (estado que no es 2, 1 ni -1; fecha imposible; importe con más
