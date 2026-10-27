@@ -6,6 +6,7 @@ import { diaDeLaTienda, opcionesSemanas, semanaPorDefecto, tarjetasDelTablero } 
 import CategoriasCincoCaminos from "./CategoriasCincoCaminos.jsx";
 import ManualTacticas from "./ManualTacticas.jsx";
 import JuntaLunes from "./JuntaLunes.jsx";
+import PlanMes from "./PlanMes.jsx";
 import { textoIndicador } from "./juntaLunes.js";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
@@ -156,6 +157,7 @@ export default function CincoCaminos({ permisos = [], usuario = null }) {
               </div>
             </>
           )}
+          {sucursal && <PlanMes sucursal={sucursal} permisos={permisos} />}
           {sucursal && <JuntaLunes sucursal={sucursal} permisos={permisos} usuario={usuario} alIndicador={setIndicador} />}
         </>
       )}
