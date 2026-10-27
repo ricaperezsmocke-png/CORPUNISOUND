@@ -249,14 +249,34 @@ function registrarRutasCincoCaminos(app, deps) {
     return verPlanMes(DB, { sucursal_id: sucursalId, mes, visor, hoy });
   }));
 
+  // Alcance: administrar metas no da todas las tiendas. Sin "ver todas" solo se opera la tienda del token.
+  const falloAlcance = () => { const e = new Error('Solo puedes operar el plan del mes de tu tienda.'); e.status = 403; return e; };
+  const tiendaDelToken = req => {
+    const alcance = resolverAlcanceAutorizado(req);
+    return alcance.verTodas ? null : Number(alcance.sucursalId);
+  };
+  const exigirTienda = (req, sucursal) => {
+    const propia = tiendaDelToken(req);
+    if (propia !== null && Number(sucursal) !== propia) throw falloAlcance();
+  };
+  const exigirBorrador = req => {
+    const id = idPlan(req);
+    const plan = DB.pos.planes_ia.find(p => p.tipo === 'plan_mes' && p.id === id);
+    if (plan) exigirTienda(req, plan.entrada.sucursal_id);
+    return id;
+  };
+
   app.get(`${RUTA_PLAN}/borradores`, ...permiso('administrar_metas_personalizadas'), conEstado(`${RUTA_PLAN}/borradores`, req => {
     const sucursal = req.query.sucursal_id;
-    return { borradores: listarBorradoresMes(DB, { sucursal_id: sucursal === undefined || sucursal === '' ? null : Number(sucursal), mes: req.query.mes }) };
+    const propia = tiendaDelToken(req);
+    const filtro = propia !== null ? propia : (sucursal === undefined || sucursal === '' ? null : Number(sucursal));
+    return { borradores: listarBorradoresMes(DB, { sucursal_id: filtro, mes: req.query.mes }) };
   }));
 
   app.post(`${RUTA_PLAN}/proponer`, ...permiso('administrar_metas_personalizadas'), async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
+      exigirTienda(req, req.body?.sucursal_id);
       res.json(await proponerPlanMes(DB, sqlite(), clienteIA(), req.body, req.usuarioToken, { hoy: hoyLocal() }));
     } catch (e) {
       // El intento fallido queda en el registro: el guardado automático solo corre con respuestas exitosas.
@@ -269,10 +289,10 @@ function registrarRutasCincoCaminos(app, deps) {
   });
 
   app.post(`${RUTA_PLAN}/:id/validar`, ...permiso('administrar_metas_personalizadas'), conEstado(`${RUTA_PLAN}/:id/validar`, req =>
-    validarPlanMes(DB, idPlan(req), req.body, req.usuarioToken)));
+    validarPlanMes(DB, exigirBorrador(req), req.body, req.usuarioToken, { hoy: hoyLocal() })));
 
   app.post(`${RUTA_PLAN}/:id/descartar`, ...permiso('administrar_metas_personalizadas'), conEstado(`${RUTA_PLAN}/:id/descartar`, req =>
-    descartarPlanMes(DB, idPlan(req), req.body?.motivo, req.usuarioToken)));
+    descartarPlanMes(DB, exigirBorrador(req), req.body?.motivo, req.usuarioToken)));
 }
 
 module.exports = { registrarRutasCincoCaminos, validarCategorias };

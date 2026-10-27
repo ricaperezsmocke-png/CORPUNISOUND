@@ -15,6 +15,7 @@ const { avanceMeta } = require('../metasAvance');
 const M = require('../metasPersonalizadas');
 const { pedirAlModelo, planesDeHoy, errorCon, MENSAJE_FALLA, LIMITE_DIARIO, TIMEOUT_MS } = require('../planIA');
 const { asegurar } = require('./juntas');
+const { fechaLocal } = require('../fechas');
 
 const CAMINOS_PLAN = ['calidad_dato', 'prospectos', 'conversion', 'compras_por_cliente', 'venta_promedio'];
 const RESPONSABLES = ['vendedores', 'encargado', 'compras', 'gerente'];
@@ -32,11 +33,18 @@ const aEntero = (numero, legible) => Math.round(legible * DIVISOR[NUMEROS_META[n
 
 const comparable = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const numerosEn = texto => (texto.match(/\d[\d,]*(?:\.\d+)?/g) || []).map(s => Number(s.replace(/,/g, '')));
-const hablaDeDescuento = texto => /descuent|rebaj|oferta|promoci|2x1|3x2|precio especial/.test(comparable(texto));
-// Cifras escritas con letra: no se pueden comparar con los datos enviados, así que el texto se reemplaza.
-const NUMERO_CON_LETRA = new RegExp('\\b(doble|triple|mitad|por ciento|cien|ciento|mil|millon(?:es)?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce'
-  + '|trece|catorce|quince|veinte\\w*|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\\b');
-const numeroConLetra = texto => NUMERO_CON_LETRA.test(comparable(texto));
+// "sin descuento" dice lo contrario de ofrecer uno (táctica 18 de la semilla): no cuenta.
+const hablaDeDescuento = texto => /descuent|rebaj|oferta|promoci|2x1|3x2|precio especial/.test(comparable(texto).replace(/sin descuentos?/g, ''));
+// Cifras escritas con letra: se aceptan si su cifra está en los datos enviados. "Cinco caminos" y "dos tácticas" son del método.
+const VALOR_LETRA = { dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14,
+  quince: 15, veinte: 20, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100, ciento: 100, mil: 1000 };
+const SIN_CIFRA = /\b(doble|triple|mitad|por ciento|millon(?:es)?|veinti\w+)\b/;
+const PALABRA_NUMERO = new RegExp(String.raw`\b(${Object.keys(VALOR_LETRA).join('|')})\b`, 'g');
+function numeroConLetra(texto, permitidas = new Set()) {
+  const limpio = comparable(texto).replace(/\b(cinco caminos|dos tacticas?)\b/g, '');
+  if (SIN_CIFRA.test(limpio)) return true;
+  return (limpio.match(PALABRA_NUMERO) || []).some(palabra => !permitidas.has(VALOR_LETRA[palabra]));
+}
 
 function numerosDe(valor, lista = []) {
   if (typeof valor === 'number' && Number.isFinite(valor)) lista.push(valor);
@@ -107,7 +115,7 @@ function armarDatosPlanMes(sqlite, DB, { sucursal_id, mes, hoy }) {
 const textoValido = (v, maximo) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= maximo;
 
 function porQue(valor, permitidas) {
-  return textoValido(valor, MAX_POR_QUE) && numerosEn(valor).every(n => permitidas.has(n)) && !numeroConLetra(valor) ? valor.trim() : TEXTO_POR_QUE;
+  return textoValido(valor, MAX_POR_QUE) && numerosEn(valor).every(n => permitidas.has(n)) && !numeroConLetra(valor, permitidas) ? valor.trim() : TEXTO_POR_QUE;
 }
 
 function normalizarId(id) {
@@ -129,7 +137,8 @@ function validarTacticas(lista, manual, camino, permitidas, nombres = {}) {
     const crudo = typeof item.por_que === 'string' ? item.por_que : '';
     const nombreReal = nombres[id] ?? tactica.nombre;
     const descuento = camino === 'conversion' && (hablaDeDescuento(nombreReal) || hablaDeDescuento(tactica.nombre) || hablaDeDescuento(crudo));
-    return { id, nombre: nombreReal, por_que: texto,
+    const habla = hablaDeDescuento(nombreReal) || hablaDeDescuento(tactica.nombre) || hablaDeDescuento(crudo);
+    return { id, nombre: nombreReal, por_que: texto, habla_de_descuento: habla,
       ...(descuento ? { rechazada: true, motivo_rechazo: 'No se propone descuento para un problema de conversión' } : {}) };
   });
 }
@@ -292,6 +301,7 @@ function decidirCamino(cuerpo, propuesta) {
 
 function decidirTacticas(DB, cuerpo, propuesta, sucursal, camino) {
   const manual = manualParaIA(DB, sucursal);
+  const nombresReales = Object.fromEntries(vistaManual(DB, { verTodas: false, sucursalId: sucursal }).map(t => [t.id, t.nombre]));
   const finales = [];
   for (const { propuesto, d } of decidirLista(propuesta.tacticas, cuerpo.tacticas, 'id', 'tácticas')) {
     if (d.decision === 'rechazar') continue;
@@ -299,11 +309,14 @@ function decidirTacticas(DB, cuerpo, propuesta, sucursal, camino) {
     const tactica = manual.find(t => t.id === id);
     if (!tactica) throw errorCon(400, 'La táctica elegida no está disponible en el manual');
     if (finales.some(f => f.id === id)) throw errorCon(400, 'No se puede repetir una táctica');
-    const por_que = d.decision === 'cambiar' ? '' : propuesto.por_que;
-    if (camino === 'conversion' && (hablaDeDescuento(tactica.nombre) || hablaDeDescuento(por_que))) {
-      throw errorCon(400, 'No se acepta un descuento como táctica para un problema de conversión');
-    }
-    finales.push({ id, por_que });
+    // Descuento: la marca que dejó el servidor al proponer (texto crudo de la IA + nombre real) y, para una táctica que
+    // no estaba en la propuesta, su nombre real del manual. Se revisa contra el camino FINAL.
+    const marcada = propuesta.tacticas.find(x => x.id === id);
+    const descuento = marcada ? marcada.habla_de_descuento === true || marcada.rechazada === true
+      || hablaDeDescuento(marcada.nombre) || hablaDeDescuento(marcada.por_que)
+      : hablaDeDescuento(nombresReales[id] ?? '') || hablaDeDescuento(tactica.nombre);
+    if (camino === 'conversion' && descuento) throw errorCon(400, 'No se acepta un descuento como táctica para un problema de conversión');
+    finales.push({ id, por_que: d.decision === 'cambiar' ? '' : propuesto.por_que });
   }
   if (!finales.length) throw errorCon(400, 'Acepta al menos una táctica');
   return finales;
@@ -334,9 +347,10 @@ function decidirMetas(cuerpo, propuesta) {
  * Crea lo que el gerente aprobó, todo o nada: las metas `cinco_caminos:<numero>` (tienda, mensual, día 1 del mes) y el
  * plan del mes. Si cualquier cosa falla, no queda ninguna meta ni plan y el borrador sigue en borrador.
  */
-function validarPlanMes(DB, id, cuerpo, usuario) {
+function validarPlanMes(DB, id, cuerpo, usuario, { hoy = fechaLocal() } = {}) {
   const plan = borradorMes(DB, id);
-  const { sucursal_id, mes } = plan.entrada;
+  // El mes se vuelve a revisar: pudo sellarse o dejar de ser el actual/siguiente entre proponer y validar.
+  const { sucursal_id, mes } = leerEntradaMes(DB, plan.entrada, hoy);
   if (planAprobado(DB, sucursal_id, mes)) throw errorCon(409, 'Esa tienda ya tiene un plan aprobado para ese mes');
   if (!esObjeto(cuerpo)) throw errorCon(400, 'Faltan las decisiones del plan');
   const camino = decidirCamino(cuerpo, plan.propuesta);
@@ -399,7 +413,10 @@ function verPlanMes(DB, { sucursal_id, mes, visor, hoy }) {
   const manual = vistaManual(DB, { verTodas: false, sucursalId: Number(sucursal_id) });
   const tacticas = plan.tacticas.map(id => ({ id, nombre: manual.find(t => t.id === id)?.nombre || `Táctica #${id}` }));
   const metas = DB.pos.metas_personalizadas.filter(m => m.vigente && plan.metas.includes(m.clave)).map(m => avanceMeta(DB, m, visor, 1, hoy));
-  return { plan: { ...plan, tacticas, metas } };
+  // El nombre se arma al leer, nunca se guarda: quien ya no existe queda señalado.
+  const usuario = plan.aprobado_por_id == null ? null : (DB.admin?.usuarios || []).find(u => Number(u.id) === Number(plan.aprobado_por_id));
+  const aprobado_por_nombre = plan.aprobado_por_id == null ? null : (usuario?.nombre || `Usuario #${plan.aprobado_por_id} (ya no existe)`);
+  return { plan: { ...plan, aprobado_por_nombre, tacticas, metas } };
 }
 
 module.exports = {

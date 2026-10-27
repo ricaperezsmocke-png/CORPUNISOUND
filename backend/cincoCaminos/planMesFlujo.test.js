@@ -7,7 +7,7 @@ const { asegurar } = require('./juntas');
 const M = require('../metasPersonalizadas');
 const { listarPlanes } = require('../planIACrear');
 const { proponerPlan, reconciliarPlanesPendientes, LIMITE_DIARIO } = require('../planIA');
-const { proponerPlanMes, validarPlanMes, descartarPlanMes, listarBorradoresMes, validarPropuestaMes } = require('./planMes');
+const { proponerPlanMes, validarPlanMes: validarPlanMesReal, descartarPlanMes, listarBorradoresMes, validarPropuestaMes } = require('./planMes');
 
 const HOY = '2026-10-26';
 const MES = '2026-10';
@@ -56,6 +56,7 @@ function clienteFalso(cambios = {}, registro = []) {
     return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(propuesta) }], usage: { input_tokens: 10, output_tokens: 5 } };
   } } };
 }
+const validarPlanMes = (DB, id, cuerpo, usuario) => validarPlanMesReal(DB, id, cuerpo, usuario, { hoy: HOY });
 const proponer = (sqlite, DB, cliente = clienteFalso(), entrada = { sucursal_id: 1, mes: MES }) =>
   proponerPlanMes(DB, sqlite, cliente, entrada, USUARIO, { hoy: HOY });
 
@@ -405,4 +406,93 @@ test('constancia en el plan del mes cuando el servidor forzo el camino y el gere
   const [m2] = DB2.pos.cinco_caminos.planes_mes;
   assert.equal(m2.camino_forzado_por_servidor, false);
   assert.equal(m2.camino_cambiado_por_gerente, false);
+});
+
+// ---- Correcciones de la revision de la Task 2 ----
+test('un descuento rechazado por el servidor no se puede aceptar ni cambiar de vuelta (camino conversion)', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB, clienteFalso({ camino: 'conversion' }));
+  const [a, b] = plan.propuesta.tacticas;
+  // Aceptar la que el servidor marco como descuento.
+  a.rechazada = true;
+  a.habla_de_descuento = true;
+  assert.throws(() => validarPlanMes(DB, plan.id, decisionesTodas(plan), USUARIO), e => e.status === 400 && /descuento/i.test(e.message));
+  // Cambiar a otra tactica cuyo nombre real habla de descuento.
+  const otra = DB.pos.cinco_caminos.tacticas.find(x => x.activa && x.como_se_mide !== 'fase_2' && x.como_se_mide !== 'fase_3'
+    && x.id !== a.id && x.id !== b.id);
+  otra.nombre = 'Rebaja para quien compre hoy';
+  assert.throws(() => validarPlanMes(DB, plan.id, decisionesTodas(plan, {
+    tacticas: [{ id: a.id, decision: 'rechazar' }, { id: b.id, decision: 'cambiar', nuevo_id: otra.id }] }), USUARIO), e => e.status === 400);
+  assert.equal(DB.pos.metas_personalizadas.length, 0);
+  // Rechazar la marcada y quedarse con la otra si pasa.
+  const hecho = validarPlanMes(DB, plan.id, decisionesTodas(plan, { tacticas: [{ id: a.id, decision: 'rechazar' }, { id: b.id, decision: 'aceptar' }] }), USUARIO);
+  assert.equal(hecho.estado, 'validado');
+});
+
+test('la marca habla_de_descuento se guarda al proponer, aunque el camino no sea conversion, y cambiar a conversion la revisa', async t => {
+  const { sqlite, DB } = preparar(t);
+  const cliente = clienteFalso();
+  const base = await proponer(sqlite, DB, cliente);
+  assert.equal(base.propuesta.tacticas.every(x => x.habla_de_descuento === false), true);
+  const idA = base.propuesta.tacticas[0].id;
+  const plan = await proponer(sqlite, DB, { messages: { create: async cuerpo => {
+    const r = await cliente.messages.create(cuerpo);
+    const texto = JSON.parse(r.content[0].text);
+    texto.tacticas[0].por_que = 'Dar 777 % de descuento';
+    return { ...r, content: [{ type: 'text', text: JSON.stringify(texto) }] };
+  } } }, { sucursal_id: 1, mes: '2026-11' });
+  assert.equal(plan.propuesta.camino, 'prospectos');
+  assert.equal(plan.propuesta.tacticas[0].habla_de_descuento, true);
+  assert.equal(plan.propuesta.tacticas[0].rechazada, undefined);
+  assert.equal(plan.propuesta.tacticas[0].por_que, 'Propuesta basada en los números de la tienda');
+  void idA;
+  assert.throws(() => validarPlanMes(DB, plan.id, decisionesTodas(plan, { camino: { decision: 'cambiar', camino: 'conversion' } }), USUARIO),
+    e => e.status === 400);
+  assert.equal(validarPlanMes(DB, plan.id, decisionesTodas(plan), USUARIO).estado, 'validado');
+});
+
+test('"sin descuento" no cuenta como descuento (tactica 18 de la semilla)', async t => {
+  const { sqlite, DB } = preparar(t);
+  const t18 = DB.pos.cinco_caminos.tacticas.find(x => x.id === 18);
+  assert.match(t18.nombre, /sin descuento/);
+  const { crearTactica } = require('./manual');
+  void crearTactica;
+  const ctx = armarDatosPlanMes(sqlite, DB, { sucursal_id: 1, mes: MES, hoy: HOY });
+  const r = validarPropuestaMes(prop([meta('ticket_promedio_centavos', 110)], { camino: 'conversion',
+    tacticas: [{ id: 18, por_que: 'Avisar sin descuentos' }, { id: ctx.datos.manual.find(x => x.id !== 18).id, por_que: 'b' }] }),
+  { ...ctx, bases: { ticket_promedio_centavos: { promedio_8: 10000, mismo_mes: null } }, calidad_primero: false });
+  assert.equal(r.tacticas[0].rechazada, undefined);
+  assert.equal(r.tacticas[0].habla_de_descuento, false);
+});
+
+test('un mes sellado entre proponer y validar da 400 claro y no crea nada', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB);
+  DB.pos.meta_sellos.push({ periodo: 'mensual', inicio: `${MES}-01` });
+  assert.throws(() => validarPlanMes(DB, plan.id, decisionesTodas(plan), USUARIO), e => e.status === 400 && /sellado/.test(e.message));
+  assert.equal(DB.pos.metas_personalizadas.length, 0);
+  assert.equal(plan.estado, 'borrador');
+});
+
+test('numeros con letra: se aceptan si la cifra esta en los datos; "cinco caminos" y "dos tacticas" siempre', () => {
+  const ctx = ctxMin({ clientes_nuevos: { promedio_8: 40, mismo_mes: null } }, { cifrasPermitidas: [10] });
+  const porQueDe = texto => validarPropuestaMes(prop([meta('clientes_nuevos', 44)], { por_que_camino: texto }), ctx).por_que_camino;
+  assert.equal(porQueDe('Cada diez tickets falta un registro'), 'Cada diez tickets falta un registro');
+  assert.equal(porQueDe('Los cinco caminos del mes'), 'Los cinco caminos del mes');
+  assert.equal(porQueDe('Las dos tácticas sirven'), 'Las dos tácticas sirven');
+  assert.equal(porQueDe('Cada once tickets'), TEXTO_FIJO);
+  assert.equal(porQueDe('Vendimos el doble'), TEXTO_FIJO);
+});
+
+test('aprobado_por_nombre sale al leer y no se guarda', async t => {
+  const { sqlite, DB } = preparar(t);
+  DB.admin.usuarios.push({ id: USUARIO.id, nombre: 'Victor Real' });
+  DB.pos.meta_capturas = [];
+  const plan = await proponer(sqlite, DB);
+  validarPlanMes(DB, plan.id, decisionesTodas(plan), USUARIO);
+  const { verPlanMes } = require('./planMes');
+  const visor = { vendedor_id: null, usuario_id: 1, jefatura: false, verTodas: true, sucursalId: 1 };
+  const vista = verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY });
+  assert.equal(vista.plan.aprobado_por_nombre, 'Victor Real');
+  assert.equal('aprobado_por_nombre' in DB.pos.cinco_caminos.planes_mes[0], false);
 });
