@@ -334,6 +334,9 @@ function crearVenta(DB, datos, opciones = {}) {
     // la caja. Las llamadas internas sin usuario quedan en null.
     cobrada_por_id: usuarioVenta?.id ?? null,
     cobrada_por_nombre: usuarioVenta?.nombre ?? null,
+    // Quién AUTORIZÓ gastar el monedero (lo verifica la ruta con contraseña).
+    monedero_autorizado_por_id: monederoAplicado > 0 ? (opciones.monederoAutorizadoPor?.id ?? null) : null,
+    monedero_autorizado_por_nombre: monederoAplicado > 0 ? (opciones.monederoAutorizadoPor?.nombre ?? null) : null,
     estatus: "cerrada",
     motivo_cancelacion: null,
     corte_id: null,

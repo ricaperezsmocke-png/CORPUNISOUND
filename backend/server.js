@@ -2030,7 +2030,7 @@ app.get("/api/ventas/:id", requiereLogin, requierePermiso("mostrar_detalle_venta
     res.json(venta);
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
-app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
+app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso("cerrar_venta", resolverPermisosDeRol), async (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     // Amarrado: su sucursal del token, sin importar el body. Global: la del encabezado.
@@ -2043,7 +2043,37 @@ app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso(
     // solo pedia `cerrar_venta`, asi que un descuento del 99.99% entraba por
     // peticion directa sin dejar ninguna senal.
     const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
-    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos, usuario: req.usuarioToken }));
+    const { autorizador: credencialesMonedero, ...datosVenta } = req.body;
+    // Monedero: todo se verifica ANTES de crearVenta, que es quien baja el
+    // saldo. Cualquier valor distinto de cero (también basura) pasa por aquí:
+    // falla cerrando. Sin esto una cajera con `cerrar_venta` gastaba el saldo
+    // de cualquier cliente de la cadena (auditoría de permisos 2026-10, C1).
+    let monederoAutorizadoPor = null;
+    if (Number(datosVenta.monedero_aplicado ?? 0) !== 0) {
+      if (!permisos.includes("aplicar_monedero")) {
+        return res.status(403).json({ error: "No tienes permiso para aplicar monedero" });
+      }
+      const clienteId = Number(datosVenta.cliente_id) || 0;
+      if (clienteId) {
+        // Alcance del TOKEN, nunca del selector (regla 5). Un cliente sin
+        // sucursal solo lo usa quien tiene alcance global.
+        const alcanceToken = resolverAlcanceAutorizado(req);
+        const cliente = DB.crm.clientes.find((c) => Number(c.id) === clienteId);
+        const sucursalCliente = cliente?.sucursal_id == null ? null : Number(cliente.sucursal_id);
+        if (!cliente || (!alcanceToken.verTodas && sucursalCliente !== alcanceToken.sucursalId)) {
+          return res.status(404).json({ error: "Cliente no encontrado" });
+        }
+      }
+      try {
+        monederoAutorizadoPor = await verificarAutorizador(DB, credencialesMonedero, {
+          solicitante: req.usuarioToken, permiso: "autorizar_monedero", sucursalId: sucursal_id,
+          resolverPermisosDeRol, registro: registroAutorizador,
+        });
+      } catch (e) {
+        return res.status(e.status === 403 ? 403 : 400).json({ error: e.message });
+      }
+    }
+    res.json(crearVenta(DB, { ...datosVenta, sucursal_id }, { permisos, usuario: req.usuarioToken, monederoAutorizadoPor }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, pantallasCaja.requierePuntoVentaSalvoML(DB), requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {

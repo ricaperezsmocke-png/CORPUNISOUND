@@ -70,6 +70,8 @@ function BotonLateral({ icono: Icono, etiqueta, atajo, onClick, color }) {
   );
 }
 
+const CAMPO_AUTORIZADOR = "w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm";
+
 function Modal({ titulo, onCerrar, children, ancho = "max-w-md" }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-overlay-in">
@@ -186,6 +188,10 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const [valorTemporal, setValorTemporal] = useState("");
   const [efectivoRecibido, setEfectivoRecibido] = useState("");
   const [usarMonedero, setUsarMonedero] = useState(false);
+  // Quien AUTORIZA gastar el monedero (otra persona). La contraseña solo vive
+  // hasta el envío: se borra al terminar el cobro, salga bien o mal.
+  const [usuarioAutorizaMonedero, setUsuarioAutorizaMonedero] = useState("");
+  const [passwordAutorizaMonedero, setPasswordAutorizaMonedero] = useState("");
 
   const [condicionesPago, setCondicionesPago] = useState([]);
   const [errorCondiciones, setErrorCondiciones] = useState(null);
@@ -371,7 +377,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
   const { subtotal, descuentoTotal, total, totalConCondicion, importes } = calcularTotalesVenta(carrito, descuentoPago);
   // Usa el catálogo actualizado también al recuperar un ticket en espera.
   const saldoMonedero = Math.max(0, Number(clientes.find((c) => Number(c.id) === Number(cliente.id))?.monedero ?? cliente.monedero) || 0);
-  const puedeUsarMonedero = Number(cliente.id) > 0 && saldoMonedero > 0 && !esCotizacion;
+  const puedeUsarMonedero = puede("aplicar_monedero") && Number(cliente.id) > 0 && saldoMonedero > 0 && !esCotizacion;
   const monederoAplicado = usarMonedero && puedeUsarMonedero
     ? Math.round(Math.min(saldoMonedero, Math.max(0, totalConCondicion)) * 100) / 100 : 0;
   const totalACobrar = Math.round((totalConCondicion - monederoAplicado) * 100) / 100;
@@ -549,6 +555,9 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
               descuento: descuentoTotal,
               total: totalConCondicion,
               monedero_aplicado: monederoAplicado,
+              // El servidor exige la contraseña de otra persona para gastar monedero.
+              autorizador: monederoAplicado > 0
+                ? { usuario: usuarioAutorizaMonedero, password: passwordAutorizaMonedero } : undefined,
               lineas: carrito.map((f) => ({
                 producto_id: f.esRapido ? null : f.producto_id,
                 descripcion: f.esRapido ? f.descripcion : undefined,
@@ -580,6 +589,7 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
       // la caja sin poder cobrar hasta recargar la página.
       cobroEnCurso.current = false;
       setCobrando(false);
+      setPasswordAutorizaMonedero("");
     }
   };
 
@@ -1278,6 +1288,21 @@ export default function PuntoDeVenta({ onVolver, permisos }) {
                   <div className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">
                     <div className="flex justify-between"><span>Importe de la venta</span><b>${totalConCondicion.toFixed(2)}</b></div>
                     <div className="flex justify-between"><span>Monedero aplicado</span><b>−${monederoAplicado.toFixed(2)}</b></div>
+                  </div>
+                )}
+                {monederoAplicado > 0 && (
+                  <div className="mb-3 flex flex-col gap-2">
+                    <p className="text-xs text-slate-600">Otra persona con permiso debe autorizar el uso del monedero.</p>
+                    <label className="text-xs text-slate-500">
+                      Usuario que autoriza
+                      <input value={usuarioAutorizaMonedero} onChange={(e) => setUsuarioAutorizaMonedero(e.target.value)}
+                        autoComplete="off" className={CAMPO_AUTORIZADOR} />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Contraseña
+                      <input type="password" value={passwordAutorizaMonedero} onChange={(e) => setPasswordAutorizaMonedero(e.target.value)}
+                        autoComplete="new-password" className={CAMPO_AUTORIZADOR} />
+                    </label>
                   </div>
                 )}
                 <div className="text-center mb-3">

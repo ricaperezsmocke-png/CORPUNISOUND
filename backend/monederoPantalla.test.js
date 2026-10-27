@@ -39,7 +39,7 @@ function cargarModuloReal(nombre) {
 // Ejecuta el componente y sus callbacks reales. Solo sustituye el alojamiento
 // de hooks, iconos, temporizadores y red; ventas e importes usan el backend real.
 // Complementa, no sustituye, la prueba del flujo completo en navegador.
-async function prepararPantalla(saldo = 120) {
+async function prepararPantalla(saldo = 120, props = {}) {
   const DB = construirDBPrueba();
   DB.pos.ventas = [];
   DB.pos.venta_detalle = [];
@@ -53,6 +53,7 @@ async function prepararPantalla(saldo = 120) {
   let pendiente = true;
   let efectos = [];
   let arbol;
+  let ultimoCuerpo = null;
   const mismos = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   function useMemo(fn, deps) {
     const i = cursor++;
@@ -85,6 +86,7 @@ async function prepararPantalla(saldo = 120) {
     async apiFetch(ruta, opciones = {}) {
       let data;
       if (ruta === "/ventas" && opciones.method === "POST") {
+        ultimoCuerpo = JSON.parse(opciones.body);
         data = crearVenta(DB, { ...JSON.parse(opciones.body), sucursal_id: 1 });
       } else {
         const respuestas = {
@@ -137,7 +139,7 @@ async function prepararPantalla(saldo = 120) {
       if (pendiente) {
         pendiente = false;
         cursor = 0;
-        arbol = expandir(modulo.exports.default({}));
+        arbol = expandir(modulo.exports.default(props));
         const actuales = efectos;
         efectos = [];
         actuales.forEach((fn) => fn());
@@ -155,7 +157,7 @@ async function prepararPantalla(saldo = 120) {
     return [...(predicado(n) ? [n] : []), ...encontrar(predicado, n.props.children ?? null)];
   }
   const ui = {
-    DB, texto: () => texto(arbol), encontrar,
+    DB, texto: () => texto(arbol), encontrar, ultimoCuerpo: () => ultimoCuerpo,
     async click(etiqueta) {
       const boton = encontrar((n) => n.type === "button" && texto(n).startsWith(etiqueta))[0];
       assert.ok(boton, `Falta el botón ${etiqueta}`);
@@ -249,4 +251,28 @@ test("una cotización no ofrece consumir saldo", async () => {
   await ui.click("Importe");
   assert.match(ui.texto(), /Total a cotizar/);
   assert.equal(ui.DB.crm.clientes.find((c) => c.id === 1).monedero, 120);
+});
+
+test("sin aplicar_monedero la pantalla no ofrece el botón", async () => {
+  const ui = await prepararPantalla(120, { permisos: ["cerrar_venta", "cambiar_cliente", "autorizar_monedero"] });
+  await ui.agregar();
+  await ui.elegirCliente();
+  assert.doesNotMatch(ui.texto(), /Aplicar monedero/);
+});
+
+test("al cobrar con monedero pide a quien autoriza y lo manda al servidor", async () => {
+  const ui = await prepararPantalla(120, { permisos: ["cerrar_venta", "cambiar_cliente", "aplicar_monedero"] });
+  await ui.agregar();
+  await ui.elegirCliente();
+  await ui.click("Aplicar monedero");
+  await ui.click("Importe");
+  assert.match(ui.texto(), /Otra persona con permiso debe autorizar el uso del monedero/);
+  const campoTexto = (n) => n.type === "input" && n.props.autoComplete === "off";
+  const campoClave = (n) => n.type === "input" && n.props.type === "password";
+  await ui.capturar(campoTexto, "supervisora");
+  await ui.capturar(campoClave, "secreta");
+  await ui.capturar((n) => n.type === "input" && n.props.type === "number", "250");
+  await ui.click("Confirmar cobro");
+  assert.deepEqual(ui.ultimoCuerpo().autorizador, { usuario: "supervisora", password: "secreta" });
+  assert.equal(ui.encontrar(campoClave)[0]?.props.value ?? "", "", "la contraseña no se queda en pantalla");
 });
