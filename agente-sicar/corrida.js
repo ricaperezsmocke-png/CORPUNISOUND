@@ -76,6 +76,8 @@ const DIAS_RECUERDO_VENTAS = 90;
 const TRASPASOS_POR_LOTE = 100;
 const DIAS_RELECTURA_TRASPASOS = 30;
 const DIAS_VUELTA_TRASPASOS = 7;
+// De día la vuelta solo se adelanta si lleva más de 7 + 1 de gracia: una PC prendida de noche la hace de noche primero.
+const DIAS_ATRASO_TRASPASOS = DIAS_VUELTA_TRASPASOS + 1;
 // Huella de un traspaso tal como se manda: si no cambió desde lo último confirmado, la relectura no lo reenvía. Un omitido
 // deja la huella de { traspaso_omitido: { tra_id, codigo } }: nunca coincide con la de un traspaso válido, así que al
 // corregirse en SICAR se manda, y si cambia el motivo se vuelve a mandar.
@@ -493,7 +495,11 @@ async function ejecutar(archivo, config, deps) {
       const noche = esHorarioHistorico(new Date(reloj()));
       const haceUnaSemana = horaLocal(reloj() - DIAS_VUELTA_TRASPASOS * 86400000).slice(0, 10);
       const vencida = estado.traspasos_semana === null || estado.traspasos_semana <= haceUnaSemana;
-      if (deps.traspasosAhora || (noche && (vencida || estado.traspasos_vuelta !== null))) {
+      // Tiendas que apagan la PC de noche: de día también toca si la vuelta completa nunca se hizo o lleva más de 8 días
+      // (una vuelta a medias de día solo sigue si esa semana ya está atrasada).
+      const haceOchoDias = horaLocal(reloj() - DIAS_ATRASO_TRASPASOS * 86400000).slice(0, 10);
+      const atrasada = estado.traspasos_semana === null || estado.traspasos_semana < haceOchoDias;
+      if (deps.traspasosAhora || atrasada || (noche && (vencida || estado.traspasos_vuelta !== null))) {
         while (true) {
           const pagina = await leerPagina(estado.traspasos_vuelta ?? '0', null);
           if (!pagina) {
@@ -507,7 +513,7 @@ async function ejecutar(archivo, config, deps) {
         }
       }
       if (estado.traspasos_semana === null) {
-        // De día, con el interruptor prendido y sin la primera vuelta: nada sale hasta la noche (o --traspasos-ahora).
+        // Defensa: la vuelta de día no pudo completarse y sigue sin primera carga; nada sale hasta la noche (o --traspasos-ahora).
         avisarUnaVez('TRASPASOS_ESPERANDO_NOCHE');
         return true;
       }
