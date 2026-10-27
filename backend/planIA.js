@@ -61,14 +61,15 @@ function leerEntrada(DB, entrada) {
 const planesDeHoy = (DB, usuarioId, hoy) =>
   DB.pos.planes_ia.filter((p) => p.creado_por_id === usuarioId && fechaLocal(new Date(p.creado_en)) === hoy).length;
 
-async function pedirAlModelo(cliente, contenido, timeoutMs) {
+// `esquema` e `instrucciones` por omisión son los del planeador de metas; el plan del mes pasa los suyos.
+async function pedirAlModelo(cliente, contenido, timeoutMs, { esquema = ESQUEMA, instrucciones = INSTRUCCIONES } = {}) {
   const corte = new AbortController();
   let temporizador;
   try {
     const respuesta = await Promise.race([
       cliente.messages.create({
-        model: MODELO, max_tokens: MAX_TOKENS, system: INSTRUCCIONES,
-        output_config: { format: { type: "json_schema", schema: ESQUEMA }, effort: "low" },
+        model: MODELO, max_tokens: MAX_TOKENS, system: instrucciones,
+        output_config: { format: { type: "json_schema", schema: esquema }, effort: "low" },
         messages: [{ role: "user", content: JSON.stringify(contenido) }],
       }, { signal: corte.signal }),
       new Promise((_, rechazar) => { temporizador = setTimeout(() => { corte.abort(); rechazar(new Error("tiempo agotado")); }, timeoutMs); }),
@@ -87,7 +88,7 @@ async function proponerPlan(DB, cliente, entrada, usuario, { hoy, timeoutMs = TI
   let anterior, instruccion;
   if (ajuste) {
     anterior = DB.pos.planes_ia.find((p) => p.id === Number(ajuste.plan_anterior?.id));
-    if (!anterior || anterior.estado !== "borrador") throw errorCon(400, "El plan debe estar en borrador para pedir un ajuste");
+    if (!anterior || anterior.tipo === "plan_mes" || anterior.estado !== "borrador") throw errorCon(400, "El plan debe estar en borrador para pedir un ajuste");
     if (typeof ajuste.instruccion !== "string" || !ajuste.instruccion.trim() || ajuste.instruccion.trim().length > 300) {
       throw errorCon(400, "Escribe el ajuste (de 1 a 300 caracteres)");
     }
@@ -146,4 +147,4 @@ function reconciliarPlanesPendientes(DB) {
   }
 }
 
-module.exports = { proponerPlan, reconciliarPlanesPendientes, MENSAJE_FALLA, LIMITE_DIARIO, MODELO, ESQUEMA };
+module.exports = { proponerPlan, reconciliarPlanesPendientes, pedirAlModelo, planesDeHoy, errorCon, MENSAJE_FALLA, LIMITE_DIARIO, MODELO, ESQUEMA, TIMEOUT_MS };

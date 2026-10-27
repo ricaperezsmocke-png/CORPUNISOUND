@@ -163,4 +163,4 @@ function tablero(DB, visor, { periodo, inicio, sucursal_id = null, vendedor_id =
     okrs, sueltas: metas.filter((m) => m.okr_clave === null), retiradas };
 }
 
-module.exports = { resultadoMeta, porcentaje, semaforo, resultadoRectificado, tablero };
+module.exports = { resultadoMeta, porcentaje, semaforo, resultadoRectificado, tablero, avanceMeta };

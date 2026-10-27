@@ -38,6 +38,7 @@ const roles = {
   976: [...vecinos, 'ver_cinco_caminos', 'marcar_junta_cinco_caminos'],
   977: [...vecinos, 'marcar_junta_cinco_caminos'],
   978: [...vecinos, 'ver_cinco_caminos', 'marcar_junta_cinco_caminos', 'ver_todas_las_sucursales'],
+  979: ['usar_gerente_ventas', 'ver_cinco_caminos', 'administrar_manual_tacticas'],
 };
 for (const [id, permisos] of Object.entries(roles)) {
   app.DB.admin.roles.push({ id: Number(id), nombre: `Cinco ${id}`, permisos, modulos: ['pos'] });
@@ -389,4 +390,146 @@ test('junta: un token sin tienda valida recibe 403 al escribir, igual que al lee
     assert.equal((await con(`${JUNTA}/hecha`, { lunes: lunesJ })).status, 403, `hecha ${sucursal_id}`);
   }
   assert.equal(app.DB.pos.cinco_caminos.compromisos.length, 0);
+});
+
+// ---- Plan del mes: proponer, validar, descartar y ver (cliente falso, nunca la API real) ----
+function sembrarTiendaPlanMes(id = 91) {
+  const hoy = fechaLocal();
+  const lunesHoy = semanaDe(hoy).lunes;
+  const dia = (lunes, n) => new Date(Date.parse(`${lunes}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+  if (!app.DB.pos.sucursales.some(x => x.id === id)) app.DB.pos.sucursales.push({ id, nombre: 'Prueba plan mes' });
+  sqlite.prepare('INSERT OR IGNORE INTO sicar_tiendas(sucursal_id) VALUES (?)').run(id);
+  for (let i = 1; i <= 8; i++) {
+    const lunes = dia(lunesHoy, -7 * i);
+    for (let j = 0; j < 30; j++) {
+      sqlite.prepare(`INSERT INTO sicar_ventas_mostrador (sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en)
+        VALUES (?, ?, ?, 'vigente', 10000, 'x')`).run(id, `pm${++ven}`, `${dia(lunes, j % 7)}T10:00:00`);
+    }
+    for (let j = 0; j < 40; j++) {
+      const cli = `pc${++ven}`;
+      sqlite.prepare('INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (?, ?, ?)').run(id, cli, cli);
+      sqlite.prepare(`INSERT INTO sicar_ventas (sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
+        VALUES (?, ?, ?, ?, 'vigente', 10000, '1', 'h')`).run(id, `pv${++ven}`, cli, `${dia(lunes, j % 7)}T12:00:00`);
+    }
+  }
+}
+function iaFalsa() {
+  return { messages: { create: async cuerpo => {
+    const { datos } = JSON.parse(cuerpo.messages[0].content);
+    const [a, b] = datos.manual.map(x => x.id);
+    return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ camino: 'prospectos', por_que_camino: 'Faltan clientes',
+      tacticas: [{ id: a, por_que: 'Sencilla' }, { id: b, por_que: 'Probada' }],
+      metas: [{ numero: 'ticket_promedio_centavos', valor: 110, responsable_rol: 'gerente', por_que: 'Subir el ticket' }] }) }] };
+  } } };
+}
+
+test('plan del mes: permisos, proponer, validar, 409, ver y descartar', async t => {
+  sembrarTiendaPlanMes();
+  app.locals.clienteIA = iaFalsa();
+  t.after(() => { delete app.locals.clienteIA; });
+  const pedir = await conServidor(t);
+  const mes = fechaLocal().slice(0, 7);
+  const post = (ruta, id, cuerpo) => pedir(ruta, id, { method: 'POST', body: JSON.stringify(cuerpo) });
+  const base = '/api/cinco-caminos/plan-mes';
+
+  // Rol vecino (ver cinco caminos + administrar manual, SIN administrar metas) y rol sin ver: 403.
+  assert.equal((await post(`${base}/proponer`, 979, { sucursal_id: 91, mes })).status, 403);
+  assert.equal((await pedir(`${base}/borradores`, 979)).status, 403);
+  assert.equal((await pedir(`${base}?mes=${mes}`, 971)).status, 403, 'administrar metas no da para ver el plan');
+  assert.equal((await post(`${base}/1/validar`, 979, {})).status, 403);
+  assert.equal((await post(`${base}/1/descartar`, 979, { motivo: 'x' })).status, 403);
+
+  const nuevo = await post(`${base}/proponer`, 973, { sucursal_id: 91, mes });
+  assert.equal(nuevo.status, 200, JSON.stringify(nuevo.datos));
+  assert.equal(nuevo.datos.estado, 'borrador');
+  const otro = await post(`${base}/proponer`, 973, { sucursal_id: 91, mes });
+  const lista = await pedir(`${base}/borradores?sucursal_id=91&mes=${mes}`, 973);
+  assert.equal(lista.status, 200);
+  assert.equal(lista.datos.borradores.length, 2);
+
+  const plan = nuevo.datos;
+  const cuerpo = { camino: { decision: 'aceptar' }, tacticas: plan.propuesta.tacticas.map(x => ({ id: x.id, decision: 'aceptar' })),
+    metas: plan.propuesta.metas.map(m => ({ numero: m.numero, decision: 'aceptar' })) };
+  const fuera = await post(`${base}/${plan.id}/validar`, 973, { ...cuerpo, metas: [{ numero: 'ticket_promedio_centavos', decision: 'cambiar', valor: 500 }] });
+  assert.equal(fuera.status, 400);
+  const hecho = await post(`${base}/${plan.id}/validar`, 973, cuerpo);
+  assert.equal(hecho.status, 200, JSON.stringify(hecho.datos));
+  assert.equal((await post(`${base}/${otro.datos.id}/validar`, 973, cuerpo)).status, 409);
+  assert.equal((await post(`${base}/proponer`, 973, { sucursal_id: 91, mes })).status, 409);
+
+  // Ver: alcance por token. Sin "ver todas", la tienda del token (1) no tiene plan aunque se pida la 91.
+  const propio = await pedir(`${base}?mes=${mes}&sucursal_id=91`, 972);
+  assert.equal(propio.status, 200);
+  assert.equal(propio.datos.plan, null);
+  const ajeno = await pedir(`${base}?mes=${mes}&sucursal_id=91`, 973);
+  assert.equal(ajeno.status, 200);
+  assert.equal(ajeno.datos.plan.camino, 'prospectos');
+  assert.equal(ajeno.datos.plan.tacticas.length, 2);
+  assert.ok(ajeno.datos.plan.tacticas[0].nombre);
+  assert.equal(ajeno.datos.plan.metas[0].valor_meta, 11000);
+  assert.ok('porcentaje' in ajeno.datos.plan.metas[0]);
+  assert.equal((await pedir(`${base}?mes=basura`, 973)).status, 400);
+
+  const descartado = await post(`${base}/${otro.datos.id}/descartar`, 973, { motivo: 'Ya hay plan' });
+  assert.equal(descartado.status, 200);
+  assert.equal((await post(`${base}/${otro.datos.id}/descartar`, 973, { motivo: 'Otra vez' })).status, 400);
+});
+
+test('plan del mes: sin cliente de IA responde 503 y una falla de la IA 502', async t => {
+  const pedir = await conServidor(t);
+  const mes = fechaLocal().slice(0, 7);
+  t.after(() => { delete app.locals.clienteIA; });
+  app.locals.clienteIA = null;
+  const sin = await pedir('/api/cinco-caminos/plan-mes/proponer', 973, { method: 'POST', body: JSON.stringify({ sucursal_id: 91, mes: `${mes}` }) });
+  assert.equal(sin.status, 503);
+  app.locals.clienteIA = { messages: { create: async () => { throw new Error('boom'); } } };
+  const mala = await pedir('/api/cinco-caminos/plan-mes/proponer', 973, { method: 'POST', body: JSON.stringify({ sucursal_id: 1, mes }) });
+  assert.equal(mala.status, 502);
+});
+
+test('plan del mes: sin "ver todas" solo se opera la tienda del token', async t => {
+  sembrarTiendaPlanMes(1);
+  app.locals.clienteIA = iaFalsa();
+  t.after(() => { delete app.locals.clienteIA; });
+  const pedir = await conServidor(t);
+  const [a, m] = fechaLocal().slice(0, 7).split('-').map(Number);
+  const siguiente = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`;
+  const post = (ruta, id, cuerpo) => pedir(ruta, id, { method: 'POST', body: JSON.stringify(cuerpo) });
+  const base = '/api/cinco-caminos/plan-mes';
+  // Un borrador de la tienda 91 hecho por quien ve todas las tiendas.
+  const ajeno = await post(`${base}/proponer`, 973, { sucursal_id: 91, mes: siguiente });
+  assert.equal(ajeno.status, 200, JSON.stringify(ajeno.datos));
+  // 971 tiene administrar metas, NO ver todas las tiendas (token: tienda 1).
+  assert.equal((await post(`${base}/proponer`, 971, { sucursal_id: 91, mes: siguiente })).status, 403);
+  assert.equal((await post(`${base}/proponer`, 971, {})).status, 403);
+  assert.equal((await post(`${base}/${ajeno.datos.id}/validar`, 971, {})).status, 403);
+  assert.equal((await post(`${base}/${ajeno.datos.id}/descartar`, 971, { motivo: 'x' })).status, 403);
+  const propio = await post(`${base}/proponer`, 971, { sucursal_id: 1, mes: siguiente });
+  assert.equal(propio.status, 200, JSON.stringify(propio.datos));
+  const lista = await pedir(`${base}/borradores?sucursal_id=91`, 971);
+  assert.equal(lista.status, 200);
+  assert.deepEqual(lista.datos.borradores.map(x => x.id), [propio.datos.id], 'nunca lista otra tienda');
+  assert.equal((await post(`${base}/${propio.datos.id}/descartar`, 971, { motivo: 'prueba' })).status, 200);
+  assert.equal((await post(`${base}/${ajeno.datos.id}/descartar`, 973, { motivo: 'prueba' })).status, 200);
+});
+
+test('plan del mes: un usuario sin "ver todas" y sin tienda valida recibe 403 en borradores, proponer, validar y descartar', async t => {
+  sembrarTiendaPlanMes();
+  app.locals.clienteIA = iaFalsa();
+  t.after(() => { delete app.locals.clienteIA; });
+  const pedir = await conServidor(t);
+  const [a, m] = fechaLocal().slice(0, 7).split('-').map(Number);
+  const mes = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`;
+  const base = '/api/cinco-caminos/plan-mes';
+  const ajeno = await pedir(`${base}/proponer`, 973, { method: 'POST', body: JSON.stringify({ sucursal_id: 91, mes }) });
+  assert.equal(ajeno.status, 200, JSON.stringify(ajeno.datos));
+  for (const sucursal_id of [null, 0, 'abc']) {
+    const token = firmarToken({ id: 971, rol_id: 971, sucursal_id });
+    const con = (ruta, cuerpo) => pedir(ruta, 971, { method: 'POST', body: JSON.stringify(cuerpo), token });
+    assert.equal((await pedir(`${base}/borradores`, 971, { token })).status, 403, `borradores ${sucursal_id}`);
+    assert.equal((await con(`${base}/proponer`, { sucursal_id: 0, mes })).status, 403, `proponer ${sucursal_id}`);
+    assert.equal((await con(`${base}/${ajeno.datos.id}/validar`, {})).status, 403, `validar ${sucursal_id}`);
+    assert.equal((await con(`${base}/${ajeno.datos.id}/descartar`, { motivo: 'x' })).status, 403, `descartar ${sucursal_id}`);
+  }
+  assert.equal((await pedir(`${base}/${ajeno.datos.id}/descartar`, 973, { method: 'POST', body: JSON.stringify({ motivo: 'prueba' }) })).status, 200);
 });

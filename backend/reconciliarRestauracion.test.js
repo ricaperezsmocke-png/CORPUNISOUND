@@ -174,3 +174,29 @@ test("restaurar una foto sin juntas ni compromisos de Cinco Caminos deja arreglo
   D2.pos.cinco_caminos = { categorias: [], categorias_historial: [], juntas };
   assert.deepStrictEqual(reconciliarTrasRestaurar(D2).db.pos.cinco_caminos.juntas, juntas);
 });
+
+test("restaurar una foto sin planes del mes deja un arreglo, y no pisa los que ya hay", () => {
+  const DB = fotoVieja();
+  DB.pos.cinco_caminos = { categorias: [], categorias_historial: [] };
+  assert.deepStrictEqual(reconciliarTrasRestaurar(DB).db.pos.cinco_caminos.planes_mes, []);
+  const D2 = fotoVieja();
+  const planes = [{ id: 1, sucursal_id: 1, mes: "2026-10" }];
+  D2.pos.cinco_caminos = { categorias: [], categorias_historial: [], planes_mes: planes };
+  assert.deepStrictEqual(reconciliarTrasRestaurar(D2).db.pos.cinco_caminos.planes_mes, planes);
+});
+
+test("restaurar una foto sin planes_ia la deja como arreglo vacio", () => {
+  const DB = fotoVieja();
+  delete DB.pos.planes_ia;
+  const { db } = reconciliarTrasRestaurar(DB);
+  assert.deepStrictEqual(db.pos.planes_ia, []);
+});
+
+test("restaurar una foto con un plan pendiente lo deja fallido y no deja la IA colgada", () => {
+  const DB = fotoVieja();
+  DB.pos.planes_ia = [{ id: 1, estado: "pendiente" }, { id: 2, estado: "borrador" }];
+  const { db } = reconciliarTrasRestaurar(DB);
+  assert.strictEqual(db.pos.planes_ia[0].estado, "fallido");
+  assert.match(db.pos.planes_ia[0].error, /Interrumpido/);
+  assert.strictEqual(db.pos.planes_ia[1].estado, "borrador");
+});
