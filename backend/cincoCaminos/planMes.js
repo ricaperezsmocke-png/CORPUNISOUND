@@ -65,7 +65,26 @@ function planesAnteriores(DB, sucursal, mes) {
     .map(p => ({ mes: p.mes, camino: p.camino, tacticas: Array.isArray(p.tacticas) ? p.tacticas : [] }));
 }
 
+const MAX_RESULTADOS_OTRAS = 3;
+
+// Lo probado de cada táctica en OTRAS tiendas, lo más reciente primero. Solo cifras: ni id ni nombre de la tienda.
+function probadasEnOtras(DB, sucursal) {
+  const cierres = Array.isArray(DB.pos?.cinco_caminos?.cierres) ? DB.pos.cinco_caminos.cierres : [];
+  const porTactica = new Map();
+  for (const c of cierres) {
+    if (!c || Number(c.sucursal_id) === sucursal || !Array.isArray(c.tacticas)) continue;
+    for (const r of c.tacticas) {
+      if (!r || r.resultado !== 'probada') continue;
+      if (!porTactica.has(r.id)) porTactica.set(r.id, []);
+      porTactica.get(r.id).push({ orden: `${c.mes}|${c.cerrado_en || ''}`, dato: { mes: c.mes, numero: r.numero, cambio_pct: r.cambio_pct,
+        candado_cambio_pct: r.candado_cambio_pct ?? null } });
+    }
+  }
+  return id => (porTactica.get(id) || []).sort((a, b) => b.orden.localeCompare(a.orden)).slice(0, MAX_RESULTADOS_OTRAS).map(x => x.dato);
+}
+
 function manualParaIA(DB, sucursal) {
+  const otras = probadasEnOtras(DB, sucursal);
   return vistaManual(DB, { verTodas: false, sucursalId: sucursal })
     .filter(t => t.activa === true && t.como_se_mide !== 'fase_2' && t.como_se_mide !== 'fase_3')
     .map(t => ({
@@ -73,6 +92,7 @@ function manualParaIA(DB, sucursal) {
       quien: t.quien, como_se_mide: t.como_se_mide, probada_en: t.probada_en,
       etiqueta_tienda: { estado: t.etiqueta_tienda.estado, mes: t.etiqueta_tienda.mes,
         resultado: t.etiqueta_tienda.resultado === null ? null : quitarNombres(DB, t.etiqueta_tienda.resultado) },
+      resultados_otras_tiendas: otras(t.id),
     }));
 }
 
@@ -109,7 +129,9 @@ function armarDatosPlanMes(sqlite, DB, { sucursal_id, mes, hoy }) {
   const calidadPrimero = pctCliente === null || pctCliente < MINIMO_PCT_CON_CLIENTE;
   // Los nombres reales solo los ve el gerente; a la IA se le manda el saneado (datos.manual).
   const nombres = Object.fromEntries(vistaManual(DB, { verTodas: false, sucursalId: sucursal }).map(t => [t.id, t.nombre]));
-  return { datos, bases, calidad_primero: calidadPrimero, cifrasPermitidas: numerosDe(datos), nombres_tacticas: nombres };
+  // Una caída se cita sin signo ("bajó 2.1 %"): también se permite el valor absoluto de cada cifra enviada.
+  const cifrasPermitidas = [...new Set(numerosDe(datos).flatMap(n => [n, Math.abs(n)]))];
+  return { datos, bases, calidad_primero: calidadPrimero, cifrasPermitidas, nombres_tacticas: nombres };
 }
 
 const textoValido = (v, maximo) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= maximo;
@@ -211,6 +233,7 @@ Reglas que no puedes romper:
 - Los caminos son calidad_dato, prospectos, conversion, compras_por_cliente y venta_promedio. No existe el camino de margen.
 - Si el porcentaje de ventas con cliente identificado es menor que 50, el camino es calidad_dato: sin buen dato no se puede mejorar lo demás.
 - Las tácticas se eligen SOLO por su id del manual recibido; no inventes tácticas ni repitas una.
+- Si una táctica del camino más débil tiene resultados en otras tiendas, propónla primero y cita su cifra (resultados_otras_tiendas).
 - NUNCA propongas descuentos ni rebajas como táctica de conversión: se comen el margen.
 - Cada meta usa uno de los siete números y una cifra legible igual que en los datos (45.2, 850.00, 1.85), entre 5 % y 15 % por encima de su base
   (el mismo mes del año pasado; si no hay, el promedio de 8 semanas). Un número con null no tiene dato: no lo uses.
@@ -445,5 +468,5 @@ function verPlanMes(DB, { sucursal_id, mes, visor, hoy }) {
 
 module.exports = {
   armarDatosPlanMes, validarPropuestaMes, proponerPlanMes, validarPlanMes, descartarPlanMes, listarBorradoresMes, verPlanMes,
-  TEXTO_POR_QUE, CAMINOS_PLAN, RESPONSABLES, ESQUEMA_MES,
+  TEXTO_POR_QUE, CAMINOS_PLAN, RESPONSABLES, ESQUEMA_MES, INSTRUCCIONES_MES,
 };

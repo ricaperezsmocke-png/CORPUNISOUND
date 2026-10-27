@@ -74,7 +74,7 @@ test('las tacticas de fase 2 y 3 y las retiradas no se envian', t => {
   assert.ok(!ids.includes(activa.id));
   assert.ok(ids.length > 0);
   assert.deepEqual(Object.keys(manual[0]).sort(),
-    ['camino', 'candado', 'como_se_mide', 'etiqueta_tienda', 'id', 'nombre', 'numero_que_mueve', 'probada_en', 'quien']);
+    ['camino', 'candado', 'como_se_mide', 'etiqueta_tienda', 'id', 'nombre', 'numero_que_mueve', 'probada_en', 'quien', 'resultados_otras_tiendas']);
 });
 
 test('con pct_con_cliente de 30 el camino queda forzado a calidad_dato', t => {
@@ -197,4 +197,56 @@ test('forma invalida: camino margen, responsable ajeno, sin metas, mas de 3 meta
   assert.throws(invalida({ metas: [m('conversion'), m('conversion')] }), { planInvalido: true });
   assert.throws(invalida({ metas: [m('conversion'), m('pct_con_cliente'), m('ticket_promedio_centavos'), m('clientes_nuevos')] }), { planInvalido: true });
   assert.throws(() => validarPropuestaMes(null, contexto()), { planInvalido: true });
+});
+
+// ---- P5, Task 4: la IA ve lo probado en otras tiendas, sin saber cuales ----
+const cierre = (sucursal_id, mes, tacticas) => ({ id: `${sucursal_id}-${mes}`, sucursal_id, mes, plan_mes_id: 1, cerrado_en: `${mes}-28T12:00:00.000Z`, tacticas });
+const resultado = (id, res, cambio, candado = null) => ({ id, como_se_mide: 'sistema', numero: 'pct_con_cliente', valor: 600, base: 500,
+  base_tipo: 'promedio_8', cambio_pct: cambio, candado: null, candado_valor: null, candado_base: null, candado_cambio_pct: candado,
+  evidencia: null, resultado: res, en_conjunto_con: null, texto: 'x' });
+
+test('un cierre probada de otra tienda llega a la IA sin id ni nombre de esa tienda', t => {
+  const { sqlite, DB, llenar } = preparar(t);
+  DB.pos.sucursales.push({ id: 2, nombre: 'Yajalón' });
+  llenar(30, 30);
+  DB.pos.cinco_caminos.cierres = [cierre(2, '2026-09', [resultado(1, 'probada', 12.3, -2.1), resultado(2, 'no_funciono', 1.2)])];
+  const r = armar(sqlite, DB);
+  const t1 = r.datos.manual.find(x => x.id === 1);
+  assert.deepEqual(t1.resultados_otras_tiendas, [{ mes: '2026-09', numero: 'pct_con_cliente', cambio_pct: 12.3, candado_cambio_pct: -2.1 }]);
+  assert.deepEqual(r.datos.manual.find(x => x.id === 2).resultados_otras_tiendas, [], 'no_funciono no se replica');
+  const texto = JSON.stringify(r.datos.manual);
+  assert.doesNotMatch(texto, /Yajal|sucursal|tienda_id|"2-2026/);
+  assert.ok(r.cifrasPermitidas.includes(12.3));
+});
+
+test('los cierres de la propia tienda no se repiten en resultados_otras_tiendas', t => {
+  const { sqlite, DB, llenar } = preparar(t);
+  llenar(30, 30);
+  DB.pos.cinco_caminos.cierres = [cierre(1, '2026-09', [resultado(1, 'probada', 12.3)])];
+  assert.deepEqual(armar(sqlite, DB).datos.manual.find(x => x.id === 1).resultados_otras_tiendas, []);
+});
+
+test('maximo 3 resultados de otras tiendas, los mas recientes primero', t => {
+  const { sqlite, DB, llenar } = preparar(t);
+  llenar(30, 30);
+  DB.pos.cinco_caminos.cierres = ['2026-05', '2026-08', '2026-06', '2026-09', '2026-07'].map((mes, i) => cierre(2 + (i % 2), mes, [resultado(1, 'probada', 10 + i)]));
+  const lista = armar(sqlite, DB).datos.manual.find(x => x.id === 1).resultados_otras_tiendas;
+  assert.deepEqual(lista.map(x => x.mes), ['2026-09', '2026-08', '2026-07']);
+});
+
+test('un por que que cita la cifra de otra tienda se queda; uno con una cifra inventada se reemplaza', t => {
+  const { sqlite, DB, llenar } = preparar(t);
+  llenar(30, 30);
+  DB.pos.cinco_caminos.cierres = [cierre(2, '2026-09', [resultado(1, 'probada', 12.3, -2.1)])];
+  const ctx = armar(sqlite, DB);
+  const otra = ctx.datos.manual.find(x => x.id !== 1).id;
+  const proponer = porQue => validarPropuestaMes({ camino: 'calidad_dato', por_que_camino: 'x', tacticas: [{ id: 1, por_que: porQue }, { id: otra, por_que: 'b' }],
+    metas: [{ numero: 'ticket_promedio_centavos', valor: 110, responsable_rol: 'gerente', por_que: 'c' }] }, ctx).tacticas[0].por_que;
+  assert.equal(proponer('En otra tienda subió 12.3 % y su candado bajó 2.1 %'), 'En otra tienda subió 12.3 % y su candado bajó 2.1 %');
+  assert.equal(proponer('En otra tienda subió 17.8 %'), TEXTO_POR_QUE);
+});
+
+test('las instrucciones piden proponer primero lo probado en otras tiendas', () => {
+  const { INSTRUCCIONES_MES } = require('./planMes');
+  assert.match(INSTRUCCIONES_MES, /Si una táctica del camino más débil tiene resultados en otras tiendas, propónla primero y cita su cifra/);
 });
