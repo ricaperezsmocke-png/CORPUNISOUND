@@ -10,6 +10,9 @@ import ModalConfirmar from "./ModalConfirmar";
 import ModalPedirTexto from "./ModalPedirTexto";
 import { validarTienda, leerRespuestaAlta } from "./tiendasAlta.js";
 
+// El callback de OAuth rechazó el regreso: el `state` venció, ya se usó o no salió de este botón.
+const MSG_ESTADO_OAUTH_INVALIDO = "la conexión venció o no se inició desde aquí. Vuelve a apretar Conectar.";
+
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
   return (
@@ -407,7 +410,8 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       window.history.replaceState({}, "", window.location.pathname);
       cargarTodo();
     } else if (params.get("drive") === "error") {
-      mostrarAviso("❌ Error al conectar Google Drive: " + (params.get("msg") || "desconocido"));
+      const msg = params.get("msg") === "estado_invalido" ? MSG_ESTADO_OAUTH_INVALIDO : (params.get("msg") || "desconocido");
+      mostrarAviso("❌ Error al conectar Google Drive: " + msg);
       window.history.replaceState({}, "", window.location.pathname);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

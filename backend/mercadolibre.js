@@ -77,9 +77,11 @@ async function tokenActivo(DB) {
   return DB.ml.cuenta.access_token;
 }
 
-function urlAutorizacion(redirectUri) {
+// `state` liga el regreso con quien apretó "Conectar" (ver oauthEstado.js).
+function urlAutorizacion(redirectUri, state) {
   if (!process.env.ML_CLIENT_ID) throw new Error("ML_CLIENT_ID no configurado en variables de entorno");
-  return `${ML_AUTH}?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  const conState = state ? `&state=${encodeURIComponent(state)}` : "";
+  return `${ML_AUTH}?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}${conState}`;
 }
 
 // ── Publicaciones ──────────────────────────────────────────────────────────────

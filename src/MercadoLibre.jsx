@@ -8,6 +8,9 @@ import { apiFetch, API } from "./api";
 import { pedirLista, pedirDato } from "./cargaSegura";
 import ModalConfirmar from "./ModalConfirmar";
 
+// El callback de OAuth rechazó el regreso: el `state` venció, ya se usó o no salió de este botón.
+const MSG_ESTADO_OAUTH_INVALIDO = "la conexión venció o no se inició desde aquí. Vuelve a apretar Conectar.";
+
 function Tab({ activo, onClick, children }) {
   return (
     <button
@@ -403,7 +406,8 @@ export default function MercadoLibre({ onVolver, permisos }) {
       mostrarAviso("✅ Cuenta de MercadoLibre conectada correctamente");
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("ml") === "error") {
-      mostrarAviso("❌ Error al conectar: " + (params.get("msg") || "desconocido"));
+      const msg = params.get("msg") === "estado_invalido" ? MSG_ESTADO_OAUTH_INVALIDO : (params.get("msg") || "desconocido");
+      mostrarAviso("❌ Error al conectar: " + msg);
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);

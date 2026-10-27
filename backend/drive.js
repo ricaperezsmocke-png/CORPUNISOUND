@@ -102,7 +102,8 @@ async function verificarConexion(DB) {
   }
 }
 
-function urlAutorizacion(redirectUri) {
+// `state` liga el regreso con quien apretó "Conectar" (ver oauthEstado.js).
+function urlAutorizacion(redirectUri, state) {
   if (!process.env.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID no configurado en variables de entorno");
   const params = new URLSearchParams({
     response_type: "code",
@@ -112,6 +113,7 @@ function urlAutorizacion(redirectUri) {
     access_type:   "offline",
     prompt:        "consent",
   });
+  if (state) params.set("state", state);
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
 }
 

@@ -99,6 +99,9 @@ const {
   listarOrdenes, importarOrdenComoVenta, resolverPendienteVinculo,
 } = require("./mercadolibre");
 const drive = require("./drive");
+const { crearRegistroEstados } = require("./oauthEstado");
+// `state` de OAuth pendientes de Drive y MercadoLibre, solo en memoria.
+const estadosOAuth = crearRegistroEstados();
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
 const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos, reporteCancelaciones } = require("./reportes");
 const crypto = require("crypto");
@@ -1579,22 +1582,33 @@ app.get("/api/drive/estado", requiereLogin, async (req, res) => {
   }
 });
 
-app.get("/api/drive/auth-url", requiereLogin, requierePermiso("conectar_cuenta_drive", resolverPermisosDeRol), (req, res) => {
-  try {
-    const redirect = process.env.GOOGLE_REDIRECT_URI ||
-      `${req.protocol}://${req.get("host")}/api/drive/callback`;
-    res.json({ url: drive.urlAutorizacion(redirect) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// Conectar Drive cambia a dónde van los respaldos y expedientes de TODAS las
+// tiendas: exige alcance global. La URL lleva un `state` de un solo uso ligado
+// a quien apretó el botón; el callback rechaza lo que no lo traiga (ver
+// oauthEstado.js).
+app.get("/api/drive/auth-url", requiereLogin, requierePermiso("conectar_cuenta_drive", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try {
+      const redirect = process.env.GOOGLE_REDIRECT_URI ||
+        `${req.protocol}://${req.get("host")}/api/drive/callback`;
+      const url = drive.urlAutorizacion(redirect, estadosOAuth.emitir("drive", req.usuarioToken));
+      res.json({ url });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
 app.get("/api/drive/callback", async (req, res) => {
   const { code } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  // El state se consume ANTES que nada: sirva o no, queda quemado.
+  const quien = estadosOAuth.consumir("drive", req.query.state);
+  if (!quien) return res.redirect(`${frontendUrl}?drive=error&msg=estado_invalido`);
   if (!code) return res.redirect(`${frontendUrl}?drive=error&msg=sin_codigo`);
   const redirect = process.env.GOOGLE_REDIRECT_URI ||
     `${req.protocol}://${req.get("host")}/api/drive/callback`;
   try {
-    await drive.intercambiarCodigo(DB, code, redirect);
+    const cuenta = await drive.intercambiarCodigo(DB, code, redirect);
+    cuenta.conectado_por_id = quien.usuario_id;
+    cuenta.conectado_por_nombre = quien.usuario_nombre;
     guardar(DB);
     res.redirect(`${frontendUrl}?drive=conectado`);
   } catch (e) {
@@ -3439,22 +3453,29 @@ app.get("/api/ml/estado", requiereLogin, (req, res) => {
   });
 });
 
-app.get("/api/ml/auth-url", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol), (req, res) => {
-  try {
-    const redirect = process.env.ML_REDIRECT_URI ||
-      `${req.protocol}://${req.get("host")}/api/ml/callback`;
-    res.json({ url: urlAutorizacion(redirect) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// Igual que Drive: alcance global y `state` de un solo uso ligado a quien conecta.
+app.get("/api/ml/auth-url", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try {
+      const redirect = process.env.ML_REDIRECT_URI ||
+        `${req.protocol}://${req.get("host")}/api/ml/callback`;
+      const url = urlAutorizacion(redirect, estadosOAuth.emitir("ml", req.usuarioToken));
+      res.json({ url });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
 app.get("/api/ml/callback", async (req, res) => {
   const { code } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const quien = estadosOAuth.consumir("ml", req.query.state);
+  if (!quien) return res.redirect(`${frontendUrl}?ml=error&msg=estado_invalido`);
   if (!code) return res.redirect(`${frontendUrl}?ml=error&msg=sin_codigo`);
   const redirect = process.env.ML_REDIRECT_URI ||
     `${req.protocol}://${req.get("host")}/api/ml/callback`;
   try {
-    await intercambiarCodigo(DB, code, redirect);
+    const cuenta = await intercambiarCodigo(DB, code, redirect);
+    cuenta.conectado_por_id = quien.usuario_id;
+    cuenta.conectado_por_nombre = quien.usuario_nombre;
     guardar(DB);
     res.redirect(`${frontendUrl}?ml=conectado`);
   } catch (e) {
@@ -3462,11 +3483,17 @@ app.get("/api/ml/callback", async (req, res) => {
   }
 });
 
-app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol), (req, res) => {
-  DB.ml.cuenta = null;
-  guardar(DB);
-  res.json({ ok: true });
-});
+app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    DB.ml.cuenta = null;
+    DB.ml.ultima_desconexion = {
+      por_id: req.usuarioToken.id,
+      por_nombre: req.usuarioToken.nombre || null,
+      en: new Date().toISOString(),
+    };
+    guardar(DB);
+    res.json({ ok: true });
+  });
 
 app.get("/api/ml/publicaciones", requiereLogin, async (req, res) => {
   try { res.json(await listarPublicaciones(DB)); }
