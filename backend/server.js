@@ -69,7 +69,6 @@ const {
 } = require("./objetivosActividades");
 const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { verificarPassword } = require("./auth");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA, configurarRevisionDeCuenta } = require("./auth");
 const { consultarModulo, tablasConsultables } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
@@ -100,6 +99,9 @@ const {
 } = require("./mercadolibre");
 const drive = require("./drive");
 const { crearRegistroEstados } = require("./oauthEstado");
+const { verificarAutorizador, crearRegistroAutorizador } = require("./autorizador");
+// Freno de contraseñas del autorizador (cancelaciones y monedero), en memoria.
+const registroAutorizador = crearRegistroAutorizador();
 // `state` de OAuth pendientes de Drive y MercadoLibre, solo en memoria.
 const estadosOAuth = crearRegistroEstados();
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
@@ -2060,25 +2062,16 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, pantallasCaja.requierePuntoVe
     if (typeof req.body.motivo !== "string" || !req.body.motivo.trim()) {
       return res.status(400).json({ error: "Escribe el motivo de la cancelación" });
     }
-    const denegar = () => res.status(403).json({ error: "La autorización no es válida" });
-    const credenciales = req.body.autorizador;
-    if (typeof credenciales?.usuario !== "string" || !credenciales.usuario.trim()
-      || typeof credenciales?.password !== "string" || !credenciales.password) return denegar();
-    const clave = credenciales.usuario.trim().toLowerCase();
-    const autorizador = DB.admin.usuarios.find((u) => String(u.usuario).trim().toLowerCase() === clave);
-    if (!autorizador?.activo) return denegar();
-    let coincide = false;
-    try { coincide = await verificarPassword(credenciales.password, autorizador.password_hash); }
-    catch { return denegar(); }
-    if (!coincide || Number(autorizador.id) === Number(req.usuarioToken.id)) return denegar();
-    const permisos = resolverPermisosDeRol(autorizador.rol_id);
-    if (!permisos.includes("autorizar_cancelaciones")) return denegar();
-    const sucursalId = Number(autorizador.sucursal_id);
-    if (!permisos.includes("ver_todas_las_sucursales")
-      && (!Number.isInteger(sucursalId) || sucursalId <= 0 || sucursalId !== Number(venta?.sucursal_id))) return denegar();
-    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken, {
-      id: autorizador.id, nombre: autorizador.nombre,
-    }));
+    let autorizador = null;
+    try {
+      autorizador = await verificarAutorizador(DB, req.body.autorizador, {
+        solicitante: req.usuarioToken, permiso: "autorizar_cancelaciones", sucursalId: venta?.sucursal_id,
+        resolverPermisosDeRol, registro: registroAutorizador,
+      });
+    } catch (e) {
+      return res.status(e.status === 403 ? 403 : 400).json({ error: e.message });
+    }
+    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken, autorizador));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/caja", requiereLogin, pantalla("punto_venta"), requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {
