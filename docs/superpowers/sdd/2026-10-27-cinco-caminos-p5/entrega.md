@@ -136,3 +136,81 @@ No se tocaron `render.yaml`, `package.json`, `package-lock.json`, `backend/permi
   pasado hay que sembrar un `plan_mes` de ese mes (o correr `cerrarMesesPendientes(sqlite, DB, { hoy })` con `hoy` fijo
   desde un script de prueba).
 - Fuera de este plan, como dice el contrato: vendedor y costo (P6); margen y descuento promedio (fase 3).
+
+## Correcciones de la revisión
+
+Revisión: `origin/revision/cinco-caminos-p5` (`a4f833e`), `docs/revisiones/2026-10-27-cinco-caminos-p5.md`. Base de las
+correcciones: `5f34b0c`. Se corrigieron H1, H2 (opción a, que cierra también H5), H3, H6, H4 y H8. **No se tocaron H7
+(decisión de Victor), H9 ni H10.** Cada prueba nueva se vio ROJA antes del arreglo; no quedó ninguna mutación.
+
+### En corto, para Victor
+
+- **Editar el manual o la meta de foto después de aprobar ya no cambia la calificación.** Al aprobar, el plan guarda
+  cómo se mide cada táctica, su número, su candado, la prueba y cuántas veces se pidió. El cierre califica con eso.
+- **Solo cuentan las capturas con foto o liga**, una por captura. Una captura sin prueba no vale nada, aunque diga "31".
+- **Si SICAR de una tienda no ha mandado todo el mes, esa tienda no se cierra**; se intenta otra vez cada hora.
+- La base de conversión ya no usa semanas que el propio sistema marca como no confiables.
+- El texto ya no dice "+5.0 %" en una táctica que no funcionó: dice "+4.9 %".
+- En los días de gracia la tienda sigue viendo "Evidencia: x de y".
+
+### Commits
+
+1. `4fdca4c` fix(cinco-caminos): el cierre califica la tactica tal como se aprobo (H1)
+2. `1b674fe` fix(cinco-caminos): la evidencia se califica como se aprobo y solo con prueba (H2 y H5)
+3. `d88f3b4` fix(cinco-caminos): no cerrar el mes si SICAR no ha mandado todo (H3)
+4. `74d3e3e` fix(cinco-caminos): base de conversion sin semanas no confiables (H6)
+5. `1f8ab5d` fix(cinco-caminos): texto del cierre coherente con la decision y avance visible en la gracia (H4 y H8)
+
+### Validaciones (texto de la salida)
+
+- `cd backend && node --test`: `# tests 3479`, `# pass 3472`, `# fail 5`, `# todo 2`. Las 5 fallas son las ambientales
+  conocidas: `ARRANQUE REAL: en desarrollo SÍ se tolera — se queda vivo, avisando` y las 4 de ClavesSat
+  (`buscarClavesSat` ×3, `contarClavesSat`). Ninguna otra.
+- `node --test "src/**/*.test.js"`: `# tests 365`, `# pass 364`, `# fail 1`. La falla es la ambiental conocida:
+  `HistorialMetas conserva la versión retirada e informa quién, fecha y motivo`.
+- `npx vite build`: `✓ built in 13.05s` (solo el aviso de siempre del tamaño de los chunks).
+- `npx eslint src backend`: `✖ 847 problems (0 errors, 847 warnings)`. 0 errores; los avisos de los archivos tocados
+  son los de antes (variables de JSX "sin usar" en `PlanMes.jsx` y el largo de `registrarRutasCincoCaminos`).
+- Ninguna línea de los `.js`/`.jsx` tocados pasa de 200 caracteres; sin mojibake en el diff.
+
+### `cierreMes.revision.js` contra el código corregido
+
+`node --test docs/revisiones/2026-10-27-cinco-caminos-p5/cierreMes.revision.js` (copiado de la rama de revisión, sin
+modificar): **`# pass 0`, `# fail 7`**. Las siete (H1a, H1b, H2a, H2b, H3, H4, H5) fallan, como se pidió.
+
+Ojo con la causa: H1a, H1b y H2a fallan antes de llegar a su aserción (`Cannot read properties of undefined (reading
+'tacticas')`), porque su arreglo inserta la tienda en `sicar_tiendas` sin `ultima_recepcion` y el arreglo de H3 ya no
+cierra esa tienda. Para saber si el defecto de verdad desapareció, se corrieron dos variantes temporales (no se guardaron):
+
+- **Variante A** (misma prueba, SICAR al día): H1a y H1b **pasan** (el defecto sigue), H2a, H2b, H3, H4 y H5 fallan.
+  Es lo esperado: los planes de la revisión tienen la forma vieja, sin snapshot, y para esos la instrucción fue usar el
+  manual. Ver desviación 2.
+- **Variante B** (SICAR al día y el plan con los campos que ahora guarda `validarPlanMes`): **las 7 fallan** con la
+  aserción del defecto: H1a `expected 'probada', actual 'no_se_hizo'`; H1b `expected 'clientes_nuevos', actual
+  'pct_con_cliente'`; H2a evidencia con `requeridas: 4` y ninguna captura contada; H2b `actual 'no_se_hizo'`; H3
+  `expected 1, actual 0` cierres; H4 `expected 5, actual 4.9`; H5 `expected 3, actual 0`.
+
+### Desviaciones y cosas que decidir
+
+1. **Nombre del snapshot:** `plan_mes.tacticas_aprobadas: [{ id, como_se_mide, numero_que_mueve, candado }]`. `tacticas`
+   sigue siendo la lista de ids para no romper a quien la lee. `verPlanMes` también toma `como_se_mide` del snapshot.
+   Si una táctica del plan no aparece en el snapshot, el cierre de esa tienda truena y se reintenta (falla cerrando).
+2. **Planes viejos siguen expuestos a H1.** Un plan aprobado antes de este arreglo no tiene snapshot y se califica con
+   el manual vivo (así se pidió). Si en producción ya hay planes del mes aprobados con P4, editar sus tácticas antes de
+   su cierre todavía cambia la calificación. Opción: no editar el manual hasta que cierren esos meses.
+3. **Evidencia:** `plan.evidencias` guarda `{ tactica_id, meta_clave, prueba, requeridas }`. "Con evidencia" quiere decir
+   que la captura trae un objeto `evidencia`; no se compara su tipo (foto o liga) contra la prueba aprobada. Plan viejo:
+   `requeridas` y `prueba` de la versión 1 de la meta.
+4. **SICAR:** la última recepción se pasa a día de México y debe ser del lunes siguiente al último domingo del mes o
+   después. Una tienda sin fila en `sicar_tiendas` (por ejemplo, sin agente) nunca se cierra. La tienda que se salta no
+   escribe aviso en el log: el ciclo corre cada hora y llenaría el log; el plan simplemente sigue en "Se califica el …".
+5. **Porcentaje:** también el `cambio_pct` y el `candado_cambio_pct` guardados en el cierre van truncados (son las cifras
+   que ve la IA), no solo el texto. Cuando el candado cayó y truncado quedaría justo en el umbral, va en centésimas por
+   arriba del umbral (−5.04 % → "cayó −5.04 %"; −5.0001 % → "−5.01 %"; igual con el −30 % del Radar). Una prueba vieja
+   cambió por esto: "+11.2 %" ahora es "+11.1 %" (11.17 % truncado).
+6. **H6 solo en el cierre.** La base de conversión del planeador de P4 (`tablero.promedio_8`) no se tocó, así que cuando
+   hay semanas no confiables la base con la que el planeador fijó la meta y la del cierre pueden ser distintas.
+7. **H8:** la regla vive en `avanceVisible(plan)` de `src/metas/planMes.js` (con prueba); `PlanMes.jsx` solo la usa.
+8. **Pruebas existentes ajustadas** (sin cambiar su intención): las capturas de los arreglos ahora traen `evidencia` y
+   la tienda sembrada trae `ultima_recepcion` al día; la prueba de aprobación espera también `prueba` y `requeridas`.
+9. **Prueba en navegador:** no se hizo. Sigue pendiente.
