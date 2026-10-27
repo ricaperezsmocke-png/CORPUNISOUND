@@ -47,6 +47,23 @@ function PlanAprobado({ plan }) {
   );
 }
 
+function Borradores({ lista, revisar }) {
+  if (!lista.length) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase text-slate-500">Borradores</p>
+      <ul className="divide-y divide-slate-100">
+        {lista.map((b) => (
+          <li key={b.id} className="py-2 flex flex-wrap gap-2 items-center text-sm">
+            <span className="mr-auto">Borrador n.º {b.id} · {nombreCamino(b.propuesta.camino)} · {b.creado_por_nombre}</span>
+            <button type="button" className={BOTON} onClick={() => revisar(b)}>Revisar</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // Plan del mes de la tienda. Ver pide ver_cinco_caminos; proponer, revisar y descartar, el permiso del planeador de metas.
 export default function PlanMes({ sucursal, permisos = [] }) {
   const meses = useMemo(() => mesesPlanificables(diaDeLaTienda()), []);
@@ -118,19 +135,7 @@ export default function PlanMes({ sucursal, permisos = [] }) {
       {!datos && !errorCarga && <p className="text-sm text-slate-500">Cargando…</p>}
       {plan && <PlanAprobado plan={plan} />}
       {datos && !plan && <p className="text-sm text-slate-500">Esta tienda todavía no tiene plan aprobado para este mes.</p>}
-      {datos && !plan && puede && borradores.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase text-slate-500">Borradores</p>
-          <ul className="divide-y divide-slate-100">
-            {borradores.map((b) => (
-              <li key={b.id} className="py-2 flex flex-wrap gap-2 items-center text-sm">
-                <span className="mr-auto">Borrador n.º {b.id} · {nombreCamino(b.propuesta.camino)} · {b.creado_por_nombre}</span>
-                <button type="button" className={BOTON} onClick={() => { setAviso(""); setRevisando(b); }}>Revisar</button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {datos && !plan && puede && <Borradores lista={borradores} revisar={(b) => { setAviso(""); setRevisando(b); }} />}
       {revisando && <PlanMesRevision key={revisando.id} plan={revisando} cerrar={() => setRevisando(null)} alTerminar={terminar} />}
     </section>
   );

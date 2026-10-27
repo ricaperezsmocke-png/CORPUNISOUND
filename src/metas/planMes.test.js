@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AVISO_CAMINO_FORZADO, avisosDelCamino, cifraDeMeta, cuerpoDescartar, cuerpoProponer, cuerpoValidar, estadoInicialPlan, mesesPlanificables,
-  nombreCamino, opcionesTacticas, textoRango, puedeProponer, resumenDecision, textoAjuste, textoAprobado, textoDescartada, textoRechazoTactica,
+  nombreCamino, opcionesParaPlan, opcionesTacticas, avisoDescuento, textoRango, puedeProponer, resumenDecision, textoAjuste, textoAprobado, textoDescartada, textoRechazoTactica,
 } from "./planMes.js";
 
 const propuesta = {
@@ -159,4 +159,31 @@ test("textoAprobado: fecha y quien", () => {
   assert.equal(textoAprobado({ aprobado_en: "2026-10-26T18:00:00.000Z", aprobado_por_nombre: "Ana" }), "Aprobado por Ana el 26/10/2026");
   assert.equal(textoAprobado({ aprobado_en: "2026-10-26T18:00:00.000Z", aprobado_por_id: 7 }), "Aprobado por el usuario n.º 7 el 26/10/2026");
   assert.equal(textoAprobado({ aprobado_en: "2026-10-26T18:00:00.000Z" }), "Aprobado el 26/10/2026");
+});
+
+test("opcionesParaPlan: usa el catalogo del borrador si existe; si no, activas sin fase 2 o 3", () => {
+  const manual = [{ id: 1, nombre: "A", activa: true, como_se_mide: "tablero" }, { id: 3, nombre: "C", activa: true, como_se_mide: "fase_2" }];
+  assert.deepEqual(opcionesParaPlan({ catalogo_tacticas: [{ id: 8, nombre: "Z" }] }, manual), [{ id: 8, nombre: "Z" }]);
+  assert.deepEqual(opcionesParaPlan({}, manual).map((t) => t.id), [1]);
+  assert.deepEqual(opcionesParaPlan({ catalogo_tacticas: [] }, manual).map((t) => t.id), [1]);
+});
+
+test("avisoDescuento: camino final conversion y una tactica aceptada que habla de descuento", () => {
+  const p = { camino: "prospectos", metas: [], tacticas: [{ id: 1, habla_de_descuento: true }, { id: 2, habla_de_descuento: false }] };
+  const e = estadoInicialPlan(p);
+  assert.equal(avisoDescuento(p, e), "");
+  e.camino = { decision: "cambiar", camino: "conversion" };
+  assert.match(avisoDescuento(p, e), /conversión.*descuento/);
+  e.tacticas[2].decision = "rechazar";
+  assert.match(avisoDescuento(p, e), /descuento/);
+  const sin = { ...p, camino: "conversion", metas: [], tacticas: [{ id: 1, habla_de_descuento: true }] };
+  const f = estadoInicialPlan(sin);
+  f.tacticas[1].decision = "rechazar";
+  assert.equal(avisoDescuento(sin, f), "");
+  f.tacticas[1] = { decision: "cambiar", nuevo_id: "5" };
+  assert.equal(avisoDescuento(sin, f), "");
+});
+
+test("textoAprobado: sin fecha no truena", () => {
+  assert.equal(textoAprobado({ aprobado_por_nombre: "Ana" }), "Aprobado por Ana");
 });

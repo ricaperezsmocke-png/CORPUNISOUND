@@ -19,7 +19,7 @@ const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "
 const DECISIONES = { aceptar: "Aceptada", cambiar: "Cambiada", rechazar: "Rechazada" };
 
 const fuenteDe = (numero) => `cinco_caminos:${numero}`;
-const dia = (iso) => new Date(iso).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "2-digit", year: "numeric" });
+const dia = (iso) => (iso ? new Date(iso).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "2-digit", year: "numeric" }) : "");
 
 export const nombreCamino = (clave) => CAMINOS.find((c) => c.clave === clave)?.nombre || clave;
 export const nombreNumero = (numero) => NOMBRES_NUMERO[numero] || numero;
@@ -139,5 +139,20 @@ export function opcionesTacticas(manual) {
 
 export function textoAprobado(plan) {
   const quien = plan.aprobado_por_nombre ? ` por ${plan.aprobado_por_nombre}` : plan.aprobado_por_id ? ` por el usuario n.º ${plan.aprobado_por_id}` : "";
-  return `Aprobado${quien} el ${dia(plan.aprobado_en)}`;
+  const fecha = dia(plan.aprobado_en);
+  return `Aprobado${quien}${fecha ? ` el ${fecha}` : ""}`;
+}
+
+// El catálogo del borrador (si el servidor lo manda) manda; si no, el manual de quien mira, filtrado como lo hace el servidor.
+export function opcionesParaPlan(propuesta, manual) {
+  const catalogo = propuesta?.catalogo_tacticas;
+  return Array.isArray(catalogo) && catalogo.length ? catalogo : opcionesTacticas(manual);
+}
+
+// El servidor rechaza (400) un descuento aceptado con camino final conversión: se avisa antes de enviar.
+export function avisoDescuento(propuesta, estado) {
+  const camino = estado.camino.decision === "cambiar" ? estado.camino.camino : propuesta.camino;
+  if (camino !== "conversion") return "";
+  const hay = propuesta.tacticas.some((t) => t.habla_de_descuento === true && estado.tacticas[t.id]?.decision === "aceptar");
+  return hay ? "Con el camino de conversión no se acepta una táctica de descuento: recházala o cambia el camino. El servidor no la dejará pasar." : "";
 }

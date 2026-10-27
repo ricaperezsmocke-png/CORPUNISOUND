@@ -3,7 +3,7 @@ import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import {
   CAMINOS_PLAN, ROLES, avisosDelCamino, baseDeMeta, cifraDeMeta, cuerpoDescartar, cuerpoValidar, estadoInicialPlan, motivoValido, nombreCamino,
-  nombreNumero, opcionesTacticas, resumenDecision, textoAjuste, textoDescartada, textoRango, textoRechazoTactica,
+  nombreNumero, opcionesParaPlan, avisoDescuento, resumenDecision, textoAjuste, textoDescartada, textoRango, textoRechazoTactica,
 } from "./planMes.js";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
@@ -134,7 +134,8 @@ function PuntoMeta({ m, punto, cambiar }) {
       <Decidir punto={punto} cambiar={alCambiar} />
       {punto.decision === "cambiar" && (
         <label className="text-sm block">Cifra (ej. {m.valor})
-          <input className={CAMPO} inputMode="decimal" value={punto.valor} onChange={(e) => cambiar({ ...punto, valor: e.target.value })} />
+          <input className={CAMPO} inputMode="decimal" value={punto.valor} onChange={(e) => cambiar({ ...punto, valor: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }} />
         </label>
       )}
     </li>
@@ -158,7 +159,8 @@ export default function PlanMesRevision({ plan, cerrar, alTerminar }) {
     return () => { vigente = false; };
   }, []);
 
-  const opciones = opcionesTacticas(manual);
+  const opciones = opcionesParaPlan(propuesta, manual);
+  const descuento = avisoDescuento(propuesta, estado);
   const cargaManual = manual === null ? "Cargando tácticas…" : "Elige una táctica";
   const poner = (llave, id, valor) => setEstado((e) => ({ ...e, [llave]: { ...e[llave], [id]: valor } }));
   const crear = async () => {
@@ -180,6 +182,7 @@ export default function PlanMesRevision({ plan, cerrar, alTerminar }) {
         <p className={NOTA_GRIS}>La IA solo propone. No se crea nada hasta que decidas cada punto y pulses "Crear lo aceptado".</p>
         <PuntoCamino propuesta={propuesta} punto={estado.camino} cambiar={(c) => setEstado((e) => ({ ...e, camino: c }))} />
         <h4 className="text-sm font-semibold text-slate-900">Tácticas del manual</h4>
+        {descuento && <p role="alert" className={NOTA_AMBAR}>{descuento}</p>}
         <ul className="space-y-2">
           {propuesta.tacticas.map((t) => (
             <PuntoTactica key={t.id} t={t} punto={estado.tacticas[t.id]} cambiar={(p) => poner("tacticas", t.id, p)} opciones={opciones} cargaManual={cargaManual} />
