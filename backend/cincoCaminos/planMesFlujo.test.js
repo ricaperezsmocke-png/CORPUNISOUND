@@ -113,7 +113,7 @@ test('si la IA falla o devuelve un plan invalido queda fallido y responde 502', 
 
 test('el limite diario se comparte con el planeador actual', async t => {
   const { sqlite, DB } = preparar(t);
-  const ahora = new Date().toISOString();
+  const ahora = `${HOY}T18:00:00.000Z`; // mediodia de HOY en Chiapas: la prueba no depende del reloj real
   DB.pos.planes_ia = Array.from({ length: LIMITE_DIARIO }, (_, i) => ({ id: i + 1, estado: 'descartado', creado_por_id: USUARIO.id, creado_en: ahora }));
   await assert.rejects(proponerPlanMes(DB, sqlite, clienteFalso(), { sucursal_id: 1, mes: MES }, USUARIO, { hoy: HOY }), e => e.status === 429);
   // Y al reves: los planes del mes cuentan para el planeador de metas.
