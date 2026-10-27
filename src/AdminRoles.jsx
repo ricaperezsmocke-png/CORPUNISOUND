@@ -418,6 +418,13 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
   }, []);
 
   const rolActivo = roles.find((r) => r.id === rolActivoId) || null;
+  // El alta de personal sin alcance global: el servidor solo acepta SU sucursal y
+  // roles que no den más de lo que tiene quien da de alta (ni alcance global ni
+  // administrar roles). La pantalla deja de ofrecer lo que se rechazaría.
+  const altaGlobal = !permisos || !!usuario?.ver_todas;
+  const rolesAlta = altaGlobal ? roles : roles.filter((r) => (r.permisos || []).every((p) =>
+    p !== "ver_todas_las_sucursales" && p !== "administrar_roles" && permisos.includes(p)));
+  const sucursalesAlta = altaGlobal ? sucursales : sucursales.filter((s) => Number(s.id) === Number(usuario?.sucursal_id));
 
   const permisosFiltrados = useMemo(() => {
     const t = busquedaPermiso.trim().toLowerCase();
@@ -935,7 +942,7 @@ Esta acción no se puede deshacer.`,
                 <label className="text-xs text-slate-500 block mb-1">Rol</label>
                 <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.rol_id} onChange={(e) => setFormPersonal({ ...formPersonal, rol_id: e.target.value })}>
                   <option value="">Selecciona un rol</option>
-                  {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                  {rolesAlta.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
               </div>
               <div>
@@ -945,7 +952,7 @@ Esta acción no se puede deshacer.`,
                   value={formPersonal.sucursal_id}
                   onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
                   <option value="">Selecciona una sucursal</option>
-                  {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  {sucursalesAlta.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
               <div>

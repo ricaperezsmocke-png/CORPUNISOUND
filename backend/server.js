@@ -1491,9 +1491,12 @@ app.get("/api/permisos-catalogo", requiereLogin, requierePermiso("administrar_ro
 // donde entrar. Solo la consume la pantalla de Roles y Personal, que ya exige
 // sesion; el login NO la usa, asi que cerrarla no rompe la entrada al sistema.
 app.get("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarRoles(DB)));
-app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
-  try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// Crear un rol es tan de sistema como editarlo: sin alcance global, un gerente
+// amarrado se armaba un rol con `ver_todas_las_sucursales` (auditoría 2026-10, A1).
+app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 // Los roles son configuración del sistema entero, no de una tienda: quien
 // edita un rol cambia lo que pueden hacer usuarios de todas las sucursales.
 app.put("/api/roles/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
@@ -1510,8 +1513,36 @@ app.post("/api/roles/:id/clonar", requiereLogin, requierePermiso("administrar_ro
 app.get("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarUsuarios(DB)));
 // El botón "Dar de alta personal" está gateado con dar_alta_personal en el
 // frontend (AdminRoles.jsx); la ruta debe exigir la MISMA clave que el botón.
+// Permisos que nunca da quien no tiene alcance global, aunque los tenga él.
+const PERMISOS_SOLO_ALTA_GLOBAL = ["ver_todas_las_sucursales", "administrar_roles"];
+
+// Alta de personal sin escalada (auditoría de permisos 2026-10, A1). Con alcance
+// global, como siempre. Sin él: solo en SU sucursal (la del token) y solo con un
+// rol cuyos permisos sean un subconjunto de los suyos y que no dé alcance global
+// ni administre roles. Antes se creaba un Administrador con solo
+// `dar_alta_personal`. Lista de lo permitido: un rol que no existe se rechaza.
 app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", resolverPermisosDeRol), async (req, res) => {
-  try { res.json(await crearUsuario(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    let datos = req.body || {};
+    if (!permisos.includes("ver_todas_las_sucursales")) {
+      const suya = Number(req.usuarioToken.sucursal_id);
+      const pedida = datos.sucursal_id;
+      const otraSucursal = pedida !== undefined && pedida !== null && pedida !== "" && Number(pedida) !== suya;
+      if (!Number.isInteger(suya) || suya <= 0 || otraSucursal) {
+        return res.status(403).json({ error: "Solo puedes dar de alta personal en tu sucursal" });
+      }
+      const rolId = Number(datos.rol_id);
+      const rol = Number.isInteger(rolId) && rolId > 0 ? DB.admin.roles.find((r) => Number(r.id) === rolId) : null;
+      const permisosRol = rol ? resolverPermisosDeRol(rol.id) : null;
+      const daDeMas = !Array.isArray(permisosRol)
+        || permisosRol.some((p) => PERMISOS_SOLO_ALTA_GLOBAL.includes(p) || !permisos.includes(p));
+      if (daDeMas) return res.status(403).json({ error: "No puedes dar de alta con ese rol" });
+      datos = { ...datos, rol_id: rolId, sucursal_id: suya };
+    }
+    const autor = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(await crearUsuario(DB, datos, autor));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 // Administrar personal es configuración del sistema, no de una tienda: aquí se
 // asigna el rol y la sucursal de cada cuenta. Mismo criterio que /roles/:id.
