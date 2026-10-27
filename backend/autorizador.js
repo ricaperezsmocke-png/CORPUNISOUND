@@ -43,6 +43,26 @@ function normalizar(usuario) {
   return typeof usuario === "string" ? usuario.trim().toLowerCase() : "";
 }
 
+function credencialesBienFormadas(c) {
+  return typeof c?.usuario === "string" && !!c.usuario.trim() && typeof c?.password === "string" && !!c.password;
+}
+
+// Un error de programación, no un rechazo: sin estas opciones no hay guarda.
+function exigirOpciones(registro, resolverPermisosDeRol, permiso) {
+  if (!registro || typeof resolverPermisosDeRol !== "function" || typeof permiso !== "string" || !permiso) {
+    throw new Error("verificarAutorizador: faltan opciones obligatorias");
+  }
+}
+
+// Misma sucursal que la operación, salvo alcance global. `Number(null)` es 0,
+// así que una sucursal ausente de cualquiera de los dos lados se rechaza.
+function alcanzaSucursal(autorizador, permisos, sucursalId) {
+  if (permisos.includes("ver_todas_las_sucursales")) return true;
+  const sucursalAut = Number(autorizador.sucursal_id);
+  const sucursalPedida = sucursalId == null ? NaN : Number(sucursalId);
+  return Number.isInteger(sucursalAut) && sucursalAut > 0 && sucursalAut === sucursalPedida;
+}
+
 /**
  * Devuelve { id, nombre } del autorizador o lanza un Error con status 403 y el
  * mensaje genérico. Falla cerrando: cualquier dato que no sea exactamente lo
@@ -50,9 +70,7 @@ function normalizar(usuario) {
  */
 async function verificarAutorizador(DB, credenciales, opciones) {
   const { solicitante, permiso, sucursalId, resolverPermisosDeRol, registro } = opciones || {};
-  if (!registro || typeof resolverPermisosDeRol !== "function" || typeof permiso !== "string" || !permiso) {
-    throw new Error("verificarAutorizador: faltan opciones obligatorias");
-  }
+  exigirOpciones(registro, resolverPermisosDeRol, permiso);
   const claveAut = `aut:${normalizar(credenciales?.usuario)}`;
   const claveSol = `sol:${Number(solicitante?.id)}`;
   // Un intento de adivinar: suma a los dos contadores.
@@ -62,8 +80,7 @@ async function verificarAutorizador(DB, credenciales, opciones) {
     return rechazo();
   };
 
-  if (typeof credenciales?.usuario !== "string" || !credenciales.usuario.trim()
-    || typeof credenciales?.password !== "string" || !credenciales.password) throw rechazo();
+  if (!credencialesBienFormadas(credenciales)) throw rechazo();
   // Bloqueado: el mismo 403 genérico, y la contraseña ni se revisa.
   if (estaBloqueado(registro, claveAut).bloqueado || estaBloqueado(registro, claveSol).bloqueado) throw rechazo();
 
@@ -78,10 +95,7 @@ async function verificarAutorizador(DB, credenciales, opciones) {
   if (Number(autorizador.id) === Number(solicitante?.id)) throw rechazo();
   const permisos = resolverPermisosDeRol(autorizador.rol_id);
   if (!Array.isArray(permisos) || !permisos.includes(permiso)) throw rechazo();
-  const sucursalAut = Number(autorizador.sucursal_id);
-  const sucursalPedida = sucursalId == null ? NaN : Number(sucursalId);
-  if (!permisos.includes("ver_todas_las_sucursales")
-    && (!Number.isInteger(sucursalAut) || sucursalAut <= 0 || sucursalAut !== sucursalPedida)) throw rechazo();
+  if (!alcanzaSucursal(autorizador, permisos, sucursalId)) throw rechazo();
 
   registrarExito(registro, claveAut);
   registrarExito(registro, claveSol);

@@ -7,7 +7,7 @@
  * respuesta distinta (oráculo). Aquí se exige lo contrario.
  */
 
-const { test, before, after } = require("node:test");
+const { test, before } = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");

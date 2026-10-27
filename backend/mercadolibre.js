@@ -423,6 +423,12 @@ function resolverPendienteVinculo(DB, pendienteId, productoId, usuario) {
   return pendiente;
 }
 
+// Quién "cobró" una venta de ML: quien apretó Importar, o la importación automática.
+function firmaDeCobro(usuario) {
+  if (!usuario) return { cobrada_por_id: null, cobrada_por_nombre: "MercadoLibre (automático)" };
+  return { cobrada_por_id: usuario.id ?? null, cobrada_por_nombre: usuario.nombre ?? null };
+}
+
 // `usuario` es quien apretó "Importar" (del token de la ruta). Sin usuario es
 // una importación automática y la venta se firma como tal.
 async function importarOrdenComoVenta(DB, ordenId, usuario = null) {
@@ -526,8 +532,7 @@ async function importarOrdenComoVenta(DB, ordenId, usuario = null) {
     tipo_documento: "Ticket",
     estatus:     "cerrada",
     referencia:  `ML-${orden.id}`,
-    cobrada_por_id:     usuario?.id ?? null,
-    cobrada_por_nombre: usuario ? (usuario.nombre ?? null) : "MercadoLibre (automático)",
+    ...firmaDeCobro(usuario),
   };
   DB.pos.ventas.push(venta);
 
