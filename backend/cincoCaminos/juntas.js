@@ -32,6 +32,7 @@ function asegurar(DB) {
   const cc = DB.pos.cinco_caminos;
   if (!Array.isArray(cc.compromisos)) cc.compromisos = [];
   if (!Array.isArray(cc.juntas)) cc.juntas = [];
+  if (!Array.isArray(cc.planes_mes)) cc.planes_mes = [];
   return cc;
 }
 

@@ -3154,6 +3154,9 @@ require("./metasRutas")(app, {
 require("./cincoCaminos/rutas").registrarRutasCincoCaminos(app, {
   DB, sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado,
   tiendas: () => DB.pos.sucursales, capturarError: (e) => Sentry.captureException(e),
+  // Plan del mes: mismo cliente de IA (y mismo guardado de intentos fallidos) que el planeador de metas.
+  guardarDB: () => guardar(DB),
+  clienteIA: () => (app.locals.clienteIA !== undefined ? app.locals.clienteIA : (process.env.ANTHROPIC_API_KEY ? anthropic : null)),
 });
 
 // Facturas por llegar (XML del proveedor). Viven en la SQLite de SICAR; sin ella no hay rutas.

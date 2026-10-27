@@ -7,6 +7,7 @@
 const { tableroTienda, TIPOS } = require('./tablero');
 const { semanaDe, ultimaSemanaCompleta } = require('./semanas');
 const { fechaLocal } = require('../fechas');
+const { proponerPlanMes, validarPlanMes, descartarPlanMes, listarBorradoresMes, verPlanMes } = require('./planMes');
 const { vistaManual, crearTactica, cambiarTactica, retirarTactica, reactivarTactica, historialDe } = require('./manual');
 
 const {
@@ -50,7 +51,7 @@ function validarCategorias(body) {
 }
 
 function registrarRutasCincoCaminos(app, deps) {
-  const { DB, sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, tiendas } = deps;
+  const { DB, sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado, tiendas, clienteIA = () => null, guardarDB } = deps;
   const capturarError = deps.capturarError || (() => {});
   const permiso = clave => [requiereLogin, requierePermiso(clave, resolverPermisosDeRol)];
   const config = () => {
@@ -216,6 +217,62 @@ function registrarRutasCincoCaminos(app, deps) {
     const lunes = req.body && typeof req.body === 'object' ? req.body.lunes : undefined;
     res.json({ junta: marcarJunta(DB, lunes, ctx) });
   }));
+
+  // Plan del mes. La IA solo propone; las metas se crean únicamente cuando el gerente decide cada punto (validar).
+  // Proponer, ajustar, validar y descartar usan el permiso del planeador actual; ver el plan, el de los cinco caminos.
+  const RUTA_PLAN = '/api/cinco-caminos/plan-mes';
+  const hoyLocal = () => fechaLocal();
+  const conEstado = (ruta, fn) => (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try { return res.json(fn(req)); } catch (e) {
+      if (!e.status) { console.error(`Error inesperado en ${ruta}:`, e && e.message ? e.message : e); try { capturarError(e); } catch { /* ignorar */ } }
+      return res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo procesar el plan del mes.' });
+    }
+  };
+  const idPlan = req => {
+    const n = /^\d+$/.test(String(req.params.id)) ? Number(req.params.id) : 0;
+    if (!Number.isSafeInteger(n) || n <= 0) { const e = new Error('El plan no existe'); e.status = 404; throw e; }
+    return n;
+  };
+
+  app.get(RUTA_PLAN, ...permiso('ver_cinco_caminos'), conEstado(RUTA_PLAN, req => {
+    const alcance = resolverAlcanceAutorizado(req);
+    let sucursalId = alcance.sucursalId;
+    if (alcance.verTodas) {
+      const pedida = req.query.sucursal_id;
+      sucursalId = pedida === undefined || pedida === '' ? Number(req.usuarioToken.sucursal_id) : Number(pedida);
+    }
+    if (!Number.isSafeInteger(sucursalId) || sucursalId <= 0) { const e = new Error('No hay una tienda autorizada para el plan.'); e.status = alcance.verTodas ? 400 : 403; throw e; }
+    const hoy = hoyLocal();
+    const mes = req.query.mes === undefined || req.query.mes === '' ? hoy.slice(0, 7) : String(req.query.mes);
+    const visor = { vendedor_id: null, usuario_id: Number(req.usuarioToken.id), jefatura: false, verTodas: alcance.verTodas, sucursalId };
+    return verPlanMes(DB, { sucursal_id: sucursalId, mes, visor, hoy });
+  }));
+
+  app.get(`${RUTA_PLAN}/borradores`, ...permiso('administrar_metas_personalizadas'), conEstado(`${RUTA_PLAN}/borradores`, req => {
+    const sucursal = req.query.sucursal_id;
+    return { borradores: listarBorradoresMes(DB, { sucursal_id: sucursal === undefined || sucursal === '' ? null : Number(sucursal), mes: req.query.mes }) };
+  }));
+
+  app.post(`${RUTA_PLAN}/proponer`, ...permiso('administrar_metas_personalizadas'), async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json(await proponerPlanMes(DB, sqlite(), clienteIA(), req.body, req.usuarioToken, { hoy: hoyLocal() }));
+    } catch (e) {
+      // El intento fallido queda en el registro: el guardado automático solo corre con respuestas exitosas.
+      if (e.status === 502 && guardarDB) {
+        try { guardarDB(); } catch (errorGuardar) { console.error('No se pudo guardar el intento fallido del plan del mes:', errorGuardar); }
+      }
+      if (!e.status) { console.error(`Error inesperado en ${RUTA_PLAN}/proponer:`, e && e.message ? e.message : e); try { capturarError(e); } catch { /* ignorar */ } }
+      res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo proponer el plan del mes.' });
+    }
+  });
+
+  app.post(`${RUTA_PLAN}/:id/validar`, ...permiso('administrar_metas_personalizadas'), conEstado(`${RUTA_PLAN}/:id/validar`, req =>
+    validarPlanMes(DB, idPlan(req), req.body, req.usuarioToken)));
+
+  app.post(`${RUTA_PLAN}/:id/descartar`, ...permiso('administrar_metas_personalizadas'), conEstado(`${RUTA_PLAN}/:id/descartar`, req =>
+    descartarPlanMes(DB, idPlan(req), req.body?.motivo, req.usuarioToken)));
 }
 
 module.exports = { registrarRutasCincoCaminos, validarCategorias };

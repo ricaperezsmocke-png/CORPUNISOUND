@@ -9,7 +9,7 @@ const CAMBIABLES_OKR = ["titulo", "descripcion"];
 const CAMBIABLES_META = ["nombre", "unidad", "prueba", "valor_meta"];
 
 function planEnBorrador(DB, id) {
-  const plan = DB.pos.planes_ia.find((p) => p.id === Number(id));
+  const plan = DB.pos.planes_ia.find((p) => p.id === Number(id) && p.tipo !== "plan_mes");
   if (!plan) throw new Error("El plan no existe");
   if (plan.estado !== "borrador") throw new Error("Este plan ya no está en borrador; no se puede validar ni descartar otra vez");
   return plan;
@@ -110,6 +110,7 @@ function descartarPlan(DB, id, usuario) {
   return plan;
 }
 
-const listarPlanes = (DB) => [...DB.pos.planes_ia].sort((a, b) => b.id - a.id).slice(0, 50);
+// Los planes del mes (tipo plan_mes) comparten la lista, pero los valida y descarta cincoCaminos/planMes.js.
+const listarPlanes = (DB) => DB.pos.planes_ia.filter((p) => p.tipo !== "plan_mes").sort((a, b) => b.id - a.id).slice(0, 50);
 
 module.exports = { validarPlan, descartarPlan, listarPlanes };
