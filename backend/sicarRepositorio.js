@@ -214,6 +214,7 @@ const ESQUEMA = `
   CREATE INDEX IF NOT EXISTS sicar_vinculos_cliente ON sicar_vinculos(cliente_id);
   CREATE INDEX IF NOT EXISTS sicar_decisiones_identidad ON sicar_decisiones(sucursal_id, cli_id, bloquear_union);
   CREATE INDEX IF NOT EXISTS sicar_intentos_hora ON sicar_intentos(hora);
+  CREATE INDEX IF NOT EXISTS sicar_intentos_sucursal ON sicar_intentos(sucursal_id, id);
   INSERT OR IGNORE INTO sicar_esquema(version, aplicada) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 `;
 
@@ -368,6 +369,9 @@ function limpiarTexto(valor) {
   const limpio = valor.trim();
   return limpio || null;
 }
+
+const MAX_INTENTOS_POR_TIENDA = 5000;
+const DIAS_RETENCION_INTENTOS = 30;
 
 function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
   sqlite.pragma('foreign_keys = ON');
@@ -536,6 +540,21 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     return recibo;
   });
 
+  // Retención por tienda (auditoría sicar-crm 2026-10, A1): al pasar de
+  // MAX_INTENTOS_POR_TIENDA filas se borran las más viejas. `IS` y no `=` para
+  // que las filas sin sucursal también tengan tope.
+  const insertarIntento = sqlite.prepare(`INSERT INTO sicar_intentos
+    (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
+    VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`);
+  const contarIntentos = sqlite.prepare('SELECT count(*) AS n FROM sicar_intentos WHERE sucursal_id IS ?');
+  const recortarIntentos = sqlite.prepare(`DELETE FROM sicar_intentos WHERE sucursal_id IS @s AND id NOT IN
+    (SELECT id FROM sicar_intentos WHERE sucursal_id IS @s ORDER BY id DESC LIMIT @tope)`);
+  const registrarIntento = sqlite.transaction(intento => {
+    insertarIntento.run(intento);
+    const s = intento.sucursal_id ?? null;
+    if (contarIntentos.get(s).n > MAX_INTENTOS_POR_TIENDA) recortarIntentos.run({ s, tope: MAX_INTENTOS_POR_TIENDA });
+  });
+
   const guardarLlave = sqlite.transaction(llave => {
     sentencias.tienda.run(llave.sucursal_id);
     sqlite.prepare(`INSERT INTO sicar_llaves(key_id, sucursal_id, secreto_hash, creada, actor)
@@ -603,10 +622,11 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     // Lista simple de ventas de mostrador para pruebas; las pantallas la leen con sus propias consultas.
     listarMostrador: () => sqlite.prepare(`SELECT sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en
       FROM sicar_ventas_mostrador ORDER BY sucursal_id, ven_id`).all(),
-    registrarIntento: intento => sqlite.prepare(`INSERT INTO sicar_intentos
-      (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados, bytes, codigo, hora, duracion_ms)
-      VALUES (@sucursal_id, @key_id, @batch_id, @recibidos, @aceptados, @rechazados, @bytes, @codigo, @hora, @duracion_ms)`).run(intento),
+    registrarIntento: intento => registrarIntento.immediate(intento),
   };
+  // Al arrancar: los intentos de más de 30 días ya no diagnostican nada y ocupan disco.
+  sqlite.prepare('DELETE FROM sicar_intentos WHERE hora < ?')
+    .run(new Date(Date.now() - DIAS_RETENCION_INTENTOS * 24 * 60 * 60 * 1000).toISOString());
   return repositorio;
 }
 

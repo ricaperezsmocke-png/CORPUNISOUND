@@ -6,9 +6,42 @@ const {
 const LIMITE = 1024 * 1024;
 const { listarVinculosSicar, resolverDecisionSicar } = require('./sicarVinculos');
 
+const MINUTOS_CONTADOR = 60;
+const UMBRAL_AVISO_POR_MINUTO = 100;
+
+/**
+ * Contador EN MEMORIA de lo que ya no se escribe en `sicar_intentos`: los 429
+ * (freno) y los 401 sin llave reconocida. Antes cada uno era una fila
+ * permanente, y cualquiera en internet llenaba el disco de Render con
+ * peticiones anónimas (auditoría sicar-crm 2026-10, A1). Guarda los últimos 60
+ * minutos y avisa por consola una sola vez por minuto al pasar de 100.
+ */
+function crearContadorRechazosSicar({ ahora = () => Date.now(), avisar = m => console.warn(m) } = {}) {
+  const minutos = [];
+  function registrar(status) {
+    const clave = new Date(ahora()).toISOString().slice(0, 16);
+    let actual = minutos.at(-1);
+    if (!actual || actual.minuto !== clave) {
+      actual = { minuto: clave, anonimos_401: 0, frenados_429: 0, avisado: false };
+      minutos.push(actual);
+    }
+    const limite = new Date(ahora() - MINUTOS_CONTADOR * 60 * 1000).toISOString().slice(0, 16);
+    while (minutos.length && minutos[0].minuto <= limite) minutos.shift();
+    if (status === 429) actual.frenados_429 += 1;
+    else actual.anonimos_401 += 1;
+    if (!actual.avisado && actual.anonimos_401 + actual.frenados_429 > UMBRAL_AVISO_POR_MINUTO) {
+      actual.avisado = true;
+      avisar(`[sicar] ${actual.minuto}: más de ${UMBRAL_AVISO_POR_MINUTO} intentos anónimos o frenados en un minuto`);
+    }
+  }
+  const resumen = () => minutos.map(({ minuto, anonimos_401, frenados_429 }) => ({ minuto, anonimos_401, frenados_429 }));
+  return { registrar, resumen };
+}
+
 // Se monta ANTES del parser global y de la persistencia del JSON. Nunca recibe DB.
 function registrarAgenteSicar(app, { repo, mantenimiento }) {
   const control = crearControlSicar();
+  const rechazosSinFila = crearContadorRechazosSicar();
   app.use('/api/integraciones/sicar', (req, res) => {
     const inicio = Date.now();
     let llave = null, batchId = null, recibidos = null, bytes = 0, terminado = false, ocupada = false;
@@ -20,16 +53,23 @@ function registrarAgenteSicar(app, { repo, mantenimiento }) {
       if (terminado) return;
       terminado = true;
       liberar();
-      try {
-        repo.registrarIntento({
-          sucursal_id: llave?.sucursal_id ?? null, key_id: llave?.key_id ?? null, batch_id: batchId,
-          recibidos, aceptados: status === 200 ? recibidos : recibidos === null ? null : 0,
-          rechazados: status >= 400 ? recibidos : recibidos === null ? null : 0,
-          bytes, codigo: String(status), hora: new Date().toISOString(), duracion_ms: Date.now() - inicio,
-        });
-      } catch {
-        status = 503;
-        datos = { codigo: 'AUDITORIA_NO_DISPONIBLE', error: 'No se pudo registrar el intento. Reintenta el mismo lote.' };
+      // Sin fila: el freno (429) y el 401 de quien ni siquiera trae una llave
+      // que exista. Solo suben el contador en memoria; la respuesta es la misma.
+      const sinFila = status === 429 || (status === 401 && !llave);
+      if (sinFila) {
+        rechazosSinFila.registrar(status);
+      } else {
+        try {
+          repo.registrarIntento({
+            sucursal_id: llave?.sucursal_id ?? null, key_id: llave?.key_id ?? null, batch_id: batchId,
+            recibidos, aceptados: status === 200 ? recibidos : recibidos === null ? null : 0,
+            rechazados: status >= 400 ? recibidos : recibidos === null ? null : 0,
+            bytes, codigo: String(status), hora: new Date().toISOString(), duracion_ms: Date.now() - inicio,
+          });
+        } catch {
+          status = 503;
+          datos = { codigo: 'AUDITORIA_NO_DISPONIBLE', error: 'No se pudo registrar el intento. Reintenta el mismo lote.' };
+        }
       }
       if (enviar && !res.destroyed) {
         res.set('Cache-Control', 'no-store');
@@ -205,4 +245,4 @@ function registrarRutasSicar(app, opciones) {
   }));
 }
 
-module.exports = { registrarAgenteSicar, registrarRutasSicar };
+module.exports = { registrarAgenteSicar, registrarRutasSicar, crearContadorRechazosSicar };
