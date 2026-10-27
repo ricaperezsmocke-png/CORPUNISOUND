@@ -9,7 +9,7 @@
  */
 const { NUMEROS_META, formatearValor, valorDelPeriodo, primerDiaParaSellar } = require('./metaNumero');
 const { tableroTienda, numerosSemana, registrosDeTienda, promedio } = require('./tablero');
-const { semanaDe, sumarDias } = require('./semanas');
+const { semanaDe, sumarDias, semanaAnterior, ultimasSemanas } = require('./semanas');
 const { finDePeriodo } = require('../metasPeriodos');
 const { fechaLocal } = require('../fechas');
 // Se llama como manual.fijarEtiqueta (no desestructurada): es la única forma de escribir una etiqueta.
@@ -158,6 +158,16 @@ function valorDelMes(sqlite, DB, { sucursal_id, numero, mes, hoy }) {
   return media === null ? null : Math.round(media * LECTORES[RADAR].factor);
 }
 
+// Base de conversión: promedio de las 8 semanas previas al mes saltando las `no_confiable`, igual que el valor del mes
+// (`valorDelPeriodo` con `conBaseRadar`). Una semana con el Radar abandonado infla la conversión y no debe subir la vara.
+function baseConversion(sqlite, DB, { sucursal_id, mes }) {
+  const registrosTienda = registrosDeTienda(DB, Number(sucursal_id));
+  const semanas = ultimasSemanas(semanaAnterior(primerLunes(mes)), 8)
+    .map(lunes => numerosSemana(sqlite, DB, { sucursal_id, lunes }, { registrosTienda, conBaseRadar: true }))
+    .filter(s => !s.sin_dato);
+  return promedio(semanas, NUMEROS_META.conversion.leer, 1);
+}
+
 function cifrasDe(sqlite, DB, { sucursal_id, mes, hoy }, cache) {
   const ocho = () => {
     if (cache.ocho === undefined) cache.ocho = tableroTienda(sqlite, DB, { sucursal_id, lunes: primerLunes(mes) }).promedio_8;
@@ -172,7 +182,7 @@ function cifrasDe(sqlite, DB, { sucursal_id, mes, hoy }, cache) {
     const mismo = SOLO_OCHO_SEMANAS.includes(numero) ? null
       : valorDelPeriodo(sqlite, DB, { sucursal_id, numero, periodo: 'mensual', inicio: `${anterior}-01`, hoy }).valor;
     if (mismo !== null) return (cache[numero] = { valor, base: mismo, base_tipo: 'mismo_mes' });
-    const crudo = lector.leer(ocho());
+    const crudo = numero === 'conversion' ? baseConversion(sqlite, DB, { sucursal_id, mes }) : lector.leer(ocho());
     const base = typeof crudo === 'number' && Number.isFinite(crudo) ? Math.round(crudo * lector.factor) : null;
     return (cache[numero] = { valor, base, base_tipo: base === null ? null : 'promedio_8' });
   };

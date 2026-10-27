@@ -488,3 +488,35 @@ test('con SICAR atrasado no se cierra; cuando se pone al dia, la siguiente vuelt
   assert.deepEqual(hechos.map(c => c.sucursal_id), [1]);
   assert.equal(hechos[0].tacticas[0].resultado, 'probada');
 });
+
+// ---- Revision H6: la base de conversion salta las semanas no confiables, igual que el valor del mes ----
+const { numerosSemana, tableroTienda } = require('./tablero');
+const { NUMEROS_META } = require('./metaNumero');
+test('la base de conversion (8 semanas previas) no promedia las semanas no confiables', t => {
+  const { sqlite, DB } = prepararCierre(t);
+  let id = 0;
+  const registrar = (dia, cuantos, estado) => {
+    for (let i = 0; i < cuantos; i++) DB.radar_demanda.registros.push({ id: ++id, sucursal_id: 1, estado, fecha_registro: `${dia}T18:00:00.000Z` });
+  };
+  // 20 registros convertidos por semana del 13 de julio al 24 de agosto; la semana del 31 de agosto no registra nada
+  // (no confiable). Los 40 no convertidos del 1 de agosto solo caen en la ventana de conversion de esa semana.
+  for (let lunes = '2026-07-13'; lunes <= '2026-08-24'; lunes = sumar(lunes, 7)) registrar(lunes, 20, 'CONVERTIDA');
+  registrar('2026-08-01', 40, 'NO_CONVERTIDA');
+  plan(DB, { tacticas: [10] }).tacticas_aprobadas = [{ id: 10, como_se_mide: 'sistema', numero_que_mueve: 'conversion', candado: null }];
+  const previas = [];
+  for (let lunes = '2026-07-13'; lunes <= '2026-08-31'; lunes = sumar(lunes, 7)) previas.push(numerosSemana(sqlite, DB, { sucursal_id: 1, lunes }));
+  const confiables = previas.filter(s => !s.sin_dato && s.radar.no_confiable !== true);
+  assert.ok(confiables.length < previas.length, 'el arreglo debe tener al menos una semana no confiable');
+  const leer = NUMEROS_META.conversion.leer;
+  const esperada = Math.round(promedioDe(confiables.map(leer)) * 10);
+  const conTodas = Math.round(tableroTienda(sqlite, DB, { sucursal_id: 1, lunes: '2026-09-07' }).promedio_8.radar.conversion * 10);
+  assert.notEqual(esperada, conTodas, 'sin el arreglo, la base saldria con la semana no confiable');
+  cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
+  const [r] = DB.pos.cinco_caminos.cierres[0].tacticas;
+  assert.equal(r.base, esperada);
+  assert.equal(r.base_tipo, 'promedio_8');
+});
+function promedioDe(valores) {
+  const numeros = valores.filter(v => typeof v === 'number');
+  return Math.round((numeros.reduce((a, b) => a + b, 0) / numeros.length) * 10) / 10;
+}
