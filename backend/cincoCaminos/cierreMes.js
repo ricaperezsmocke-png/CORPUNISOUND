@@ -203,11 +203,20 @@ function tacticaDelManual(DB, id) {
   return t;
 }
 
+// La táctica tal como se aprobó (snapshot del plan). Solo un plan viejo, sin snapshot, se califica con el manual vivo.
+function tacticaAprobada(DB, plan, id) {
+  const aprobadas = Array.isArray(plan.tacticas_aprobadas) ? plan.tacticas_aprobadas : null;
+  if (!aprobadas) return tacticaDelManual(DB, id);
+  const t = aprobadas.find(x => x && Number(x.id) === Number(id));
+  if (!t) throw new Error(`La táctica ${id} del plan no está en lo aprobado`);
+  return { id: Number(t.id), como_se_mide: t.como_se_mide, numero_que_mueve: t.numero_que_mueve, candado: t.candado || null };
+}
+
 function calificarPlan(sqlite, DB, plan, hoy) {
   const sucursal_id = Number(plan.sucursal_id);
   const cifra = cifrasDe(sqlite, DB, { sucursal_id, mes: plan.mes, hoy }, {});
   const entradas = (Array.isArray(plan.tacticas) ? plan.tacticas : []).map(id => {
-    const t = tacticaDelManual(DB, id);
+    const t = tacticaAprobada(DB, plan, id);
     const numero = cifra(t.numero_que_mueve);
     const candado = t.candado ? cifra(t.candado) : { valor: null, base: null };
     return { id: t.id, como_se_mide: t.como_se_mide, mes: plan.mes, numero: t.numero_que_mueve, valor: numero.valor, base: numero.base,

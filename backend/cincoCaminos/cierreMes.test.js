@@ -355,3 +355,35 @@ test('un mes que se cierra tarde no pisa la etiqueta de un mes mas nuevo', t => 
   assert.equal(DB.pos.cinco_caminos.cierres[0].tacticas[0].resultado, 'probada');
   assert.deepEqual(tacticaDe(DB, 1).etiquetas['1'], nueva);
 });
+
+// ---- Revision H1: la tactica se califica tal como se aprobo (snapshot en el plan), no como quedo en el manual ----
+const snapshotDe = (DB, ids) => ids.map(id => {
+  const t = tacticaDe(DB, id);
+  return { id, como_se_mide: t.como_se_mide, numero_que_mueve: t.numero_que_mueve, candado: t.candado };
+});
+
+test('editar la tactica entre aprobar y cerrar no cambia el resultado: se usa el snapshot del plan', t => {
+  const control = prepararCierre(t);
+  const ev = metaEvidencia(control.DB);
+  plan(control.DB, { tacticas: [4, 1], evidencias: [{ tactica_id: 4, meta_clave: ev }] }).tacticas_aprobadas = snapshotDe(control.DB, [4, 1]);
+  cerrarMesesPendientes(control.sqlite, control.DB, { hoy: GRACIA });
+  const esperado = DB => DB.pos.cinco_caminos.cierres[0].tacticas;
+  assert.deepEqual(esperado(control.DB).map(r => [r.id, r.resultado, r.numero]), [[4, 'no_se_hizo', 'clientes_nuevos'], [1, 'probada', 'pct_con_cliente']]);
+
+  const { sqlite, DB } = prepararCierre(t);
+  const ev2 = metaEvidencia(DB);
+  plan(DB, { tacticas: [4, 1], evidencias: [{ tactica_id: 4, meta_clave: ev2 }] }).tacticas_aprobadas = snapshotDe(DB, [4, 1]);
+  manual.cambiarTactica(DB, 4, { como_se_mide: 'sistema', numero_que_mueve: 'pct_con_cliente', candado: null }, 1);
+  manual.cambiarTactica(DB, 1, { numero_que_mueve: 'clientes_nuevos', candado: 'pct_con_cliente' }, 1);
+  cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
+  assert.deepEqual(esperado(DB), esperado(control.DB));
+  assert.equal(tacticaDe(DB, 4).etiquetas['1'].estado, 'sin_dato', 'la 4 no se hizo: no queda probada');
+});
+
+test('un plan viejo sin snapshot se califica con el manual', t => {
+  const { sqlite, DB } = prepararCierre(t);
+  plan(DB, { tacticas: [1] });
+  manual.cambiarTactica(DB, 1, { numero_que_mueve: 'clientes_nuevos' }, 1);
+  cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
+  assert.equal(DB.pos.cinco_caminos.cierres[0].tacticas[0].numero, 'clientes_nuevos');
+});

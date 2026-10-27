@@ -422,8 +422,14 @@ function validarPlanMes(DB, id, cuerpo, usuario, { hoy = fechaLocal() } = {}) {
       unidad: 'veces', fuente: 'manual', prueba: t.evidencia.prueba, valor_meta: t.evidencia.veces, periodo: 'mensual', inicio, alcance: 'tienda',
       sucursal_id,
     }, usuario, { origen }).clave }));
+    // La táctica tal como se aprobó: el cierre la califica así aunque el manual se edite después.
+    const tacticas_aprobadas = tacticas.map(t => {
+      const delManual = (DB.pos.cinco_caminos.tacticas || []).find(x => x && x.id === t.id) || {};
+      return { id: t.id, como_se_mide: delManual.como_se_mide ?? null, numero_que_mueve: delManual.numero_que_mueve ?? null,
+        candado: delManual.candado ?? null };
+    });
     planes.push({ id: planes.reduce((mx, p) => Math.max(mx, Number(p.id) || 0), 0) + 1, sucursal_id, mes, camino,
-      tacticas: tacticas.map(t => t.id), metas: claves, evidencias, plan_ia_id: plan.id, aprobado_por_id: usuario?.id ?? null, aprobado_en,
+      tacticas: tacticas.map(t => t.id), tacticas_aprobadas, metas: claves, evidencias, plan_ia_id: plan.id, aprobado_por_id: usuario?.id ?? null, aprobado_en,
       por_que_camino: plan.propuesta.por_que_camino,
       camino_forzado_por_servidor: plan.propuesta.camino_forzado === true, camino_cambiado_por_gerente: camino !== plan.propuesta.camino });
   } catch (e) {
@@ -461,7 +467,9 @@ function verPlanMes(DB, { sucursal_id, mes, visor, hoy }) {
   const manual = vistaManual(DB, { verTodas: false, sucursalId: Number(sucursal_id) });
   const tacticas = plan.tacticas.map(id => {
     const t = manual.find(x => x.id === id);
-    return { id, nombre: t?.nombre || `Táctica #${id}`, como_se_mide: t?.como_se_mide || null };
+    // Cómo se mide sale de lo aprobado, igual que en el cierre; el manual solo en planes viejos.
+    const aprobada = Array.isArray(plan.tacticas_aprobadas) ? plan.tacticas_aprobadas.find(x => x && Number(x.id) === id) : null;
+    return { id, nombre: t?.nombre || `Táctica #${id}`, como_se_mide: (aprobada ? aprobada.como_se_mide : t?.como_se_mide) || null };
   });
   const metas = DB.pos.metas_personalizadas.filter(m => m.vigente && plan.metas.includes(m.clave)).map(m => avanceMeta(DB, m, visor, 1, hoy));
   // El nombre se arma al leer, nunca se guarda: quien ya no existe queda señalado.

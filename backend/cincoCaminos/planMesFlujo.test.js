@@ -629,3 +629,24 @@ test('verPlanMes trae evidencias con su avance, la fecha en que se califica y el
   delete DB.pos.cinco_caminos.planes_mes[0].evidencias;
   assert.deepEqual(verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY }).plan.evidencias, []);
 });
+
+// ---- Revision H1: aprobar guarda la tactica tal como estaba ----
+test('aprobar guarda por tactica como se mide, el numero y el candado del manual', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB, conEvidencia());
+  validarPlanMes(DB, plan.id, decisionesEvidencia(plan), USUARIO);
+  const delManual = id => DB.pos.cinco_caminos.tacticas.find(x => x.id === id);
+  const [mes] = DB.pos.cinco_caminos.planes_mes;
+  assert.deepEqual(mes.tacticas, [4, 1]);
+  assert.deepEqual(mes.tacticas_aprobadas, [4, 1].map(id => ({ id, como_se_mide: delManual(id).como_se_mide,
+    numero_que_mueve: delManual(id).numero_que_mueve, candado: delManual(id).candado })));
+  // Editar el manual despues no toca lo guardado.
+  const { cambiarTactica } = require('./manual');
+  cambiarTactica(DB, 4, { como_se_mide: 'sistema' }, 1);
+  assert.equal(mes.tacticas_aprobadas[0].como_se_mide, 'evidencia');
+  // La pantalla dice como se mide segun lo aprobado, igual que el cierre.
+  const { verPlanMes } = require('./planMes');
+  const visor = { vendedor_id: null, usuario_id: 1, jefatura: false, verTodas: true, sucursalId: 1 };
+  DB.pos.meta_capturas = [];
+  assert.equal(verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY }).plan.tacticas.find(x => x.id === 4).como_se_mide, 'evidencia');
+});
