@@ -3525,7 +3525,7 @@ app.get("/api/ml/ordenes", requiereLogin, async (req, res) => {
 });
 
 app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), async (req, res) => {
-  try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId)); }
+  try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId, req.usuarioToken)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

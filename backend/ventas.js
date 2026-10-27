@@ -329,6 +329,11 @@ function crearVenta(DB, datos, opciones = {}) {
     total: totalCalculado,
     // Rastro del saldo usado: el corte cobra solo total - monedero_aplicado.
     monedero_aplicado: monederoAplicado,
+    // Quién COBRÓ, del token de la ruta (opciones.usuario), nunca del cuerpo:
+    // el vendedor es un dato de comisión que se elige en caja, no quién tocó
+    // la caja. Las llamadas internas sin usuario quedan en null.
+    cobrada_por_id: usuarioVenta?.id ?? null,
+    cobrada_por_nombre: usuarioVenta?.nombre ?? null,
     estatus: "cerrada",
     motivo_cancelacion: null,
     corte_id: null,

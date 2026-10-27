@@ -423,7 +423,9 @@ function resolverPendienteVinculo(DB, pendienteId, productoId, usuario) {
   return pendiente;
 }
 
-async function importarOrdenComoVenta(DB, ordenId) {
+// `usuario` es quien apretó "Importar" (del token de la ruta). Sin usuario es
+// una importación automática y la venta se firma como tal.
+async function importarOrdenComoVenta(DB, ordenId, usuario = null) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${ML_API}/orders/${ordenId}`, { headers: mlHeaders(token) });
   if (!r.ok) throw new Error("Error al obtener orden de ML");
@@ -524,6 +526,8 @@ async function importarOrdenComoVenta(DB, ordenId) {
     tipo_documento: "Ticket",
     estatus:     "cerrada",
     referencia:  `ML-${orden.id}`,
+    cobrada_por_id:     usuario?.id ?? null,
+    cobrada_por_nombre: usuario ? (usuario.nombre ?? null) : "MercadoLibre (automático)",
   };
   DB.pos.ventas.push(venta);
 
