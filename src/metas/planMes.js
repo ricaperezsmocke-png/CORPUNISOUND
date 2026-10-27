@@ -143,10 +143,9 @@ export function textoAprobado(plan) {
   return `Aprobado${quien}${fecha ? ` el ${fecha}` : ""}`;
 }
 
-// El catálogo del borrador (si el servidor lo manda) manda; si no, el manual de quien mira, filtrado como lo hace el servidor.
-export function opcionesParaPlan(propuesta, manual) {
-  const catalogo = propuesta?.catalogo_tacticas;
-  return Array.isArray(catalogo) && catalogo.length ? catalogo : opcionesTacticas(manual);
+// Las tácticas que se pueden elegir son las del manual de quien mira, filtradas como lo hace el servidor.
+export function opcionesParaPlan(_propuesta, manual) {
+  return opcionesTacticas(manual);
 }
 
 // El servidor rechaza (400) un descuento aceptado con camino final conversión: se avisa antes de enviar.

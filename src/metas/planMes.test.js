@@ -161,11 +161,15 @@ test("textoAprobado: fecha y quien", () => {
   assert.equal(textoAprobado({ aprobado_en: "2026-10-26T18:00:00.000Z" }), "Aprobado el 26/10/2026");
 });
 
-test("opcionesParaPlan: usa el catalogo del borrador si existe; si no, activas sin fase 2 o 3", () => {
-  const manual = [{ id: 1, nombre: "A", activa: true, como_se_mide: "tablero" }, { id: 3, nombre: "C", activa: true, como_se_mide: "fase_2" }];
-  assert.deepEqual(opcionesParaPlan({ catalogo_tacticas: [{ id: 8, nombre: "Z" }] }, manual), [{ id: 8, nombre: "Z" }]);
+test("opcionesParaPlan: solo el manual filtrado (activas, sin fase 2 ni 3); ignora cualquier catalogo de la propuesta", () => {
+  const manual = [
+    { id: 1, nombre: "A", activa: true, como_se_mide: "tablero" },
+    { id: 3, nombre: "C", activa: true, como_se_mide: "fase_2" },
+    { id: 4, nombre: "D", activa: false, como_se_mide: "tablero" },
+  ];
   assert.deepEqual(opcionesParaPlan({}, manual).map((t) => t.id), [1]);
-  assert.deepEqual(opcionesParaPlan({ catalogo_tacticas: [] }, manual).map((t) => t.id), [1]);
+  assert.deepEqual(opcionesParaPlan({ catalogo_tacticas: [{ id: 8, nombre: "Z" }] }, manual).map((t) => t.id), [1]);
+  assert.deepEqual(opcionesParaPlan(null, manual).map((t) => t.id), [1]);
 });
 
 test("avisoDescuento: camino final conversion y una tactica aceptada que habla de descuento", () => {

@@ -401,7 +401,7 @@ function descartarPlanMes(DB, id, motivo, usuario) {
 
 function listarBorradoresMes(DB, { sucursal_id, mes } = {}) {
   return DB.pos.planes_ia
-    .filter(p => p.tipo === 'plan_mes' && p.estado === 'borrador' && (!sucursal_id || p.entrada.sucursal_id === Number(sucursal_id)) && (!mes || p.entrada.mes === mes))
+    .filter(p => p.tipo === 'plan_mes' && p.estado === 'borrador' && (sucursal_id == null || sucursal_id === '' || p.entrada.sucursal_id === Number(sucursal_id)) && (!mes || p.entrada.mes === mes))
     .sort((a, b) => b.id - a.id).slice(0, 50);
 }
 

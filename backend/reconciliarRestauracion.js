@@ -56,6 +56,11 @@ function reconciliarTrasRestaurar(db) {
   // Un respaldo anterior a la junta del lunes o al plan del mes no trae compromisos, juntas ni planes_mes: arrancan como arreglos.
   require("./cincoCaminos/juntas").asegurar(db);
 
+  // Un respaldo anterior a los planes con IA no trae la coleccion; y un plan "pendiente" de la foto ya no tiene
+  // quien lo esté esperando: queda fallido, igual que al arrancar.
+  if (!Array.isArray(db.pos.planes_ia)) db.pos.planes_ia = [];
+  require("./planIA").reconciliarPlanesPendientes(db);
+
   if (!Array.isArray(db.pos.cajas)) db.pos.cajas = [];
   const { reparaciones } = repararCajas(db);
 

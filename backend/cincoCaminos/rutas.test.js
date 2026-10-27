@@ -512,3 +512,24 @@ test('plan del mes: sin "ver todas" solo se opera la tienda del token', async t 
   assert.equal((await post(`${base}/${propio.datos.id}/descartar`, 971, { motivo: 'prueba' })).status, 200);
   assert.equal((await post(`${base}/${ajeno.datos.id}/descartar`, 973, { motivo: 'prueba' })).status, 200);
 });
+
+test('plan del mes: un usuario sin "ver todas" y sin tienda valida recibe 403 en borradores, proponer, validar y descartar', async t => {
+  sembrarTiendaPlanMes();
+  app.locals.clienteIA = iaFalsa();
+  t.after(() => { delete app.locals.clienteIA; });
+  const pedir = await conServidor(t);
+  const [a, m] = fechaLocal().slice(0, 7).split('-').map(Number);
+  const mes = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`;
+  const base = '/api/cinco-caminos/plan-mes';
+  const ajeno = await pedir(`${base}/proponer`, 973, { method: 'POST', body: JSON.stringify({ sucursal_id: 91, mes }) });
+  assert.equal(ajeno.status, 200, JSON.stringify(ajeno.datos));
+  for (const sucursal_id of [null, 0, 'abc']) {
+    const token = firmarToken({ id: 971, rol_id: 971, sucursal_id });
+    const con = (ruta, cuerpo) => pedir(ruta, 971, { method: 'POST', body: JSON.stringify(cuerpo), token });
+    assert.equal((await pedir(`${base}/borradores`, 971, { token })).status, 403, `borradores ${sucursal_id}`);
+    assert.equal((await con(`${base}/proponer`, { sucursal_id: 0, mes })).status, 403, `proponer ${sucursal_id}`);
+    assert.equal((await con(`${base}/${ajeno.datos.id}/validar`, {})).status, 403, `validar ${sucursal_id}`);
+    assert.equal((await con(`${base}/${ajeno.datos.id}/descartar`, { motivo: 'x' })).status, 403, `descartar ${sucursal_id}`);
+  }
+  assert.equal((await pedir(`${base}/${ajeno.datos.id}/descartar`, 973, { method: 'POST', body: JSON.stringify({ motivo: 'prueba' }) })).status, 200);
+});

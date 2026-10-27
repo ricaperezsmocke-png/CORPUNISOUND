@@ -253,7 +253,10 @@ function registrarRutasCincoCaminos(app, deps) {
   const falloAlcance = () => { const e = new Error('Solo puedes operar el plan del mes de tu tienda.'); e.status = 403; return e; };
   const tiendaDelToken = req => {
     const alcance = resolverAlcanceAutorizado(req);
-    return alcance.verTodas ? null : Number(alcance.sucursalId);
+    if (alcance.verTodas) return null;
+    // Sin "ver todas" y sin tienda valida no hay nada que operar: nunca se cae al filtro abierto.
+    if (!Number.isSafeInteger(Number(alcance.sucursalId)) || Number(alcance.sucursalId) <= 0) throw falloAlcance();
+    return Number(alcance.sucursalId);
   };
   const exigirTienda = (req, sucursal) => {
     const propia = tiendaDelToken(req);
