@@ -278,6 +278,18 @@ function borradorMes(DB, id) {
 
 const esObjeto = v => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const DECISIONES = ['aceptar', 'cambiar', 'rechazar'];
+const PRUEBAS_EVIDENCIA = ['foto', 'liga'];
+const MAX_VECES = 31;
+const conEvidencia = comoSeMide => comoSeMide === 'evidencia' || comoSeMide === 'sistema_y_evidencia';
+
+// Cómo se comprueba una táctica por evidencia: foto o liga, de 1 a 31 veces en el mes. Por omisión, una foto.
+function leerEvidencia(d) {
+  const prueba = d.prueba === undefined ? 'foto' : d.prueba;
+  const veces = d.veces === undefined ? 1 : d.veces;
+  if (!PRUEBAS_EVIDENCIA.includes(prueba)) throw errorCon(400, 'La evidencia se comprueba con foto o con liga');
+  if (!Number.isInteger(veces) || veces < 1 || veces > MAX_VECES) throw errorCon(400, `Las veces de la evidencia van de 1 a ${MAX_VECES}`);
+  return { prueba, veces };
+}
 
 function decidirLista(propuestos, recibidos, llave, etiqueta) {
   if (!Array.isArray(recibidos) || recibidos.length !== propuestos.length) throw errorCon(400, `Falta decidir sobre todas las ${etiqueta}`);
@@ -316,7 +328,9 @@ function decidirTacticas(DB, cuerpo, propuesta, sucursal, camino) {
       || hablaDeDescuento(marcada.nombre) || hablaDeDescuento(marcada.por_que)
       : hablaDeDescuento(nombresReales[id] ?? '') || hablaDeDescuento(tactica.nombre);
     if (camino === 'conversion' && descuento) throw errorCon(400, 'No se acepta un descuento como táctica para un problema de conversión');
-    finales.push({ id, por_que: d.decision === 'cambiar' ? '' : propuesto.por_que });
+    // La forma de la evidencia se revisa siempre; solo se usa si la táctica se mide con evidencia.
+    const evidencia = leerEvidencia(d);
+    finales.push({ id, por_que: d.decision === 'cambiar' ? '' : propuesto.por_que, ...(conEvidencia(tactica.como_se_mide) ? { evidencia } : {}) });
   }
   if (!finales.length) throw errorCon(400, 'Acepta al menos una táctica');
   return finales;
@@ -364,6 +378,9 @@ function validarPlanMes(DB, id, cuerpo, usuario, { hoy = fechaLocal() } = {}) {
   }
   const aprobado_en = new Date().toISOString();
   const origen = { tipo: 'plan_mes', plan_id: plan.id, validado_por_nombre: usuario?.nombre || 'desconocido', validado_en: aprobado_en };
+  const delManual = vistaManual(DB, { verTodas: false, sucursalId: sucursal_id });
+  const nombresReales = Object.fromEntries(delManual.map(t => [t.id, t.nombre]));
+  const descripciones = Object.fromEntries(delManual.map(t => [t.id, t.descripcion]));
   const largoMetas = DB.pos.metas_personalizadas.length;
   const planes = asegurar(DB).planes_mes;
   const largoPlanes = planes.length;
@@ -374,8 +391,15 @@ function validarPlanMes(DB, id, cuerpo, usuario, { hoy = fechaLocal() } = {}) {
       descripcion: `Responsable: ${m.responsable_rol}. ${m.por_que}`.slice(0, 500),
       fuente: PREFIJO + m.numero, prueba: 'ninguna', valor_meta: m.entero, periodo: 'mensual', inicio, alcance: 'tienda', sucursal_id,
     }, usuario, { origen }).clave);
+    // Cada táctica por evidencia lleva su meta con prueba: así la tienda la comprueba con las capturas de siempre.
+    const evidencias = tacticas.filter(t => t.evidencia).map(t => ({ tactica_id: t.id, meta_clave: M.crearMeta(DB, {
+      nombre: `Táctica: ${nombresReales[t.id] ?? `#${t.id}`}`.slice(0, 120),
+      descripcion: `Comprueba con ${t.evidencia.prueba} que se hizo. ${descripciones[t.id] || ''}`.trim().slice(0, 500),
+      unidad: 'veces', fuente: 'manual', prueba: t.evidencia.prueba, valor_meta: t.evidencia.veces, periodo: 'mensual', inicio, alcance: 'tienda',
+      sucursal_id,
+    }, usuario, { origen }).clave }));
     planes.push({ id: planes.reduce((mx, p) => Math.max(mx, Number(p.id) || 0), 0) + 1, sucursal_id, mes, camino,
-      tacticas: tacticas.map(t => t.id), metas: claves, plan_ia_id: plan.id, aprobado_por_id: usuario?.id ?? null, aprobado_en,
+      tacticas: tacticas.map(t => t.id), metas: claves, evidencias, plan_ia_id: plan.id, aprobado_por_id: usuario?.id ?? null, aprobado_en,
       por_que_camino: plan.propuesta.por_que_camino,
       camino_forzado_por_servidor: plan.propuesta.camino_forzado === true, camino_cambiado_por_gerente: camino !== plan.propuesta.camino });
   } catch (e) {

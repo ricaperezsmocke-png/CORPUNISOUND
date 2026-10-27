@@ -207,8 +207,10 @@ test('el gerente cambia camino, tactica y cifra; la cifra fuera del rango da 400
   const hecho = validarPlanMes(DB, plan.id, con(ok, { camino: { decision: 'cambiar', camino: 'venta_promedio' },
     tacticas: [{ id: libre[0], decision: 'cambiar', nuevo_id: otra.id }, { id: libre[1], decision: 'rechazar' }] }), USUARIO);
   assert.equal(hecho.estado, 'validado');
-  assert.equal(DB.pos.metas_personalizadas.length, 1);
-  assert.equal(DB.pos.metas_personalizadas[0].valor_meta, 10500);
+  // P5: la táctica elegida puede medirse con evidencia y traer su propia meta; aquí se cuentan solo las metas de número.
+  const deNumero = DB.pos.metas_personalizadas.filter(m => m.fuente !== 'manual');
+  assert.equal(deNumero.length, 1);
+  assert.equal(deNumero[0].valor_meta, 10500);
   const [mes] = DB.pos.cinco_caminos.planes_mes;
   assert.equal(mes.camino, 'venta_promedio');
   assert.deepEqual(mes.tacticas, [otra.id]);
@@ -495,4 +497,112 @@ test('aprobado_por_nombre sale al leer y no se guarda', async t => {
   const vista = verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY });
   assert.equal(vista.plan.aprobado_por_nombre, 'Victor Real');
   assert.equal('aprobado_por_nombre' in DB.pos.cinco_caminos.planes_mes[0], false);
+});
+
+// ---- P5, Task 2: las tacticas por evidencia crean su meta con prueba al aprobar ----
+const { capturarMeta } = require('../metasCapturas');
+// La IA propone la tactica 4 (evidencia) y la 1 (sistema), las dos del manual semilla.
+const conEvidencia = () => clienteFalso({ tacticas: [{ id: 4, por_que: 'Es sencilla' }, { id: 1, por_que: 'Ya se probo' }] });
+const decisionesEvidencia = (plan, extra4 = {}, extra1 = {}) => decisionesTodas(plan, {
+  tacticas: [{ id: 4, decision: 'aceptar', ...extra4 }, { id: 1, decision: 'aceptar', ...extra1 }] });
+
+test('aprobar con una tactica por evidencia crea su meta manual con foto, 1 vez, de la tienda y el mes', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB, conEvidencia());
+  validarPlanMes(DB, plan.id, decisionesEvidencia(plan), USUARIO);
+  const metas = DB.pos.metas_personalizadas;
+  assert.equal(metas.length, 3);
+  const ev = metas.find(m => m.fuente === 'manual');
+  const t4 = DB.pos.cinco_caminos.tacticas.find(x => x.id === 4);
+  assert.equal(ev.prueba, 'foto');
+  assert.equal(ev.valor_meta, 1);
+  assert.equal(ev.unidad, 'veces');
+  assert.equal(ev.alcance, 'tienda');
+  assert.equal(ev.sucursal_id, 1);
+  assert.equal(ev.periodo, 'mensual');
+  assert.equal(ev.inicio, '2026-10-01');
+  assert.equal(ev.nombre, `Táctica: ${t4.nombre}`.slice(0, 120));
+  assert.ok(ev.descripcion.startsWith('Comprueba con foto que se hizo.'));
+  assert.ok(ev.descripcion.length <= 500);
+  assert.equal(ev.origen.tipo, 'plan_mes');
+  assert.equal(ev.origen.plan_id, plan.id);
+  const [mes] = DB.pos.cinco_caminos.planes_mes;
+  assert.deepEqual(mes.evidencias, [{ tactica_id: 4, meta_clave: ev.clave }]);
+  assert.deepEqual(mes.metas, metas.filter(m => m.fuente !== 'manual').map(m => m.clave), 'las metas de numero no se mezclan con las de evidencia');
+});
+
+test('prueba liga y 4 veces se respetan; veces o prueba invalidas dan 400 y no crean nada', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB, conEvidencia());
+  for (const malo of [{ veces: 0 }, { veces: 32 }, { veces: 1.5 }, { veces: '3' }, { prueba: 'video' }, { prueba: 'ninguna' }, { prueba: null }]) {
+    assert.throws(() => validarPlanMes(DB, plan.id, decisionesEvidencia(plan, malo), USUARIO), e => e.status === 400, JSON.stringify(malo));
+  }
+  assert.equal(DB.pos.metas_personalizadas.length, 0);
+  assert.deepEqual(DB.pos.cinco_caminos.planes_mes, []);
+  validarPlanMes(DB, plan.id, decisionesEvidencia(plan, { prueba: 'liga', veces: 4 }), USUARIO);
+  const ev = DB.pos.metas_personalizadas.find(m => m.fuente === 'manual');
+  assert.equal(ev.prueba, 'liga');
+  assert.equal(ev.valor_meta, 4);
+  assert.ok(ev.descripcion.startsWith('Comprueba con liga que se hizo.'));
+});
+
+test('una tactica por sistema no crea meta de evidencia aunque mande prueba; sistema_y_evidencia si', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB, clienteFalso({ tacticas: [{ id: 3, por_que: 'a' }, { id: 1, por_que: 'b' }] }));
+  validarPlanMes(DB, plan.id, decisionesTodas(plan, { tacticas: [{ id: 3, decision: 'aceptar', veces: 2 },
+    { id: 1, decision: 'aceptar', prueba: 'liga', veces: 5 }] }), USUARIO);
+  const evidencias = DB.pos.metas_personalizadas.filter(m => m.fuente === 'manual');
+  assert.equal(evidencias.length, 1);
+  assert.equal(evidencias[0].valor_meta, 2);
+  assert.deepEqual(DB.pos.cinco_caminos.planes_mes[0].evidencias.map(e => e.tactica_id), [3]);
+  // Un plan solo con tacticas por sistema guarda evidencias vacias.
+  const { sqlite: s2, DB: DB2 } = preparar(t);
+  const p2 = await proponer(s2, DB2);
+  validarPlanMes(DB2, p2.id, decisionesTodas(p2), USUARIO);
+  assert.deepEqual(DB2.pos.cinco_caminos.planes_mes[0].evidencias, []);
+});
+
+test('la tactica elegida al cambiar tambien crea su meta de evidencia', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB);
+  const [a, b] = plan.propuesta.tacticas.map(x => x.id);
+  validarPlanMes(DB, plan.id, decisionesTodas(plan, { tacticas: [{ id: a, decision: 'cambiar', nuevo_id: 6, prueba: 'liga', veces: 3 },
+    { id: b, decision: 'rechazar', prueba: 'foto' }] }), USUARIO);
+  const [mes] = DB.pos.cinco_caminos.planes_mes;
+  assert.deepEqual(mes.tacticas, [6]);
+  assert.equal(mes.evidencias.length, 1);
+  assert.equal(mes.evidencias[0].tactica_id, 6);
+  assert.equal(DB.pos.metas_personalizadas.find(m => m.clave === mes.evidencias[0].meta_clave).valor_meta, 3);
+});
+
+test('si falla la meta de evidencia no queda ninguna meta ni el plan del mes', async t => {
+  const { sqlite, DB } = preparar(t);
+  const plan = await proponer(sqlite, DB, conEvidencia());
+  const original = M.crearMeta;
+  M.crearMeta = (DBx, datos, ...resto) => {
+    if (datos.fuente === 'manual') throw new Error('falla la evidencia');
+    return original(DBx, datos, ...resto);
+  };
+  t.after(() => { M.crearMeta = original; });
+  assert.throws(() => validarPlanMes(DB, plan.id, decisionesEvidencia(plan), USUARIO), /falla la evidencia/);
+  assert.equal(DB.pos.metas_personalizadas.length, 0);
+  assert.deepEqual(DB.pos.cinco_caminos.planes_mes, []);
+  assert.equal(plan.estado, 'borrador');
+});
+
+test('una vendedora de la tienda captura "Hecho" con foto en la meta de evidencia', async t => {
+  const { sqlite, DB } = preparar(t);
+  Object.assign(DB.pos, { meta_capturas: [], objetivo_plantilla: [], objetivo_actividades: [], objetivo_inventarios: [] });
+  DB.pos.vendedores[0].sucursal_id = 1;
+  const plan = await proponer(sqlite, DB, conEvidencia());
+  validarPlanMes(DB, plan.id, decisionesEvidencia(plan), USUARIO);
+  const clave = DB.pos.cinco_caminos.planes_mes[0].evidencias[0].meta_clave;
+  const drive = { eliminarArchivoDeDrive: async () => {}, asegurarCarpetaActividadesSucursal: async () => 'carpeta',
+    subirArchivoADrive: async () => ({ id: 'archivo', webViewLink: 'https://drive.google.com/file/d/x/view' }) };
+  const archivo = { contenido_base64: '/9j/2Q==', tipo_mime: 'image/jpeg', nombre_archivo: 'foto.jpg' };
+  const captura = await capturarMeta(DB, clave, { fecha: '2026-10-20', archivo }, { usuario: { id: 5, nombre: 'Vendedora' }, vendedor_id: 1, drive, hoy: HOY });
+  assert.equal(captura.meta_clave, clave);
+  assert.equal(captura.cantidad, 1);
+  assert.equal(captura.evidencia.tipo, 'foto');
+  assert.equal(DB.pos.meta_capturas.length, 1);
 });
