@@ -34,11 +34,13 @@ const legible = (n, v) => (n === RADAR ? (v / 100).toFixed(2) : formatearValor(n
 const cambioPct = (valor, base) => (esNumero(valor) && esNumero(base) && base > 0 ? Math.round(((valor - base) * 1000) / base) / 10 : null);
 const conSigno = pct => `${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %`;
 
-// Capturas que cuentan: de la meta ligada, no anuladas y con fecha dentro del mes.
+// Capturas que cuentan: de la meta ligada, no anuladas, con fecha dentro del mes y CON evidencia (foto o liga).
+// Cada captura vale 1: la cantidad no cuenta, porque una captura sin prueba puede decir cualquier número.
 function contarEvidencia(evidencia, mes) {
   if (!evidencia) return { registro: null, hecha: false, suma: 0 };
-  const validas = (evidencia.capturas || []).filter(c => c && !c.anulada && typeof c.fecha === 'string' && c.fecha.slice(0, 7) === mes);
-  const suma = validas.reduce((s, c) => s + (Number.isInteger(c.cantidad) ? c.cantidad : 0), 0);
+  const validas = (evidencia.capturas || []).filter(c => c && !c.anulada && typeof c.fecha === 'string' && c.fecha.slice(0, 7) === mes
+    && !!c.evidencia && typeof c.evidencia === 'object');
+  const suma = validas.length;
   const requeridas = Number(evidencia.requeridas);
   return {
     registro: { meta_clave: evidencia.meta_clave, requeridas, capturas_contadas: validas.map(c => c.id) },
@@ -175,19 +177,23 @@ function cifrasDe(sqlite, DB, { sucursal_id, mes, hoy }, cache) {
   };
 }
 
-// Evidencia ligada al plan: la clave guardada al aprobar, con las capturas de cualquier versión de esa clave.
+// Evidencia ligada al plan, tal como se aprobó: prueba y veces requeridas guardadas en el plan, con las capturas de esa
+// clave. Editar la meta después no cambia nada. Un plan viejo sin esos campos usa la PRIMERA versión de la meta.
 function evidenciaDe(DB, plan, tacticaId) {
   const ligada = (Array.isArray(plan.evidencias) ? plan.evidencias : []).find(e => e && Number(e.tactica_id) === tacticaId);
   if (!ligada) return null;
   const clave = Number(ligada.meta_clave);
+  const capturas = (DB.pos.meta_capturas || []).filter(c => c && Number(c.meta_clave) === clave);
+  if (ligada.requeridas !== undefined || ligada.prueba !== undefined) {
+    return { meta_clave: clave, prueba: ligada.prueba ?? null, requeridas: ligada.requeridas ?? null, capturas };
+  }
   const versiones = (DB.pos.metas_personalizadas || []).filter(m => m.clave === clave);
   if (!versiones.length) return null;
-  const ultima = versiones.reduce((a, b) => (b.version > a.version ? b : a));
-  return { meta_clave: clave, prueba: ultima.prueba, requeridas: ultima.valor_meta,
-    capturas: (DB.pos.meta_capturas || []).filter(c => c.meta_clave === clave) };
+  const primera = versiones.reduce((a, b) => (b.version < a.version ? b : a));
+  return { meta_clave: clave, prueba: primera.prueba, requeridas: primera.valor_meta, capturas };
 }
 
-/** Avance de la evidencia de cada táctica del plan, contada igual que en el cierre (no anuladas y dentro del mes). */
+/** Avance de la evidencia de cada táctica del plan, contada igual que en el cierre (con prueba, no anuladas y dentro del mes). */
 function avanceEvidencias(DB, plan) {
   return (Array.isArray(plan.evidencias) ? plan.evidencias : []).flatMap(e => {
     const ev = evidenciaDe(DB, plan, Number(e?.tactica_id));

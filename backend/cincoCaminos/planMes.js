@@ -416,12 +416,13 @@ function validarPlanMes(DB, id, cuerpo, usuario, { hoy = fechaLocal() } = {}) {
       fuente: PREFIJO + m.numero, prueba: 'ninguna', valor_meta: m.entero, periodo: 'mensual', inicio, alcance: 'tienda', sucursal_id,
     }, usuario, { origen }).clave);
     // Cada táctica por evidencia lleva su meta con prueba: así la tienda la comprueba con las capturas de siempre.
+    // La prueba y las veces se guardan también en el plan: el cierre califica con lo aprobado aunque la meta se edite.
     const evidencias = tacticas.filter(t => t.evidencia).map(t => ({ tactica_id: t.id, meta_clave: M.crearMeta(DB, {
       nombre: `Táctica: ${nombresReales[t.id] ?? `#${t.id}`}`.slice(0, 120),
       descripcion: `Comprueba con ${t.evidencia.prueba} que se hizo. ${descripciones[t.id] || ''}`.trim().slice(0, 500),
       unidad: 'veces', fuente: 'manual', prueba: t.evidencia.prueba, valor_meta: t.evidencia.veces, periodo: 'mensual', inicio, alcance: 'tienda',
       sucursal_id,
-    }, usuario, { origen }).clave }));
+    }, usuario, { origen }).clave, prueba: t.evidencia.prueba, requeridas: t.evidencia.veces }));
     // La táctica tal como se aprobó: el cierre la califica así aunque el manual se edite después.
     const tacticas_aprobadas = tacticas.map(t => {
       const delManual = (DB.pos.cinco_caminos.tacticas || []).find(x => x && x.id === t.id) || {};

@@ -527,7 +527,7 @@ test('aprobar con una tactica por evidencia crea su meta manual con foto, 1 vez,
   assert.equal(ev.origen.tipo, 'plan_mes');
   assert.equal(ev.origen.plan_id, plan.id);
   const [mes] = DB.pos.cinco_caminos.planes_mes;
-  assert.deepEqual(mes.evidencias, [{ tactica_id: 4, meta_clave: ev.clave }]);
+  assert.deepEqual(mes.evidencias, [{ tactica_id: 4, meta_clave: ev.clave, prueba: 'foto', requeridas: 1 }]);
   assert.deepEqual(mes.metas, metas.filter(m => m.fuente !== 'manual').map(m => m.clave), 'las metas de numero no se mezclan con las de evidencia');
 });
 
@@ -614,8 +614,9 @@ test('verPlanMes trae evidencias con su avance, la fecha en que se califica y el
   const plan = await proponer(sqlite, DB, conEvidencia());
   validarPlanMes(DB, plan.id, decisionesEvidencia(plan, { prueba: 'liga', veces: 3 }), USUARIO);
   const clave = DB.pos.cinco_caminos.planes_mes[0].evidencias[0].meta_clave;
-  DB.pos.meta_capturas.push({ id: 1, meta_clave: clave, fecha: '2026-10-02', cantidad: 1, anulada: null },
-    { id: 2, meta_clave: clave, fecha: '2026-10-03', cantidad: 1, anulada: { motivo: 'basura' } });
+  const liga = { tipo: 'link', link: 'https://x' };
+  DB.pos.meta_capturas.push({ id: 1, meta_clave: clave, fecha: '2026-10-02', cantidad: 1, evidencia: liga, anulada: null },
+    { id: 2, meta_clave: clave, fecha: '2026-10-03', cantidad: 1, evidencia: liga, anulada: { motivo: 'basura' } });
   const { verPlanMes } = require('./planMes');
   const visor = { vendedor_id: null, usuario_id: 1, jefatura: false, verTodas: true, sucursalId: 1 };
   const vista = verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY }).plan;

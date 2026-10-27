@@ -8,7 +8,7 @@ function tactica(cambios = {}) {
   return { id: 24, como_se_mide: 'sistema', mes: MES, numero: 'ticket_promedio_centavos', valor: 10500, base: 10000, base_tipo: 'mismo_mes',
     candado: 'articulos_por_ticket', candado_valor: 150, candado_base: 150, evidencia: null, ...cambios };
 }
-const captura = (id, fecha, extra = {}) => ({ id, meta_clave: 9, fecha, cantidad: 1, anulada: null, ...extra });
+const captura = (id, fecha, extra = {}) => ({ id, meta_clave: 9, fecha, cantidad: 1, evidencia: { tipo: 'foto' }, anulada: null, ...extra });
 const evidencia = (capturas, requeridas = 3) => ({ meta_clave: 9, requeridas, capturas });
 
 test('+5.0 % exacto es probada; +4.9 % es no_funciono', () => {
@@ -128,7 +128,7 @@ test('el registro trae los campos del contrato', () => {
 const Database = require('better-sqlite3');
 const { crearRepositorioSicar } = require('../sicarRepositorio');
 const manual = require('./manual');
-const { cerrarMesesPendientes } = require('./cierreMes');
+const { cerrarMesesPendientes, avanceEvidencias } = require('./cierreMes');
 const { reconciliarTrasRestaurar, cerrarTrasRestaurar } = require('../reconciliarRestauracion');
 
 const SEPT = '2026-09';
@@ -178,7 +178,8 @@ function plan(DB, { sucursal_id = 1, mes = SEPT, tacticas = [1, 2], evidencias =
 function metaEvidencia(DB, { clave = 500, veces = 1, sucursal_id = 1, fechas = [] } = {}) {
   DB.pos.metas_personalizadas.push({ id: clave, clave, version: 1, vigente: true, fuente: 'manual', prueba: 'foto', valor_meta: veces,
     periodo: 'mensual', inicio: `${SEPT}-01`, alcance: 'tienda', sucursal_id });
-  fechas.forEach((fecha, i) => DB.pos.meta_capturas.push({ id: clave * 10 + i, meta_clave: clave, fecha, cantidad: 1, anulada: null }));
+  fechas.forEach((fecha, i) => DB.pos.meta_capturas.push({ id: clave * 10 + i, meta_clave: clave, fecha, cantidad: 1, evidencia: { tipo: 'foto' },
+    anulada: null }));
   return clave;
 }
 const tacticaDe = (DB, id) => DB.pos.cinco_caminos.tacticas.find(x => x.id === id);
@@ -386,4 +387,74 @@ test('un plan viejo sin snapshot se califica con el manual', t => {
   manual.cambiarTactica(DB, 1, { numero_que_mueve: 'clientes_nuevos' }, 1);
   cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
   assert.equal(DB.pos.cinco_caminos.cierres[0].tacticas[0].numero, 'clientes_nuevos');
+});
+
+// ---- Revision H2 y H5: la evidencia se califica como se aprobo, 1 por captura y solo con prueba ----
+const M = require('../metasPersonalizadas');
+const VICTOR = { id: 1, nombre: 'Victor' };
+const FOTO = { tipo: 'foto', huella: 'h' };
+function metaReal(DB, veces) {
+  return M.crearMeta(DB, { nombre: 'Táctica: prueba', descripcion: 'Comprueba con foto que se hizo.', unidad: 'veces', fuente: 'manual',
+    prueba: 'foto', valor_meta: veces, periodo: 'mensual', inicio: `${SEPT}-01`, alcance: 'tienda', sucursal_id: 1 }, VICTOR,
+  { origen: { tipo: 'plan_mes', plan_id: 1 } }).clave;
+}
+const capturar = (DB, clave, fecha, extra = {}) => DB.pos.meta_capturas.push({ id: DB.pos.meta_capturas.length + 1, meta_clave: clave, fecha,
+  cantidad: 1, evidencia: FOTO, anulada: null, ...extra });
+
+test('una captura sin evidencia no cuenta y la cantidad no pesa: cada captura con prueba vale 1', () => {
+  const ev = (capturas, requeridas) => evaluarTactica(tactica({ como_se_mide: 'evidencia', valor: 11000, evidencia: { meta_clave: 9, requeridas, capturas } }));
+  const sinFoto = ev([{ id: 1, meta_clave: 9, fecha: '2026-10-10', cantidad: 31, evidencia: null, anulada: null }], 31);
+  assert.equal(sinFoto.resultado, 'no_se_hizo');
+  assert.deepEqual(sinFoto.evidencia.capturas_contadas, []);
+  assert.equal(sinFoto.texto, 'No se hizo: evidencia 0 de 31');
+  const tres = ev([{ id: 1, meta_clave: 9, fecha: '2026-10-10', cantidad: 3, evidencia: FOTO, anulada: null }], 3);
+  assert.equal(tres.resultado, 'no_se_hizo', 'una captura con cantidad 3 cuenta 1');
+  assert.equal(tres.texto, 'No se hizo: evidencia 1 de 3');
+});
+
+test('bajar valor_meta de la meta de evidencia despues de aprobar no cambia lo requerido', t => {
+  const { sqlite, DB } = prepararCierre(t);
+  const clave = metaReal(DB, 4);
+  plan(DB, { tacticas: [4], evidencias: [{ tactica_id: 4, meta_clave: clave, prueba: 'foto', requeridas: 4 }] });
+  capturar(DB, clave, '2026-09-10');
+  M.editarMeta(DB, clave, { valor_meta: 1, motivo: 'Ajuste' }, VICTOR);
+  cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
+  const [r] = DB.pos.cinco_caminos.cierres[0].tacticas;
+  assert.deepEqual(r.evidencia, { meta_clave: clave, requeridas: 4, capturas_contadas: [1] });
+  assert.equal(r.resultado, 'no_se_hizo');
+});
+
+test('cambiar la prueba a ninguna y capturar cantidad 31 sin foto da no_se_hizo', t => {
+  const { sqlite, DB } = prepararCierre(t);
+  const clave = metaReal(DB, 31);
+  plan(DB, { tacticas: [4], evidencias: [{ tactica_id: 4, meta_clave: clave, prueba: 'foto', requeridas: 31 }] });
+  M.editarMeta(DB, clave, { prueba: 'ninguna', motivo: 'Sin foto' }, VICTOR);
+  capturar(DB, clave, '2026-09-10', { cantidad: 31, evidencia: null });
+  cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
+  const [r] = DB.pos.cinco_caminos.cierres[0].tacticas;
+  assert.equal(r.resultado, 'no_se_hizo');
+  assert.equal(r.texto, 'No se hizo: evidencia 0 de 31');
+});
+
+test('plan viejo sin requeridas: vale el valor_meta de la PRIMERA version y se exige evidencia', t => {
+  const { sqlite, DB } = prepararCierre(t);
+  const clave = metaReal(DB, 2);
+  plan(DB, { tacticas: [4], evidencias: [{ tactica_id: 4, meta_clave: clave }] });
+  capturar(DB, clave, '2026-09-10');
+  capturar(DB, clave, '2026-09-11', { evidencia: null, cantidad: 5 });
+  M.editarMeta(DB, clave, { valor_meta: 1, motivo: 'Ajuste' }, VICTOR);
+  cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA });
+  const [r] = DB.pos.cinco_caminos.cierres[0].tacticas;
+  assert.deepEqual(r.evidencia, { meta_clave: clave, requeridas: 2, capturas_contadas: [1] });
+  assert.equal(r.resultado, 'no_se_hizo');
+});
+
+test('Evidencia: x de y de la pantalla cuenta igual que el cierre', () => {
+  const DB = { pos: { metas_personalizadas: [{ id: 9, clave: 9, version: 1, prueba: 'foto', valor_meta: 4 }, { id: 10, clave: 9, version: 2, prueba: 'ninguna',
+    valor_meta: 1 }], meta_capturas: [{ id: 1, meta_clave: 9, fecha: '2026-09-10', cantidad: 3, evidencia: null, anulada: null },
+    { id: 2, meta_clave: 9, fecha: '2026-09-11', cantidad: 1, evidencia: FOTO, anulada: null }] } };
+  const viejo = { mes: SEPT, evidencias: [{ tactica_id: 4, meta_clave: 9 }] };
+  assert.deepEqual(avanceEvidencias(DB, viejo), [{ tactica_id: 4, meta_clave: 9, prueba: 'foto', requeridas: 4, hechas: 1 }]);
+  const nuevo = { mes: SEPT, evidencias: [{ tactica_id: 4, meta_clave: 9, prueba: 'liga', requeridas: 3 }] };
+  assert.deepEqual(avanceEvidencias(DB, nuevo), [{ tactica_id: 4, meta_clave: 9, prueba: 'liga', requeridas: 3, hechas: 1 }]);
 });
