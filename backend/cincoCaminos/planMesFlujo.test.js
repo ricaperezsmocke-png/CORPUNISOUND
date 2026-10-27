@@ -291,3 +291,118 @@ test('una base de cero descarta la meta (no se puede subir 5 a 15 % de nada)', (
   assert.deepEqual(r.metas.map(m => m.numero), ['conversion']);
   assert.deepEqual(r.descartadas.map(m => m.numero), ['pct_con_cliente']);
 });
+
+// ---- Correcciones de la revision de la Task 1 ----
+const { TEXTO_POR_QUE: TEXTO_FIJO, armarDatosPlanMes } = require('./planMes');
+
+const tac = (id, nombre) => ({ id, nombre, camino: 'prospectos' });
+function ctxMin(bases, extra = {}) {
+  return { datos: { manual: [tac(1, 'a'), tac(2, 'b')] }, bases, calidad_primero: false, cifrasPermitidas: [], ...extra };
+}
+const prop = (metas, extra = {}) => ({ camino: 'prospectos', por_que_camino: 'x', tacticas: [{ id: 1, por_que: 'a' }, { id: 2, por_que: 'b' }], metas, ...extra });
+const meta = (numero, valor) => ({ numero, valor, responsable_rol: 'gerente', por_que: 'c' });
+
+test('base del mismo mes en 0: se usa el promedio de 8 semanas; si tambien es 0 se descarta con "base en 0"', () => {
+  const bases = { conversion: { promedio_8: 200, mismo_mes: 0 }, pct_con_cliente: { promedio_8: 0, mismo_mes: 0 }, recompra_90: { promedio_8: null, mismo_mes: 0 } };
+  const r = validarPropuestaMes(prop([meta('conversion', 21), meta('pct_con_cliente', 5), meta('recompra_90', 5)]), ctxMin(bases));
+  assert.equal(r.metas.length, 1);
+  assert.equal(r.metas[0].numero, 'conversion');
+  assert.equal(r.metas[0].base, 20);
+  assert.deepEqual(r.descartadas.map(d => [d.numero, d.motivo]), [['pct_con_cliente', 'base en 0'], ['recompra_90', 'base en 0']]);
+});
+
+test('bases chicas: el minimo es base + 1 unidad de la escala y el maximo no baja de ese minimo', () => {
+  const bases = { clientes_nuevos: { promedio_8: null, mismo_mes: 3 }, conversion: { promedio_8: 5, mismo_mes: null },
+    ticket_promedio_centavos: { promedio_8: 4, mismo_mes: null }, articulos_por_ticket: { promedio_8: 9, mismo_mes: null } };
+  const r1 = validarPropuestaMes(prop([meta('clientes_nuevos', 3), meta('conversion', 0.5), meta('ticket_promedio_centavos', 0.04)]), ctxMin(bases));
+  const r2 = validarPropuestaMes(prop([meta('articulos_por_ticket', 0.09)]), ctxMin(bases));
+  const r = { metas: [...r1.metas, ...r2.metas] };
+  const por = n => r.metas.find(m => m.numero === n);
+  assert.equal(por('clientes_nuevos').valor_entero, 4);
+  assert.equal(por('clientes_nuevos').ajustada, true);
+  assert.equal(por('conversion').valor_entero, 6);
+  assert.equal(por('ticket_promedio_centavos').valor_entero, 5);
+  assert.equal(por('articulos_por_ticket').valor_entero, 10);
+});
+
+test('con base grande el rango calculado no cambia', () => {
+  const r = validarPropuestaMes(prop([meta('clientes_nuevos', 100)]), ctxMin({ clientes_nuevos: { promedio_8: 40, mismo_mes: null } }));
+  assert.equal(r.metas[0].valor_entero, 46);
+  assert.deepEqual(r.metas[0].rango, { minimo: 42, maximo: 46 });
+});
+
+test('una base en el tope de 100 % se descarta con "ya esta en el maximo"; una base de 99.9 % queda en 100', () => {
+  const bases = { pct_con_cliente: { promedio_8: 1000, mismo_mes: null }, recompra_90: { promedio_8: 999, mismo_mes: null },
+    conversion: { promedio_8: 400, mismo_mes: null } };
+  const r = validarPropuestaMes(prop([meta('pct_con_cliente', 100), meta('recompra_90', 100), meta('conversion', 42)]), ctxMin(bases));
+  assert.deepEqual(r.descartadas.map(d => [d.numero, d.motivo]), [['pct_con_cliente', 'ya está en el máximo']]);
+  assert.equal(r.metas.find(m => m.numero === 'recompra_90').valor_entero, 1000);
+});
+
+test('pct_con_cliente sin dato fuerza calidad_dato igual que menos de 50', t => {
+  const { sqlite, DB } = preparar(t);
+  sqlite.prepare('DELETE FROM sicar_ventas').run();
+  sqlite.prepare('DELETE FROM sicar_ventas_mostrador').run();
+  const ctx = armarDatosPlanMes(sqlite, DB, { sucursal_id: 1, mes: MES, hoy: HOY });
+  assert.equal(ctx.bases.pct_con_cliente.promedio_8, null);
+  assert.equal(ctx.calidad_primero, true);
+  const r = validarPropuestaMes(prop([meta('ticket_promedio_centavos', 110)]), ctxMin({ ticket_promedio_centavos: { promedio_8: 10000, mismo_mes: null } },
+    { calidad_primero: ctx.calidad_primero }));
+  assert.equal(r.camino, 'calidad_dato');
+  assert.equal(r.camino_forzado, true);
+});
+
+test('descuento: se evalua sobre el por_que crudo y con mas palabras', () => {
+  const ctx = ctxMin({ clientes_nuevos: { promedio_8: 40, mismo_mes: null } });
+  const con = por_que => validarPropuestaMes(prop([meta('clientes_nuevos', 44)], { camino: 'conversion', tacticas: [{ id: 1, por_que }, { id: 2, por_que: 'b' }] }), ctx);
+  assert.equal(con('20 % de descuento a quien compre').tacticas[0].rechazada, true, 'numero inventado y descuento');
+  for (const palabra of ['una oferta', 'promoción de temporada', 'un 2x1', 'el 3x2', 'precio especial', 'una rebaja']) {
+    assert.equal(con(`Dar ${palabra}`).tacticas[0].rechazada, true, palabra);
+  }
+  assert.equal(con('Pedir el correo').tacticas[0].rechazada, undefined);
+  const nombre = { ...ctx, datos: { manual: [tac(1, 'Oferta del mes'), tac(2, 'b')] } };
+  assert.equal(validarPropuestaMes(prop([meta('clientes_nuevos', 44)], { camino: 'conversion' }), nombre).tacticas[0].rechazada, true);
+});
+
+test('numeros escritos con letra en el por que se reemplazan por el texto fijo', () => {
+  const ctx = ctxMin({ clientes_nuevos: { promedio_8: 40, mismo_mes: null } });
+  const porQueDe = texto => validarPropuestaMes(prop([meta('clientes_nuevos', 44)], { por_que_camino: texto }), ctx).por_que_camino;
+  for (const texto of ['Vendimos el doble', 'Subio el triple', 'La mitad de clientes', 'Un diez por ciento mas', 'Bajo cuarenta', 'Son cincuenta', 'Casi cien', 'Mil piezas']) {
+    assert.equal(porQueDe(texto), TEXTO_FIJO, texto);
+  }
+  assert.equal(porQueDe('Faltan clientes nuevos'), 'Faltan clientes nuevos');
+});
+
+test('el gerente ve el nombre real de la tactica; a la IA se le manda el saneado', t => {
+  const { sqlite, DB } = preparar(t);
+  const { crearTactica } = require('./manual');
+  const nueva = crearTactica(DB, { nombre: 'Llamar a Marisol cada semana', camino: 'prospectos', numero_que_mueve: 'clientes_nuevos',
+    quien: ['vendedor'], como_se_mide: 'sistema' }, 1);
+  DB.pos.cinco_caminos.tacticas.find(x => x.id === nueva.id).etiquetas = { 1: { estado: 'probada', mes: '2026-09', resultado: 'Marisol Gordillo lo logro' } };
+  const ctx = armarDatosPlanMes(sqlite, DB, { sucursal_id: 1, mes: MES, hoy: HOY });
+  const enviada = ctx.datos.manual.find(x => x.id === nueva.id);
+  assert.match(enviada.nombre, /\[persona\]/);
+  assert.match(enviada.etiqueta_tienda.resultado, /\[persona\]/);
+  assert.doesNotMatch(JSON.stringify(ctx.datos), /marisol|gordillo/i);
+  const otra = ctx.datos.manual.find(x => x.id !== nueva.id).id;
+  const r = validarPropuestaMes(prop([meta('ticket_promedio_centavos', 110)], { tacticas: [{ id: nueva.id, por_que: 'a' }, { id: otra, por_que: 'b' }] }),
+    { ...ctx, bases: { ticket_promedio_centavos: { promedio_8: 10000, mismo_mes: null } }, calidad_primero: false });
+  assert.equal(r.tacticas[0].nombre, 'Llamar a Marisol cada semana');
+});
+
+test('constancia en el plan del mes cuando el servidor forzo el camino y el gerente lo cambio', async t => {
+  const { sqlite, DB } = preparar(t);
+  const forzado = await proponer(sqlite, DB);
+  forzado.propuesta.camino_forzado = true;
+  const h = validarPlanMes(DB, forzado.id, decisionesTodas(forzado, { camino: { decision: 'cambiar', camino: 'venta_promedio' } }), USUARIO);
+  assert.equal(h.estado, 'validado');
+  const [mes] = DB.pos.cinco_caminos.planes_mes;
+  assert.equal(mes.camino_forzado_por_servidor, true);
+  assert.equal(mes.camino_cambiado_por_gerente, true);
+  const { sqlite: s2, DB: DB2 } = preparar(t);
+  const normal = await proponer(s2, DB2);
+  validarPlanMes(DB2, normal.id, decisionesTodas(normal), USUARIO);
+  const [m2] = DB2.pos.cinco_caminos.planes_mes;
+  assert.equal(m2.camino_forzado_por_servidor, false);
+  assert.equal(m2.camino_cambiado_por_gerente, false);
+});

@@ -32,7 +32,11 @@ const aEntero = (numero, legible) => Math.round(legible * DIVISOR[NUMEROS_META[n
 
 const comparable = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const numerosEn = texto => (texto.match(/\d[\d,]*(?:\.\d+)?/g) || []).map(s => Number(s.replace(/,/g, '')));
-const hablaDeDescuento = texto => /descuent|rebaj/.test(comparable(texto));
+const hablaDeDescuento = texto => /descuent|rebaj|oferta|promoci|2x1|3x2|precio especial/.test(comparable(texto));
+// Cifras escritas con letra: no se pueden comparar con los datos enviados, así que el texto se reemplaza.
+const NUMERO_CON_LETRA = new RegExp('\\b(doble|triple|mitad|por ciento|cien|ciento|mil|millon(?:es)?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce'
+  + '|trece|catorce|quince|veinte\\w*|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\\b');
+const numeroConLetra = texto => NUMERO_CON_LETRA.test(comparable(texto));
 
 function numerosDe(valor, lista = []) {
   if (typeof valor === 'number' && Number.isFinite(valor)) lista.push(valor);
@@ -92,14 +96,18 @@ function armarDatosPlanMes(sqlite, DB, { sucursal_id, mes, hoy }) {
     manual: manualParaIA(DB, sucursal),
     planes_anteriores: planesAnteriores(DB, sucursal, mes),
   };
-  const calidadPrimero = bases.pct_con_cliente.promedio_8 !== null && bases.pct_con_cliente.promedio_8 < MINIMO_PCT_CON_CLIENTE;
-  return { datos, bases, calidad_primero: calidadPrimero, cifrasPermitidas: numerosDe(datos) };
+  // Sin dato de ventas con cliente se trata igual que menos de 50 %: primero se arregla el dato.
+  const pctCliente = bases.pct_con_cliente.promedio_8;
+  const calidadPrimero = pctCliente === null || pctCliente < MINIMO_PCT_CON_CLIENTE;
+  // Los nombres reales solo los ve el gerente; a la IA se le manda el saneado (datos.manual).
+  const nombres = Object.fromEntries(vistaManual(DB, { verTodas: false, sucursalId: sucursal }).map(t => [t.id, t.nombre]));
+  return { datos, bases, calidad_primero: calidadPrimero, cifrasPermitidas: numerosDe(datos), nombres_tacticas: nombres };
 }
 
 const textoValido = (v, maximo) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= maximo;
 
 function porQue(valor, permitidas) {
-  return textoValido(valor, MAX_POR_QUE) && numerosEn(valor).every(n => permitidas.has(n)) ? valor.trim() : TEXTO_POR_QUE;
+  return textoValido(valor, MAX_POR_QUE) && numerosEn(valor).every(n => permitidas.has(n)) && !numeroConLetra(valor) ? valor.trim() : TEXTO_POR_QUE;
 }
 
 function normalizarId(id) {
@@ -107,7 +115,7 @@ function normalizarId(id) {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-function validarTacticas(lista, manual, camino, permitidas) {
+function validarTacticas(lista, manual, camino, permitidas, nombres = {}) {
   if (!Array.isArray(lista) || lista.length !== 2) falla('debe traer exactamente 2 tácticas');
   const vistos = new Set();
   return lista.map((item, i) => {
@@ -117,8 +125,11 @@ function validarTacticas(lista, manual, camino, permitidas) {
     if (vistos.has(id)) falla('trae una táctica repetida');
     vistos.add(id);
     const texto = porQue(item.por_que, permitidas);
-    const descuento = camino === 'conversion' && (hablaDeDescuento(tactica.nombre) || hablaDeDescuento(texto));
-    return { id, nombre: tactica.nombre, por_que: texto,
+    // El descuento se busca en lo que dijo la IA ANTES de sanearlo y en el nombre de la táctica.
+    const crudo = typeof item.por_que === 'string' ? item.por_que : '';
+    const nombreReal = nombres[id] ?? tactica.nombre;
+    const descuento = camino === 'conversion' && (hablaDeDescuento(nombreReal) || hablaDeDescuento(tactica.nombre) || hablaDeDescuento(crudo));
+    return { id, nombre: nombreReal, por_que: texto,
       ...(descuento ? { rechazada: true, motivo_rechazo: 'No se propone descuento para un problema de conversión' } : {}) };
   });
 }
@@ -130,11 +141,15 @@ function validarMeta(m, i, ctx, permitidas, calidadPrimero) {
   if (!RESPONSABLES.includes(m.responsable_rol)) falla(`el responsable de la meta ${n} debe ser un rol válido`);
   if (typeof m.valor !== 'number' || !Number.isFinite(m.valor) || m.valor <= 0) falla(`la cifra de la meta ${n} debe ser un número mayor que 0`);
   const def = NUMEROS_META[m.numero];
-  const base = ctx.bases?.[m.numero]?.mismo_mes ?? ctx.bases?.[m.numero]?.promedio_8 ?? null;
-  if (base === null) return { descartada: { numero: m.numero, motivo: 'sin dato para fijar una base' } };
-  if (base <= 0) return { descartada: { numero: m.numero, motivo: 'la base es cero; no hay de dónde subir de 5 a 15 %' } };
-  const maximo = Math.min(Math.round(base * SUBE_MAXIMO), def.maximo);
-  const minimo = Math.min(Math.round(base * SUBE_MINIMO), maximo);
+  const { mismo_mes: mismo = null, promedio_8: promedio = null } = ctx.bases?.[m.numero] || {};
+  if (mismo === null && promedio === null) return { descartada: { numero: m.numero, motivo: 'sin dato para fijar una base' } };
+  // Un mismo mes de 2025 en 0 no sirve de base: se prueba con el promedio de 8 semanas.
+  const base = [mismo, promedio].find(b => typeof b === 'number' && b > 0);
+  if (base === undefined) return { descartada: { numero: m.numero, motivo: 'base en 0' } };
+  if (base >= def.maximo) return { descartada: { numero: m.numero, motivo: 'ya está en el máximo' } };
+  // Con bases chicas el redondeo no sube nada: el mínimo es base + 1 unidad de la escala.
+  const minimo = Math.min(Math.max(Math.round(base * SUBE_MINIMO), base + 1), def.maximo);
+  const maximo = Math.min(Math.max(Math.round(base * SUBE_MAXIMO), minimo), def.maximo);
   const propuesto = aEntero(m.numero, m.valor);
   const entero = Math.min(Math.max(propuesto, minimo), maximo);
   return { meta: { numero: m.numero, valor: aLegible(m.numero, entero), valor_entero: entero, base: aLegible(m.numero, base),
@@ -153,7 +168,7 @@ function validarPropuestaMes(propuesta, ctx) {
   if (!CAMINOS_PLAN.includes(propuesta.camino)) falla('el camino no es válido');
   const permitidas = new Set(ctx.cifrasPermitidas);
   const camino = ctx.calidad_primero ? 'calidad_dato' : propuesta.camino;
-  const tacticas = validarTacticas(propuesta.tacticas, ctx.datos.manual, camino, permitidas);
+  const tacticas = validarTacticas(propuesta.tacticas, ctx.datos.manual, camino, permitidas, ctx.nombres_tacticas);
   const crudas = propuesta.metas;
   if (!Array.isArray(crudas) || crudas.length < 1 || crudas.length > 3) falla('debe traer de 1 a 3 metas');
   if (new Set(crudas.map(m => m?.numero)).size !== crudas.length) falla('trae un número repetido en las metas');
@@ -347,7 +362,8 @@ function validarPlanMes(DB, id, cuerpo, usuario) {
     }, usuario, { origen }).clave);
     planes.push({ id: planes.reduce((mx, p) => Math.max(mx, Number(p.id) || 0), 0) + 1, sucursal_id, mes, camino,
       tacticas: tacticas.map(t => t.id), metas: claves, plan_ia_id: plan.id, aprobado_por_id: usuario?.id ?? null, aprobado_en,
-      por_que_camino: plan.propuesta.por_que_camino });
+      por_que_camino: plan.propuesta.por_que_camino,
+      camino_forzado_por_servidor: plan.propuesta.camino_forzado === true, camino_cambiado_por_gerente: camino !== plan.propuesta.camino });
   } catch (e) {
     // Todo es síncrono: ninguna otra petición se mete entre estas altas, así que recortar las listas deshace todo.
     DB.pos.metas_personalizadas.length = largoMetas;
