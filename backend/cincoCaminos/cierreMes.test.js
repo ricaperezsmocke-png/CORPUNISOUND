@@ -142,8 +142,10 @@ const sumar = (dia, dias) => {
 let folio = 0;
 // Ocho semanas base (13 jul a 31 ago): 30 de mostrador y 30 con cliente nuevo = 50 % con cliente, 30 nuevos por semana.
 // Septiembre: 15 de mostrador y 30 con cliente = 66.7 % con cliente (+33 %) y los mismos 30 nuevos (0 %).
+// SICAR al dia: la ultima recepcion es posterior al fin de la ultima semana de septiembre (domingo 4 de octubre).
+const AL_DIA = '2026-10-07T18:00:00.000Z';
 function sembrarTienda(sqlite, suc) {
-  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id) VALUES (?)').run(suc);
+  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (?, ?)').run(suc, AL_DIA);
   for (let lunes = '2026-07-13'; lunes <= '2026-09-28'; lunes = sumar(lunes, 7)) {
     const mostrador = lunes >= '2026-09-07' ? 15 : 30;
     for (let j = 0; j < mostrador; j++) {
@@ -457,4 +459,32 @@ test('Evidencia: x de y de la pantalla cuenta igual que el cierre', () => {
   assert.deepEqual(avanceEvidencias(DB, viejo), [{ tactica_id: 4, meta_clave: 9, prueba: 'foto', requeridas: 4, hechas: 1 }]);
   const nuevo = { mes: SEPT, evidencias: [{ tactica_id: 4, meta_clave: 9, prueba: 'liga', requeridas: 3 }] };
   assert.deepEqual(avanceEvidencias(DB, nuevo), [{ tactica_id: 4, meta_clave: 9, prueba: 'liga', requeridas: 3, hechas: 1 }]);
+});
+
+// ---- Revision H3: no se cierra mientras SICAR no haya mandado todo el mes ----
+test('con SICAR atrasado no se cierra; cuando se pone al dia, la siguiente vuelta cierra con el dato completo', t => {
+  const { sqlite, DB } = prepararCierre(t, [1, 2]);
+  plan(DB, { sucursal_id: 1 });
+  plan(DB, { sucursal_id: 2 });
+  const recepcion = (suc, valor) => sqlite.prepare('UPDATE sicar_tiendas SET ultima_recepcion = ? WHERE sucursal_id = ?').run(valor, suc);
+  // Tienda 1: el agente se quedo el viernes 25 de septiembre. La tienda 2 esta al dia y si se cierra.
+  recepcion(1, '2026-09-25T23:00:00Z');
+  assert.deepEqual(cerrarMesesPendientes(sqlite, DB, { hoy: GRACIA }).map(c => c.sucursal_id), [2]);
+  assert.equal(tacticaDe(DB, 1).etiquetas['1'], undefined);
+  // El domingo 4 de octubre todavia es de septiembre: no alcanza.
+  recepcion(1, '2026-10-04T23:00:00-06:00');
+  assert.deepEqual(cerrarMesesPendientes(sqlite, DB, { hoy: sumar(GRACIA, 1) }), []);
+  // Sin recepcion o con una fecha ilegible, tampoco.
+  recepcion(1, null);
+  assert.deepEqual(cerrarMesesPendientes(sqlite, DB, { hoy: sumar(GRACIA, 1) }), []);
+  recepcion(1, 'basura');
+  assert.deepEqual(cerrarMesesPendientes(sqlite, DB, { hoy: sumar(GRACIA, 1) }), []);
+  // Una tienda sin fila de SICAR no se cierra.
+  sqlite.prepare('DELETE FROM sicar_tiendas WHERE sucursal_id = 3').run();
+  plan(DB, { sucursal_id: 3 });
+  // Al dia (lunes 5 de octubre, hora de Mexico): se cierra en la siguiente vuelta.
+  recepcion(1, '2026-10-05T07:00:00Z');
+  const hechos = cerrarMesesPendientes(sqlite, DB, { hoy: sumar(GRACIA, 2) });
+  assert.deepEqual(hechos.map(c => c.sucursal_id), [1]);
+  assert.equal(hechos[0].tacticas[0].resultado, 'probada');
 });

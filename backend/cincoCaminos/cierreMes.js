@@ -11,6 +11,7 @@ const { NUMEROS_META, formatearValor, valorDelPeriodo, primerDiaParaSellar } = r
 const { tableroTienda, numerosSemana, registrosDeTienda, promedio } = require('./tablero');
 const { semanaDe, sumarDias } = require('./semanas');
 const { finDePeriodo } = require('../metasPeriodos');
+const { fechaLocal } = require('../fechas');
 // Se llama como manual.fijarEtiqueta (no desestructurada): es la única forma de escribir una etiqueta.
 const manual = require('./manual');
 
@@ -261,9 +262,19 @@ function cerrarPlan(sqlite, DB, plan, hoy, cierres) {
   }
 }
 
+// ¿SICAR ya mandó todo el mes de esa tienda? Su última recepción (día de México) debe ser del día siguiente al último
+// domingo del mes o después. Sin fila, sin recepción o con fecha ilegible: no está al día. Falla cerrando.
+function sicarAlDia(sqlite, sucursal_id, mes) {
+  const fila = sqlite.prepare('SELECT ultima_recepcion FROM sicar_tiendas WHERE sucursal_id = ?').get(Number(sucursal_id));
+  const recibido = typeof fila?.ultima_recepcion === 'string' ? new Date(fila.ultima_recepcion) : null;
+  if (!recibido || Number.isNaN(recibido.getTime())) return false;
+  return fechaLocal(recibido) >= primerDiaParaSellar('mensual', `${mes}-01`);
+}
+
 /**
- * Cierra todo mes de plan aprobado que ya pasó su gracia y no tiene cierre. Sin SICAR no cierra nada (se reintenta en la
- * siguiente vuelta). Una tienda que truena no detiene a las demás. Devuelve los cierres nuevos; nunca recalcula ni borra.
+ * Cierra todo mes de plan aprobado que ya pasó su gracia y no tiene cierre. Sin SICAR, o con SICAR de esa tienda sin
+ * mandar todo el mes, no cierra (se reintenta en la siguiente vuelta). Una tienda que truena no detiene a las demás.
+ * Devuelve los cierres nuevos; nunca recalcula ni borra.
  */
 function cerrarMesesPendientes(sqlite, DB, { hoy }) {
   if (!sqlite) return [];
@@ -275,6 +286,7 @@ function cerrarMesesPendientes(sqlite, DB, { hoy }) {
   const hechos = [];
   for (const plan of pendientes) {
     try {
+      if (!sicarAlDia(sqlite, plan.sucursal_id, plan.mes)) continue;
       hechos.push(cerrarPlan(sqlite, DB, plan, hoy, cierres));
     } catch (e) {
       console.warn(`Cierre del mes ${plan.mes} de la tienda ${plan.sucursal_id} no se pudo hacer; se reintenta en la siguiente vuelta:`, e.message);
