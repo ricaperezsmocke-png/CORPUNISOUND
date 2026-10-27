@@ -4,7 +4,7 @@ import { leer } from "../objetivos/datos";
 import { contadorDePeticiones } from "../sicar/cortesSicar";
 import { textoPorcentajeMeta, textoResultadoMeta } from "./avanceMetas.js";
 import {
-  cuerpoProponer, etiquetaResultado, mesTerminado, mesesVisibles, nombreCamino, puedeProponer, textoAprobado, textoCalificado, textoEvidencia,
+  avanceVisible, cuerpoProponer, etiquetaResultado, mesTerminado, mesesVisibles, nombreCamino, puedeProponer, textoAprobado, textoCalificado, textoEvidencia,
   textoSeCalifica, textoSeHizo,
 } from "./planMes.js";
 import PlanMesRevision from "./PlanMesRevision.jsx";
@@ -77,7 +77,7 @@ function PlanAprobado({ plan, hoy }) {
         <p className="text-xs font-semibold uppercase text-slate-500">Tácticas</p>
         <ul className="list-disc pl-5 text-sm text-slate-800">
           {plan.tacticas.map((t) => (
-            <TacticaDelPlan key={t.id} t={t} avance={evidencias.find((e) => e.tactica_id === t.id)} abierto={!plan.cierre && !terminado} />
+            <TacticaDelPlan key={t.id} t={t} avance={evidencias.find((e) => e.tactica_id === t.id)} abierto={avanceVisible(plan)} />
           ))}
         </ul>
       </div>

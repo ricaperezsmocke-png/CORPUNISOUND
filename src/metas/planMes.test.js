@@ -281,3 +281,12 @@ test("mesTerminado y mesesVisibles: se pueden ver los 3 meses anteriores; planea
   assert.deepEqual(meses.map((m) => m.planificable), [false, false, false, true, true]);
   assert.equal(meses[2].etiqueta, "diciembre 2025");
 });
+
+// ---- Revision H8: el avance de evidencia se ve hasta que exista el cierre, tambien en los dias de gracia ----
+import { avanceVisible } from "./planMes.js";
+
+test("avanceVisible: con el mes terminado y sin cierre se sigue viendo; con cierre ya no", () => {
+  assert.equal(avanceVisible({ mes: "2026-10" }), true);
+  assert.equal(avanceVisible({ mes: "2026-10", cierre: null }), true);
+  assert.equal(avanceVisible({ mes: "2026-10", cierre: { id: 1, tacticas: [] } }), false);
+});

@@ -325,7 +325,7 @@ test('el mismo mes del año anterior es la base cuando tiene dato', t => {
   const [a] = DB.pos.cinco_caminos.cierres[0].tacticas;
   assert.equal(a.base_tipo, 'mismo_mes');
   assert.equal(a.base, 600);
-  assert.match(tacticaDe(DB, 1).etiquetas['1'].resultado, /60\.0 % → 66\.7 % \(\+11\.2 %\) contra mismo mes 2025/);
+  assert.match(tacticaDe(DB, 1).etiquetas['1'].resultado, /60\.0 % → 66\.7 % \(\+11\.1 %\) contra mismo mes 2025/);
 });
 
 test('restaurar: cierres arranca como arreglo sin pisar el que hay, y tras restaurar se cierra lo pendiente', t => {
@@ -520,3 +520,36 @@ function promedioDe(valores) {
   const numeros = valores.filter(v => typeof v === 'number');
   return Math.round((numeros.reduce((a, b) => a + b, 0) / numeros.length) * 10) / 10;
 }
+
+// ---- Revision H4: el porcentaje del texto se trunca hacia cero y nunca contradice la decision ----
+test('+4.96 % se escribe +4.9 % (no_funciono) y +5.0 % exacto sigue siendo probada', () => {
+  const casi = evaluarTactica(tactica({ valor: 10496, candado: null }));
+  assert.equal(casi.resultado, 'no_funciono');
+  assert.equal(casi.cambio_pct, 4.9);
+  assert.match(casi.texto, /\(\+4\.9 %\)/);
+  const justo = evaluarTactica(tactica({ valor: 10500, candado: null }));
+  assert.equal(justo.resultado, 'probada');
+  assert.match(justo.texto, /\(\+5\.0 %\)/);
+  assert.equal(evaluarTactica(tactica({ valor: 9504, candado: null })).cambio_pct, -4.9, 'hacia cero tambien en negativo');
+});
+
+test('candado en -5.04 % cae y el texto no dice -5.0 %; en -4.96 % y -5.0 % exacto no cae y dice -4.9 % y -5.0 %', () => {
+  const cae = evaluarTactica(tactica({ valor: 12000, candado_valor: 9496, candado_base: 10000 }));
+  assert.equal(cae.resultado, 'no_funciono');
+  assert.doesNotMatch(cae.texto, /-5\.0 %/);
+  assert.match(cae.texto, /cayó -5\.04 %/);
+  assert.equal(cae.candado_cambio_pct, -5.04);
+  const borde = evaluarTactica(tactica({ valor: 12000, candado_valor: 9500, candado_base: 10000 }));
+  assert.equal(borde.resultado, 'probada');
+  assert.equal(borde.candado_cambio_pct, -5);
+  const casi = evaluarTactica(tactica({ valor: 12000, candado_valor: 9504, candado_base: 10000 }));
+  assert.equal(casi.candado_cambio_pct, -4.9);
+  // Una caida apenas mayor al umbral nunca se escribe como el umbral, ni en el Radar (-30 %).
+  const poquito = evaluarTactica(tactica({ valor: 12000, candado_valor: 949999, candado_base: 1000000 }));
+  assert.equal(poquito.resultado, 'no_funciono');
+  assert.match(poquito.texto, /cayó -5\.01 %/);
+  const radar = evaluarTactica(tactica({ numero: 'conversion', valor: 300, base: 250, candado: 'registros_por_10_tickets', candado_valor: 6996,
+    candado_base: 10000 }));
+  assert.equal(radar.resultado, 'no_funciono');
+  assert.match(radar.texto, /cayó -30\.04 %/);
+});

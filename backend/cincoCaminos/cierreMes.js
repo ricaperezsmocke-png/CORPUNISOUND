@@ -32,8 +32,19 @@ const LECTORES = {
 const esNumero = v => typeof v === 'number' && Number.isFinite(v);
 const nombre = n => LECTORES[n]?.etiqueta || n;
 const legible = (n, v) => (n === RADAR ? (v / 100).toFixed(2) : formatearValor(n, v));
-const cambioPct = (valor, base) => (esNumero(valor) && esNumero(base) && base > 0 ? Math.round(((valor - base) * 1000) / base) / 10 : null);
-const conSigno = pct => `${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %`;
+// Cambio en %, truncado hacia cero a una décima: +4.96 % es +4.9 % y nunca se lee como el +5.0 % que sí cuenta.
+const cambioPct = (valor, base) => (esNumero(valor) && esNumero(base) && base > 0 ? Math.trunc(((valor - base) * 1000) / base) / 10 : null);
+// Cambio del candado con la misma regla que decide si cayó: truncado hacia cero, salvo que cayó y truncado quedaría
+// en el umbral (-5.04 % sería "-5.0 %"); entonces va en centésimas y por arriba del umbral (-5.04 %, -5.01 %).
+function cambioCandado(r) {
+  const pct = cambioPct(r.candado_valor, r.candado_base);
+  if (pct === null || !cayoElCandado(r)) return pct;
+  const umbral = (r.candado === RADAR ? CAE_PCT_RADAR : CAE_PCT) - 100;
+  if (pct < umbral) return pct;
+  const centesimas = Math.min(Math.trunc(((r.candado_valor - r.candado_base) * 10000) / r.candado_base), umbral * 100 - 1);
+  return centesimas / 100;
+}
+const conSigno = pct => `${pct >= 0 ? '+' : ''}${pct.toFixed(Number.isInteger(Math.round(pct * 100) / 10) ? 1 : 2)} %`;
 
 // Capturas que cuentan: de la meta ligada, no anuladas, con fecha dentro del mes y CON evidencia (foto o liga).
 // Cada captura vale 1: la cantidad no cuenta, porque una captura sin prueba puede decir cualquier número.
@@ -100,7 +111,7 @@ function evaluarTactica(t) {
     id: t.id, como_se_mide: t.como_se_mide, numero: t.numero, valor: esNumero(t.valor) ? t.valor : null, base: esNumero(t.base) ? t.base : null,
     base_tipo: esNumero(t.base) ? t.base_tipo || null : null, cambio_pct: cambioPct(t.valor, t.base), candado: t.candado || null,
     candado_valor: esNumero(t.candado_valor) ? t.candado_valor : null, candado_base: esNumero(t.candado_base) ? t.candado_base : null,
-    candado_cambio_pct: t.candado ? cambioPct(t.candado_valor, t.candado_base) : null, evidencia: ev.registro,
+    candado_cambio_pct: t.candado ? cambioCandado(t) : null, evidencia: ev.registro,
     resultado: calificar(t, ev), en_conjunto_con: null,
   };
   registro.texto = textoResultado(registro, t.mes);

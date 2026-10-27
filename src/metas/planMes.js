@@ -187,6 +187,8 @@ export const textoCalificado = (cierre) => `Calificado por el sistema el ${dia(c
 // Un día suelto de la tienda ('AAAA-MM-DD') se escribe tal cual, sin pasar por zonas horarias.
 export const textoSeCalifica = (fecha) => `Se califica el ${fecha.slice(8, 10)}/${fecha.slice(5, 7)}/${fecha.slice(0, 4)}`;
 export const mesTerminado = (mes, hoy) => hoy.slice(0, 7) > mes;
+// El avance de evidencia se ve hasta que exista el cierre: en los días de gracia todavía se suben y anulan capturas.
+export const avanceVisible = (plan) => !plan?.cierre;
 
 // Solo las tácticas que el servidor deja elegir: activas y no de fase 2 o 3.
 export function opcionesTacticas(manual) {
