@@ -36,13 +36,14 @@ const conSigno = pct => `${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %`;
 
 // Capturas que cuentan: de la meta ligada, no anuladas y con fecha dentro del mes.
 function contarEvidencia(evidencia, mes) {
-  if (!evidencia) return { registro: null, hecha: false };
+  if (!evidencia) return { registro: null, hecha: false, suma: 0 };
   const validas = (evidencia.capturas || []).filter(c => c && !c.anulada && typeof c.fecha === 'string' && c.fecha.slice(0, 7) === mes);
   const suma = validas.reduce((s, c) => s + (Number.isInteger(c.cantidad) ? c.cantidad : 0), 0);
   const requeridas = Number(evidencia.requeridas);
   return {
     registro: { meta_clave: evidencia.meta_clave, requeridas, capturas_contadas: validas.map(c => c.id) },
     hecha: Number.isInteger(requeridas) && requeridas > 0 && suma >= requeridas,
+    suma,
   };
 }
 
@@ -182,7 +183,18 @@ function evidenciaDe(DB, plan, tacticaId) {
   const versiones = (DB.pos.metas_personalizadas || []).filter(m => m.clave === clave);
   if (!versiones.length) return null;
   const ultima = versiones.reduce((a, b) => (b.version > a.version ? b : a));
-  return { meta_clave: clave, requeridas: ultima.valor_meta, capturas: (DB.pos.meta_capturas || []).filter(c => c.meta_clave === clave) };
+  return { meta_clave: clave, prueba: ultima.prueba, requeridas: ultima.valor_meta,
+    capturas: (DB.pos.meta_capturas || []).filter(c => c.meta_clave === clave) };
+}
+
+/** Avance de la evidencia de cada táctica del plan, contada igual que en el cierre (no anuladas y dentro del mes). */
+function avanceEvidencias(DB, plan) {
+  return (Array.isArray(plan.evidencias) ? plan.evidencias : []).flatMap(e => {
+    const ev = evidenciaDe(DB, plan, Number(e?.tactica_id));
+    if (!ev) return [];
+    return [{ tactica_id: Number(e.tactica_id), meta_clave: ev.meta_clave, prueba: ev.prueba, requeridas: ev.requeridas,
+      hechas: contarEvidencia(ev, plan.mes).suma }];
+  });
 }
 
 function tacticaDelManual(DB, id) {
@@ -256,4 +268,6 @@ function cerrarMesesPendientes(sqlite, DB, { hoy }) {
   return hechos;
 }
 
-module.exports = { evaluarTactica, evaluarPlan, textoResultado, cerrarMesesPendientes, asegurarCierres, diaDeCierre, LECTORES, RADAR };
+module.exports = {
+  evaluarTactica, evaluarPlan, textoResultado, cerrarMesesPendientes, asegurarCierres, diaDeCierre, avanceEvidencias, LECTORES, RADAR,
+};

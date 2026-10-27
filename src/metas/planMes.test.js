@@ -191,3 +191,93 @@ test("avisoDescuento: camino final conversion y una tactica aceptada que habla d
 test("textoAprobado: sin fecha no truena", () => {
   assert.equal(textoAprobado({ aprobado_por_nombre: "Ana" }), "Aprobado por Ana");
 });
+
+// ---- P5, Task 5: evidencia al aprobar y resultado del mes ----
+import {
+  etiquetaResultado, mesTerminado, mesesVisibles, necesitaEvidencia, textoCalificado, textoEvidencia, textoSeCalifica, textoSeHizo,
+} from "./planMes.js";
+
+const manualP5 = [{ id: 4, activa: true, como_se_mide: "evidencia" }, { id: 9, activa: true, como_se_mide: "sistema" },
+  { id: 12, activa: true, como_se_mide: "sistema_y_evidencia" }];
+const soloAceptar = (e) => ({ ...e, tacticas: { ...e.tacticas, 9: { ...e.tacticas[9], decision: "aceptar" } } });
+const sinRechazo = { ...propuesta, tacticas: propuesta.tacticas.map((t) => ({ ...t, rechazada: undefined })) };
+
+test("necesitaEvidencia: solo las tacticas por evidencia o sistema y evidencia", () => {
+  assert.equal(necesitaEvidencia(4, manualP5), true);
+  assert.equal(necesitaEvidencia(12, manualP5), true);
+  assert.equal(necesitaEvidencia(9, manualP5), false);
+  assert.equal(necesitaEvidencia(4, null), false);
+});
+
+test("estadoInicialPlan: cada tactica arranca con foto y 1 vez", () => {
+  const e = estadoInicialPlan(propuesta);
+  assert.equal(e.tacticas[4].prueba, "foto");
+  assert.equal(e.tacticas[4].veces, "1");
+});
+
+test("cuerpoValidar: con el manual, la tactica por evidencia lleva prueba y veces; la de sistema no", () => {
+  const e = soloAceptar(estadoInicialPlan(sinRechazo));
+  e.tacticas[4] = { ...e.tacticas[4], prueba: "liga", veces: "4" };
+  const r = cuerpoValidar(sinRechazo, e, manualP5);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.cuerpo.tacticas, [{ id: 4, decision: "aceptar", prueba: "liga", veces: 4 }, { id: 9, decision: "aceptar" }]);
+});
+
+test("cuerpoValidar: la tactica elegida al cambiar usa su propia forma de medirse", () => {
+  const e = soloAceptar(estadoInicialPlan(sinRechazo));
+  e.tacticas[9] = { ...e.tacticas[9], decision: "cambiar", nuevo_id: "12", veces: "2" };
+  const r = cuerpoValidar(sinRechazo, e, manualP5);
+  assert.deepEqual(r.cuerpo.tacticas[1], { id: 9, decision: "cambiar", nuevo_id: 12, prueba: "foto", veces: 2 });
+});
+
+test("cuerpoValidar: veces fuera de 1 a 31 o con decimales no se envia", () => {
+  for (const veces of ["0", "32", "1.5", "", "dos"]) {
+    const e = soloAceptar(estadoInicialPlan(sinRechazo));
+    e.tacticas[4] = { ...e.tacticas[4], veces };
+    const r = cuerpoValidar(sinRechazo, e, manualP5);
+    assert.equal(r.ok, false, veces);
+    assert.match(r.error, /1 a 31/);
+  }
+  const e = soloAceptar(estadoInicialPlan(sinRechazo));
+  e.tacticas[4] = { ...e.tacticas[4], prueba: "video" };
+  assert.equal(cuerpoValidar(sinRechazo, e, manualP5).ok, false);
+});
+
+test("textoEvidencia: avance de la meta de evidencia", () => {
+  assert.equal(textoEvidencia({ hechas: 1, requeridas: 3 }), "Evidencia: 1 de 3");
+  assert.equal(textoEvidencia({ hechas: 0, requeridas: 1, prueba: "liga" }), "Evidencia: 0 de 1");
+});
+
+test("etiquetaResultado: probada verde, no funciono rojo, no se hizo y sin dato gris", () => {
+  assert.equal(etiquetaResultado("probada").texto, "Probada");
+  assert.match(etiquetaResultado("probada").clase, /emerald/);
+  assert.equal(etiquetaResultado("no_funciono").texto, "No funcionó");
+  assert.match(etiquetaResultado("no_funciono").clase, /red/);
+  assert.equal(etiquetaResultado("no_se_hizo").texto, "No se hizo");
+  assert.match(etiquetaResultado("no_se_hizo").clase, /slate/);
+  assert.equal(etiquetaResultado("sin_dato").texto, "Sin dato");
+  assert.match(etiquetaResultado("sin_dato").clase, /slate/);
+  assert.equal(etiquetaResultado("otra").texto, "Sin dato");
+});
+
+test("textoSeHizo: no se hizo es No; lo demas medible es Si", () => {
+  assert.equal(textoSeHizo({ resultado: "no_se_hizo", como_se_mide: "evidencia" }), "No");
+  assert.equal(textoSeHizo({ resultado: "probada", como_se_mide: "sistema" }), "Sí");
+  assert.equal(textoSeHizo({ resultado: "sin_dato", como_se_mide: "sistema_y_evidencia" }), "Sí");
+  assert.equal(textoSeHizo({ resultado: "sin_dato", como_se_mide: "fase_3" }), "Sin dato");
+});
+
+test("textos del cierre: calificado y cuando se califica, en dias de la tienda", () => {
+  assert.equal(textoCalificado({ cerrado_en: "2026-10-08T15:00:00.000Z" }), "Calificado por el sistema el 08/10/2026. No se edita a mano.");
+  assert.equal(textoCalificado({ cerrado_en: "2026-10-09T03:00:00.000Z" }), "Calificado por el sistema el 08/10/2026. No se edita a mano.");
+  assert.equal(textoSeCalifica("2026-11-05"), "Se califica el 05/11/2026");
+});
+
+test("mesTerminado y mesesVisibles: se pueden ver los 3 meses anteriores; planear, solo el actual y el siguiente", () => {
+  assert.equal(mesTerminado("2026-10", "2026-11-02"), true);
+  assert.equal(mesTerminado("2026-10", "2026-10-31"), false);
+  const meses = mesesVisibles("2026-01-15");
+  assert.deepEqual(meses.map((m) => m.mes), ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02"]);
+  assert.deepEqual(meses.map((m) => m.planificable), [false, false, false, true, true]);
+  assert.equal(meses[2].etiqueta, "diciembre 2025");
+});

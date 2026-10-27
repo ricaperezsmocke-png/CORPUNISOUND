@@ -16,6 +16,7 @@ const M = require('../metasPersonalizadas');
 const { pedirAlModelo, planesDeHoy, errorCon, MENSAJE_FALLA, LIMITE_DIARIO, TIMEOUT_MS } = require('../planIA');
 const { asegurar } = require('./juntas');
 const { fechaLocal } = require('../fechas');
+const { avanceEvidencias, diaDeCierre } = require('./cierreMes');
 
 const CAMINOS_PLAN = ['calidad_dato', 'prospectos', 'conversion', 'compras_por_cliente', 'venta_promedio'];
 const RESPONSABLES = ['vendedores', 'encargado', 'compras', 'gerente'];
@@ -458,12 +459,17 @@ function verPlanMes(DB, { sucursal_id, mes, visor, hoy }) {
   const plan = planAprobado(DB, Number(sucursal_id), mes);
   if (!plan) return { plan: null };
   const manual = vistaManual(DB, { verTodas: false, sucursalId: Number(sucursal_id) });
-  const tacticas = plan.tacticas.map(id => ({ id, nombre: manual.find(t => t.id === id)?.nombre || `Táctica #${id}` }));
+  const tacticas = plan.tacticas.map(id => {
+    const t = manual.find(x => x.id === id);
+    return { id, nombre: t?.nombre || `Táctica #${id}`, como_se_mide: t?.como_se_mide || null };
+  });
   const metas = DB.pos.metas_personalizadas.filter(m => m.vigente && plan.metas.includes(m.clave)).map(m => avanceMeta(DB, m, visor, 1, hoy));
   // El nombre se arma al leer, nunca se guarda: quien ya no existe queda señalado.
   const usuario = plan.aprobado_por_id == null ? null : (DB.admin?.usuarios || []).find(u => Number(u.id) === Number(plan.aprobado_por_id));
   const aprobado_por_nombre = plan.aprobado_por_id == null ? null : (usuario?.nombre || `Usuario #${plan.aprobado_por_id} (ya no existe)`);
-  return { plan: { ...plan, aprobado_por_nombre, tacticas, metas } };
+  // Del cierre del mes (P5): la evidencia con su avance, el día en que se califica y el cierre cuando ya existe.
+  const cierre = (DB.pos.cinco_caminos?.cierres || []).find(c => c && Number(c.sucursal_id) === Number(plan.sucursal_id) && c.mes === plan.mes) || null;
+  return { plan: { ...plan, aprobado_por_nombre, tacticas, metas, evidencias: avanceEvidencias(DB, plan), fecha_calificacion: diaDeCierre(plan.mes), cierre } };
 }
 
 module.exports = {

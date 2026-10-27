@@ -606,3 +606,26 @@ test('una vendedora de la tienda captura "Hecho" con foto en la meta de evidenci
   assert.equal(captura.evidencia.tipo, 'foto');
   assert.equal(DB.pos.meta_capturas.length, 1);
 });
+
+// ---- P5, Task 5: el plan aprobado trae la evidencia con su avance, la fecha de calificacion y el cierre ----
+test('verPlanMes trae evidencias con su avance, la fecha en que se califica y el cierre cuando existe', async t => {
+  const { sqlite, DB } = preparar(t);
+  DB.pos.meta_capturas = [];
+  const plan = await proponer(sqlite, DB, conEvidencia());
+  validarPlanMes(DB, plan.id, decisionesEvidencia(plan, { prueba: 'liga', veces: 3 }), USUARIO);
+  const clave = DB.pos.cinco_caminos.planes_mes[0].evidencias[0].meta_clave;
+  DB.pos.meta_capturas.push({ id: 1, meta_clave: clave, fecha: '2026-10-02', cantidad: 1, anulada: null },
+    { id: 2, meta_clave: clave, fecha: '2026-10-03', cantidad: 1, anulada: { motivo: 'basura' } });
+  const { verPlanMes } = require('./planMes');
+  const visor = { vendedor_id: null, usuario_id: 1, jefatura: false, verTodas: true, sucursalId: 1 };
+  const vista = verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY }).plan;
+  assert.deepEqual(vista.evidencias, [{ tactica_id: 4, meta_clave: clave, prueba: 'liga', requeridas: 3, hechas: 1 }]);
+  assert.equal(vista.fecha_calificacion, '2026-11-05');
+  assert.equal(vista.cierre, null);
+  assert.equal(vista.tacticas.find(x => x.id === 4).como_se_mide, 'evidencia');
+  DB.pos.cinco_caminos.cierres = [{ id: 1, sucursal_id: 2, mes: MES, tacticas: [] }, { id: 2, sucursal_id: 1, mes: MES, cerrado_en: 'x', tacticas: [] }];
+  assert.equal(verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY }).plan.cierre.id, 2);
+  // Un plan anterior a P5 no trae evidencias: se lee como lista vacia.
+  delete DB.pos.cinco_caminos.planes_mes[0].evidencias;
+  assert.deepEqual(verPlanMes(DB, { sucursal_id: 1, mes: MES, visor, hoy: HOY }).plan.evidencias, []);
+});

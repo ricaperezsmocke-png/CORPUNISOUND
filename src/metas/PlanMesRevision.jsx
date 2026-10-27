@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import {
-  CAMINOS_PLAN, ROLES, avisosDelCamino, baseDeMeta, cifraDeMeta, cuerpoDescartar, cuerpoValidar, estadoInicialPlan, motivoValido, nombreCamino,
-  nombreNumero, opcionesParaPlan, avisoDescuento, resumenDecision, textoAjuste, textoDescartada, textoRango, textoRechazoTactica,
+  CAMINOS_PLAN, PRUEBAS_EVIDENCIA, ROLES, avisosDelCamino, baseDeMeta, cifraDeMeta, cuerpoDescartar, cuerpoValidar, estadoInicialPlan, motivoValido,
+  nombreCamino, necesitaEvidencia, nombreNumero, opcionesParaPlan, avisoDescuento, resumenDecision, textoAjuste, textoDescartada, textoRango,
+  textoRechazoTactica,
 } from "./planMes.js";
 
 const CAMPO = "block w-full neu-campo rounded-lg px-3 py-2 mt-1 text-sm";
@@ -97,8 +98,27 @@ function PuntoCamino({ propuesta, punto, cambiar }) {
   );
 }
 
-function PuntoTactica({ t, punto, cambiar, opciones, cargaManual }) {
+// Una táctica por evidencia se comprueba con foto o liga, de 1 a 31 veces en el mes: se crea su meta al aprobar.
+function EvidenciaTactica({ punto, cambiar }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <label className="text-sm block">Cómo se comprueba
+        <select className={CAMPO} value={punto.prueba} onChange={(e) => cambiar({ ...punto, prueba: e.target.value })}>
+          {PRUEBAS_EVIDENCIA.map((p) => <option key={p.clave} value={p.clave}>{p.nombre}</option>)}
+        </select>
+      </label>
+      <label className="text-sm block">Cuántas veces en el mes (1 a 31)
+        <input className={CAMPO} type="number" min={1} max={31} step={1} inputMode="numeric" value={punto.veces}
+          onChange={(e) => cambiar({ ...punto, veces: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }} />
+      </label>
+    </div>
+  );
+}
+
+function PuntoTactica({ t, punto, cambiar, opciones, cargaManual, manual }) {
   const motivo = textoRechazoTactica(t);
+  const elegida = punto.decision === "cambiar" ? punto.nuevo_id : t.id;
+  const conEvidencia = punto.decision !== "rechazar" && necesitaEvidencia(elegida, manual);
   return (
     <li className={PUNTO}>
       <p className="text-sm font-semibold text-slate-900 break-words">{t.nombre}</p>
@@ -114,6 +134,7 @@ function PuntoTactica({ t, punto, cambiar, opciones, cargaManual }) {
           </select>
         </label>
       )}
+      {conEvidencia && <EvidenciaTactica punto={punto} cambiar={cambiar} />}
     </li>
   );
 }
@@ -164,7 +185,7 @@ export default function PlanMesRevision({ plan, cerrar, alTerminar }) {
   const cargaManual = manual === null ? "Cargando tácticas…" : "Elige una táctica";
   const poner = (llave, id, valor) => setEstado((e) => ({ ...e, [llave]: { ...e[llave], [id]: valor } }));
   const crear = async () => {
-    const r = cuerpoValidar(propuesta, estado);
+    const r = cuerpoValidar(propuesta, estado, manual);
     if (!r.ok) { setError(r.error); return; }
     setEnviando(true);
     setError("");
@@ -185,7 +206,8 @@ export default function PlanMesRevision({ plan, cerrar, alTerminar }) {
         {descuento && <p role="alert" className={NOTA_AMBAR}>{descuento}</p>}
         <ul className="space-y-2">
           {propuesta.tacticas.map((t) => (
-            <PuntoTactica key={t.id} t={t} punto={estado.tacticas[t.id]} cambiar={(p) => poner("tacticas", t.id, p)} opciones={opciones} cargaManual={cargaManual} />
+            <PuntoTactica key={t.id} t={t} punto={estado.tacticas[t.id]} cambiar={(p) => poner("tacticas", t.id, p)} opciones={opciones}
+              cargaManual={cargaManual} manual={manual} />
           ))}
         </ul>
         <h4 className="text-sm font-semibold text-slate-900">Metas</h4>

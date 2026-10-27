@@ -3,7 +3,10 @@ import { apiFetch } from "../api";
 import { leer } from "../objetivos/datos";
 import { contadorDePeticiones } from "../sicar/cortesSicar";
 import { textoPorcentajeMeta, textoResultadoMeta } from "./avanceMetas.js";
-import { cuerpoProponer, mesesPlanificables, nombreCamino, puedeProponer, textoAprobado } from "./planMes.js";
+import {
+  cuerpoProponer, etiquetaResultado, mesTerminado, mesesVisibles, nombreCamino, puedeProponer, textoAprobado, textoCalificado, textoEvidencia,
+  textoSeCalifica, textoSeHizo,
+} from "./planMes.js";
 import PlanMesRevision from "./PlanMesRevision.jsx";
 import { diaDeLaTienda } from "./tableroCincoCaminos.js";
 
@@ -14,8 +17,51 @@ const BOTON_PRINCIPAL = "px-4 py-2 text-sm text-white bg-blue-600 rounded-lg dis
 const NOTA_ROJA = "rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900";
 const NOTA_AMBAR = "rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900";
 const NOTA_GRIS = "text-xs text-slate-600";
+const PASTILLA = "inline-block rounded-full border px-2 py-0.5 text-xs font-semibold";
+const NOMBRE_PRUEBA = { foto: "foto", liga: "liga" };
 
-function PlanAprobado({ plan }) {
+// Resultado del mes: lo calificó el sistema solo, al cerrar el mes; nadie lo edita.
+function ResultadoDelMes({ plan }) {
+  const nombreDe = (id) => plan.tacticas.find((t) => t.id === id)?.nombre || `Táctica #${id}`;
+  return (
+    <section className="rounded-lg border border-slate-200 p-3 space-y-2 min-w-0" aria-label="Resultado del mes">
+      <p className="text-xs font-semibold uppercase text-slate-500">Resultado del mes</p>
+      <ul className="divide-y divide-slate-100">
+        {plan.cierre.tacticas.map((r) => {
+          const etiqueta = etiquetaResultado(r.resultado);
+          return (
+            <li key={r.id} className="py-2 text-sm space-y-1">
+              <p className="font-semibold text-slate-900 break-words">{nombreDe(r.id)}</p>
+              <p className="flex flex-wrap gap-2 items-center">
+                <span className={`${PASTILLA} ${etiqueta.clase}`}>{etiqueta.texto}</span>
+                <span className="text-slate-700">Se hizo: {textoSeHizo(r)}</span>
+              </p>
+              <p className="text-slate-700 break-words">{r.texto}</p>
+            </li>
+          );
+        })}
+      </ul>
+      <p className={NOTA_GRIS}>{textoCalificado(plan.cierre)}</p>
+    </section>
+  );
+}
+
+function TacticaDelPlan({ t, avance, abierto }) {
+  return (
+    <li className="break-words">
+      {t.nombre}
+      {avance && abierto && (
+        <span className="block text-xs text-slate-600">
+          Cómo se comprueba: {NOMBRE_PRUEBA[avance.prueba] || avance.prueba} · {textoEvidencia(avance)}
+        </span>
+      )}
+    </li>
+  );
+}
+
+function PlanAprobado({ plan, hoy }) {
+  const evidencias = Array.isArray(plan.evidencias) ? plan.evidencias : [];
+  const terminado = mesTerminado(plan.mes, hoy);
   const avisos = [];
   if (plan.camino_forzado_por_servidor) avisos.push("Sin dato de clientes o menos del 50 %: el camino es calidad del dato");
   if (plan.camino_cambiado_por_gerente) avisos.push("El gerente se apartó del camino que propuso el sistema");
@@ -29,8 +75,16 @@ function PlanAprobado({ plan }) {
       </div>
       <div>
         <p className="text-xs font-semibold uppercase text-slate-500">Tácticas</p>
-        <ul className="list-disc pl-5 text-sm text-slate-800">{plan.tacticas.map((t) => <li key={t.id} className="break-words">{t.nombre}</li>)}</ul>
+        <ul className="list-disc pl-5 text-sm text-slate-800">
+          {plan.tacticas.map((t) => (
+            <TacticaDelPlan key={t.id} t={t} avance={evidencias.find((e) => e.tactica_id === t.id)} abierto={!plan.cierre && !terminado} />
+          ))}
+        </ul>
       </div>
+      {plan.cierre && <ResultadoDelMes plan={plan} />}
+      {!plan.cierre && terminado && plan.fecha_calificacion && (
+        <p role="note" className={NOTA_AMBAR}>{textoSeCalifica(plan.fecha_calificacion)}</p>
+      )}
       <div>
         <p className="text-xs font-semibold uppercase text-slate-500">Metas</p>
         <ul className="divide-y divide-slate-100">
@@ -64,10 +118,25 @@ function Borradores({ lista, revisar }) {
   );
 }
 
+// Mes sin plan aprobado: en un mes que se puede planear, quien tiene permiso ve sus borradores.
+function SinPlan({ planificable, puede, borradores, revisar }) {
+  return (
+    <>
+      <p className="text-sm text-slate-500">
+        {planificable ? "Esta tienda todavía no tiene plan aprobado para este mes." : "Esta tienda no tuvo plan aprobado ese mes."}
+      </p>
+      {puede && planificable && <Borradores lista={borradores} revisar={revisar} />}
+    </>
+  );
+}
+
 // Plan del mes de la tienda. Ver pide ver_cinco_caminos; proponer, revisar y descartar, el permiso del planeador de metas.
 export default function PlanMes({ sucursal, permisos = [] }) {
-  const meses = useMemo(() => mesesPlanificables(diaDeLaTienda()), []);
-  const [mes, setMes] = useState(meses[0].mes);
+  const hoy = useMemo(() => diaDeLaTienda(), []);
+  const meses = useMemo(() => mesesVisibles(hoy), [hoy]);
+  // Se abre en el mes actual; los anteriores solo se ven (con su resultado), no se planean.
+  const [mes, setMes] = useState(hoy.slice(0, 7));
+  const planificable = meses.some((m) => m.mes === mes && m.planificable);
   const [datos, setDatos] = useState(null);
   const [borradores, setBorradores] = useState([]);
   const [errorCarga, setErrorCarga] = useState("");
@@ -124,7 +193,7 @@ export default function PlanMes({ sucursal, permisos = [] }) {
             {meses.map((m) => <option key={m.mes} value={m.mes}>{m.etiqueta}</option>)}
           </select>
         </label>
-        {puede && datos && !plan && (
+        {puede && planificable && datos && !plan && (
           <button type="button" className={BOTON_PRINCIPAL} disabled={enviando} onClick={proponer}>Proponer plan con IA</button>
         )}
       </div>
@@ -133,9 +202,10 @@ export default function PlanMes({ sucursal, permisos = [] }) {
       {errorCarga && <p role="alert" className={NOTA_ROJA}>{errorCarga}</p>}
       {aviso && <p role="status" className={NOTA_GRIS}>{aviso}</p>}
       {!datos && !errorCarga && <p className="text-sm text-slate-500">Cargando…</p>}
-      {plan && <PlanAprobado plan={plan} />}
-      {datos && !plan && <p className="text-sm text-slate-500">Esta tienda todavía no tiene plan aprobado para este mes.</p>}
-      {datos && !plan && puede && <Borradores lista={borradores} revisar={(b) => { setAviso(""); setRevisando(b); }} />}
+      {plan && <PlanAprobado plan={plan} hoy={hoy} />}
+      {datos && !plan && (
+        <SinPlan planificable={planificable} puede={puede} borradores={borradores} revisar={(b) => { setAviso(""); setRevisando(b); }} />
+      )}
       {revisando && <PlanMesRevision key={revisando.id} plan={revisando} cerrar={() => setRevisando(null)} alTerminar={terminar} />}
     </section>
   );

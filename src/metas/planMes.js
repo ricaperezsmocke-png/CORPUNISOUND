@@ -59,7 +59,8 @@ export function estadoInicialPlan(propuesta) {
   return {
     camino: { decision: "aceptar", camino: propuesta.camino },
     // Una táctica con descuento en conversión ya viene rechazada por el servidor: arranca rechazada.
-    tacticas: Object.fromEntries(propuesta.tacticas.map((t) => [t.id, { decision: t.rechazada ? "rechazar" : "aceptar", nuevo_id: "" }])),
+    // Una táctica por evidencia se comprueba, por omisión, con una foto en el mes.
+    tacticas: Object.fromEntries(propuesta.tacticas.map((t) => [t.id, { decision: t.rechazada ? "rechazar" : "aceptar", nuevo_id: "", prueba: "foto", veces: "1" }])),
     metas: Object.fromEntries(propuesta.metas.map((m) => [m.numero, { decision: "aceptar", valor: "" }])),
   };
 }
@@ -71,7 +72,26 @@ function cuerpoCamino(estado) {
   return { ok: true, valor: { decision: "cambiar", camino: d.camino } };
 }
 
-function cuerpoTacticas(propuesta, estado) {
+export const PRUEBAS_EVIDENCIA = [{ clave: "foto", nombre: "Foto" }, { clave: "liga", nombre: "Liga" }];
+const MAX_VECES = 31;
+const MEDIDAS_CON_EVIDENCIA = ["evidencia", "sistema_y_evidencia"];
+
+/** La táctica `id` del manual se comprueba con evidencia (foto o liga). Sin manual cargado no se sabe: false. */
+export function necesitaEvidencia(id, manual) {
+  const t = (Array.isArray(manual) ? manual : []).find((x) => x.id === Number(id));
+  return Boolean(t) && MEDIDAS_CON_EVIDENCIA.includes(t.como_se_mide);
+}
+
+// Cómo se comprueba y cuántas veces (1 a 31). Lo vuelve a revisar el servidor.
+function cuerpoEvidencia(d) {
+  if (!PRUEBAS_EVIDENCIA.some((p) => p.clave === d.prueba)) return { ok: false, error: "La evidencia se comprueba con foto o con liga." };
+  const texto = String(d.veces ?? "").trim();
+  const veces = /^\d+$/.test(texto) ? Number(texto) : NaN;
+  if (!Number.isInteger(veces) || veces < 1 || veces > MAX_VECES) return { ok: false, error: `Las veces de la evidencia van de 1 a ${MAX_VECES}.` };
+  return { ok: true, valor: { prueba: d.prueba, veces } };
+}
+
+function cuerpoTacticas(propuesta, estado, manual) {
   const usadas = new Set();
   const lista = [];
   for (const t of propuesta.tacticas) {
@@ -81,7 +101,11 @@ function cuerpoTacticas(propuesta, estado) {
     if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: "Elige la táctica por la que vas a cambiar." };
     if (usadas.has(id)) return { ok: false, error: "No se puede repetir una táctica." };
     usadas.add(id);
-    lista.push(d.decision === "cambiar" ? { id: t.id, decision: "cambiar", nuevo_id: id } : { id: t.id, decision: "aceptar" });
+    const base = d.decision === "cambiar" ? { id: t.id, decision: "cambiar", nuevo_id: id } : { id: t.id, decision: "aceptar" };
+    if (!necesitaEvidencia(id, manual)) { lista.push(base); continue; }
+    const evidencia = cuerpoEvidencia(d);
+    if (!evidencia.ok) return evidencia;
+    lista.push({ ...base, ...evidencia.valor });
   }
   if (!usadas.size) return { ok: false, error: "Acepta al menos una táctica." };
   return { ok: true, valor: lista };
@@ -110,11 +134,14 @@ function cuerpoMetas(propuesta, estado) {
   return { ok: true, valor: lista };
 }
 
-/** Del estado de la pantalla al cuerpo de POST .../validar. Devuelve { ok, cuerpo } o { ok: false, error }. */
-export function cuerpoValidar(propuesta, estado) {
+/**
+ * Del estado de la pantalla al cuerpo de POST .../validar. Devuelve { ok, cuerpo } o { ok: false, error }.
+ * Con el `manual` cargado, cada táctica por evidencia lleva su `prueba` y sus `veces`; sin él, el servidor usa foto y 1.
+ */
+export function cuerpoValidar(propuesta, estado, manual = null) {
   const camino = cuerpoCamino(estado);
   if (!camino.ok) return camino;
-  const tacticas = cuerpoTacticas(propuesta, estado);
+  const tacticas = cuerpoTacticas(propuesta, estado, manual);
   if (!tacticas.ok) return tacticas;
   const metas = cuerpoMetas(propuesta, estado);
   if (!metas.ok) return metas;
@@ -125,12 +152,41 @@ export const cuerpoProponer = (sucursal, mes) => ({ sucursal_id: Number(sucursal
 export const cuerpoDescartar = (motivo) => ({ motivo: motivo.trim() });
 export const motivoValido = (motivo) => typeof motivo === "string" && motivo.trim().length >= 3 && motivo.trim().length <= 300;
 
+const mesConEtiqueta = ([a, m]) => ({ mes: `${a}-${String(m).padStart(2, "0")}`, etiqueta: `${MESES[m - 1]} ${a}` });
+const moverMes = ([a, m], n) => {
+  const total = a * 12 + (m - 1) + n;
+  return [Math.floor(total / 12), (total % 12) + 1];
+};
+
 // El servidor solo planea el mes actual y el siguiente.
 export function mesesPlanificables(hoy) {
-  const [anio, mes] = hoy.split("-").map(Number);
-  const siguiente = mes === 12 ? [anio + 1, 1] : [anio, mes + 1];
-  return [[anio, mes], siguiente].map(([a, m]) => ({ mes: `${a}-${String(m).padStart(2, "0")}`, etiqueta: `${MESES[m - 1]} ${a}` }));
+  const actual = hoy.split("-").slice(0, 2).map(Number);
+  return [actual, moverMes(actual, 1)].map(mesConEtiqueta);
 }
+
+// Para VER: los 3 meses anteriores (con su resultado) y los dos que se pueden planear.
+export function mesesVisibles(hoy) {
+  const actual = hoy.split("-").slice(0, 2).map(Number);
+  return [-3, -2, -1, 0, 1].map((n) => ({ ...mesConEtiqueta(moverMes(actual, n)), planificable: n >= 0 }));
+}
+
+// ---- Resultado del mes (P5): lo califica el sistema solo; nadie lo edita ----
+const ETIQUETAS_RESULTADO = {
+  probada: { texto: "Probada", clase: "bg-emerald-100 text-emerald-900 border-emerald-300" },
+  no_funciono: { texto: "No funcionó", clase: "bg-red-100 text-red-900 border-red-300" },
+  no_se_hizo: { texto: "No se hizo", clase: "bg-slate-100 text-slate-700 border-slate-300" },
+  sin_dato: { texto: "Sin dato", clase: "bg-slate-100 text-slate-700 border-slate-300" },
+};
+export const etiquetaResultado = (resultado) => ETIQUETAS_RESULTADO[resultado] || ETIQUETAS_RESULTADO.sin_dato;
+export const textoEvidencia = (avance) => `Evidencia: ${avance.hechas} de ${avance.requeridas}`;
+export function textoSeHizo(r) {
+  if (r.resultado === "no_se_hizo") return "No";
+  return ["sistema", ...MEDIDAS_CON_EVIDENCIA].includes(r.como_se_mide) ? "Sí" : "Sin dato";
+}
+export const textoCalificado = (cierre) => `Calificado por el sistema el ${dia(cierre.cerrado_en)}. No se edita a mano.`;
+// Un día suelto de la tienda ('AAAA-MM-DD') se escribe tal cual, sin pasar por zonas horarias.
+export const textoSeCalifica = (fecha) => `Se califica el ${fecha.slice(8, 10)}/${fecha.slice(5, 7)}/${fecha.slice(0, 4)}`;
+export const mesTerminado = (mes, hoy) => hoy.slice(0, 7) > mes;
 
 // Solo las tácticas que el servidor deja elegir: activas y no de fase 2 o 3.
 export function opcionesTacticas(manual) {
