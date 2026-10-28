@@ -25,8 +25,17 @@
  * ninguna contraseña, y la respuesta es la misma, así que no sirven de oráculo.
  */
 
-const { verificarPassword } = require("./auth");
+const crypto = require("crypto");
+const { verificarPassword, hashearPassword } = require("./auth");
 const { crearRegistroIntentos, estaBloqueado, registrarFallo, registrarExito } = require("./intentosLogin");
+
+// Hash de una contraseña al azar que nadie conoce, generado UNA vez al cargar
+// el módulo (con el mismo costo que los reales). Cuando la cuenta no existe,
+// está inactiva o el par está bloqueado, la contraseña se compara igual contra
+// este hash y el resultado se tira: así todas las respuestas tardan lo mismo y
+// el tiempo no dice si la cuenta existe ni si la adivinanza anterior acertó
+// (revisión 2026-10-27, R2 y R3).
+const HASH_FICTICIO = hashearPassword(crypto.randomBytes(32).toString("hex"));
 
 const MENSAJE_RECHAZO = "La autorización no es válida";
 
@@ -81,6 +90,8 @@ function creadaPorQuienPide(autorizador, solicitante) {
  */
 async function verificarAutorizador(DB, credenciales, opciones) {
   const { solicitante, permiso, sucursalId, resolverPermisosDeRol, registro } = opciones || {};
+  // Inyectable solo para las pruebas (contar comparaciones sin medir tiempo).
+  const verificar = opciones?.verificarPassword || verificarPassword;
   exigirOpciones(registro, resolverPermisosDeRol, permiso);
   const claveAut = `aut:${normalizar(credenciales?.usuario)}`;
   const claveSol = `sol:${Number(solicitante?.id)}`;
@@ -91,15 +102,28 @@ async function verificarAutorizador(DB, credenciales, opciones) {
     return rechazo();
   };
 
+  // Compara contra el hash ficticio y descarta el resultado: solo gasta el
+  // mismo tiempo que una comparación real.
+  const gastarComparacion = async () => {
+    try { await verificar(credenciales.password, await HASH_FICTICIO); } catch { /* da igual: se rechaza */ }
+  };
+
   if (!credencialesBienFormadas(credenciales)) throw rechazo();
-  // Bloqueado: el mismo 403 genérico, y la contraseña ni se revisa.
-  if (estaBloqueado(registro, claveAut).bloqueado || estaBloqueado(registro, claveSol).bloqueado) throw rechazo();
+  // Bloqueado: el mismo 403 genérico. La contraseña real ni se revisa, pero
+  // se gasta lo mismo que si se revisara.
+  if (estaBloqueado(registro, claveAut).bloqueado || estaBloqueado(registro, claveSol).bloqueado) {
+    await gastarComparacion();
+    throw rechazo();
+  }
 
   const clave = normalizar(credenciales.usuario);
   const autorizador = DB.admin.usuarios.find((u) => normalizar(String(u.usuario)) === clave);
-  if (!autorizador?.activo) throw fallar();
+  if (!autorizador?.activo) {
+    await gastarComparacion();
+    throw fallar();
+  }
   let coincide = false;
-  try { coincide = await verificarPassword(credenciales.password, autorizador.password_hash); }
+  try { coincide = await verificar(credenciales.password, autorizador.password_hash); }
   catch { throw fallar(); }
   if (!coincide) throw fallar();
   // De aquí en adelante la contraseña es correcta: se rechaza sin contar.

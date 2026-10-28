@@ -109,6 +109,60 @@ test("cuentas viejas sin creado_por_id (null o ausente) autorizan como siempre",
   assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, sinId)).id, 2);
 });
 
+// Revisión 2026-10-27, R2 y R3: sin bcrypt en estos casos la respuesta era más
+// rápida y el tiempo decía si la cuenta existía o si la adivinanza anterior
+// había acertado. No se mide tiempo (inestable): se exige que la comparación
+// corra igual, contando llamadas a un verificador falso.
+function verificadorQueCuenta(respuesta) {
+  const v = async (password, hash) => { v.llamadas.push(hash); return v.respuesta; };
+  v.llamadas = [];
+  v.respuesta = respuesta;
+  return v;
+}
+
+test("usuario inexistente o inactivo: la contraseña se compara igual, contra un hash ficticio, y se rechaza", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios.push({ id: 5, nombre: "Baja", usuario: "baja", rol_id: 2, sucursal_id: 1, activo: false, password_hash: HASH });
+  for (const usuario of ["nadie", "baja"]) {
+    // Aunque el verificador diga que sí: sin cuenta activa no hay autorización.
+    const v = verificadorQueCuenta(true);
+    await assert.rejects(verificarAutorizador(DB, { usuario, password: CLAVE },
+      opciones(DB, crearRegistroAutorizador(), { verificarPassword: v })),
+    (e) => e.status === 403 && e.message === "La autorización no es válida", usuario);
+    assert.strictEqual(v.llamadas.length, 1, usuario);
+    assert.notStrictEqual(v.llamadas[0], HASH, `${usuario}: compara contra el ficticio, no contra el de la cuenta`);
+    assert.match(String(v.llamadas[0]), /^\$2[aby]\$10\$/, `${usuario}: el ficticio es un bcrypt del mismo costo`);
+  }
+});
+
+test("bloqueado (por autorizador o por quien pide): la contraseña se compara igual y se rechaza", async () => {
+  for (const bloquear of ["autorizador", "solicitante"]) {
+    const DB = prepararDB();
+    const reg = crearRegistroAutorizador();
+    const v = verificadorQueCuenta(false);
+    for (let i = 0; i < 5; i++) {
+      const cred = bloquear === "autorizador" ? { usuario: "super", password: "x" } : { usuario: `nadie${i}`, password: "x" };
+      const extra = bloquear === "autorizador" ? { solicitante: { id: 100 + i } } : {};
+      await assert.rejects(verificarAutorizador(DB, cred, opciones(DB, reg, { verificarPassword: v, ...extra })));
+    }
+    v.llamadas = [];
+    v.respuesta = true;
+    await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg, { verificarPassword: v })),
+      (e) => e.status === 403 && e.message === "La autorización no es válida", bloquear);
+    assert.strictEqual(v.llamadas.length, 1, bloquear);
+    assert.notStrictEqual(v.llamadas[0], HASH, `${bloquear}: el bloqueo no revisa la contraseña real`);
+  }
+});
+
+test("con el verificador inyectado, el camino normal compara contra el hash de la cuenta", async () => {
+  const DB = prepararDB();
+  const v = verificadorQueCuenta(true);
+  const r = await verificarAutorizador(DB, { usuario: "super", password: "lo-que-sea" },
+    opciones(DB, crearRegistroAutorizador(), { verificarPassword: v }));
+  assert.strictEqual(r.id, 2);
+  assert.deepStrictEqual(v.llamadas, [HASH]);
+});
+
 test("5 contraseñas malas bloquean: la sexta, aun buena, se rechaza", async () => {
   const DB = prepararDB();
   const reg = crearRegistroAutorizador();
