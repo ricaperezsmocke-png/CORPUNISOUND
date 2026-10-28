@@ -1514,13 +1514,17 @@ app.get("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", res
 // El botón "Dar de alta personal" está gateado con dar_alta_personal en el
 // frontend (AdminRoles.jsx); la ruta debe exigir la MISMA clave que el botón.
 // Permisos que nunca da quien no tiene alcance global, aunque los tenga él.
-const PERMISOS_SOLO_ALTA_GLOBAL = ["ver_todas_las_sucursales", "administrar_roles"];
+// Los de autorizar tampoco: con ellos se armaba una cuenta títere que le
+// autorizaba a quien la creó (revisión 2026-10-27, R1).
+const PERMISOS_SOLO_ALTA_GLOBAL = [
+  "ver_todas_las_sucursales", "administrar_roles", "autorizar_monedero", "autorizar_cancelaciones",
+];
 
 // Alta de personal sin escalada (auditoría de permisos 2026-10, A1). Con alcance
 // global, como siempre. Sin él: solo en SU sucursal (la del token) y solo con un
 // rol cuyos permisos sean un subconjunto de los suyos y que no dé alcance global
-// ni administre roles. Antes se creaba un Administrador con solo
-// `dar_alta_personal`. Lista de lo permitido: un rol que no existe se rechaza.
+// ni administre roles ni autorice monedero o cancelaciones. Antes se creaba un
+// Administrador con solo `dar_alta_personal`. Lista de lo permitido: un rol que no existe se rechaza.
 app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", resolverPermisosDeRol), async (req, res) => {
   try {
     const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);

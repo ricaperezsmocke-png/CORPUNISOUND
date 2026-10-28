@@ -9,7 +9,8 @@
  *
  * Reglas (las mismas que tenía la cancelación):
  * - el autorizador existe, está activo y la contraseña coincide;
- * - es una persona DISTINTA de quien pide;
+ * - es una persona DISTINTA de quien pide, y no es una cuenta que dio de alta
+ *   quien pide (`creado_por_id`);
  * - tiene el permiso pedido;
  * - es de la misma sucursal, salvo que tenga `ver_todas_las_sucursales`.
  *
@@ -19,8 +20,8 @@
  * minutos. El bloqueo responde EXACTAMENTE el mismo error genérico que una
  * contraseña mala, para no dar pistas de que hay bloqueo ni de qué parte falló.
  *
- * No cuentan los rechazos con la contraseña CORRECTA (misma persona, sin el
- * permiso, otra sucursal) ni los datos incompletos: ahí no se está probando
+ * No cuentan los rechazos con la contraseña CORRECTA (misma persona, cuenta
+ * creada por quien pide, sin el permiso, otra sucursal) ni los datos incompletos: ahí no se está probando
  * ninguna contraseña, y la respuesta es la misma, así que no sirven de oráculo.
  */
 
@@ -63,6 +64,16 @@ function alcanzaSucursal(autorizador, permisos, sucursalId) {
   return Number.isInteger(sucursalAut) && sucursalAut > 0 && sucursalAut === sucursalPedida;
 }
 
+// Una cuenta que dio de alta quien pide no le autoriza nada: si no, con una
+// cuenta títere de su mismo rol se autorizaba a sí mismo (revisión 2026-10-27,
+// R1). Las cuentas viejas sin `creado_por_id` no se afectan: `Number(null)` es
+// 0 y ningún id válido es 0, por eso se exige un entero positivo.
+function creadaPorQuienPide(autorizador, solicitante) {
+  if (autorizador.creado_por_id == null || autorizador.creado_por_id === "") return false;
+  const creador = Number(autorizador.creado_por_id);
+  return Number.isInteger(creador) && creador > 0 && creador === Number(solicitante?.id);
+}
+
 /**
  * Devuelve { id, nombre } del autorizador o lanza un Error con status 403 y el
  * mensaje genérico. Falla cerrando: cualquier dato que no sea exactamente lo
@@ -93,6 +104,7 @@ async function verificarAutorizador(DB, credenciales, opciones) {
   if (!coincide) throw fallar();
   // De aquí en adelante la contraseña es correcta: se rechaza sin contar.
   if (Number(autorizador.id) === Number(solicitante?.id)) throw rechazo();
+  if (creadaPorQuienPide(autorizador, solicitante)) throw rechazo();
   const permisos = resolverPermisosDeRol(autorizador.rol_id);
   if (!Array.isArray(permisos) || !permisos.includes(permiso)) throw rechazo();
   if (!alcanzaSucursal(autorizador, permisos, sucursalId)) throw rechazo();

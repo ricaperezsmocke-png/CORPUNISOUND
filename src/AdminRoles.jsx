@@ -11,6 +11,11 @@ import ModalPedirTexto from "./ModalPedirTexto";
 import { validarTienda, leerRespuestaAlta } from "./tiendasAlta.js";
 
 // El callback de OAuth rechazó el regreso: el `state` venció, ya se usó o no salió de este botón.
+// Lo mismo que PERMISOS_SOLO_ALTA_GLOBAL en backend/server.js: quien no tiene
+// alcance global no da de alta con un rol que traiga alguno de estos.
+const PERMISOS_SOLO_ALTA_GLOBAL = [
+  "ver_todas_las_sucursales", "administrar_roles", "autorizar_monedero", "autorizar_cancelaciones",
+];
 const MSG_ESTADO_OAUTH_INVALIDO = "la conexión venció o no se inició desde aquí. Vuelve a apretar Conectar.";
 
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
@@ -419,11 +424,12 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
 
   const rolActivo = roles.find((r) => r.id === rolActivoId) || null;
   // El alta de personal sin alcance global: el servidor solo acepta SU sucursal y
-  // roles que no den más de lo que tiene quien da de alta (ni alcance global ni
-  // administrar roles). La pantalla deja de ofrecer lo que se rechazaría.
+  // roles que no den más de lo que tiene quien da de alta (ni alcance global, ni
+  // administrar roles, ni autorizar monedero o cancelaciones). La pantalla deja
+  // de ofrecer lo que se rechazaría.
   const altaGlobal = !permisos || !!usuario?.ver_todas;
   const rolesAlta = altaGlobal ? roles : roles.filter((r) => (r.permisos || []).every((p) =>
-    p !== "ver_todas_las_sucursales" && p !== "administrar_roles" && permisos.includes(p)));
+    !PERMISOS_SOLO_ALTA_GLOBAL.includes(p) && permisos.includes(p)));
   const sucursalesAlta = altaGlobal ? sucursales : sucursales.filter((s) => Number(s.id) === Number(usuario?.sucursal_id));
 
   const permisosFiltrados = useMemo(() => {

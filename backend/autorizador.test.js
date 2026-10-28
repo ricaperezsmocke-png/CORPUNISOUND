@@ -79,6 +79,36 @@ test("un autorizador global sirve para cualquier sucursal", async () => {
   assert.strictEqual(r.id, 1);
 });
 
+test("una cuenta creada por quien pide no le autoriza, y el rechazo no cuenta como adivinanza (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios.push({ id: 4, nombre: "Títere", usuario: "titere", rol_id: 2, sucursal_id: 1, activo: true,
+    password_hash: HASH, creado_por_id: 3 });
+  const reg = crearRegistroAutorizador();
+  // Id de quien pide como texto y creado_por_id como texto: igual se rechaza.
+  for (const solicitante of [{ id: 3 }, { id: "3" }]) {
+    for (let i = 0; i < 6; i++) {
+      await assert.rejects(verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, opciones(DB, reg, { solicitante })),
+        (e) => e.status === 403 && e.message === "La autorización no es válida");
+    }
+  }
+  DB.admin.usuarios[3].creado_por_id = "3";
+  await assert.rejects(verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, opciones(DB, reg)));
+  // 13 rechazos sin contar: ni quien pide ni la títere quedaron bloqueados.
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg))).id, 2);
+  const otro = opciones(DB, reg, { solicitante: { id: 1 } });
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, otro)).id, 4);
+});
+
+test("cuentas viejas sin creado_por_id (null o ausente) autorizan como siempre", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = null;
+  const reg = crearRegistroAutorizador();
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg))).id, 2);
+  // Number(null) es 0: un solicitante con id 0 o ausente tampoco debe "coincidir".
+  const sinId = opciones(DB, reg, { solicitante: { id: 0 } });
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, sinId)).id, 2);
+});
+
 test("5 contraseñas malas bloquean: la sexta, aun buena, se rechaza", async () => {
   const DB = prepararDB();
   const reg = crearRegistroAutorizador();
