@@ -170,3 +170,93 @@ dependencias.
 3. **Crear roles** ahora requiere alcance global: si un gerente lo hacía, ya no puede.
 4. Revisar en la consola de Google Cloud si la app de Drive está en modo "prueba" (lo pidió la auditoría; no se puede
    ver desde aquí).
+
+## Correcciones de la revisión
+
+Revisión independiente: `origin/revision/huecos-graves-2026-10`, `docs/revisiones/2026-10-27-huecos-graves.md`
+(veredicto: aprobable con un arreglo, R1). Se corrigieron R1 a R4 sobre `8d4dc54`, un commit por punto.
+
+### En corto, para Victor
+
+- **R1 (cuenta títere), cerrado de dos lados.** Un gerente sin alcance global ya no puede dar de alta a nadie con un
+  rol que autorice monedero o cancelaciones (la pantalla tampoco se los ofrece). Y aunque la cuenta exista, el
+  autorizador rechaza a cualquier cuenta que haya dado de alta la misma persona que pide la autorización. Las cuentas
+  viejas, que no guardan quién las creó, siguen autorizando igual.
+- **R2 y R3 (pistas por el tiempo de respuesta), cerrados.** Si la cuenta no existe, está dada de baja o está
+  bloqueada, el sistema hace igual la comparación de contraseña (contra una falsa) antes de responder: todas las
+  respuestas tardan lo mismo.
+- **R4 (historial SICAR), cerrado.** Un envío con llave mala ya no deja ninguna fila, así que no puede borrar el
+  historial real de una tienda. El agente recibe exactamente las mismas respuestas que antes.
+- **Nuevo después del merge:** si quiere que un gerente dé de alta a una encargada que autorice monedero o
+  cancelaciones, esa alta la tiene que hacer usted (o alguien con alcance global).
+
+### Commits
+
+| Commit | Punto |
+|---|---|
+| `69acaa3` | fix(seguridad): una cuenta creada por quien pide no puede autorizarle (R1) |
+| `eaa69f7` | fix(seguridad): el autorizador tarda lo mismo exista o no la cuenta (R2 y R3) |
+| `dc36bdd` | fix(sicar): ningun intento rechazado por llave escribe fila (R4) |
+
+Qué cambió:
+
+- `backend/autorizador.js`: `creadaPorQuienPide` rechaza con el 403 genérico, sin contar como adivinanza, cuando
+  `Number(creado_por_id) === Number(solicitante.id)`; solo si `creado_por_id` es un entero positivo (`null`, ausente
+  o vacío no cuentan, porque `Number(null)` es 0). `HASH_FICTICIO` se genera una vez al cargar el módulo (bcrypt,
+  costo 10, contraseña al azar) y se compara contra él, descartando el resultado, cuando la cuenta no existe, está
+  inactiva o el par está bloqueado. `opciones.verificarPassword` es inyectable solo para las pruebas.
+- `backend/server.js`: `PERMISOS_SOLO_ALTA_GLOBAL` suma `autorizar_monedero` y `autorizar_cancelaciones`.
+- `src/AdminRoles.jsx`: la misma lista, para que la pantalla de alta no ofrezca roles que el servidor rechaza.
+- `backend/sicarRutas.js`: `sinFila = status === 429 || status === 401`.
+- Pruebas nuevas: `backend/autorizadorTitere.test.js` (5, contra las rutas reales), 5 en `backend/autorizador.test.js`
+  y 1 en `backend/sicarIntentosRetencion.test.js`. Todas se vieron ROJAS antes del arreglo (4 de R1, 3 de R2/R3,
+  1 de R4).
+
+### Validación (sobre `dc36bdd`)
+
+- `cd backend && node --test`: `# tests 3500`, `# pass 3493`, `# fail 5`, `# todo 2`. Las 5 son las ambientales
+  conocidas: "ARRANQUE REAL: en desarrollo SÍ se tolera — se queda vivo, avisando" y 4 de
+  `buscarClavesSat`/`contarClavesSat`. Ninguna otra. `dineroH4Rutas.test.js` sigue verde sin tocarse.
+- `node --test "src/**/*.test.js"`: `# tests 354`, `# pass 353`, `# fail 1`: "HistorialMetas conserva la versión
+  retirada e informa quién, fecha y motivo" (la ambiental conocida).
+- `npx vite build`: `✓ built in 8.49s`.
+- `npx eslint src backend`: `✖ 842 problems (0 errors, 842 warnings)`; los mismos 842 que en `8d4dc54`.
+- Ninguna línea nueva de más de 200 caracteres.
+
+Pruebas de la revisión contra este código (copiadas a `docs/revisiones/` solo para correrlas, sin commitear):
+
+| Prueba | Antes | Ahora | Por qué |
+|---|---|---|---|
+| DEFECTO R1 | pasa | **ya no pasa** ✔ | el alta de la títere recibe 403 (`403 !== 200`) |
+| DEFECTO R5 (R2) | pasa | **ya no pasa** ✔ | sonda tras acierto 113.9 ms, tras fallo 122.8 ms: no distingue |
+| DEFECTO R6 (R3) | pasa | **ya no pasa** ✔ | existe 116.0 ms, no existe 132.0 ms: no distingue |
+| DEFECTO S1 (R4) | pasa | **ya no pasa** ✔ | la última fila de Yajalón sigue siendo la real (`'200'`, no `'401'`) |
+| CONTROL R2, R3, R4, R7, R8, S2, S3 | pasan | pasan | nada se rompió |
+
+### Desviaciones
+
+1. **La A2 de `origin/auditoria/sicar-crm-2026-10` no pasa, y con el arreglo pedido no puede pasar tal como está
+   escrita.** Falla con `TypeError: Cannot read properties of undefined (reading 'sucursal_id')`, no por su
+   aserción: lee la última fila de `sicar_intentos` esperando que exista con `sucursal_id` nulo, y con "ningún 401
+   escribe fila" la tabla queda vacía. Esa prueba estaba pensada para la otra salida que proponía la revisión
+   (escribir la fila sin tienda). Comprobado:
+   - Corrida sola con el código viejo, falla por la aserción (la fila queda a nombre de la tienda 2): el defecto.
+   - Con el código nuevo no hay fila: lo que la prueba exige ("no debe quedar registrada como intento de esa
+     tienda") se cumple.
+   - Con la prueba completa, la petición de A2 recibe 429 (freno de ritmo tras las 40 de A1), así que en esa
+     corrida A2 nunca llega a probar la llave, ni antes ni ahora.
+   No la modifiqué: está en otra rama y no es mía. La cobertura real del caso es la prueba nueva "S1 invertida" en
+   `sicarIntentosRetencion.test.js`, que se vio roja con el código viejo.
+2. **`sicarRutas.test.js` ("secreto se muestra una vez y llave inválida o revocada obtiene 401") sigue verde, sin
+   tocarla, pero su última aserción perdió fuerza.** Comprobaba que el 401 de una llave revocada dejaba fila. Ahora
+   no la deja, y la prueba pasa porque la última fila es la del `GET /estado` anterior, hecho con la misma llave. El
+   rastro de una llave revocada que sigue intentando queda solo en el contador en memoria (`anonimos_401`), igual
+   que cualquier 401. Es el costo aceptado de "ningún 401 escribe fila".
+3. **Además de lo pedido en R1**, la pantalla de alta (`src/AdminRoles.jsx`) usa la misma lista de exclusión que el
+   servidor, para no ofrecer roles que se rechazarían. Es el mismo criterio que ya tenía con
+   `ver_todas_las_sucursales` y `administrar_roles`.
+
+### Sigue pendiente
+
+- La prueba en navegador de toda la rama, con lo de la sección "Lo que quedó sin hacer". En esta sesión no hay Chrome.
+- B1 y D1 de SICAR y el resto de los hallazgos fuera de alcance.
