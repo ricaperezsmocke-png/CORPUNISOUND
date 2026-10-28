@@ -11,7 +11,7 @@ const UMBRAL_AVISO_POR_MINUTO = 100;
 
 /**
  * Contador EN MEMORIA de lo que ya no se escribe en `sicar_intentos`: los 429
- * (freno) y los 401 sin llave reconocida. Antes cada uno era una fila
+ * (freno) y los 401 (llave inexistente, secreto falso o revocada). Antes cada uno era una fila
  * permanente, y cualquiera en internet llenaba el disco de Render con
  * peticiones anónimas (auditoría sicar-crm 2026-10, A1). Guarda los últimos 60
  * minutos y avisa por consola una sola vez por minuto al pasar de 100.
@@ -53,9 +53,12 @@ function registrarAgenteSicar(app, { repo, mantenimiento }) {
       if (terminado) return;
       terminado = true;
       liberar();
-      // Sin fila: el freno (429) y el 401 de quien ni siquiera trae una llave
-      // que exista. Solo suben el contador en memoria; la respuesta es la misma.
-      const sinFila = status === 429 || (status === 401 && !llave);
+      // Sin fila: el freno (429) y CUALQUIER 401. Solo suben el contador en
+      // memoria; la respuesta es la misma. Un 401 con el key_id real de una
+      // tienda (la mitad pública de la llave) y un secreto falso también se
+      // escribía a nombre de esa tienda y, con el tope por tienda, borraba su
+      // intento real más viejo (revisión 2026-10-27, R4; auditoría A2).
+      const sinFila = status === 429 || status === 401;
       if (sinFila) {
         rechazosSinFila.registrar(status);
       } else {

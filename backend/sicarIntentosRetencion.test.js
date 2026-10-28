@@ -21,11 +21,18 @@ const app = require('./server');
 const { obtenerConexionSqlite } = require('./persistencia');
 const { crearRepositorioSicar } = require('./sicarRepositorio');
 const { crearContadorRechazosSicar } = require('./sicarRutas');
+const { firmarToken } = require('./auth');
 
 const sqlite = obtenerConexionSqlite();
 let servidor, base;
 
+let admin;
+
 before(async () => {
+  app.DB.admin.roles.push({ id: 991, nombre: 'Llaves SICAR', permisos: ['administrar_llaves_sicar', 'ver_sincronizacion_sicar',
+    'ver_todas_las_sucursales'], modulos: ['sicar'] });
+  app.DB.admin.usuarios.push({ id: 991, nombre: 'Llaves SICAR', usuario: 'llaves991', rol_id: 991, sucursal_id: 1, activo: true });
+  admin = firmarToken({ id: 991, rol_id: 991, sucursal_id: 1 });
   await new Promise(resolve => { servidor = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${servidor.address().port}`;
 });
@@ -45,6 +52,25 @@ async function enviarLote(authorization) {
   await res.text();
   return res.status;
 }
+
+// Revisión 2026-10-27, R4 (y auditoría sicar-crm A2): con el key_id de una
+// tienda (la mitad pública de la llave) y un secreto falso, cada intento era una
+// fila a nombre de esa tienda, y el tope de 5,000 borraba su intento real más
+// viejo. Ningún 401 escribe fila: solo sube el contador en memoria.
+test('S1 invertida: key_id real con secreto falso responde 401 sin fila y sin empujar el historial de la tienda', async () => {
+  const r = await fetch(`${base}/api/sicar/llaves`, { method: 'POST',
+    headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sucursal_id: 2 }) });
+  assert.equal(r.status, 201);
+  const { key_id } = await r.json();
+  const insertar = sqlite.prepare(`INSERT INTO sicar_intentos (sucursal_id, key_id, batch_id, recibidos, aceptados, rechazados,
+    bytes, codigo, hora, duracion_ms) VALUES (2, ?, NULL, 10, 10, 0, 100, '200', ?, 5)`);
+  sqlite.transaction(() => { for (let i = 0; i < 5000; i++) insertar.run(key_id, new Date().toISOString()); })();
+  const antes = sqlite.prepare('SELECT count(*) n, min(id) minimo, max(id) maximo FROM sicar_intentos').get();
+  // 401 y no 503: el contrato del agente no cambia.
+  assert.equal(await enviarLote(`Bearer ${key_id}.${'0'.repeat(64)}`), 401);
+  const despues = sqlite.prepare('SELECT count(*) n, min(id) minimo, max(id) maximo FROM sicar_intentos').get();
+  assert.deepEqual(despues, antes);
+});
 
 test('A1 invertida: 40 peticiones anónimas (401 y 429) no dejan ninguna fila nueva', async () => {
   const antes = intentos();
