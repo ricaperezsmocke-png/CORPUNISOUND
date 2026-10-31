@@ -27,6 +27,13 @@ async function leerConfiguracion(archivo) {
     || typeof config.mysql.database !== 'string' || !config.mysql.database
     || typeof config.llave !== 'string' || !config.llave.trim()) throw new Error('CONFIGURACION_INVALIDA');
   opcionesConexion(config.mysql);
+  if (config.publicos !== undefined) {
+    const lista = config.publicos;
+    if (!Array.isArray(lista) || !lista.length || lista.some(p =>
+      (typeof p !== 'string' && typeof p !== 'number') || !/^\d+$/.test(String(p))
+      || (typeof p === 'number' && !Number.isSafeInteger(p)))
+      || new Set(lista.map(p => BigInt(p).toString())).size !== lista.length) throw new Error('CONFIGURACION_INVALIDA');
+  }
   let existe = true;
   try { await fs.lstat(config.estado); } catch (e) { if (e.code === 'ENOENT') existe = false; else throw e; }
   config.estado = await fueraDelRepo(config.estado, existe);

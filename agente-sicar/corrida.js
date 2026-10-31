@@ -1,7 +1,7 @@
 const { setTimeout: pausa } = require('node:timers/promises');
 const { createHash } = require('node:crypto');
 const { cargar, guardar, bloquear, LIMITE_AVISOS } = require('./estado');
-const { cliente, esPublico, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
+const { cliente, venta, esPublico, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
   proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
@@ -19,13 +19,14 @@ function elementos(pagina, estado, avisar, omitir, config = {}, soloPublico = fa
   const conMostrador = config.mostrador === true;
   return pagina.filas.flatMap(v => {
     const c = clientes.get(String(v.cli_id));
-    if (soloPublico && !esPublico(c)) return [];
+    if (soloPublico && !esPublico(c, config.publicos)) return [];
     const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
     const opciones = conMostrador ? { enviada: !!estado.mostrador_enviadas[String(v.ven_id)] } : undefined;
-    const { venta: salida, omitida, mostrador = null } = ventaSegura(v, c, detalles, !!estado.enviadas[String(v.ven_id)], avisar, opciones);
+    const { venta: salida, omitida, mostrador = null } = ventaSegura(v, c, detalles,
+      !!estado.enviadas[String(v.ven_id)], avisar, opciones, config.publicos);
     if (omitida) omitir('VENTA_OMITIDA', omitida);
     // Solo una venta completa trae cliente: la excluida y la cancelación sin renglones no.
-    return [{ venta: salida, cliente: salida?.cli_id ? cliente(c) : null, mostrador }];
+    return [{ venta: salida, cliente: salida?.cli_id ? cliente(c, undefined, config.publicos) : null, mostrador }];
   });
 }
 function agregar(lote, elemento) {
@@ -120,7 +121,7 @@ async function ejecutar(archivo, config, deps) {
   const avisar = aviso => log('CAMPO_OMITIDO', aviso);
   const omitir = (evento, datos) => log(evento, datos);
   const clientePermitido = c => {
-    const { cliente: salida, omitido } = clienteSeguro(c, avisar);
+    const { cliente: salida, omitido } = clienteSeguro(c, avisar, config.publicos);
     if (omitido) omitir('CLIENTE_OMITIDO', omitido);
     return salida;
   };
@@ -129,6 +130,7 @@ async function ejecutar(archivo, config, deps) {
   try {
     const estado = await cargar(archivo);
     if (estado.detenido) throw new Error(estado.detenido);
+    if (config.publicos === undefined) log('PUBLICOS_SIN_CONFIGURAR');
     if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
     // Avisos repetibles (un artículo o un corte raro, las existencias sin columnas): una vez por día por id o por evento,
     // no en cada corrida. El recuerdo vive en estado.json y se guarda con lo demás o al final de existencias y cortes.
@@ -148,6 +150,26 @@ async function ejecutar(archivo, config, deps) {
       await guardar(archivo, estado);
     }
     await fuente.validar();
+    const pedidos = deps.reenviarClientes;
+    const personas = new Map();
+    // Primero se validan TODOS: ni siquiera un pendiente sale si se pidió un público.
+    if (pedidos) {
+      for (let i = 0; i < pedidos.length; i += fuente.tamano) {
+        const ids = pedidos.slice(i, i + fuente.tamano);
+        const filas = await fuente.clientesIds(ids);
+        for (const cli_id of ids) {
+          const c = filas.find(c => String(c.cli_id) === cli_id);
+          if (!c) throw Object.assign(new Error('REENVIO_CLIENTE_INEXISTENTE'), { cli_id });
+          if (esPublico(c, config.publicos)) throw Object.assign(new Error('REENVIO_CLIENTE_PUBLICO'), { cli_id });
+          personas.set(cli_id, cliente(c, avisar, config.publicos));
+        }
+        await esperar(200);
+      }
+      // Un pendiente normal podría mover cursores: debe resolverse en una corrida normal primero.
+      if (estado.pendiente && JSON.stringify(estado.pendiente.reenvio) !== JSON.stringify(pedidos)) {
+        throw new Error('REENVIO_LOTE_PENDIENTE');
+      }
+    }
     function permitido(mode) {
       if (mode !== 'historico' || deps.historicoAhora || esHorarioHistorico(new Date(reloj()))) return true;
       log('FUERA_DE_HORARIO');
@@ -175,9 +197,9 @@ async function ejecutar(archivo, config, deps) {
         if (atorado.traspasos?.length || atorado.traspasos_omitidos?.length) log('TRASPASOS_DESCARTADOS');
       }
     }
-    const mode = estado.fase === 'incremental' ? 'incremental' : 'historico';
+    const mode = pedidos ? 'historico' : estado.fase === 'incremental' ? 'incremental' : 'historico';
     if (!permitido(mode)) return;
-    if (podar(estado, config, reloj())) await guardar(archivo, estado);
+    if (!pedidos && podar(estado, config, reloj())) await guardar(archivo, estado);
     let enviados = 0, paginas = 0;
     async function transmitir(items, cambios, modo = mode) {
       if (++paginas > MAXIMO_PAGINAS_POR_CORRIDA) { log('TOPE_DE_CORRIDA'); return false; }
@@ -215,13 +237,44 @@ async function ejecutar(archivo, config, deps) {
         // Las de mostrador se recuerdan aparte: enviadas decide la tumba excluida de ventas y no se mezcla.
         const mostrador = actual.mostrador?.length ? { ...estado.mostrador_enviadas } : null;
         for (const m of actual.mostrador || []) mostrador[m.ven_id] = true;
-        estado.pendiente = { bytes: JSON.stringify(actual),
+        estado.pendiente = { bytes: JSON.stringify(actual), ...(pedidos ? { reenvio: pedidos } : {}),
           cambios: { enviadas, ...(mostrador ? { mostrador_enviadas: mostrador } : {}), ...(i === grupos.length - 1 ? cambios : {}) } };
         await guardar(archivo, estado);
         if (!await enviarPendiente(archivo, estado, config, deps)) return false;
       }
       await esperar(1000);
       return true;
+    }
+    if (pedidos) {
+      let progreso = estado.reenvio;
+      if (!progreso || JSON.stringify(progreso.ids) !== JSON.stringify(pedidos)) {
+        progreso = { ids: pedidos, cursor: '0', clientesEnviados: false };
+      }
+      // Cursor exclusivo de reparación: nunca se aplican cambios a cli_id, ven_id, his_id, fase ni tope.
+      while (true) {
+        const ids = pedidos;
+        if (!progreso.clientesEnviados) {
+          progreso = { ...progreso, clientesEnviados: true };
+          if (!await transmitir(ids.map(cli_id => ({ cliente: personas.get(cli_id) })), { reenvio: progreso })) return;
+        }
+        const pagina = await fuente.ventasClientes(ids, progreso.cursor, fuente.tamano);
+        if (!pagina.filas.length) break;
+        const items = pagina.filas.map(v => {
+          const c = pagina.clientes.find(c => String(c.cli_id) === String(v.cli_id));
+          if (!ids.includes(String(v.cli_id)) || esPublico(c, config.publicos)) throw new Error('REENVIO_CLIENTE_PUBLICO');
+          const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
+          // La reparación exige venta completa: no convierte datos dañados en una cancelación corta o exclusión.
+          return { cliente: cliente(c, avisar, config.publicos), venta: venta(v, c, detalles, false, avisar, config.publicos) };
+        });
+        const cursor = id(pagina.filas.at(-1).ven_id);
+        if (BigInt(cursor) <= BigInt(progreso.cursor)) throw new Error('ID_INVALIDO');
+        progreso = { ...progreso, cursor };
+        if (!await transmitir(items, { reenvio: progreso })) return;
+      }
+      estado.reenvio = null;
+      await guardar(archivo, estado);
+      log('REENVIO_CLIENTES_COMPLETO');
+      return;
     }
     if (estado.fase !== 'incremental') {
       if (estado.tope === null) { estado.tope = await fuente.tope(); await guardar(archivo, estado); }

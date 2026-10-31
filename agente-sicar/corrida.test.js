@@ -28,6 +28,79 @@ async function preparar(t, estado = inicial()) {
     } };
   return { archivo, fuente, deps, lotes, mensajes, pausas };
 }
+test('públicos por tienda conserva nombres reales, regla por nombre y compatibilidad Ocosingo', async t => {
+  for (const config of [{ publicos: ['1'] }, {}]) {
+    const p = await preparar(t);
+    const clientes = [{ cli_id: '1', nombre: 'Público' }, { cli_id: '2', nombre: 'Ana' },
+      { cli_id: '86', nombre: 'PUBLICO EN GENERAL 3' }];
+    p.fuente.clientes = async cursor => cursor === '0' ? clientes : [];
+    p.fuente.ventas = async cursor => cursor === '0'
+      ? { filas: [{ ...v, cli_id: '2' }], clientes, detalles: [d] } : vacia();
+    await ejecutar(p.archivo, config, p.deps);
+    assert.deepEqual(p.lotes.flatMap(l => l.ventas.map(v => v.cli_id)), config.publicos ? ['2'] : []);
+    assert.ok(p.lotes.flatMap(l => l.clientes).every(c => c.cli_id === '2'));
+    assert.equal(p.mensajes.filter(x => x === 'PUBLICOS_SIN_CONFIGURAR').length, config.publicos ? 0 : 1);
+  }
+});
+
+test('reenvía clientes y todas sus ventas canceladas con detalle sin mover cursores', async t => {
+  const estado = { ...inicial(), fase: 'ventas', cli_id: '77', ven_id: '800', his_id: '90', tope: '900', siguiente_secuencia: '15' };
+  const p = await preparar(t, estado);
+  p.deps.reenviarClientes = ['2', '3'];
+  p.deps.historicoAhora = true;
+  p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+  p.fuente.clientesIds = async ids => ids.map(cli_id => ({ cli_id, nombre: 'Real' }));
+  p.fuente.ventasClientes = async (ids, cursor) => cursor === '0' ? {
+    filas: ids.map(cli_id => ({ ...v, ven_id: cli_id, cli_id })),
+    clientes: await p.fuente.clientesIds(ids), detalles: ids.map(ven_id => ({ ...d, ven_id })),
+  } : vacia();
+  await ejecutar(p.archivo, { publicos: ['1'] }, p.deps);
+  const ventas = p.lotes.flatMap(l => l.ventas);
+  assert.deepEqual(ventas.map(v => v.cli_id), ['2', '3']);
+  assert.ok(ventas.every(v => v.estado === 'cancelada' && v.detalle.length === 1));
+  assert.deepEqual(p.lotes.map(l => l.sequence), ['15', '16']);
+  const despues = await cargar(p.archivo);
+  for (const k of ['fase', 'cli_id', 'ven_id', 'his_id', 'tope', 'mostrador_cursor']) assert.equal(despues[k], estado[k]);
+});
+
+test('reenvío con público por id o nombre aborta antes de cualquier envío incluso pendiente', async t => {
+  for (const publico of [{ cli_id: '1', nombre: 'Real' }, { cli_id: '86', nombre: 'PUBLICO EN GENERAL 3' }]) {
+    const lote = sobre('1', 'historico', new Date());
+    const p = await preparar(t, { ...inicial(), pendiente: { bytes: JSON.stringify(lote), cambios: {} } });
+    p.deps.reenviarClientes = ['2', publico.cli_id];
+    p.fuente.clientesIds = async () => [{ cli_id: '2', nombre: 'Real' }, publico];
+    await assert.rejects(ejecutar(p.archivo, { publicos: ['1'] }, p.deps), /REENVIO_CLIENTE_PUBLICO/);
+    assert.equal(p.lotes.length, 0);
+  }
+});
+
+test('reenvío dividido por detalle retoma un pendiente fallido sin perder ventas ni mover cursores', async t => {
+  const p = await preparar(t);
+  p.deps.reenviarClientes = ['2'];
+  p.fuente.clientesIds = async () => [{ cli_id: '2', nombre: 'Real' }];
+  const filas = ['7', '8', '9'].map(ven_id => ({ ...v, ven_id, cli_id: '2' }));
+  p.fuente.ventasClientes = async (ids, cursor) => cursor === '0' ? {
+    filas, clientes: await p.fuente.clientesIds(),
+    detalles: filas.flatMap(f => Array.from({ length: 400 }, () => ({ ...d, ven_id: f.ven_id }))),
+  } : vacia();
+  const enviar = p.deps.fetch;
+  p.deps.fetch = async (url, opciones) => JSON.parse(opciones.body).ventas.length
+    ? { status: 503 } : enviar(url, opciones);
+  await ejecutar(p.archivo, { publicos: ['1'] }, p.deps);
+  const bytes = (await cargar(p.archivo)).pendiente.bytes;
+  const cuerpos = [];
+  p.deps.fetch = async (url, opciones) => { cuerpos.push(opciones.body); return enviar(url, opciones); };
+  await ejecutar(p.archivo, { publicos: ['1'] }, p.deps);
+  assert.equal(cuerpos[0], bytes);
+  assert.deepEqual([...new Set(p.lotes.flatMap(l => l.ventas.map(v => v.ven_id)))], ['7', '8', '9']);
+  assert.equal((await cargar(p.archivo)).ven_id, '0');
+  assert.equal((await cargar(p.archivo)).reenvio, null);
+  assert.ok(p.mensajes.includes('REENVIO_CLIENTES_COMPLETO'));
+});
+
+test('públicos numéricos con ceros iniciales se comparan igual que en MySQL', () => {
+  assert.equal(require('./formato').esPublico({ cli_id: '2', nombre: 'Real' }, ['02']), true);
+});
 test('histórica envía clientes sin compras antes de ventas y respeta tope inicial', async t => {
   const p = await preparar(t);
   let primera = true;

@@ -26,6 +26,7 @@ Cada vez que corre hace una sola pasada y termina. El Programador de tareas de W
    - `password`: contraseña de `consultas`.
    - `llave`: la llave de la tienda.
    - `estado`: déjalo como está. Ahí el agente apunta hasta dónde ya mandó.
+   - `publicos`: números de cliente que representan público en general en **esa tienda**, por ejemplo `["1"]`.
    - `host` tiene que quedarse en `127.0.0.1`: el agente se niega a conectarse a otra máquina.
 3. Protege el archivo: clic derecho en `config.json` → Propiedades → Seguridad. Que solo lo puedan leer el usuario
    que corre la tarea y los administradores. **Nunca** lo mandes por WhatsApp ni lo subas a ningún lado.
@@ -72,6 +73,50 @@ C:\UnisoundSICAR\agente-sicar\correr.cmd --historico-ahora
 
 Solo vale para esa corrida; la tarea programada nunca la usa. Si la caja se alenta, ciérralo con Ctrl+C: retoma
 donde se quedó sin duplicar. Repite el comando hasta que el registro deje de mostrar `LOTE_CONFIRMADO` nuevos.
+
+### Público en general por tienda y recuperación de clientes
+
+Cada tienda debe medir sus propios números de público en SICAR; **no copies los de otra sucursal**.
+`publicos` acepta un arreglo no vacío de números enteros o textos de dígitos, sin repetidos
+(por ejemplo `[1, "86"]`). Valores inválidos detienen con `CONFIGURACION_INVALIDA`.
+El nombre que empieza con `PUBLICO EN GENERAL` o `PÚBLICO EN GENERAL` sigue contando como público,
+igual que un cliente ausente o sin nombre, aunque su número no esté en la lista.
+
+Si falta `publicos`, se mantiene exactamente la lista antigua de Ocosingo:
+`1, 2, 3, 13, 21, 33, 4566, 4567, 4572`. Aparece `PUBLICOS_SIN_CONFIGURAR` una vez por corrida,
+incluido `--verificar`; es un aviso y no detiene el trabajo. El ejemplo `["1"]` **no es una lista universal**.
+
+Para recuperar los clientes de San Cristóbal que antes se confundían con público:
+
+1. Actualiza los archivos del agente en la PC de San Cristóbal. Conserva su configuración, llave y `estado.json`.
+2. En su `C:\UnisoundSICAR\config.json`, agrega `"publicos": ["1"]`, respetando las comas del JSON.
+   Esa es la lista medida para San Cristóbal; no cambies con ella la configuración de Ocosingo.
+3. Ejecuta `C:\UnisoundSICAR\agente-sicar\correr.cmd --verificar` después del cierre y revisa los conteos.
+4. Ejecuta manualmente:
+
+   ```bat
+   C:\UnisoundSICAR\agente-sicar\correr.cmd --reenviar-clientes=2,3,13,21,33
+   ```
+
+5. Revisa `agente-sicar.log`: `REENVIO_CLIENTES_COMPLETO` confirma que terminó la lectura y el envío de todos.
+   Si hubo red caída, Ctrl+C o `TOPE_DE_CORRIDA`, repite **el mismo comando** hasta ver ese aviso.
+   El progreso de reparación se guarda aparte; los reintentos conservan el lote pendiente y su secuencia.
+6. Comprueba en el CRM de San Cristóbal las fichas y ventas de esos cinco clientes, incluidas las canceladas.
+   La tarea programada sigue usando el comando normal, sin esta bandera.
+
+La bandera acepta una lista de ids positivos separados por coma, sin espacios ni repetidos; se usa sola.
+Reenvía también clientes sin compras y todas sus ventas, sin límite de fecha, con detalle y cancelaciones.
+Usa la secuencia normal, sin retroceder ni reiniciar el estado, y no mueve los cursores de carga normal.
+Conserva los límites y pausas habituales por lote y por corrida. Como `--historico-ahora`, su ejecución
+manual autoriza trabajar de día en esa corrida; úsala de día solo con autorización de Victor y con la tienda tranquila.
+
+- `REENVIO_CLIENTE_PUBLICO cli_id=...`: uno de los solicitados es público según la configuración o el nombre;
+  no se envió ningún lote. Corrige la lista solicitada o verifica la medición de públicos.
+- `REENVIO_CLIENTE_INEXISTENTE cli_id=...`: no existe uno de los clientes solicitados; no se envió ningún lote.
+- `REENVIO_LOTE_PENDIENTE`: hay un lote anterior de otra corrida. Ejecuta primero el comando normal
+  (histórico de noche, o `--historico-ahora` autorizado), luego repite la reparación. No borres el estado.
+- Un error de datos de venta detiene la reparación: requiere corregir el dato en SICAR y repetir el comando.
+  La reparación no sustituye una venta dañada por una exclusión ni por una cancelación sin detalle.
 
 ### Lista de artículos (departamento y categoría)
 

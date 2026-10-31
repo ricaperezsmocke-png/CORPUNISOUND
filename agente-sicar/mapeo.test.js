@@ -30,6 +30,25 @@ function preparar({ falta, config = {} } = {}) {
   const fuente = crearFuente({ pagina: fn => fn(leer), tamano: 100 }, config);
   return { fuente, consultas };
 }
+test('mostrador usa solo los públicos de esta tienda en sus parámetros', async () => {
+  const { fuente, consultas } = preparar({ config: { publicos: ['1'] } });
+  await fuente.validar();
+  await fuente.verificar();
+  const q = consultas.find(q => q.sql.includes('COUNT(*)') && q.sql.includes('COALESCE'));
+  assert.deepEqual(q.parametros, ['2025-01-01 00:00:00', '1']);
+  assert.match(q.sql, /IN \(0, \?\)/);
+});
+
+test('ventas de clientes une ticket, nota y remisión y no filtra canceladas ni fechas', async () => {
+  const { fuente, consultas } = preparar();
+  await fuente.validar();
+  const pagina = await fuente.ventasClientes(['2', '3'], '0', 100);
+  const q = consultas.findLast(q => q.sql.includes('FROM `venta`'));
+  assert.match(q.sql, /WHERE COALESCE\(t\.`cli_id`, n\.`cli_id`, r\.`cli_id`\) IN \(\?, \?\)/);
+  assert.deepEqual(q.parametros, ['2', '3', '0', 100]);
+  assert.doesNotMatch(q.sql.split('WHERE')[1], /status|fecha/);
+  assert.equal(pagina.detalles.length, 2);
+});
 test('falta de columna para detalle detiene indicando cuál', async () => {
   await assert.rejects(preparar({ falta: 'detallev.precioSin' }).fuente.validar(), /detallev.precioSin/);
 });
