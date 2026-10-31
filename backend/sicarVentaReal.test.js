@@ -116,7 +116,22 @@ test('alias invalido lanza y alias valido produce el fragmento pactado', () => {
   }
   for (const alias of ['v', 'sicar_ventas', '_V2']) {
     assert.equal(NO_INTERNA(alias).replace(/\s+/g, ' '),
-      `NOT EXISTS (SELECT 1 FROM sicar_internas i WHERE i.sucursal_id = ${alias}.sucursal_id AND i.cli_id = ${alias}.cli_id)`);
+      `NOT EXISTS (SELECT 1 FROM sicar_internas _si WHERE _si.sucursal_id = ${alias}.sucursal_id AND _si.cli_id = ${alias}.cli_id)`);
+  }
+});
+
+test('NO_INTERNA conserva ventas reales con cualquier alias del llamador', t => {
+  const { sqlite, s } = prepararDB(t);
+  s.tienda(1);
+  s.tienda(2);
+  s.venta(1, { cli: 'real' });
+  s.venta(1, { cli: 'interna' });
+  s.interna(1, 'interna');
+  s.venta(2, { cli: 'interna' });
+  for (const alias of ['i', 'v', '_si', '_SI']) {
+    const filas = sqlite.prepare(`SELECT ${alias}.sucursal_id, ${alias}.cli_id
+      FROM sicar_ventas ${alias} WHERE ${NO_INTERNA(alias)} ORDER BY ${alias}.sucursal_id`).all();
+    assert.deepEqual(filas, [{ sucursal_id: 1, cli_id: 'real' }, { sucursal_id: 2, cli_id: 'interna' }], alias);
   }
 });
 

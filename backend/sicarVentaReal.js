@@ -4,8 +4,10 @@ function NO_INTERNA(alias) {
   if (typeof alias !== 'string' || alias.match(/^[a-z_][a-z0-9_]*$/i)?.[0] !== alias) {
     throw new Error('El alias SQL debe ser un identificador válido.');
   }
-  return `NOT EXISTS (SELECT 1 FROM sicar_internas i WHERE
-    i.sucursal_id = ${alias}.sucursal_id AND i.cli_id = ${alias}.cli_id)`;
+  // SQLite compara alias sin distinguir mayúsculas: evitar también una colisión con el alias reservado.
+  const interna = alias.toLowerCase() === '_si' ? '_si2' : '_si';
+  return `NOT EXISTS (SELECT 1 FROM sicar_internas ${interna} WHERE
+    ${interna}.sucursal_id = ${alias}.sucursal_id AND ${interna}.cli_id = ${alias}.cli_id)`;
 }
 
 const VIGENTES_CLIENTE = `FROM sicar_ventas WHERE sucursal_id = @suc AND estado = 'vigente'

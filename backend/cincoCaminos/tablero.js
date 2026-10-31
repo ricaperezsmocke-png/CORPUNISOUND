@@ -3,6 +3,7 @@
  *
  * Solo LEE: las ventas SICAR con cliente (`sicar_ventas`), las de mostrador (`sicar_ventas_mostrador`), sus detalles,
  * el catálogo de artículos de SICAR y el Radar. Nunca escribe en SQLite ni en el JSON.
+ * Las cuentas internas no son ventas: se excluyen de todos los números y de las semanas base del Radar.
  *
  * - Dinero en centavos enteros; porcentajes con un decimal; `null` cuando no hay denominador.
  * - Las cuentas se hacen en SQL (COUNT/SUM/GROUP BY): la historia de una tienda son decenas de miles de ventas.
@@ -11,6 +12,7 @@
  */
 const { clasificarEstadoDemanda } = require('../radar/metricas');
 const { diaLocal } = require('../fechas');
+const { NO_INTERNA } = require('../sicarVentaReal');
 const { semanaAnterior, mismaSemanaAnio, ultimasSemanas, sumarDias, exigirLunes } = require('./semanas');
 
 const MINIMO_VENTAS = 30;
@@ -40,14 +42,13 @@ function sucursalValida(valor) {
 // Rango de una semana sobre `fecha_local` ('YYYY-MM-DDTHH:MM:SS'): desde el lunes y antes del lunes siguiente.
 // Comparar como texto contra días sueltos es exacto: '2026-10-19' < '2026-10-19T00:00:00'.
 const VIGENTES_CLIENTE = `FROM sicar_ventas WHERE sucursal_id = @suc AND estado = 'vigente'
-  AND fecha_local >= @desde AND fecha_local < @hasta`;
+  AND fecha_local >= @desde AND fecha_local < @hasta AND ${NO_INTERNA('sicar_ventas')}`;
 const VIGENTES_MOSTRADOR = `FROM sicar_ventas_mostrador WHERE sucursal_id = @suc AND estado = 'vigente'
   AND fecha_local >= @desde AND fecha_local < @hasta`;
 
-// "Con cliente" = cliente identificado que NO es cuenta interna de la tienda (`sicar_internas`). La venta de una cuenta
-// interna o una vigente sin cli_id sigue siendo venta, pero cuenta como sin cliente.
-const CON_CLIENTE = `cli_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sicar_internas i
-  WHERE i.sucursal_id = sicar_ventas.sucursal_id AND i.cli_id = sicar_ventas.cli_id)`;
+// "Con cliente" = cliente identificado entre las ventas reales; las internas ya se excluyen de VIGENTES_CLIENTE.
+// Una vigente sin cli_id sigue siendo venta, pero cuenta como sin cliente.
+const CON_CLIENTE = 'cli_id IS NOT NULL';
 
 const SQL_TOTALES = `SELECT
   (SELECT COUNT(*) ${VIGENTES_CLIENTE}) AS ventas_cliente,
@@ -61,9 +62,9 @@ const SQL_TOTALES = `SELECT
 // historia de la tienda; recompra si tienen otra venta vigente en los 90 días previos al lunes.
 const SQL_CLIENTES = `SELECT COUNT(*) AS clientes,
   COALESCE(SUM(NOT EXISTS (SELECT 1 FROM sicar_ventas p WHERE p.sucursal_id = s.sucursal_id AND p.cli_id = s.cli_id
-    AND p.estado = 'vigente' AND p.fecha_local < @desde)), 0) AS nuevos,
+    AND p.estado = 'vigente' AND p.fecha_local < @desde AND ${NO_INTERNA('p')})), 0) AS nuevos,
   COALESCE(SUM(EXISTS (SELECT 1 FROM sicar_ventas p WHERE p.sucursal_id = s.sucursal_id AND p.cli_id = s.cli_id
-    AND p.estado = 'vigente' AND p.fecha_local >= @hace90 AND p.fecha_local < @desde)), 0) AS recompra
+    AND p.estado = 'vigente' AND p.fecha_local >= @hace90 AND p.fecha_local < @desde AND ${NO_INTERNA('p')})), 0) AS recompra
   FROM (SELECT DISTINCT sucursal_id, cli_id ${VIGENTES_CLIENTE} AND ${CON_CLIENTE}) s`;
 
 // Renglones de las ventas vigentes de la semana (con cliente y de mostrador), tipificados con las reglas del gerente.
@@ -75,6 +76,7 @@ const SQL_DETALLE = `WITH reglas AS (
     SELECT 'c' AS origen, d.ven_id, d.art_id, d.cantidad FROM sicar_ventas v
       JOIN sicar_detalles d ON d.sucursal_id = v.sucursal_id AND d.ven_id = v.ven_id
       WHERE v.sucursal_id = @suc AND v.estado = 'vigente' AND v.fecha_local >= @desde AND v.fecha_local < @hasta
+        AND ${NO_INTERNA('v')}
     UNION ALL
     SELECT 'm', d.ven_id, d.art_id, d.cantidad FROM sicar_ventas_mostrador v
       JOIN sicar_detalles_mostrador d ON d.sucursal_id = v.sucursal_id AND d.ven_id = v.ven_id
@@ -95,6 +97,7 @@ const SQL_DETALLE = `WITH reglas AS (
 // Tickets por semana de las semanas base, en una sola pasada por tabla.
 const SQL_TICKETS_BASE = tabla => `SELECT CAST((julianday(substr(fecha_local, 1, 10)) - julianday(@inicio)) / 7 AS INTEGER) AS k,
   COUNT(*) AS n FROM ${tabla} WHERE sucursal_id = @suc AND estado = 'vigente' AND fecha_local >= @inicio AND fecha_local < @desde
+  ${tabla === 'sicar_ventas' ? `AND ${NO_INTERNA(tabla)}` : ''}
   GROUP BY k`;
 
 function reglasValidas(DB) {
