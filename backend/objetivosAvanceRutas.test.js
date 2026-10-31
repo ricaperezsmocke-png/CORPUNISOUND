@@ -15,6 +15,9 @@ const { crearRol } = require("./roles");
 const { fijarObjetivo, registrarEnPlantilla } = require("./objetivos");
 const { altaElemento } = require("./objetivosCatalogos");
 const { capturarDia } = require("./objetivosCaptura");
+const { obtenerConexionSqlite } = require("./persistencia");
+const Sentry = require("@sentry/node");
+const sqlite = obtenerConexionSqlite();
 
 const MES = "2026-08";
 const RAIZ = `/api/objetivos/${MES}/1/avance`;
@@ -43,6 +46,11 @@ before(async () => {
 });
 
 beforeEach(() => {
+  sqlite.exec("DELETE FROM sicar_ventas_mostrador; DELETE FROM sicar_tiendas;");
+  sqlite.prepare("INSERT INTO sicar_tiendas(sucursal_id) VALUES (1)").run();
+  sqlite.prepare(`INSERT INTO sicar_ventas_mostrador
+    (sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en)
+    VALUES (1, 'avance', ?, 'vigente', 987654, 'x')`).run(`${MES}-31T23:59:59`);
   for (const coleccion of [
     "objetivos", "objetivo_plantilla", "objetivo_capturas", "objetivo_cierres", "objetivo_actividades",
     "objetivo_marcas", "objetivo_productos", "objetivo_creditos",
@@ -92,6 +100,54 @@ function estado(r, esperado) {
   if (esperado >= 400) assert.equal(typeof r.cuerpo.error, "string");
   if (esperado === 404) assert.match(r.cuerpo.error, /no encontrad/i);
 }
+
+test("jefatura ve tienda.sicar con venta_centavos", async () => {
+  const r = await pedir(gerente);
+  estado(r, 200);
+  assert.deepEqual(r.cuerpo.tienda.sicar, {
+    venta_centavos: 987654, ventas: 1, cliente_centavos: 0, mostrador_centavos: 987654,
+    internas_centavos: 0, sin_dato: false, motivo: null, leyenda: "sin restar devoluciones",
+  });
+});
+
+test("vendedora no recibe tienda.sicar ni montos SICAR", async () => {
+  for (const token of [vendedora, globalSinEditar, trasladado]) {
+    const r = await pedir(token);
+    estado(r, 200);
+    assert.equal(r.cuerpo.tienda, undefined);
+    assert.doesNotMatch(JSON.stringify(r.cuerpo), /venta_centavos|sicar|987654/);
+  }
+});
+
+test("jefatura conserva avance 200 y registra error_sicar si la consulta SICAR lanza", async (t) => {
+  const error = new Error("Fallo simulado de lectura SICAR");
+  const preparar = sqlite.prepare.bind(sqlite);
+  t.mock.method(sqlite, "prepare", (sql) => {
+    if (sql.includes("sicar_ventas")) throw error;
+    return preparar(sql);
+  });
+  const captura = t.mock.method(Sentry, "captureException", () => {});
+  const r = await pedir(gerente);
+  estado(r, 200);
+  assert.deepEqual(r.cuerpo.tienda.sicar, { sin_dato: true, motivo: "error_sicar" });
+  assert.deepEqual(r.cuerpo.tienda.venta, { meta: 10000, capturado: 3545.92, porcentaje: 35 });
+  assert.equal(r.cuerpo.por_persona.length, 2);
+  assert.equal(captura.mock.callCount(), 1);
+  assert.equal(captura.mock.calls[0].arguments[0], error);
+});
+
+test("jefatura recibe los motivos sin_agente y sin_mostrador", async () => {
+  sqlite.exec("DELETE FROM sicar_ventas_mostrador;");
+  let r = await pedir(gerente);
+  estado(r, 200);
+  assert.equal(r.cuerpo.tienda.sicar.sin_dato, true);
+  assert.equal(r.cuerpo.tienda.sicar.motivo, "sin_mostrador");
+  sqlite.exec("DELETE FROM sicar_tiendas;");
+  r = await pedir(gerente);
+  estado(r, 200);
+  assert.equal(r.cuerpo.tienda.sicar.sin_dato, true);
+  assert.equal(r.cuerpo.tienda.sicar.motivo, "sin_agente");
+});
 
 test("avance HTTP muestra cierre propio con SICAR rectificado 100 a 80, sin correcciones ajenas", async () => {
   const { rectificarCierre } = require("./objetivosCierre");

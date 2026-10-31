@@ -63,7 +63,7 @@ const { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDe
 const { CLASES_ACTIVIDAD } = require("./objetivosActividadesCatalogo");
 const { listarElementos, altaElemento, desactivarElemento } = require("./objetivosCatalogos");
 const { FINANCIERAS, registrarCredito, anularCredito, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
-const { avancePersona, avanceTienda, avancePorPersona, porcentajesParaVendedora } = require("./objetivosAvance");
+const { avancePersona, avanceTienda, avancePorPersona, porcentajesParaVendedora, ventaSicarDelMes } = require("./objetivosAvance");
 const {
   registrarActividad, anularActividad, agregarResultado, actividadesDelMes, resumenActividades,
 } = require("./objetivosActividades");
@@ -2743,6 +2743,12 @@ app.get("/api/objetivos/:mes/:sucursalId/avance", requiereLogin, requierePermiso
     const respuesta = { propio, tienda_porcentajes: porcentajesParaVendedora(DB, datos, propio) };
     if (esJefatura && alcanceNormal) {
       respuesta.tienda = avanceTienda(DB, datos);
+      try {
+        respuesta.tienda.sicar = ventaSicarDelMes(conexionSqlite, datos);
+      } catch (e) {
+        Sentry.captureException(e);
+        respuesta.tienda.sicar = { sin_dato: true, motivo: "error_sicar" };
+      }
       respuesta.por_persona = avancePorPersona(DB, datos);
     }
     res.json(respuesta);

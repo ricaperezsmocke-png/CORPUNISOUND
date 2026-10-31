@@ -5,6 +5,34 @@ const { porcentaje, avancePersona, avanceTienda, soloPorcentajes, avancePorPerso
 const TIENDA = { mes: "2026-09", sucursal_id: 1 };
 const PERSONA = { ...TIENDA, vendedor_id: 1 };
 
+test("ventaSicarDelMes trae la leyenda y el rango del mes", (t) => {
+  const Database = require("better-sqlite3");
+  const { crearRepositorioSicar } = require("./sicarRepositorio");
+  const { ventaSicarDelMes } = require("./objetivosAvance");
+  const sqlite = new Database(":memory:");
+  t.after(() => sqlite.close());
+  crearRepositorioSicar(sqlite);
+  sqlite.prepare("INSERT INTO sicar_tiendas(sucursal_id) VALUES (1), (2)").run();
+  const insertar = sqlite.prepare(`INSERT INTO sicar_ventas_mostrador
+    (sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en)
+    VALUES (?, ?, ?, 'vigente', ?, 'x')`);
+  insertar.run(1, "oct", "2026-10-31T23:59:59", 12345);
+  insertar.run(1, "nov", "2026-11-01T00:00:00", 99999);
+  insertar.run(2, "otra", "2026-10-15T12:00:00", 88888);
+  assert.deepEqual(ventaSicarDelMes(sqlite, { mes: "2026-10", sucursal_id: 1 }), {
+    venta_centavos: 12345, ventas: 1, cliente_centavos: 0, mostrador_centavos: 12345,
+    internas_centavos: 0, sin_dato: false, motivo: null, leyenda: "sin restar devoluciones",
+  });
+});
+
+test("ventaSicarDelMes conserva sin_integracion y la leyenda sin SQLite", () => {
+  const { ventaSicarDelMes } = require("./objetivosAvance");
+  assert.deepEqual(ventaSicarDelMes(null, { mes: "2026-10", sucursal_id: 1 }), {
+    venta_centavos: 0, ventas: 0, cliente_centavos: 0, mostrador_centavos: 0,
+    internas_centavos: 0, sin_dato: true, motivo: "sin_integracion", leyenda: "sin restar devoluciones",
+  });
+});
+
 function prepararDB() {
   return { pos: {
     objetivos: [], objetivo_capturas: [], objetivo_creditos: [], objetivo_actividades: [],
