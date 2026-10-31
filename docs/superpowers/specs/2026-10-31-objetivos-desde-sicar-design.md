@@ -16,8 +16,8 @@ no vendió; uno incompleto le reprueba a quien sí. El sistema no debe inventarl
 
 ## Hechos verificados (dos revisiones independientes, Claude y Codex, sobre 45e8f9c)
 
-- Ninguna métrica de Objetivos lee SICAR. Lo único que lee SICAR es Cinco Caminos (por tienda y semana,
-  `backend/cincoCaminos/tablero.js:42-58`).
+- Ninguna métrica de Objetivos lee SICAR. Leen SICAR Cinco Caminos (por tienda y semana,
+  `backend/cincoCaminos/tablero.js:42-58`) y el CRM (compras por cliente, `backend/crmFuentes.js:217`, `:246`, `:263`).
 - **Cinco Caminos suma como venta lo vendido a cuentas internas** (traspasos a tiendas propias): solo las excluye de
   "con cliente" (`tablero.js:47-50`). En Ocosingo el cliente "UNISOUND YAJALON" suma ~36% de lo SICAR del CRM.
 - `sicar_ventas` (con cliente) y `sicar_ventas_mostrador` (público en general) traen tienda, `ven_id`, `fecha_local`
@@ -87,13 +87,17 @@ Cada fase se entrega, se prueba en navegador y Victor la sube antes de la siguie
 - Una sola función del servidor, **la única definición** de "venta SICAR de una tienda en un rango de fechas":
   `sicar_ventas` vigentes **menos** cuentas internas (`sicar_internas`) **más** `sicar_ventas_mostrador` vigentes, por
   `fecha_local`. Objetivos y Cinco Caminos la usan; nadie más arma esa suma por su lado (misma lógica que `esDeEstaCaja`).
+  El CRM sigue con sus consultas por cliente (otra pregunta: qué compró cada cliente), que ya excluyen internas
+  (`crmFuentes.js:190`); no se toca.
 - **Cinco Caminos** deja de sumar internas al dinero vendido (corrige `tablero.js:47-50`).
 - **Objetivos, por tienda:** junto al avance de la tienda (captura manual) se muestra "Venta SICAR" del mes. La tienda
   sin agente, o con mostrador apagado, muestra **"sin datos de SICAR"**, nunca un número. Cómo se sabe que mostrador está
   prendido: lo decide el constructor con datos que ya existan en el servidor (por ejemplo, que la tienda haya mandado
   mostrador en los últimos días); si no hay forma confiable, se agrega una marca explícita.
-- **Cierre de mes:** el `real_sicar` de la **tienda** se propone solo con ese número; el gerente lo ve y lo confirma al
-  sellar (el campo deja de ser tecleo libre para la tienda). El de cada persona sigue manual hasta F2.
+- **Cierre de mes:** hoy no existe un "real de SICAR" de tienda: el cierre solo acepta reales por persona presente en el
+  previo (`backend/objetivosCierre.js:208-218`) y las rectificaciones exigen una línea personal (`:298-299`). F1
+  **agrega** al cierre una línea de tienda con la venta SICAR del mes, calculada por el servidor, que el gerente ve y
+  confirma al sellar (no se teclea). El real de cada persona sigue manual hasta F2.
 
 ### F2 — Vendedora por venta (cambia el agente)
 
@@ -121,8 +125,17 @@ Confirmado en F0: `venta.vnd_id` → `vendedor`.
   los artículos de esos departamentos. No se usan categoría, línea ni la descripción del artículo. *(Decisión del
   diseñador: el vínculo se hace por tienda, porque cada SICAR tiene su propio catálogo de departamentos; la pantalla puede
   ofrecer copiar el vínculo de otra tienda cuando el nombre del departamento coincide.)*
-- **Productos:** cada producto-meta de `objetivo_productos` se liga a uno o varios artículos (o a una categoría) de SICAR;
-  se suman piezas de los renglones vigentes.
+- **Al poner metas se escoge del catálogo de SICAR, nunca se escribe** (decisión de Victor 2026-10-31: "no quiero que
+  cree algo que el sistema no pueda medir, así como lo usamos en el Radar"). El gerente ve la lista completa de
+  departamentos que SICAR mandó para **su tienda**, con buscador (mismo patrón que el proveedor del Radar:
+  `src/radar-demanda/proveedorRadar.js`, validado en el servidor contra la lista de SICAR), y escoge de ahí. **No hay
+  opción "otro" ni texto libre.** El servidor rechaza una meta de marca cuyo departamento no esté en la lista de SICAR de
+  esa tienda. Una tienda sin agente o sin lista de departamentos no puede poner metas de marca (la pantalla lo dice).
+- Las marcas escritas a mano que ya existen en `objetivo_marcas` se conservan solo para leer los meses ya cerrados; no se
+  pueden usar en metas nuevas. *(Decisión del diseñador.)*
+- **Productos:** misma regla: cada producto-meta se escoge de los artículos de SICAR de esa tienda (buscador por clave o
+  descripción), sin texto libre; se suman piezas de los renglones vigentes. *(Extensión del diseñador de la misma regla
+  de Victor; confirmar con él.)*
 - Lo que no esté ligado no suma a ninguna meta y se lista para que el gerente lo revise.
 - Misma regla de una sola fuente oficial por tienda y mes que F2.
 
@@ -144,6 +157,14 @@ nueva) no cuenta como dos ventas.
 - **Marcas y productos:** la nota resta de la marca/producto solo si trae renglones con artículo; si no, resta solo de la
   venta total. *(Decisión del diseñador; confirmar con datos de `notacredito` en F2.)*
 - **F1 (antes de que el agente mande notas):** el número de tienda se muestra con la leyenda "sin restar devoluciones".
+- **Primer paso de F2, antes de programar las notas (reconocimiento en SICAR, solo lectura):** confirmar si
+  `ventanotacredito` liga la venta **original** o la venta donde se usó la nota como anticipo; cómo se ve una nota que
+  no es devolución (ajuste, bonificación); y qué pasa con la nota de una venta ya cancelada. Reglas fijas mientras tanto
+  *(decisiones del diseñador)*: la nota de una venta a **cuenta interna** no resta (esa venta nunca sumó); la nota de una
+  venta **cancelada** no resta (la cancelación ya la quitó). Si el reconocimiento contradice estas reglas, se vuelve a
+  Victor antes de programar.
+- El cierre hoy rechaza reales y rectificaciones negativos (`objetivosCierre.js:217`, `:317`). Con devoluciones, el
+  neto de una persona en un mes puede ser negativo: el cierre debe aceptarlo y mostrarlo como tal.
 
 ## Reglas que aplican a todas las fases
 
@@ -156,6 +177,17 @@ nueva) no cuenta como dos ventas.
   veces ni se pierde (requiere mostrador prendido).
 - **Doble fuente:** si una tienda llegara a cobrar también en el POS de CORPUNISOUND, esa venta **no** entra a estas
   sumas; la fuente oficial es SICAR.
+- **Vínculo vendedor SICAR → persona** *(decisión del diseñador)*: el vínculo dice "este `vnd_id` ES esta persona". Si se
+  cambia, es una corrección: aplica a todo el mes abierto; los meses sellados no se tocan (se rectifican con el flujo de
+  siempre). Cada cambio queda en el historial con quién y cuándo, y el avance muestra el aviso "vínculo cambiado el …".
+- **Catálogo de SICAR que cambia a mitad de mes** *(decisión del diseñador)*: el mes abierto se calcula con el catálogo
+  actual (departamento y artículo de hoy); los meses sellados quedan como se sellaron. No se guardan versiones del
+  catálogo.
+- **Sin dobles:** en una tienda y mes, un departamento solo puede estar en una meta de marca y un artículo solo en una
+  meta de producto. El servidor rechaza el segundo vínculo. *(Decisión del diseñador.)*
+- **Fuente oficial por métrica** *(decisión del diseñador)*: la fuente oficial (captura o SICAR) se elige por tienda,
+  mes **y métrica** (venta, marcas, productos). Así la venta puede pasar a SICAR al terminar F2 aunque marcas y productos
+  sigan a mano hasta F3. Nunca se suman las dos fuentes de una misma métrica.
 - Toda suma se calcula en el servidor; la pantalla solo muestra.
 - Cada número de SICAR en pantalla se puede abrir hasta los tickets que lo forman.
 
@@ -172,4 +204,8 @@ cómo se pagina la lista de tickets, cómo se migra.
 
 ## Preguntas abiertas (Victor)
 
-Ninguna por ahora: marcas (departamento) y devoluciones (restan en el mes de la nota) decididas el 2026-10-31.
+Marcas (departamento) y devoluciones (restan en el mes de la nota) decididas el 2026-10-31. Quedan:
+
+1. **¿Se puede sellar el mes con venta "sin asignar"?** Si se sella con, por ejemplo, $8,000 sin asignar, a nadie se le
+   cuentan; si después se descubre de quién eran, hay que rectificar.
+2. **Productos desde el catálogo de artículos de SICAR**, sin texto libre (extensión del diseñador de la regla de marcas).
