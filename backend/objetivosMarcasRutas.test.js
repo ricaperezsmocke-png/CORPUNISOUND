@@ -508,7 +508,8 @@ test("cierre HTTP cruza las familias, normaliza IDs, conserva el sello y respeta
   const rectificacion = { vendedor_id: "1", campo: "real", marca_id: "1", valor_nuevo: 15, motivo: "Error SICAR" };
   estado(await pedir("POST", ruta, vendedor, rectificacion), 403);
   const ajeno = await pedir("POST", "/api/objetivos/cierre", global, { mes: MES, sucursal_id: "2",
-    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 2 }).huella,
+    // La huella incluye tienda_sicar: se calcula con la misma conexión SQLite que usa la ruta.
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 2 }, { sqlite: require("./persistencia").obtenerConexionSqlite() }).huella,
     reales: [{ vendedor_id: "3", real_sicar: 0 }] });
   estado(ajeno, 200);
   estado(await pedir("POST", `/api/objetivos/cierre/${ajeno.cuerpo.id}/rectificar?sucursal_id=1`, soloCierre, rectificacion), 404);

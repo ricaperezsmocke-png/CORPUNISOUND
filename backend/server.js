@@ -59,7 +59,7 @@ const {
   plantillaDelMes, darDeBajaEnPlantilla, repartoSugerido, estadoDelReparto,
 } = require("./objetivos");
 const { capturarDia, corregirCaptura, capturadoDelMes, capturadoDelMesPor, diasSinCapturar } = require("./objetivosCaptura");
-const { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes } = require("./objetivosCierre");
+const { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes, conTiendaSicarActual } = require("./objetivosCierre");
 const { CLASES_ACTIVIDAD } = require("./objetivosActividadesCatalogo");
 const { listarElementos, altaElemento, desactivarElemento } = require("./objetivosCatalogos");
 const { FINANCIERAS, registrarCredito, anularCredito, creditosDelMes, resumenCreditos } = require("./objetivosCreditos");
@@ -2660,9 +2660,11 @@ function actividadParaRespuesta(registro) {
 }
 
 // El sello conserva el id de Drive; la pantalla solo necesita el link.
-function cierreParaRespuesta(cierre) {
-  if (!cierre.foto?.actividades) return cierre;
-  return { ...cierre, foto: { ...cierre.foto, actividades: cierre.foto.actividades.map(actividadParaRespuesta) } };
+// Si el cierre selló la venta SICAR de la tienda, al lado va la de hoy y la diferencia; el sello no se toca.
+function cierreParaRespuesta(cierre, sqlite) {
+  const respuesta = conTiendaSicarActual(cierre, sqlite);
+  if (!respuesta.foto?.actividades) return respuesta;
+  return { ...respuesta, foto: { ...respuesta.foto, actividades: respuesta.foto.actividades.map(actividadParaRespuesta) } };
 }
 
 app.get("/api/objetivos/catalogo-actividades", requiereLogin, requierePermiso("usar_gerente_ventas", resolverPermisosDeRol), (req, res) => {
@@ -3112,7 +3114,7 @@ app.get("/api/objetivos/:mes/:sucursalId/previo-cierre", requiereLogin, requiere
   try {
     const sucursal_id = idDeObjetivos(req.params.sucursalId, "sucursal_id");
     if (!sucursalObjetivosPermitida(req, sucursal_id)) return res.status(404).json({ error: "Cierre no encontrado" });
-    res.json(previoCierre(DB, { mes: req.params.mes, sucursal_id }));
+    res.json(previoCierre(DB, { mes: req.params.mes, sucursal_id }, { sqlite: conexionSqlite }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -3123,7 +3125,7 @@ app.get("/api/objetivos/:mes/:sucursalId/cierre", requiereLogin, requierePermiso
     validarMesObjetivos(req.params.mes);
     const cierre = DB.pos.objetivo_cierres.find((c) => c.mes === req.params.mes && c.sucursal_id === sucursal_id);
     if (!cierre) return res.status(404).json({ error: "Cierre no encontrado: ese mes no está cerrado para esta sucursal" });
-    res.json(cierreParaRespuesta(cierre));
+    res.json(cierreParaRespuesta(cierre, conexionSqlite));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -3134,7 +3136,10 @@ app.post("/api/objetivos/cierre", requiereLogin, requierePermiso("cerrar_mes_obj
     const reales = Array.isArray(req.body?.reales)
       ? req.body.reales.map((real) => ({ ...real, vendedor_id: idDeObjetivos(real?.vendedor_id, "vendedor_id") }))
       : req.body?.reales;
-    res.json(cierreParaRespuesta(cerrarMes(DB, { mes: req.body?.mes, sucursal_id, reales, huella: req.body?.huella }, req.usuarioToken)));
+    // Solo estos cuatro campos del cuerpo llegan a cerrarMes: tienda_sicar la calcula el servidor.
+    const datos = { mes: req.body?.mes, sucursal_id, reales, huella: req.body?.huella };
+    const cierre = cerrarMes(DB, datos, req.usuarioToken, undefined, { sqlite: conexionSqlite });
+    res.json(cierreParaRespuesta(cierre, conexionSqlite));
   } catch (e) { res.status(e.status === 409 ? 409 : 400).json({ error: e.message }); }
 });
 
