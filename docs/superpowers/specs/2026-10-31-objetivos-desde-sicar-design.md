@@ -62,12 +62,23 @@ se ponen las metas.
 
 Cada fase se entrega, se prueba en navegador y Victor la sube antes de la siguiente.
 
-### F0 — Reconocimiento de SICAR (en curso, solo lectura)
+### F0 — Reconocimiento de SICAR (hecho en San Cristóbal 2026-10-31, solo lectura; confirmar en Ocosingo)
 
-San Cristóbal revisa la estructura de su SICAR: columnas de vendedor en `venta` (vnd_id/usu_id) y tabla de vendedores,
-marca en `articulo`, forma de pago por venta (Coppel Pay, Atrato), devoluciones, y si `total` = subtotal + impuesto −
-descuento. Se confirma en Ocosingo con `--verificar`. **F2, F3 y F4 se ajustan a lo que salga aquí.** Si SICAR no anota
-vendedor por venta, F2 se detiene y se le lleva a Victor el hallazgo con opciones.
+- **Vendedor: SÍ existe.** `venta.vnd_id` (int, índice) → tabla `vendedor` (`vnd_id` PK, `nombre`, `alias`, `status`;
+  la tabla también trae datos personales, huella y foto: **el agente no los lee**). En 90 días, 664 de 664 ventas
+  vigentes traen `vnd_id` (4 vendedores distintos). `venta` no tiene `usu_id`; quien capturó sale de `historial` y
+  **no coincide** con `vnd_id` (solo 29 de 664): `vnd_id` es el vendedor que se elige al vender, no la cajera. F2 va.
+- **Marca: NO existe** en `articulo` ni hay tabla de marca. Clasificación: `cat_id` → `categoria` → `dep_id` →
+  `departamento`. Hay una tabla `linea` sin revisar (en curso). Ver F3.
+- **Forma de pago:** `ventatipopago` (`ven_id`, `tpa_id`, `total`), varias por venta. Catálogo `tipopago`: Efectivo,
+  Cheque, Crédito, Transferencia, Vales, Tarjeta, Anticipo, SICAR Pagos. **Coppel Pay y Atrato no existen** como forma de
+  pago (probablemente van como Tarjeta o Transferencia). Crédito propio (`tpa_id` 3, `creditocliente`, `abonocliente`):
+  0 ventas en 90 días. → Créditos se quedan manuales (decisión 5), sin F4 por ahora.
+- **Devoluciones:** no hay tabla de devoluciones; van como **nota de crédito** (`notacredito`: `ncr_id`, `fecha`,
+  `subtotal`, `descuento`, `total`, `devAplicada`, `status`, `cli_id`, `vnd_id`; `ventanotacredito` liga venta ↔ nota).
+  90 días: 2 notas por $7,507.49, mismo importe que 2 ventas pagadas con "Anticipo" (nota aplicada a una venta nueva).
+- **Importe:** `venta.total` = `subtotal` + impuesto (`ventaimp`); el `subtotal` **ya trae el descuento aplicado** y
+  `descuento` solo informa. `total` es con IVA y con descuento: coincide con la decisión 3 y con `total_centavos`.
 
 ### F1 — Venta de la tienda desde SICAR (sin tocar el agente)
 
@@ -84,9 +95,10 @@ vendedor por venta, F2 se detiene y se le lleva a Victor el hallazgo con opcione
 
 ### F2 — Vendedora por venta (cambia el agente)
 
-Supuesto a confirmar en F0: `venta.vnd_id` existe y apunta a una tabla de vendedores.
-- **Agente:** manda el `vnd_id` de cada venta (con cliente y mostrador) y el catálogo de vendedores de SICAR (id y
-  nombre; nada más de la persona). Sube la versión del contrato; un agente viejo sigue funcionando sin vendedor.
+Confirmado en F0: `venta.vnd_id` → `vendedor`.
+- **Agente:** manda el `vnd_id` de cada venta (con cliente y mostrador) y el catálogo de vendedores de SICAR (solo
+  `vnd_id`, `nombre`, `alias`, `status`; nunca datos personales, huella ni foto: se agregan a la guardia SQL como hoy
+  `huella|muestra|foto`). Sube la versión del contrato; un agente viejo sigue funcionando sin vendedor.
 - **Servidor:** tabla que liga `(sucursal, vnd_id)` con una vendedora de CORPUNISOUND, con quién la ligó y cuándo, e
   historial de cambios (como `sicar_cajeros`). Se liga a mano, con permiso propio registrado en
   `backend/permisosCatalogo.js`; nunca por coincidencia de nombre automática.
@@ -110,9 +122,14 @@ Depende de F0 (si SICAR tiene marca).
 - Lo que no esté ligado no suma a ninguna meta y se lista para que el gerente lo revise.
 - Misma regla de una sola fuente oficial por tienda y mes que F2.
 
-### F4 — Créditos (después)
+### F4 — Créditos (sin fecha)
 
-Con lo que diga F0 sobre formas de pago, se diseña aparte. Mientras tanto, el registro manual de folios sigue igual.
+F0 mostró que SICAR no distingue Coppel Pay ni Atrato. El registro manual de folios sigue igual; no hay F4 mientras eso
+no cambie.
+
+### Devoluciones (notas de crédito) — PENDIENTE DE DECISIÓN DE VICTOR
+
+Ver "Preguntas abiertas".
 
 ## Reglas que aplican a todas las fases
 
@@ -138,3 +155,12 @@ cómo se pagina la lista de tickets, cómo se migra.
 - Mostrador prendido en cada tienda que se mida (`"mostrador": true` en el agente).
 - Cuentas internas (Yajalón y demás tiendas propias) marcadas en CRM → SICAR en cada tienda.
 - Agente instalado y mandando en cada tienda (hoy: Ocosingo; San Cristóbal y CEDIS en instalación).
+
+## Preguntas abiertas (Victor)
+
+1. **Marcas:** SICAR no tiene campo de marca. Opciones: (a) la tabla `linea` si resulta ser marca (en revisión);
+   (b) ligar cada marca-meta a categorías/departamentos de SICAR; (c) reglas sobre la descripción del artículo
+   ("contiene YAMAHA"). Mientras no se decida, las marcas siguen con captura manual.
+2. **Devoluciones (notas de crédito):** ¿restan de la venta? Recomendación: sí, restan a la vendedora de la nota
+   (`notacredito.vnd_id`) en el mes de la nota. Si no restan, una devolución que se vuelve a vender (nota aplicada como
+   anticipo) cuenta la venta dos veces.
