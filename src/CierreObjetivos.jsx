@@ -10,6 +10,7 @@ import {
   armarRealesCierre, camposFaltantesCierre, esRectificacionDeElemento, formatoUnidad, llaveCampo, pesosConCentavos, restarEnCentavos,
   resumenAntesDeSellar, contadorCierre, rotuloCampoCierre,
 } from "./objetivos/marcas";
+import { textoSicarCambioCierre, textoVentaSicar } from "./objetivos/avance";
 
 const diferencia = (n) => n === 0 ? "✔ Cuadra" : `Capturó ${pesosConCentavos(Math.abs(n))} ${n > 0 ? "más" : "menos"} que SICAR`;
 const TABLA = "w-full text-sm min-w-[800px] [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2";
@@ -34,6 +35,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
   const [previo, setPrevio] = useState([]);
   const [retiradas, setRetiradas] = useState([]);
   const [huella, setHuella] = useState(null);
+  const [tiendaSicar, setTiendaSicar] = useState(null);
   // Un valor por campo del cierre, con llaveCampo: SICAR de cada persona y el real de cada elemento.
   const [valores, setValores] = useState({});
   const [faltantes, setFaltantes] = useState([]);
@@ -59,6 +61,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
     setCierre(null);
     setPrevio([]);
     setHuella(null);
+    setTiendaSicar(null);
     setRetiradas([]);
     setRectificando(null);
     if (!mes || !sucursalId) return;
@@ -80,6 +83,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
         .then((r) => leer(r, "No se pudo preparar el cierre"));
       setPrevio(revision.lineas);
       setHuella(revision.huella);
+      setTiendaSicar(revision.tienda_sicar || null);
       setRetiradas(await apiFetch(`/objetivos/${mes}/${sucursalId}/retiradas`)
         .then((r) => leer(r, "No se pudieron cargar las metas eliminadas")));
       if (conservarReales !== true) setValores({});
@@ -204,6 +208,7 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
           <p className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
             Una vez cerrado no se puede editar; solo rectificar.
           </p>
+          <RenglonVentaSicar sicar={tiendaSicar} />
           <TablaPrevio lineas={previo} valores={valores} faltantes={faltantes} cambiar={cambiarValor} />
           <CierreElementos lineas={previo} nombre={(id, l) => l.nombre || nombre(id)} valores={valores}
             faltantes={faltantes} cambiar={cambiarValor} />
@@ -246,6 +251,23 @@ export default function CierreObjetivos({ permisos = [], usuario }) {
             cambiar={(motivo) => setRectificando({ ...rectificando, motivo })} area />
         </Modal>
       )}
+    </div>
+  );
+}
+
+// Venta de la tienda según SICAR: en el previo, la que se va a sellar; en el sellado, la sellada.
+// Cierres viejos sin tienda_sicar no muestran nada. Con sin_dato va la leyenda, nunca un monto.
+function RenglonVentaSicar({ sicar, aviso = null }) {
+  if (!sicar) return null;
+  const { monto, detalle } = textoVentaSicar(sicar);
+  return (
+    <div className="text-sm space-y-2" data-testid="cierre-venta-sicar">
+      <p className="border border-slate-200 rounded-lg p-3">
+        <strong>Venta de la tienda según SICAR:</strong>{" "}
+        {monto !== null && <strong>{monto}</strong>}
+        <span className={monto === null ? "text-amber-800" : "block text-xs text-slate-500"}>{detalle}</span>
+      </p>
+      {aviso && <p role="status" className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">{aviso}</p>}
     </div>
   );
 }
@@ -296,6 +318,8 @@ export function CierreSellado({ cierre, rectificar, nombre, mes, nombreSucursal 
         {" "}por {cierre.cerrado_por} el {fechaCierre(cierre.cerrado_en)}
         <AyudaBoton texto="Corrige una cifra del cierre sellado. El valor original queda visible, tachado." />
       </h2>
+      <RenglonVentaSicar sicar={cierre.tienda_sicar}
+        aviso={textoSicarCambioCierre(cierre.tienda_sicar_actual, cierre.tienda_sicar_diferencia_centavos)} />
       <div className="overflow-x-auto max-w-full">
         <table className={TABLA}>
           <thead>

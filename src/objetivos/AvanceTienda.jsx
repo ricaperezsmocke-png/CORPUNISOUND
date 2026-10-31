@@ -3,7 +3,7 @@ import { FranjaAyuda } from "./Ayuda";
 import { BarChart3 } from "lucide-react";
 import { apiFetch } from "../api";
 import { hoyLocal, leer } from "./datos";
-import { estadoMeta } from "./avance";
+import { estadoMeta, textoVentaSicar } from "./avance";
 import { formatoUnidad, pesosConCentavos } from "./marcas";
 import { Anillo, BarrasMetas, LineaMes, textoPorcentaje } from "./GraficasAvance";
 
@@ -13,6 +13,19 @@ const COLUMNAS = [
   { grupo: "creditos", clave: "financiera", unidad: "creditos", valor: "registrados" },
   { grupo: "actividades", clave: "actividad", unidad: "declaradas", valor: "declaradas" },
 ];
+
+// Solo jefatura recibe tienda.sicar; si no viene (vendedora), la tarjeta no se dibuja.
+export function TarjetaVentaSicar({ sicar }) {
+  if (!sicar) return null;
+  const { titulo, monto, detalle } = textoVentaSicar(sicar);
+  return (
+    <div className="border border-slate-200 rounded-lg p-3 text-center mt-4" data-testid="venta-sicar">
+      <h3 className="font-medium text-slate-700">{titulo}</h3>
+      {monto !== null && <p className="text-2xl font-bold text-slate-800">{monto}</p>}
+      <p className={monto === null ? "text-sm text-amber-800" : "text-xs text-slate-500"}>{detalle}</p>
+    </div>
+  );
+}
 
 function Celda({ porcentaje, detalle }) {
   const ancho = Math.min(100, Math.max(0, porcentaje || 0));
@@ -59,8 +72,11 @@ export default function AvanceTienda({ mes, sucursalId, nombre }) {
         Avance de la tienda
       </h2>
       <div className="grid lg:grid-cols-[16rem_1fr] gap-6 items-start">
-        <Anillo titulo="Meta de venta de la tienda" porcentaje={venta.porcentaje} estado={estado}
-          detalle={estado === "sin-meta" ? "" : `${pesosConCentavos(venta.capturado)} de ${pesosConCentavos(venta.meta)}`} />
+        <div>
+          <Anillo titulo="Meta de venta de la tienda" porcentaje={venta.porcentaje} estado={estado}
+            detalle={estado === "sin-meta" ? "" : `${pesosConCentavos(venta.capturado)} de ${pesosConCentavos(venta.meta)}`} />
+          <TarjetaVentaSicar sicar={tienda.sicar} />
+        </div>
         <LineaMes serie={tienda.serie} meta={venta.meta} capturado={venta.capturado} mes={mes} hoy={hoyLocal()}
           porcentaje={venta.porcentaje} quien="A la tienda le" />
       </div>
