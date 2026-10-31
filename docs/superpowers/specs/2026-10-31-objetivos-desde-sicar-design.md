@@ -1,0 +1,140 @@
+# Objetivos alimentados por SICAR — diseño
+
+Fecha: 2026-10-31. Rama `feature/objetivos-sicar` (worktree `.claude/worktrees/objetivos-sicar`), base `45e8f9c`.
+
+## Por qué
+
+Las tiendas cobran en SICAR, no en el punto de venta de CORPUNISOUND. Hoy el módulo de Objetivos (avance, venta,
+marcas, productos, créditos) se alimenta solo de lo que cada vendedora **captura a mano**
+(`DB.pos.objetivo_capturas`, `backend/objetivosCaptura.js:170`; `backend/objetivosAvance.js:74`) y, al cerrar el mes,
+el gerente **teclea** el "real de SICAR" (`backend/objetivosCierre.js:191-232`). La venta real ya llega al servidor por
+el agente SICAR (tablas `sicar_*`), pero Objetivos no la lee. Victor quiere que las metas se midan con lo que de verdad
+se cobró.
+
+Lo que está en juego es dinero y personal: el avance decide si una vendedora cumplió. Un número inflado le paga a quien
+no vendió; uno incompleto le reprueba a quien sí. El sistema no debe inventarle ventas ni quitárselas a nadie.
+
+## Hechos verificados (dos revisiones independientes, Claude y Codex, sobre 45e8f9c)
+
+- Ninguna métrica de Objetivos lee SICAR. Lo único que lee SICAR es Cinco Caminos (por tienda y semana,
+  `backend/cincoCaminos/tablero.js:42-58`).
+- **Cinco Caminos suma como venta lo vendido a cuentas internas** (traspasos a tiendas propias): solo las excluye de
+  "con cliente" (`tablero.js:47-50`). En Ocosingo el cliente "UNISOUND YAJALON" suma ~36% de lo SICAR del CRM.
+- `sicar_ventas` (con cliente) y `sicar_ventas_mostrador` (público en general) traen tienda, `ven_id`, `fecha_local`
+  (hora de la PC de SICAR, sin conversión), estado y `total_centavos` (total del ticket). Sus renglones traen artículo,
+  cantidad, importe y descuento (`backend/sicarRepositorio.js:69-92`, `:143-154`).
+- Mostrador viene **apagado** por defecto en el agente (`agente-sicar/corrida.js:19`).
+- El agente **no manda**: vendedor por venta (`agente-sicar/mapeo.js:5` solo lee `ven_id, fecha, status, total,
+  tic_id, not_id, rem_id`), marca del artículo, forma de pago por venta, créditos/abonos, devoluciones.
+- La tienda la fija la llave del agente; el servidor ignora la tienda del lote (`backend/sicarRutas.js:101`).
+- Ya existe un patrón para ligar un usuario de SICAR con un nombre (`sicar_cajeros` + historial,
+  `sicarRepositorio.js:133-142`).
+
+## Decisiones de Victor (2026-10-31, aprobadas las seis)
+
+1. **Atribución:** la venta se cuenta a la vendedora que SICAR tenga anotada en la venta. Lo que no tenga vendedor (o
+   tenga uno sin ligar) va a **"sin asignar"**, visible para el gerente. **Nunca** se atribuye a la cajera ni a quien
+   registró la venta por default.
+2. **Traspasos / cuentas internas:** nunca cuentan como venta, ni en Objetivos ni en Cinco Caminos.
+3. **Importe:** total del ticket, **con IVA y ya con descuento** (`total_centavos`). Para marcas y productos, el importe
+   del renglón ya con descuento.
+4. **Convivencia:** la captura manual convive **un mes** con SICAR para comparar; después se quita. El "real de SICAR"
+   del cierre se llena solo.
+5. **Créditos:** se quedan como están (folio manual Coppel Pay / Atrato) hasta conocer cómo los guarda SICAR.
+6. **Mostrador:** se prende en cada tienda que se mida. Sin mostrador, la venta de la tienda no se califica con SICAR.
+
+## Metas y anti-metas
+
+**Metas:** que la venta, el avance, las marcas y los productos de cada vendedora y de cada tienda salgan de SICAR; que el
+gerente vea qué parte no se pudo atribuir; que cada número se pueda explicar ticket por ticket.
+
+**No metas (por ahora):** créditos desde SICAR (fase posterior), cobranza o cuentas por cobrar, comisiones, cambiar cómo
+se ponen las metas.
+
+**Anti-metas (si pasa esto, falló aunque "funcione"):**
+- Una venta contada dos veces (con cliente y mostrador del mismo ticket, o POS + SICAR).
+- Un traspaso a tienda propia contado como venta.
+- Venta atribuida a alguien por adivinanza (cajera, vendedor asignado al cliente, nombre parecido).
+- Una tienda sin mostrador o sin agente mostrada como "0% de avance" en vez de "sin datos de SICAR".
+- Un mes ya sellado que cambia solo.
+
+## Fases
+
+Cada fase se entrega, se prueba en navegador y Victor la sube antes de la siguiente.
+
+### F0 — Reconocimiento de SICAR (en curso, solo lectura)
+
+San Cristóbal revisa la estructura de su SICAR: columnas de vendedor en `venta` (vnd_id/usu_id) y tabla de vendedores,
+marca en `articulo`, forma de pago por venta (Coppel Pay, Atrato), devoluciones, y si `total` = subtotal + impuesto −
+descuento. Se confirma en Ocosingo con `--verificar`. **F2, F3 y F4 se ajustan a lo que salga aquí.** Si SICAR no anota
+vendedor por venta, F2 se detiene y se le lleva a Victor el hallazgo con opciones.
+
+### F1 — Venta de la tienda desde SICAR (sin tocar el agente)
+
+- Una sola función del servidor, **la única definición** de "venta SICAR de una tienda en un rango de fechas":
+  `sicar_ventas` vigentes **menos** cuentas internas (`sicar_internas`) **más** `sicar_ventas_mostrador` vigentes, por
+  `fecha_local`. Objetivos y Cinco Caminos la usan; nadie más arma esa suma por su lado (misma lógica que `esDeEstaCaja`).
+- **Cinco Caminos** deja de sumar internas al dinero vendido (corrige `tablero.js:47-50`).
+- **Objetivos, por tienda:** junto al avance de la tienda (captura manual) se muestra "Venta SICAR" del mes. La tienda
+  sin agente, o con mostrador apagado, muestra **"sin datos de SICAR"**, nunca un número. Cómo se sabe que mostrador está
+  prendido: lo decide el constructor con datos que ya existan en el servidor (por ejemplo, que la tienda haya mandado
+  mostrador en los últimos días); si no hay forma confiable, se agrega una marca explícita.
+- **Cierre de mes:** el `real_sicar` de la **tienda** se propone solo con ese número; el gerente lo ve y lo confirma al
+  sellar (el campo deja de ser tecleo libre para la tienda). El de cada persona sigue manual hasta F2.
+
+### F2 — Vendedora por venta (cambia el agente)
+
+Supuesto a confirmar en F0: `venta.vnd_id` existe y apunta a una tabla de vendedores.
+- **Agente:** manda el `vnd_id` de cada venta (con cliente y mostrador) y el catálogo de vendedores de SICAR (id y
+  nombre; nada más de la persona). Sube la versión del contrato; un agente viejo sigue funcionando sin vendedor.
+- **Servidor:** tabla que liga `(sucursal, vnd_id)` con una vendedora de CORPUNISOUND, con quién la ligó y cuándo, e
+  historial de cambios (como `sicar_cajeros`). Se liga a mano, con permiso propio registrado en
+  `backend/permisosCatalogo.js`; nunca por coincidencia de nombre automática.
+- **Avance por persona:** suma las ventas SICAR de los vendedores ligados a ella. Ventas sin vendedor o con vendedor sin
+  ligar van a **"sin asignar"**, que solo ve el gerente/admin, con el monto y la lista de tickets. Una vendedora nunca ve
+  la venta de otra (se respeta la privacidad actual, `objetivosAvance.js:119`).
+- **Convivencia (decisión 4):** durante el mes de comparación el avance oficial sigue siendo la captura manual y se muestra
+  al lado el de SICAR con la diferencia. Al terminar el mes, un administrador cambia la **fuente oficial de esa tienda** a
+  SICAR, con fecha de inicio y quién lo hizo; desde ese mes la captura de venta desaparece para esa tienda. Una tienda
+  tiene **una sola fuente oficial por mes**: nunca se suman captura y SICAR.
+- El `real_sicar` por persona del cierre se propone solo.
+
+### F3 — Marcas y productos
+
+Depende de F0 (si SICAR tiene marca).
+- **Marcas:** el agente manda la marca del artículo; en el servidor cada marca-meta de `objetivo_marcas` se liga a una o
+  varias marcas de SICAR. Se suma el importe de los renglones vigentes (con cliente sin internas + mostrador). Si SICAR no
+  tiene marca, se vuelve a Victor con alternativas (departamento/categoría, que ya llegan).
+- **Productos:** cada producto-meta de `objetivo_productos` se liga a uno o varios artículos (o a una categoría) de SICAR;
+  se suman piezas de los renglones vigentes.
+- Lo que no esté ligado no suma a ninguna meta y se lista para que el gerente lo revise.
+- Misma regla de una sola fuente oficial por tienda y mes que F2.
+
+### F4 — Créditos (después)
+
+Con lo que diga F0 sobre formas de pago, se diseña aparte. Mientras tanto, el registro manual de folios sigue igual.
+
+## Reglas que aplican a todas las fases
+
+- **Fechas:** se usa `fecha_local` de SICAR tal cual (hora de la tienda). Mes = `fecha_local` dentro del mes.
+- **Cancelaciones:** una venta que SICAR cancela deja de sumar sola mientras el mes está abierto.
+- **Mes sellado:** lo sellado no cambia solo. Si después del sello SICAR cambia el número (cancelación tardía, venta que
+  llega tarde), el cierre muestra un **aviso de diferencia** y el gerente rectifica con motivo usando el flujo existente
+  (`objetivosCierre.js:266-285`). *(Decisión del diseñador; Victor puede cambiarla.)*
+- **Venta que pasa de con cliente a público:** queda `excluida` en `sicar_ventas` y entra por mostrador; no se cuenta dos
+  veces ni se pierde (requiere mostrador prendido).
+- **Doble fuente:** si una tienda llegara a cobrar también en el POS de CORPUNISOUND, esa venta **no** entra a estas
+  sumas; la fuente oficial es SICAR.
+- Toda suma se calcula en el servidor; la pantalla solo muestra.
+- Cada número de SICAR en pantalla se puede abrir hasta los tickets que lo forman.
+
+## Lo que decide el constructor
+
+Nombres de funciones y tablas, forma exacta de las pantallas, cómo detectar mostrador prendido (con la condición de F1),
+cómo se pagina la lista de tickets, cómo se migra.
+
+## Prerrequisitos fuera del código
+
+- Mostrador prendido en cada tienda que se mida (`"mostrador": true` en el agente).
+- Cuentas internas (Yajalón y demás tiendas propias) marcadas en CRM → SICAR en cada tienda.
+- Agente instalado y mandando en cada tienda (hoy: Ocosingo; San Cristóbal y CEDIS en instalación).
