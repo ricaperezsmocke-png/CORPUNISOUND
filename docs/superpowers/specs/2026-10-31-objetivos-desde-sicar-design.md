@@ -42,6 +42,8 @@ no vendió; uno incompleto le reprueba a quien sí. El sistema no debe inventarl
    del cierre se llena solo.
 5. **Créditos:** se quedan como están (folio manual Coppel Pay / Atrato) hasta conocer cómo los guarda SICAR.
 6. **Mostrador:** se prende en cada tienda que se mida. Sin mostrador, la venta de la tienda no se califica con SICAR.
+7. **Devoluciones** (notas de crédito): restan a la vendedora de la nota, en el mes de la nota.
+8. **Marcas:** salen del **departamento** de SICAR, solamente.
 
 ## Metas y anti-metas
 
@@ -113,10 +115,12 @@ Confirmado en F0: `venta.vnd_id` → `vendedor`.
 
 ### F3 — Marcas y productos
 
-Depende de F0 (si SICAR tiene marca).
-- **Marcas:** el agente manda la marca del artículo; en el servidor cada marca-meta de `objetivo_marcas` se liga a una o
-  varias marcas de SICAR. Se suma el importe de los renglones vigentes (con cliente sin internas + mostrador). Si SICAR no
-  tiene marca, se vuelve a Victor con alternativas (departamento/categoría, que ya llegan).
+- **Marcas = departamento de SICAR, solamente** (decisión de Victor 2026-10-31; SICAR no tiene campo de marca). Cada
+  marca-meta de `objetivo_marcas` se liga a uno o varios departamentos de SICAR (`sicar_articulos.departamento`, ya
+  llega; no cambia el agente). Se suma el importe de los renglones vigentes (con cliente sin internas + mostrador) de
+  los artículos de esos departamentos. No se usan categoría, línea ni la descripción del artículo. *(Decisión del
+  diseñador: el vínculo se hace por tienda, porque cada SICAR tiene su propio catálogo de departamentos; la pantalla puede
+  ofrecer copiar el vínculo de otra tienda cuando el nombre del departamento coincide.)*
 - **Productos:** cada producto-meta de `objetivo_productos` se liga a uno o varios artículos (o a una categoría) de SICAR;
   se suman piezas de los renglones vigentes.
 - Lo que no esté ligado no suma a ninguna meta y se lista para que el gerente lo revise.
@@ -127,9 +131,19 @@ Depende de F0 (si SICAR tiene marca).
 F0 mostró que SICAR no distingue Coppel Pay ni Atrato. El registro manual de folios sigue igual; no hay F4 mientras eso
 no cambie.
 
-### Devoluciones (notas de crédito) — PENDIENTE DE DECISIÓN DE VICTOR
+### Devoluciones (notas de crédito) — van con F2
 
-Ver "Preguntas abiertas".
+Decisión de Victor 2026-10-31: **la devolución resta a la vendedora de la nota (`notacredito.vnd_id`) en el mes de la
+nota** (`notacredito.fecha`). Así, una devolución que se cambia por otra mercancía (nota aplicada como anticipo a una venta
+nueva) no cuenta como dos ventas.
+- **Agente (con F2):** manda las notas de crédito vigentes: `ncr_id`, `fecha`, `total`, `status`, `vnd_id`, y sus
+  renglones si existen; la relación venta ↔ nota (`ventanotacredito`) para poder mostrar de qué venta salió. Nada del
+  cliente más allá de lo que ya se manda. Cancelada en SICAR = deja de restar.
+- **Servidor:** la venta neta de una persona o tienda en un mes = ventas SICAR (regla de F1) − notas de crédito vigentes
+  del mes. Las notas sin vendedor o con vendedor sin ligar restan de "sin asignar".
+- **Marcas y productos:** la nota resta de la marca/producto solo si trae renglones con artículo; si no, resta solo de la
+  venta total. *(Decisión del diseñador; confirmar con datos de `notacredito` en F2.)*
+- **F1 (antes de que el agente mande notas):** el número de tienda se muestra con la leyenda "sin restar devoluciones".
 
 ## Reglas que aplican a todas las fases
 
@@ -158,9 +172,4 @@ cómo se pagina la lista de tickets, cómo se migra.
 
 ## Preguntas abiertas (Victor)
 
-1. **Marcas:** SICAR no tiene campo de marca. Opciones: (a) la tabla `linea` si resulta ser marca (en revisión);
-   (b) ligar cada marca-meta a categorías/departamentos de SICAR; (c) reglas sobre la descripción del artículo
-   ("contiene YAMAHA"). Mientras no se decida, las marcas siguen con captura manual.
-2. **Devoluciones (notas de crédito):** ¿restan de la venta? Recomendación: sí, restan a la vendedora de la nota
-   (`notacredito.vnd_id`) en el mes de la nota. Si no restan, una devolución que se vuelve a vender (nota aplicada como
-   anticipo) cuenta la venta dos veces.
+Ninguna por ahora: marcas (departamento) y devoluciones (restan en el mes de la nota) decididas el 2026-10-31.
