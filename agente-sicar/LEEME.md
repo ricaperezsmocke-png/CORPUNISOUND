@@ -26,7 +26,10 @@ Cada vez que corre hace una sola pasada y termina. El Programador de tareas de W
    - `password`: contraseña de `consultas`.
    - `llave`: la llave de la tienda.
    - `estado`: déjalo como está. Ahí el agente apunta hasta dónde ya mandó.
-   - `publicos`: números de cliente que representan público en general en **esa tienda**, por ejemplo `["1"]`.
+   - `publicos`: **no viene en el ejemplo a propósito.** Son los números de cliente que representan público en general
+     en **esa tienda** y cada tienda los mide en su propio SICAR (ver «Público en general por tienda»).
+     **En Ocosingo no se pone:** sin esa clave usa su lista medida. Copiar `["1"]` en Ocosingo mandaría al CRM
+     las ventas de público de los números 2, 3, 13, 21, 33, 4566, 4567 y 4572 como si fueran clientes.
    - `host` tiene que quedarse en `127.0.0.1`: el agente se niega a conectarse a otra máquina.
 3. Protege el archivo: clic derecho en `config.json` → Propiedades → Seguridad. Que solo lo puedan leer el usuario
    que corre la tarea y los administradores. **Nunca** lo mandes por WhatsApp ni lo subas a ningún lado.
@@ -92,7 +95,9 @@ Para recuperar los clientes de San Cristóbal que antes se confundían con públ
 2. En su `C:\UnisoundSICAR\config.json`, agrega `"publicos": ["1"]`, respetando las comas del JSON.
    Esa es la lista medida para San Cristóbal; no cambies con ella la configuración de Ocosingo.
 3. Ejecuta `C:\UnisoundSICAR\agente-sicar\correr.cmd --verificar` después del cierre y revisa los conteos.
-4. Ejecuta manualmente:
+4. Ejecuta manualmente, **de noche (entre 20:00 y 07:00)**. Si un reenvío se corta de día, su lote pendiente
+   frena a la tarea programada (`FUERA_DE_HORARIO`) y no suben ventas, cortes ni existencias hasta las 20:00:
+   en ese caso repite el mismo comando a mano hasta ver `REENVIO_CLIENTES_COMPLETO`.
 
    ```bat
    C:\UnisoundSICAR\agente-sicar\correr.cmd --reenviar-clientes=2,3,13,21,33
@@ -103,6 +108,8 @@ Para recuperar los clientes de San Cristóbal que antes se confundían con públ
    El progreso de reparación se guarda aparte; los reintentos conservan el lote pendiente y su secuencia.
 6. Comprueba en el CRM de San Cristóbal las fichas y ventas de esos cinco clientes, incluidas las canceladas.
    La tarea programada sigue usando el comando normal, sin esta bandera.
+7. Si el reenvío se detiene siempre en la misma venta por datos raros, no se salta sola: quita a ese cliente
+   de la lista, termina con los demás y avisa a quien mantiene CORPUNISOUND con el número de venta.
 
 La bandera acepta una lista de ids positivos separados por coma, sin espacios ni repetidos; se usa sola.
 Reenvía también clientes sin compras y todas sus ventas, sin límite de fecha, con detalle y cancelaciones.
