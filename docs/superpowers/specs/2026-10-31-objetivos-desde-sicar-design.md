@@ -30,7 +30,7 @@ no vendió; uno incompleto le reprueba a quien sí. El sistema no debe inventarl
 - Ya existe un patrón para ligar un usuario de SICAR con un nombre (`sicar_cajeros` + historial,
   `sicarRepositorio.js:133-142`).
 
-## Decisiones de Victor (2026-10-31, aprobadas las seis)
+## Decisiones de Victor (2026-10-31)
 
 1. **Atribución:** la venta se cuenta a la vendedora que SICAR tenga anotada en la venta. Lo que no tenga vendedor (o
    tenga uno sin ligar) va a **"sin asignar"**, visible para el gerente. **Nunca** se atribuye a la cajera ni a quien
@@ -44,6 +44,9 @@ no vendió; uno incompleto le reprueba a quien sí. El sistema no debe inventarl
 6. **Mostrador:** se prende en cada tienda que se mida. Sin mostrador, la venta de la tienda no se califica con SICAR.
 7. **Devoluciones** (notas de crédito): restan a la vendedora de la nota, en el mes de la nota.
 8. **Marcas:** salen del **departamento** de SICAR, solamente.
+9. **Al poner metas se escoge del catálogo de SICAR** (departamentos para marcas, artículos para productos), como el
+   proveedor del Radar. Nada de texto libre.
+10. **No se sella el mes con venta "sin asignar".**
 
 ## Metas y anti-metas
 
@@ -116,6 +119,10 @@ Confirmado en F0: `venta.vnd_id` → `vendedor`.
   SICAR, con fecha de inicio y quién lo hizo; desde ese mes la captura de venta desaparece para esa tienda. Una tienda
   tiene **una sola fuente oficial por mes**: nunca se suman captura y SICAR.
 - El `real_sicar` por persona del cierre se propone solo.
+- **No se puede sellar el mes con venta "sin asignar"** (decisión de Victor 2026-10-31), en una tienda cuya fuente
+  oficial de venta sea SICAR. El servidor rechaza el sello y la pantalla dice cuánto falta y en cuántos tickets; el
+  gerente lo resuelve ligando el vendedor de SICAR a su persona (o, si en SICAR se eligió mal, corrigiéndolo allá). Las
+  notas de crédito sin vendedor cuentan como "sin asignar" igual.
 
 ### F3 — Marcas y productos
 
@@ -134,8 +141,7 @@ Confirmado en F0: `venta.vnd_id` → `vendedor`.
 - Las marcas escritas a mano que ya existen en `objetivo_marcas` se conservan solo para leer los meses ya cerrados; no se
   pueden usar en metas nuevas. *(Decisión del diseñador.)*
 - **Productos:** misma regla: cada producto-meta se escoge de los artículos de SICAR de esa tienda (buscador por clave o
-  descripción), sin texto libre; se suman piezas de los renglones vigentes. *(Extensión del diseñador de la misma regla
-  de Victor; confirmar con él.)*
+  descripción), sin texto libre; se suman piezas de los renglones vigentes. *(Confirmado por Victor 2026-10-31.)*
 - Lo que no esté ligado no suma a ninguna meta y se lista para que el gerente lo revise.
 - Misma regla de una sola fuente oficial por tienda y mes que F2.
 
@@ -204,8 +210,5 @@ cómo se pagina la lista de tickets, cómo se migra.
 
 ## Preguntas abiertas (Victor)
 
-Marcas (departamento) y devoluciones (restan en el mes de la nota) decididas el 2026-10-31. Quedan:
-
-1. **¿Se puede sellar el mes con venta "sin asignar"?** Si se sella con, por ejemplo, $8,000 sin asignar, a nadie se le
-   cuentan; si después se descubre de quién eran, hay que rectificar.
-2. **Productos desde el catálogo de artículos de SICAR**, sin texto libre (extensión del diseñador de la regla de marcas).
+Ninguna. Decididas por Victor el 2026-10-31: marcas por departamento, devoluciones restan en el mes de la nota, **no se
+puede sellar con "sin asignar"**, y **productos también del catálogo de SICAR**.
