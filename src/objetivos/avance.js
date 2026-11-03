@@ -51,7 +51,7 @@ export function estadoMeta(meta, capturado) {
 // Venta de la tienda según SICAR (solo jefatura). Con sin_dato no hay número: ni monto ni 0%.
 const LEYENDAS_SIN_SICAR = {
   sin_agente: "Sin datos de SICAR: esta tienda no tiene agente.",
-  sin_mostrador: "Sin datos de SICAR: falta prender las ventas de público en general.",
+  sin_mostrador: "Sin datos de SICAR: todavía no hay ventas de mostrador este mes.",
 };
 const pesosDeCentavos = (c) => pesosConCentavos(Math.round(Number(c || 0)) / 100);
 
