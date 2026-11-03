@@ -71,7 +71,7 @@ test("venta SICAR con traspasos a cuentas internas: se dice cuánto se excluyó"
 test("venta SICAR sin dato: leyenda por motivo y nunca un monto", () => {
   const casos = [
     ["sin_agente", "Sin datos de SICAR: esta tienda no tiene agente."],
-    ["sin_mostrador", "Sin datos de SICAR: falta prender las ventas de público en general."],
+    ["sin_mostrador", "Sin datos de SICAR: todavía no hay ventas de mostrador este mes."],
     ["sin_integracion", "Sin datos de SICAR por ahora."],
     ["error_sicar", "Sin datos de SICAR por ahora."],
   ];
