@@ -26,6 +26,12 @@ async function verificar(fuente, imprimir, esperar, log, config) {
     imprimir('Proveedores APAGADOS, faltan columnas: ' + JSON.stringify(proveedores.faltantes));
     log('PROVEEDORES_NO_DISPONIBLES');
   } else imprimir(`Proveedores vigentes en SICAR (sin los borrados): ${proveedores.total}`);
+  const compras = info.compras || { columnas: [], faltantes: ['compra'], total: null };
+  imprimir('Columnas de compra: ' + JSON.stringify(compras.columnas));
+  if (compras.faltantes.length) {
+    imprimir('Compras APAGADAS, faltan columnas: ' + JSON.stringify(compras.faltantes));
+    log('COMPRAS_NO_DISPONIBLES');
+  } else imprimir(`Compras en SICAR: ${compras.total}`);
   const existencias = info.existencias || { columnas: [], faltantes: ['articulo'], total: null, ms: null };
   imprimir('Columnas de existencias: ' + JSON.stringify(existencias.columnas));
   if (existencias.faltantes.length) {

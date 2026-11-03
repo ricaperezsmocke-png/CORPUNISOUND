@@ -54,6 +54,12 @@ const RELEER_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? AND t.`sta
 // --verificar: los enviados sin recibir, por páginas, para contar cuántos se omitirían por fecha inválida.
 const ABIERTOS_TRASPASOS = SELECCIONAR_TRASPASO + 'WHERE t.`tra_id` > ? AND t.`status` = 1 ORDER BY t.`tra_id` LIMIT ?';
 const MAXIMO_TRASPASOS = 100;
+const COLUMNAS_COMPRAS = { compra: ['com_id', 'fecha', 'pro_id', 'folio', 'comentario', 'status'],
+  detallec: ['com_id', 'art_id', 'cantidad', 'precioSin', 'precioCon', 'importeCon'] };
+const SELECCIONAR_COMPRA = 'SELECT c.`com_id`, c.`fecha`, c.`pro_id`, c.`folio`, c.`comentario`, c.`status` FROM `compra` c ';
+const LEER_COMPRAS = SELECCIONAR_COMPRA + 'WHERE c.`com_id` > ? ORDER BY c.`com_id` LIMIT ?';
+const RELEER_COMPRAS = SELECCIONAR_COMPRA + 'WHERE c.`com_id` > ? AND c.`fecha` >= ? ORDER BY c.`com_id` LIMIT ?';
+const MAXIMO_COMPRAS = 100;
 function identificador(nombre) {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(nombre) || /^(huella|muestra|foto)$/i.test(nombre)) throw new Error('COLUMNA_NO_PERMITIDA');
   return '`' + nombre + '`';
@@ -77,6 +83,8 @@ function crearFuente(lector, config = {}) {
   let columnasCortes = [];
   let traspasosFaltantes = null;
   let columnasTraspasos = [];
+  let comprasFaltantes = null;
+  let columnasCompras = [];
   // Filas chicas: cinco veces la página normal (100 → 500, lo que cabe en un lote); baja si SICAR se pone lento.
   const paginaExistencias = limite => Math.min(limite, lector.tamano * 5);
   const [tablaProveedor] = Object.keys(COLUMNAS_PROVEEDORES);
@@ -154,7 +162,8 @@ function crearFuente(lector, config = {}) {
       comprobar();
       if (proveedoresFaltantes.length) throw new Error('PROVEEDORES_NO_DISPONIBLES');
       // Se renombran a prv_id y nombre: el contrato no cambia aunque SICAR use otros nombres de columna.
-      return lector.pagina(leer => leer(`SELECT p.${idProveedor} AS prv_id, p.${nombreProveedor} AS nombre `
+      const rfc = columnasProveedores.includes('proveedor.rfc') ? ', p.`rfc`' : '';
+      return lector.pagina(leer => leer(`SELECT p.${idProveedor} AS prv_id, p.${nombreProveedor} AS nombre${rfc} `
         + `FROM ${identificador(tablaProveedor)} p WHERE p.${idProveedor} > ? AND p.${proveedorVigente} ORDER BY p.${idProveedor} LIMIT ?`,
       [cursor, Math.min(limite, lector.tamano * 5)]));
     },
@@ -198,6 +207,22 @@ function crearFuente(lector, config = {}) {
         const detalles = await leer('SELECT d.`tra_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon` FROM `detallet` d '
           + `WHERE d.\`tra_id\` IN (${huecos(ids)}) ORDER BY d.\`tra_id\`, d.\`art_id\``, ids);
         return { traspasos, detalles };
+      });
+    },
+    get comprasDisponibles() { return Array.isArray(comprasFaltantes) && !comprasFaltantes.length; },
+    async compras(cursor, limite, desde = null) {
+      comprobar();
+      if (comprasFaltantes.length) throw new Error('COMPRAS_NO_DISPONIBLES');
+      const n = Math.min(limite, lector.tamano, MAXIMO_COMPRAS);
+      return lector.pagina(async leer => {
+        const compras = desde === null ? await leer(LEER_COMPRAS, [cursor, n]) : await leer(RELEER_COMPRAS, [cursor, desde, n]);
+        if (!compras.length) return { compras, detalles: [], cancelaciones: [] };
+        const ids = compras.map(c => String(c.com_id));
+        const detalles = await leer('SELECT d.`com_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon`, d.`importeCon` '
+          + 'FROM `detallec` d WHERE d.`com_id` IN (' + huecos(ids) + ') ORDER BY d.`com_id`, d.`art_id`', ids);
+        const cancelaciones = await leer('SELECT h.`id`, h.`fecha` FROM `historial` h WHERE h.`tabla` = ? AND h.`movimiento` = 2 '
+          + 'AND h.`id` IN (' + huecos(ids) + ')', ['Compra', ...ids]);
+        return { compras, detalles, cancelaciones };
       });
     },
     async validar() {
@@ -244,6 +269,9 @@ function crearFuente(lector, config = {}) {
         const requeridasTraspasos = Object.entries(COLUMNAS_TRASPASOS).flatMap(([tabla, campos]) => campos.map(c => `${tabla}.${c}`));
         columnasTraspasos = requeridasTraspasos.filter(c => presentes.has(c));
         traspasosFaltantes = requeridasTraspasos.filter(c => !presentes.has(c));
+        const requeridasCompras = Object.entries(COLUMNAS_COMPRAS).flatMap(([tabla, campos]) => campos.map(c => tabla + '.' + c));
+        columnasCompras = requeridasCompras.filter(c => presentes.has(c));
+        comprasFaltantes = requeridasCompras.filter(c => !presentes.has(c));
         validado = true;
       });
     },
@@ -311,6 +339,8 @@ function crearFuente(lector, config = {}) {
           total: articulosFaltantes.length ? null : String((await leer('SELECT COUNT(*) AS total FROM `articulo`'))[0].total) },
         proveedores: { columnas: columnasProveedores, faltantes: proveedoresFaltantes, total: proveedoresFaltantes.length ? null
           : String((await leer(`SELECT COUNT(*) AS total FROM ${identificador(tablaProveedor)} WHERE ${proveedorVigente}`))[0].total) },
+        compras: { columnas: columnasCompras, faltantes: comprasFaltantes, total: comprasFaltantes.length ? null
+          : String((await leer('SELECT COUNT(*) AS total FROM `compra`'))[0].total) },
         existencias: existenciasFaltantes.length ? { columnas: columnasExistencias, faltantes: existenciasFaltantes, total: null, ms: null }
           : { columnas: columnasExistencias, faltantes: [], ...await medirExistencias(leer) },
         cortes: cortesFaltantes.length ? { columnas: columnasCortes, faltantes: cortesFaltantes, total: null, ms: null }

@@ -339,3 +339,42 @@ test('cabe: hasta 1000 traspasos omitidos por lote, como el servidor', () => {
   lote.traspasos_omitidos.push({ tra_id: '1001', codigo: 'OTRO' });
   assert.equal(cabe(lote), false);
 });
+
+const { compraSegura } = require('./formato');
+const compraBase = { com_id: '41', fecha: '2026-11-03 12:34:56', pro_id: '7', folio: ' F-1 ', comentario: 'Compra', status: 1 };
+const renglonCompra = { com_id: '41', art_id: '8', cantidad: '1', precioSin: '500.00', precioCon: '580.00', importeCon: '580.00' };
+test('compras: vigente suma importeCon de sus dos renglones y recorta textos', () => {
+  const c = { ...compraBase, folio: ' ' + 'F'.repeat(80), comentario: 'C'.repeat(220) };
+  const resultado = compraSegura({ compra: c, detalles: [renglonCompra, { ...renglonCompra, art_id: '9' },
+    { ...renglonCompra, com_id: '42' }], cancelaciones: [] });
+  assert.deepEqual(resultado, { compra: { com_id: '41', fecha: '2026-11-03T12:34:56', pro_id: '7',
+    folio: 'F'.repeat(60), comentario: 'C'.repeat(200), estado: 'vigente', cancelada_en: null, total_con: '1160.00',
+    detalle: ['8', '9'].map(art_id => ({ art_id, cantidad: '1.0000', precio_sin: '500.00', precio_con: '580.00', importe_con: '580.00' })) },
+  omitida: null });
+});
+test('compras: cancelada toma la fecha del historial de su com_id', () => {
+  const resultado = compraSegura({ compra: { ...compraBase, status: -1 }, detalles: [renglonCompra],
+    cancelaciones: [{ id: '42', fecha: '2026-11-01 10:00:00' }, { id: 41, fecha: '2026-11-03 13:00:00' }] });
+  assert.equal(resultado.compra.estado, 'cancelada');
+  assert.equal(resultado.compra.cancelada_en, '2026-11-03T13:00:00');
+  assert.equal(compraSegura({ compra: { ...compraBase, status: -1 }, detalles: [renglonCompra], cancelaciones: [] }).compra.cancelada_en, null);
+});
+for (const [codigo, compra, detalles] of [
+  ['STATUS_DESCONOCIDO', { ...compraBase, status: 3 }, [renglonCompra]],
+  ['FECHA_INVALIDA', { ...compraBase, fecha: '2026-02-30 10:00:00' }, [renglonCompra]],
+  ['SIN_DETALLE', compraBase, []],
+  ['DEMASIADOS_RENGLONES', compraBase, Array(501).fill(renglonCompra)],
+  ['IMPORTE_INVALIDO', compraBase, [{ ...renglonCompra, importeCon: '580.001' }]],
+  ['IMPORTE_INVALIDO', compraBase, [{ ...renglonCompra, precioCon: '-1' }]],
+]) {
+  test(`compras: omite ${codigo} (${detalles.length} renglones, ${detalles[0]?.precioCon})`, () => {
+    assert.deepEqual(compraSegura({ compra, detalles, cancelaciones: [] }), { compra: null, omitida: { com_id: '41', codigo } });
+  });
+}
+test('proveedores: RFC opcional normalizado o null si invalido', () => {
+  const { proveedorSeguro } = require('./formato');
+  for (const [rfc, esperado] of [[' abc-010101 xy9 ', 'ABC010101XY9'], ['XAXX', null], ['Ñ&A010101XY9', 'Ñ&A010101XY9'], [null, null]]) {
+    assert.equal(proveedorSeguro({ prv_id: '7', nombre: 'Casa', rfc }).proveedor.rfc, esperado);
+  }
+  assert.equal(Object.hasOwn(proveedorSeguro({ prv_id: '7', nombre: 'Casa' }).proveedor, 'rfc'), false);
+});

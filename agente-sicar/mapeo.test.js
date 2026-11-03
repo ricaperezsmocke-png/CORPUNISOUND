@@ -157,7 +157,7 @@ test('proveedores: lee id y nombre por pro_id, sin los borrados, con consulta qu
   assert.deepEqual(await fuente.proveedores('5', 500), [{ prv_id: '7', nombre: 'Casa Veerkamp' }]);
   const q = consultas.at(-1);
   assert.match(q.sql, /FROM `proveedor`/);
-  assert.match(q.sql, /^SELECT p\.`pro_id` AS prv_id, p\.`nombre` AS nombre FROM `proveedor` p /);
+  assert.match(q.sql, /^SELECT p\.`pro_id` AS prv_id, p\.`nombre` AS nombre, p\.`rfc` FROM `proveedor` p /);
   // status -1 es proveedor borrado en SICAR (69 de 157 en Ocosingo): no se ofrece al vendedor.
   assert.match(q.sql, /WHERE p\.`pro_id` > \? AND p\.`status` <> -1 ORDER BY p\.`pro_id` LIMIT \?$/);
   assert.deepEqual(q.parametros, ['5', 500]);
@@ -525,4 +525,82 @@ test('traspasos: verificar cuenta los enviados sin recibir que se omitirian por 
   const sin = prepararTraspasos('traspaso.fechaCan');
   await sin.fuente.validar();
   assert.equal((await sin.fuente.verificar()).traspasos.abiertos_fecha_invalida, null);
+});
+
+function prepararCompras(sinColumna, filas = [{ com_id: '41' }, { com_id: '42' }], tamano = 150) {
+  const consultas = [];
+  let paginas = 0;
+  const tablas = { ...columnas, compra: 'com_id fecha pro_id folio comentario status',
+    detallec: 'com_id art_id cantidad precioSin precioCon importeCon', proveedor: 'pro_id nombre status rfc',
+    historial: columnas.historial + ' id fecha' };
+  const leer = async (sql, parametros) => {
+    validarSQL(sql);
+    consultas.push({ sql, parametros, pagina: paginas });
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) return Object.entries(tablas).flatMap(([TABLE_NAME, campos]) => campos.split(' ')
+      .filter(c => `${TABLE_NAME}.${c}` !== sinColumna).map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+    if (sql === 'SHOW INDEX FROM `proveedor`') return [{ Key_name: 'PRIMARY', Non_unique: 0, Column_name: 'pro_id' }];
+    if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+    if (sql.includes('COUNT(*)')) return [{ total: '1399' }];
+    if (sql.includes('FROM `compra`')) return filas;
+    if (sql.includes('FROM `detallec`')) return [{ com_id: '41', art_id: '7' }];
+    if (sql.includes('FROM `historial` h')) return [{ id: '41', fecha: '2026-11-03 12:00:00' }];
+    return [];
+  };
+  return { fuente: crearFuente({ pagina: fn => { paginas++; return fn(leer); }, tamano }), consultas };
+}
+test('compras: pagina y relectura parametrizadas pasan guardia en una transaccion con tope 100', async () => {
+  const { fuente, consultas } = prepararCompras();
+  assert.equal(fuente.comprasDisponibles, false);
+  await assert.rejects(fuente.compras('0', 100), /ESQUEMA_NO_VALIDADO/);
+  await fuente.validar();
+  assert.equal(fuente.comprasDisponibles, true);
+  for (const desde of [null, '2026-09-04']) {
+    const inicio = consultas.length;
+    assert.deepEqual(await fuente.compras('40', 500, desde), { compras: [{ com_id: '41' }, { com_id: '42' }],
+      detalles: [{ com_id: '41', art_id: '7' }], cancelaciones: [{ id: '41', fecha: '2026-11-03 12:00:00' }] });
+    const qs = consultas.slice(inicio);
+    assert.equal(qs.length, 3);
+    assert.equal(new Set(qs.map(q => q.pagina)).size, 1);
+    assert.match(qs[0].sql, /WHERE c\.`com_id` > \?/);
+    assert.match(qs[0].sql, /ORDER BY c\.`com_id` LIMIT \?$/);
+    assert.equal(qs[0].sql.includes('c.`fecha` >= ?'), desde !== null);
+    assert.deepEqual(qs[0].parametros, desde === null ? ['40', 100] : ['40', desde, 100]);
+    assert.deepEqual(qs[1].parametros, ['41', '42']);
+    assert.match(qs[2].sql, /h\.`tabla` = \? AND h\.`movimiento` = 2/);
+    assert.deepEqual(qs[2].parametros, ['Compra', '41', '42']);
+  }
+  const info = await fuente.verificar();
+  assert.equal(info.compras.total, '1399');
+  assert.deepEqual(info.compras.faltantes, []);
+  assert.ok(info.compras.columnas.includes('detallec.importeCon'));
+});
+test('compras: pagina vacia evita detalle e historial y respeta tamano del lector', async () => {
+  const { fuente, consultas } = prepararCompras(undefined, [], 20);
+  await fuente.validar();
+  const inicio = consultas.length;
+  assert.deepEqual(await fuente.compras('0', 500), { compras: [], detalles: [], cancelaciones: [] });
+  assert.equal(consultas.length - inicio, 1);
+  assert.deepEqual(consultas.at(-1).parametros, ['0', 20]);
+});
+for (const falta of ['detallec.importeCon', 'compra.status']) {
+  test(`compras: sin ${falta} se apagan sin detener otras colecciones`, async () => {
+    const { fuente, consultas } = prepararCompras(falta);
+    await fuente.validar();
+    assert.equal(fuente.comprasDisponibles, false);
+    await assert.rejects(fuente.compras('0', 100), /COMPRAS_NO_DISPONIBLES/);
+    const info = await fuente.verificar();
+    assert.deepEqual(info.compras.faltantes, [falta]);
+    assert.equal(info.compras.total, null);
+    assert.equal(consultas.some(q => /FROM `compra`|FROM `detallec`/.test(q.sql)), false);
+    assert.equal(fuente.proveedoresDisponibles, true);
+  });
+}
+test('proveedores: selecciona RFC solamente cuando existe la columna opcional', async () => {
+  for (const falta of [undefined, 'proveedor.rfc']) {
+    const { fuente, consultas } = prepararCompras(falta);
+    await fuente.validar();
+    await fuente.proveedores('0', 100);
+    assert.equal(consultas.at(-1).sql.includes('p.`rfc`'), !falta);
+    assert.equal(fuente.proveedoresDisponibles, true);
+  }
 });

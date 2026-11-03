@@ -288,3 +288,29 @@ test('--traspasos-ahora con el interruptor apagado no deja TRASPASOS_AUTORIZADOS
     assert.equal(registros.includes('TRASPASOS_AUTORIZADOS_DE_DIA'), false, String(valor));
   }
 });
+
+test('compras: interruptor opcional apagado y solo booleano', async t => {
+  const { archivo, config } = await preparar(t);
+  assert.equal((await leerConfiguracion(archivo)).compras, undefined);
+  for (const valor of [true, false, 'si', 1, null, {}]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, compras: valor }));
+    if (typeof valor === 'boolean') assert.equal((await leerConfiguracion(archivo)).compras, valor);
+    else await assert.rejects(leerConfiguracion(archivo), /CONFIGURACION_INVALIDA/);
+  }
+});
+test('--verificar informa columnas y total de compras o aviso de apagadas', async t => {
+  const { archivo } = await preparar(t);
+  for (const faltantes of [[], ['detallec.importeCon']]) {
+    const salida = [], registros = [];
+    const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+      ventas: async () => ({ filas: [], clientes: [], detalles: [] }),
+      verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [],
+        compras: { columnas: ['compra.com_id'], faltantes, total: faltantes.length ? null : '1399' } }) };
+    await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+      crearFuente: async () => fuente, imprimir: x => salida.push(x), log: x => registros.push(x),
+      esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+    assert.ok(salida.includes('Columnas de compra: ["compra.com_id"]'));
+    assert.ok(salida.includes(faltantes.length ? 'Compras APAGADAS, faltan columnas: ["detallec.importeCon"]' : 'Compras en SICAR: 1399'));
+    assert.equal(registros.includes('COMPRAS_NO_DISPONIBLES'), !!faltantes.length);
+  }
+});

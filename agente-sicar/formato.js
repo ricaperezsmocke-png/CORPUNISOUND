@@ -122,10 +122,12 @@ function articuloSeguro(a) {
     return { articulo: null, omitido: { art_id, codigo: error.message } };
   }
 }
-// Proveedor de SICAR para el Radar de Demanda: id y nombre, nada más. Mismo máximo que el nombre del cliente (250).
+// Proveedor de SICAR: RFC opcional para asociar compras con facturas; mismo máximo de nombre que el cliente (250).
 function proveedorSeguro(p) {
   const prv_id = id(p?.prv_id);
-  try { return { proveedor: { prv_id, nombre: texto(String(p.nombre ?? '').trim(), 250, false) }, omitido: null }; }
+  const rfc = typeof p.rfc === 'string' ? p.rfc.toUpperCase().replace(/[\s-]/g, '') : '';
+  const fiscal = Object.hasOwn(p, 'rfc') ? { rfc: RFC.test(rfc) ? rfc : null } : {};
+  try { return { proveedor: { prv_id, nombre: texto(String(p.nombre ?? '').trim(), 250, false), ...fiscal }, omitido: null }; }
   catch (error) {
     if (!DATOS_RAROS.has(error.message)) throw error;
     return { proveedor: null, omitido: { prv_id, codigo: error.message } };
@@ -313,5 +315,29 @@ function traspasoSeguro(datos) {
     return { traspaso: null, omitido: { tra_id, codigo: error.message } };
   }
 }
+function compraSegura({ compra: c, detalles, cancelaciones }) {
+  const com_id = id(c.com_id);
+  const pro_id = id(c.pro_id);
+  const omitir = codigo => ({ compra: null, omitida: { com_id, codigo } });
+  if (!['1', '-1'].includes(String(c.status))) return omitir('STATUS_DESCONOCIDO');
+  const suyos = detalles.filter(d => String(d.com_id) === com_id);
+  if (!suyos.length) return omitir('SIN_DETALLE');
+  if (suyos.length > 500) return omitir('DEMASIADOS_RENGLONES');
+  try {
+    const fecha = fechaLocal(c.fecha);
+    const estado = String(c.status) === '1' ? 'vigente' : 'cancelada';
+    const cancelacion = cancelaciones.find(h => String(h.id) === com_id);
+    const cancelada_en = estado === 'cancelada' && cancelacion ? fechaLocal(cancelacion.fecha) : null;
+    const detalle = suyos.map(d => ({ art_id: id(d.art_id), cantidad: decimal(d.cantidad, 4), precio_sin: decimal(d.precioSin, 2),
+      precio_con: decimal(d.precioCon, 2), importe_con: decimal(d.importeCon, 2) }));
+    const total_con = importe(detalle.reduce((suma, d) => suma + centavos(d.importe_con), 0n));
+    return { compra: { com_id, fecha, pro_id, folio: String(c.folio ?? '').trim().slice(0, 60),
+      comentario: String(c.comentario ?? '').trim().slice(0, 200), estado, cancelada_en, total_con, detalle }, omitida: null };
+  } catch (error) {
+    if (error.message === 'FECHA_INVALIDA') return omitir('FECHA_INVALIDA');
+    if (['DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO'].includes(error.message)) return omitir('IMPORTE_INVALIDO');
+    throw error;
+  }
+}
 module.exports = { PUBLICOS, esPublico, id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro, traspasoConFechaInvalida };
+  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro, traspasoConFechaInvalida, compraSegura };
