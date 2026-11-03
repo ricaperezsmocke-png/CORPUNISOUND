@@ -898,3 +898,35 @@ test('restaurar con traspasos omitidos guardados no choca con sicar_tiendas y lo
   assert.deepEqual(f.sqlite.prepare('SELECT * FROM sicar_traspasos_omitidos').all(), antes);
   assert.equal(antes.length, 1);
 });
+
+const COMPRAS_TASK3 = ['sicar_compras', 'sicar_compras_detalle', 'sicar_compras_omitidas'];
+test('Task 3: nueva generacion respalda y restaura compras, renglones, omitidas y RFC', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  f.repo.aplicarLote({ sucursalId: 6, hash: 'compras', lote: { batch_id: 'compras', sequence: '1', clientes: [], ventas: [],
+    proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'XAXX010101000' }],
+    compras: [{ com_id: '9', pro_id: '7', fecha: '2026-11-03T10:00:00', estado: 'vigente', cancelada_en: null,
+      folio: '', comentario: '', total_con: '100.01', detalle: [
+        { art_id: '81', cantidad: '1.0000', precio_sin: '86.21', precio_con: '100.01', importe_con: '100.01' },
+      ] }], compras_omitidas: [{ com_id: '10', codigo: 'SIN_DETALLE' }] } });
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.deepEqual(COMPRAS_TASK3.map(tabla => m.conteos[tabla]), [1, 1, 1]);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  for (const tabla of [...COMPRAS_TASK3, 'sicar_proveedores']) {
+    assert.deepEqual(g.sqlite.prepare(`SELECT * FROM ${tabla}`).all(), f.sqlite.prepare(`SELECT * FROM ${tabla}`).all());
+  }
+  assert.deepEqual(g.sqlite.pragma('foreign_key_check'), []);
+});
+test('Task 3: restaura generacion vieja con proveedores sin columna RFC', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  sembrar(f); conProveedor(f);
+  f.sqlite.exec('ALTER TABLE sicar_proveedores DROP COLUMN rfc');
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.deepEqual(g.sqlite.prepare('SELECT prv_id, nombre, rfc FROM sicar_proveedores').all(),
+    [{ prv_id: '7', nombre: 'Casa Veerkamp', rfc: null }]);
+  for (const tabla of COMPRAS_TASK3) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
+});

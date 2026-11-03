@@ -114,12 +114,12 @@ test('una venta ya recibida que pasa a público se quita de la ficha del cliente
   assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 0);
 });
 
-test('la migración es idempotente, activa FK y crea las 29 tablas aisladas (con sicar_traspasos_omitidos)', t => {
+test('la migración es idempotente, activa FK y crea las 32 tablas aisladas (con sicar_traspasos_omitidos y las tres tablas de compras)', t => {
   const { sqlite } = prepararDB(t);
   const antes = foto(sqlite);
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);
   assert.deepEqual(foto(sqlite), antes);
-  assert.equal(Object.keys(antes).length, 29);
+  assert.equal(Object.keys(antes).length, 32);
   assert.deepEqual(antes.sicar_esquema.map(fila => fila.version), [1, 2]);
   for (const tabla of ['sicar_llaves', 'sicar_vinculos', 'sicar_decisiones']) assert.deepEqual(antes[tabla], []);
   for (const tabla of ['sicar_estados', 'sicar_estados_historial']) assert.deepEqual(antes[tabla], []);
@@ -560,4 +560,107 @@ test('traspasos omitidos: upsert que conserva primera_vez, codigo raro como OTRO
   const sin = aplicar(repo, { ...base, batch_id: 'lote-6', sequence: '5' });
   assert.equal(Object.hasOwn(sin.aceptados, 'traspasos_omitidos'), false, 'un lote sin la llave no la reporta');
   assert.equal(omitidos().length, 2);
+});
+
+function compraTask3() {
+  return { com_id: '9007199254740993', fecha: '2026-11-03T10:30:00', pro_id: '7', folio: '', comentario: '',
+    estado: 'vigente', cancelada_en: null, total_con: '340.00', detalle: [
+      { art_id: '81', cantidad: '1.0000', precio_sin: '86.21', precio_con: '100.00', importe_con: '100.00' },
+      { art_id: '81', cantidad: '2.0000', precio_sin: '103.45', precio_con: '120.00', importe_con: '240.00' },
+    ] };
+}
+test('Task 3: guarda centavos y renglones repetidos intactos, reenvia y cancela conservando primera_vez', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const c = compraTask3();
+  const datos = { ...lote(), clientes: [], ventas: [], compras: [c] };
+  aplicar(repo, datos);
+  const primera = sqlite.prepare('SELECT * FROM sicar_compras').get();
+  assert.equal(primera.total_centavos, 34000);
+  assert.ok(Number.isFinite(Date.parse(primera.primera_vez)));
+  const filas = () => sqlite.prepare(`SELECT renglon, art_id, cantidad, precio_sin_centavos, precio_con_centavos,
+    importe_con_centavos FROM sicar_compras_detalle ORDER BY renglon`).all();
+  const esperado = [
+    { renglon: 0, art_id: '81', cantidad: '1.0000', precio_sin_centavos: 8621, precio_con_centavos: 10000, importe_con_centavos: 10000 },
+    { renglon: 1, art_id: '81', cantidad: '2.0000', precio_sin_centavos: 10345, precio_con_centavos: 12000, importe_con_centavos: 24000 },
+  ];
+  assert.deepEqual(filas(), esperado);
+  aplicar(repo, datos);
+  aplicar(repo, { ...datos, batch_id: 'nuevo', sequence: '2' });
+  assert.deepEqual(filas(), esperado);
+  sqlite.prepare('UPDATE sicar_compras SET primera_vez=?').run('2026-11-01T00:00:00.000Z');
+  aplicar(repo, { ...datos, batch_id: 'cancelacion', sequence: '3',
+    compras: [{ ...c, estado: 'cancelada', cancelada_en: '2026-11-03T11:00:00', detalle: [c.detalle[1]] }] });
+  const cancelada = sqlite.prepare('SELECT * FROM sicar_compras').get();
+  assert.equal(cancelada.estado, 'cancelada');
+  assert.equal(cancelada.cancelada_en, '2026-11-03T11:00:00');
+  assert.equal(cancelada.primera_vez, '2026-11-01T00:00:00.000Z');
+  assert.deepEqual(filas(), [{ ...esperado[1], renglon: 0 }]);
+  aplicar(repo, datos, 2);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_compras').get().n, 2);
+  assert.deepEqual(sqlite.pragma('foreign_key_check'), []);
+  assert.ok(sqlite.pragma('index_list(sicar_compras_detalle)').some(i =>
+    JSON.stringify(sqlite.pragma(`index_info(${i.name})`).map(c => c.name)) === '["sucursal_id","art_id"]'));
+});
+test('Task 3: RFC ausente conserva, null borra y migracion vieja no pierde proveedores', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const enviar = (sequence, proveedor) => aplicar(repo, { ...lote(sequence), clientes: [], ventas: [], proveedores: [proveedor] });
+  enviar('1', { prv_id: '7', nombre: 'Proveedor', rfc: 'XAXX010101000' });
+  enviar('2', { prv_id: '7', nombre: 'Otro nombre' });
+  assert.equal(sqlite.prepare('SELECT rfc FROM sicar_proveedores').get().rfc, 'XAXX010101000');
+  enviar('3', { prv_id: '7', nombre: 'Otro nombre', rfc: null });
+  assert.equal(sqlite.prepare('SELECT rfc FROM sicar_proveedores').get().rfc, null);
+  sqlite.exec('ALTER TABLE sicar_proveedores DROP COLUMN rfc');
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  assert.deepEqual(sqlite.prepare('SELECT prv_id, nombre, rfc FROM sicar_proveedores').all(),
+    [{ prv_id: '7', nombre: 'Otro nombre', rfc: null }]);
+});
+test('Task 3: hook recibe ids despues del guardado y no se dispara en rechazo o repeticion del batch', t => {
+  const { sqlite } = prepararDB(t);
+  const llamadas = [];
+  const repo = require('./sicarRepositorio').crearRepositorioSicar(sqlite, { alGuardarCompras(sucursalId, ids) {
+    assert.equal(sqlite.inTransaction, false);
+    assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_compras').get().n, 1);
+    llamadas.push([sucursalId, ids]);
+  } });
+  const datos = { ...lote(), clientes: [], ventas: [], compras: [compraTask3()] };
+  aplicar(repo, datos);
+  aplicar(repo, datos);
+  assert.throws(() => aplicar(repo, { ...datos, batch_id: 'mal', sequence: '8' }));
+  aplicar(repo, { ...lote('2'), clientes: [], ventas: [] });
+  assert.deepEqual(llamadas, [[1, ['9007199254740993']]]);
+});
+test('Task 3: omitidas se actualizan sin duplicar y compra valida elimina su alerta', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const c = compraTask3();
+  const datos = { ...lote(), clientes: [], ventas: [], compras_omitidas: [{ com_id: c.com_id, codigo: 'SIN_DETALLE' }] };
+  aplicar(repo, datos);
+  const primera = sqlite.prepare('SELECT primera_vez FROM sicar_compras_omitidas').get().primera_vez;
+  aplicar(repo, { ...datos, batch_id: 'dos', sequence: '2' });
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo, primera_vez FROM sicar_compras_omitidas').all(),
+    [{ com_id: c.com_id, codigo: 'SIN_DETALLE', primera_vez: primera }]);
+  aplicar(repo, { ...datos, batch_id: 'tres', sequence: '3', compras: [c] });
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_compras_omitidas').get().n, 0);
+});
+
+test('Task 3: fallo al insertar detalle revierte compra, RFC, alertas y secuencia sin ejecutar hook', t => {
+  const { sqlite } = prepararDB(t);
+  let llamadas = 0;
+  const repo = require('./sicarRepositorio').crearRepositorioSicar(sqlite, { alGuardarCompras() { llamadas++; } });
+  const datos = { ...lote(), clientes: [], ventas: [], compras: [compraTask3()],
+    proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'XAXX010101000' }],
+    compras_omitidas: [{ com_id: '9', codigo: 'SIN_DETALLE' }] };
+  sqlite.exec(`CREATE TEMP TRIGGER fallar_compra BEFORE INSERT ON sicar_compras_detalle
+    WHEN NEW.renglon=1 BEGIN SELECT RAISE(ABORT, 'fallo de prueba'); END`);
+  assert.throws(() => aplicar(repo, datos), /fallo de prueba/);
+  for (const tabla of ['sicar_compras', 'sicar_compras_detalle', 'sicar_compras_omitidas', 'sicar_proveedores', 'sicar_envios']) {
+    assert.equal(sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
+  }
+  assert.equal(repo.estado(1).siguiente_secuencia, '1');
+  assert.equal(llamadas, 0);
+  sqlite.exec('DROP TRIGGER fallar_compra');
+  const recibo = aplicar(repo, datos);
+  assert.equal(recibo.aceptados.compras, 1);
+  assert.equal(recibo.aceptados.compras_omitidas, 1);
+  assert.equal(llamadas, 1);
 });

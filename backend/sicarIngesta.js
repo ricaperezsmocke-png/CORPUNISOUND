@@ -83,7 +83,9 @@ function validarArticulo(a, indice) {
 
 // Proveedor de SICAR para el Radar de Demanda: id y nombre (mismo máximo que el nombre del cliente).
 function validarProveedor(p) {
-  objeto(p, ['prv_id', 'nombre']);
+  objeto(p, ['prv_id', 'nombre', 'rfc']);
+  if (Object.hasOwn(p, 'rfc') && p.rfc !== null
+    && (typeof p.rfc !== 'string' || !/^[A-Z\u00d1&]{3,4}\d{6}[A-Z0-9]{3}$/.test(p.rfc))) fallar('RFC_INVALIDO', 400);
   if (!esId(p.prv_id)) fallar('ID_INVALIDO');
   try { texto(p.nombre, 250); }
   catch (e) {
@@ -175,6 +177,39 @@ function validarTraspaso(t, indice) {
   return t.detalle.length;
 }
 
+const CODIGOS_COMPRA_OMITIDA = new Set(['FECHA_INVALIDA', 'STATUS_DESCONOCIDO', 'SIN_DETALLE',
+  'DEMASIADOS_RENGLONES', 'IMPORTE_INVALIDO', 'PROVEEDOR_INVALIDO']);
+
+// Compras usa 400 para todo incumplimiento del contrato, sin cambiar las colecciones anteriores.
+function contratoCompra(validar) {
+  try { return validar(); }
+  catch (error) {
+    if (error instanceof ErrorIngestaSicar) error.status = 400;
+    throw error;
+  }
+}
+function validarCompra(c, indice) {
+  objeto(c, ['com_id', 'fecha', 'pro_id', 'folio', 'comentario', 'estado', 'cancelada_en', 'total_con', 'detalle']);
+  if (!esId(c.com_id) || !esId(c.pro_id)) fallar('ID_INVALIDO');
+  if (!['vigente', 'cancelada'].includes(c.estado)) fallar('ESTADO_INVALIDO');
+  fecha(c.fecha, true);
+  if (c.cancelada_en !== null) fecha(c.cancelada_en, true);
+  // Folio y comentario pueden ser vacios; el agente siempre manda texto.
+  for (const [campo, maximo] of [['folio', 60], ['comentario', 200]]) {
+    if (typeof c[campo] !== 'string') fallar('TEXTO_INVALIDO');
+    texto(c[campo], maximo, true);
+  }
+  decimal(c.total_con, 2);
+  arreglo(c.detalle, 500, 'art_id', false);
+  if (!c.detalle.length) fallar('DETALLE_VACIO');
+  c.detalle.forEach((d, i) => enReferencia(`compras[${indice}].detalle[${i}]`, () => {
+    objeto(d, ['art_id', 'cantidad', 'precio_sin', 'precio_con', 'importe_con']);
+    decimal(d.cantidad, 4);
+    if (BigInt(d.cantidad.replace('.', '')) <= 0n) fallar('CANTIDAD_INVALIDA');
+    for (const campo of ['precio_sin', 'precio_con', 'importe_con']) decimal(d[campo], 2);
+  }));
+}
+
 function validarVenta(v, indice) {
   objeto(v, ['ven_id', 'cli_id', 'fecha_local', 'timezone', 'estado', 'moneda', 'total', 'detalle']);
   if (!['vigente', 'cancelada', 'excluida'].includes(v.estado)) fallar('ESTADO_INVALIDO');
@@ -194,7 +229,7 @@ function validarVenta(v, indice) {
 
 function validarSobreSicar(body) {
   objeto(body, ['schema_version', 'mapping_version', 'batch_id', 'sequence', 'captured_at', 'mode', 'window', 'clientes', 'ventas', 'articulos',
-    'proveedores', 'existencias', 'cortes', 'mostrador', 'traspasos', 'traspasos_omitidos']);
+    'proveedores', 'existencias', 'cortes', 'mostrador', 'traspasos', 'traspasos_omitidos', 'compras', 'compras_omitidas']);
   if (body.schema_version !== 1) fallar('VERSION_NO_SOPORTADA', 400);
   if (typeof body.batch_id !== 'string' || !UUID.test(body.batch_id)) fallar('BATCH_INVALIDO', 400);
 }
@@ -249,6 +284,17 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
     arreglo(body.traspasos_omitidos, 1000, 'tra_id');
     body.traspasos_omitidos.forEach((o, i) => enReferencia(`traspasos_omitidos[${i}]`, () => objeto(o, ['tra_id', 'codigo'])));
   }
+  if (body.compras !== undefined) contratoCompra(() => {
+    arreglo(body.compras, 100, 'com_id');
+    body.compras.forEach((c, i) => enReferencia(`compras[${i}]`, () => validarCompra(c, i)));
+  });
+  if (body.compras_omitidas !== undefined) contratoCompra(() => {
+    arreglo(body.compras_omitidas, 1000, 'com_id');
+    body.compras_omitidas.forEach((o, i) => enReferencia(`compras_omitidas[${i}]`, () => {
+      objeto(o, ['com_id', 'codigo']);
+      if (!CODIGOS_COMPRA_OMITIDA.has(o.codigo)) fallar('CODIGO_INVALIDO');
+    }));
+  });
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
     objeto(c, ['cli_id', 'nombre', 'telefono', 'celular', 'email', 'rfc']);
     texto(c.nombre, 250);

@@ -176,6 +176,30 @@ const ESQUEMA = `
     sucursal_id INTEGER NOT NULL, tra_id TEXT NOT NULL, codigo TEXT NOT NULL, primera_vez TEXT NOT NULL, ultima_vez TEXT NOT NULL,
     PRIMARY KEY (sucursal_id, tra_id)
   );
+  CREATE TABLE IF NOT EXISTS sicar_compras (
+    sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, fecha TEXT NOT NULL, pro_id TEXT NOT NULL,
+    folio TEXT NOT NULL, comentario TEXT NOT NULL, estado TEXT NOT NULL CHECK (estado IN ('vigente', 'cancelada')),
+    cancelada_en TEXT,
+    total_centavos INTEGER NOT NULL CHECK (typeof(total_centavos) = 'integer' AND total_centavos BETWEEN 0 AND 9007199254740991),
+    primera_vez TEXT NOT NULL, actualizado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, com_id),
+    FOREIGN KEY (sucursal_id) REFERENCES sicar_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS sicar_compras_detalle (
+    sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, renglon INTEGER NOT NULL CHECK (renglon BETWEEN 0 AND 499),
+    art_id TEXT NOT NULL, cantidad TEXT NOT NULL,
+    precio_sin_centavos INTEGER NOT NULL CHECK (typeof(precio_sin_centavos) = 'integer' AND precio_sin_centavos BETWEEN 0 AND 9007199254740991),
+    precio_con_centavos INTEGER NOT NULL CHECK (typeof(precio_con_centavos) = 'integer' AND precio_con_centavos BETWEEN 0 AND 9007199254740991),
+    importe_con_centavos INTEGER NOT NULL CHECK (typeof(importe_con_centavos) = 'integer' AND importe_con_centavos BETWEEN 0 AND 9007199254740991),
+    PRIMARY KEY (sucursal_id, com_id, renglon),
+    FOREIGN KEY (sucursal_id, com_id) REFERENCES sicar_compras(sucursal_id, com_id)
+  );
+  CREATE INDEX IF NOT EXISTS sicar_compras_articulo ON sicar_compras_detalle (sucursal_id, art_id);
+  -- Las alertas no dependen de la existencia de una tienda o una compra recibida.
+  CREATE TABLE IF NOT EXISTS sicar_compras_omitidas (
+    sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, codigo TEXT NOT NULL, primera_vez TEXT NOT NULL, ultima_vez TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, com_id)
+  );
   CREATE INDEX IF NOT EXISTS sicar_traspasos_punta ON sicar_traspasos (folio, suc_origen, suc_destino);
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa (
     sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT
@@ -269,9 +293,10 @@ function prepararEscrituras(sqlite) {
       VALUES (@sucursal_id, @art_id, @clave, @descripcion, @categoria, @departamento, @actualizado_en)
       ON CONFLICT(sucursal_id, art_id) DO UPDATE SET clave=excluded.clave, descripcion=excluded.descripcion,
         categoria=excluded.categoria, departamento=excluded.departamento, actualizado_en=excluded.actualizado_en`),
-    proveedor: sqlite.prepare(`INSERT INTO sicar_proveedores (sucursal_id, prv_id, nombre, actualizado_en)
-      VALUES (@sucursal_id, @prv_id, @nombre, @actualizado_en)
-      ON CONFLICT(sucursal_id, prv_id) DO UPDATE SET nombre=excluded.nombre, actualizado_en=excluded.actualizado_en`),
+    proveedor: sqlite.prepare(`INSERT INTO sicar_proveedores (sucursal_id, prv_id, nombre, actualizado_en, rfc)
+      VALUES (@sucursal_id, @prv_id, @nombre, @actualizado_en, @rfc)
+      ON CONFLICT(sucursal_id, prv_id) DO UPDATE SET nombre=excluded.nombre, actualizado_en=excluded.actualizado_en,
+        rfc=CASE WHEN @trae_rfc=1 THEN excluded.rfc ELSE sicar_proveedores.rfc END`),
     existencia: sqlite.prepare(`INSERT INTO sicar_existencias (sucursal_id, art_id, existencia_diezmilesimas, actualizado_en)
       VALUES (@sucursal_id, @art_id, @existencia_diezmilesimas, @actualizado_en)
       ON CONFLICT(sucursal_id, art_id) DO UPDATE SET existencia_diezmilesimas=excluded.existencia_diezmilesimas,
@@ -316,6 +341,20 @@ function prepararEscrituras(sqlite) {
       VALUES (@sucursal_id, @tra_id, @codigo, @fecha, @fecha)
       ON CONFLICT(sucursal_id, tra_id) DO UPDATE SET codigo=excluded.codigo, ultima_vez=excluded.ultima_vez`),
     borrarTraspasoOmitido: sqlite.prepare('DELETE FROM sicar_traspasos_omitidos WHERE sucursal_id=? AND tra_id=?'),
+    compra: sqlite.prepare(`INSERT INTO sicar_compras
+      (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, cancelada_en, total_centavos, primera_vez, actualizado_en)
+      VALUES (@sucursal_id, @com_id, @fecha, @pro_id, @folio, @comentario, @estado, @cancelada_en, @total, @actualizado_en, @actualizado_en)
+      ON CONFLICT(sucursal_id, com_id) DO UPDATE SET fecha=excluded.fecha, pro_id=excluded.pro_id, folio=excluded.folio,
+        comentario=excluded.comentario, estado=excluded.estado, cancelada_en=excluded.cancelada_en,
+        total_centavos=excluded.total_centavos, actualizado_en=excluded.actualizado_en`),
+    borrarCompraDetalle: sqlite.prepare('DELETE FROM sicar_compras_detalle WHERE sucursal_id=? AND com_id=?'),
+    compraDetalle: sqlite.prepare(`INSERT INTO sicar_compras_detalle
+      (sucursal_id, com_id, renglon, art_id, cantidad, precio_sin_centavos, precio_con_centavos, importe_con_centavos)
+      VALUES (@sucursal_id, @com_id, @renglon, @art_id, @cantidad, @precio_sin, @precio_con, @importe_con)`),
+    compraOmitida: sqlite.prepare(`INSERT INTO sicar_compras_omitidas (sucursal_id, com_id, codigo, primera_vez, ultima_vez)
+      VALUES (@sucursal_id, @com_id, @codigo, @fecha, @fecha)
+      ON CONFLICT(sucursal_id, com_id) DO UPDATE SET codigo=excluded.codigo, ultima_vez=excluded.ultima_vez`),
+    borrarCompraOmitida: sqlite.prepare('DELETE FROM sicar_compras_omitidas WHERE sucursal_id=? AND com_id=?'),
     envio: sqlite.prepare(`INSERT INTO sicar_envios
       (sucursal_id, batch_id, secuencia, hash, respuesta, clientes, ventas, rechazados, fecha, resultado)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'aceptado')`),
@@ -369,13 +408,16 @@ function limpiarTexto(valor) {
   return limpio || null;
 }
 
-function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
+function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {}) {
   sqlite.pragma('foreign_keys = ON');
   if (sqlite.pragma('foreign_keys', { simple: true }) !== 1) {
     throw new ErrorSicar('FK_DESACTIVADAS', 'No se pudieron activar las claves foráneas.');
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    if (!sqlite.pragma('table_info(sicar_proveedores)').some(c => c.name === 'rfc')) {
+      sqlite.exec('ALTER TABLE sicar_proveedores ADD COLUMN rfc TEXT');
+    }
     if (!sqlite.pragma('table_info(sicar_detalles)').some(c => c.name === 'renglon')) {
       sqlite.exec('ALTER TABLE sicar_detalles RENAME TO sicar_detalles_anteriores');
       sqlite.exec(ESQUEMA);
@@ -476,7 +518,8 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
         categoria: limpiarTexto(articulo.categoria), departamento: limpiarTexto(articulo.departamento), actualizado_en });
     }
     for (const proveedor of lote.proveedores || []) {
-      sentencias.proveedor.run({ sucursal_id: sucursalId, prv_id: proveedor.prv_id, nombre: limpiarTexto(proveedor.nombre), actualizado_en });
+      sentencias.proveedor.run({ sucursal_id: sucursalId, prv_id: proveedor.prv_id, nombre: limpiarTexto(proveedor.nombre),
+        rfc: proveedor.rfc ?? null, trae_rfc: Object.hasOwn(proveedor, 'rfc') ? 1 : 0, actualizado_en });
     }
     for (const e of lote.existencias || []) {
       if (e.existencia === null) sentencias.borrarExistencia.run(sucursalId, e.art_id);
@@ -517,9 +560,25 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
           precio_sin: centavos(d.precio_sin), precio_con: centavos(d.precio_con) });
       }
     }
+    for (const o of lote.compras_omitidas || []) {
+      sentencias.compraOmitida.run({ sucursal_id: sucursalId, com_id: o.com_id, codigo: o.codigo, fecha: actualizado_en });
+    }
+    for (const c of lote.compras || []) {
+      sentencias.borrarCompraOmitida.run(sucursalId, c.com_id);
+      sentencias.compra.run({ sucursal_id: sucursalId, com_id: c.com_id, fecha: c.fecha, pro_id: c.pro_id,
+        folio: c.folio, comentario: c.comentario, estado: c.estado, cancelada_en: c.cancelada_en,
+        total: centavos(c.total_con), actualizado_en });
+      sentencias.borrarCompraDetalle.run(sucursalId, c.com_id);
+      for (const [renglon, d] of c.detalle.entries()) {
+        sentencias.compraDetalle.run({ sucursal_id: sucursalId, com_id: c.com_id, renglon, art_id: d.art_id, cantidad: d.cantidad,
+          precio_sin: centavos(d.precio_sin), precio_con: centavos(d.precio_con), importe_con: centavos(d.importe_con) });
+      }
+    }
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
-      aceptados: { clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas,
+      aceptados: { ...(lote.compras !== undefined ? { compras: lote.compras.length } : {}),
+        ...(lote.compras_omitidas !== undefined ? { compras_omitidas: lote.compras_omitidas.length } : {}),
+        clientes: lote.clientes.length - descartados.clientes, ventas: lote.ventas.length - descartados.ventas,
         ...(lote.articulos !== undefined ? { articulos: lote.articulos.length } : {}),
         ...(lote.proveedores !== undefined ? { proveedores: lote.proveedores.length } : {}),
         ...(lote.existencias !== undefined ? { existencias: lote.existencias.length } : {}),
@@ -573,7 +632,13 @@ function crearRepositorioSicar(sqlite, { clientesNativos } = {}) {
     conexionParaVinculos: () => sqlite,
     clientesNativos: () => clientesNativos?.() ?? [],
     conexionParaRespaldo: () => sqlite,
-    estado, reciboAnterior, aplicarLote: datos => aplicar.immediate(datos),
+    estado, reciboAnterior, aplicarLote: datos => {
+      const anterior = reciboAnterior(datos.sucursalId, datos.lote.batch_id, datos.hash);
+      if (anterior) return anterior;
+      const recibo = aplicar.immediate(datos);
+      if (datos.lote.compras?.length) alGuardarCompras?.(datos.sucursalId, datos.lote.compras.map(c => c.com_id));
+      return recibo;
+    },
     guardarLlave: llave => guardarLlave.immediate(llave),
     obtenerLlave: id => sqlite.prepare('SELECT * FROM sicar_llaves WHERE key_id=?').get(id),
     // "Agente activo" = la tienda tiene al menos una llave SICAR sin revocar (Q6 del plan).
