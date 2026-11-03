@@ -16,6 +16,49 @@ const { enviarPendiente } = require('./envio');
 const { ejecutar } = require('./corrida');
 const { cargar, guardar, inicial } = require('./estado');
 
+test('San Cristóbal recupera ventas excluidas, de mostrador y nunca recibidas con su cliente real', async t => {
+  const { sobre, venta } = require('./formato');
+  const { validarLoteSicar, hashSicar } = require('../backend/sicarIngesta');
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  crearLlaveSicar(repo, 3, 961);
+  const ahora = new Date('2026-10-15T03:00:00Z');
+  const filas = ['7', '8', '9'].map(ven_id => ({ ven_id, cli_id: ven_id === '8' ? '3' : '2',
+    fecha: '2015-01-01 10:00:00', status: ven_id === '8' ? -1 : 1, total: '10' }));
+  const clientes = ['2', '3'].map(cli_id => ({ cli_id, nombre: 'Cliente real' }));
+  const detalles = filas.map(v => ({ ven_id: v.ven_id, art_id: '8', descripcion: 'Cuerda', cantidad: '1',
+    precioCon: '10', precioSin: '10', importeCon: '10', descTotal: '0' }));
+  function aplicar(lote) {
+    validarLoteSicar(lote);
+    return repo.aplicarLote({ sucursalId: 3, lote, hash: hashSicar(JSON.stringify(lote)) });
+  }
+  const anterior = sobre('1', 'historico', ahora);
+  anterior.clientes = [{ cli_id: '42', nombre: 'Anterior' }];
+  anterior.ventas = [venta(filas[0], anterior.clientes[0], [detalles[0]], false)];
+  aplicar(anterior);
+  const publico = sobre('2', 'historico', ahora);
+  publico.ventas = [{ ven_id: '7', estado: 'excluida' }];
+  publico.mostrador = [{ ven_id: '8', fecha_local: '2015-01-01T10:00:00', estado: 'vigente', total: '10.00',
+    detalle: [{ art_id: '8', cantidad: '1.0000', importe_con: '10.00', descuento_total: '0.00' }] }];
+  aplicar(publico);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sicar-reparacion-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const archivo = path.join(dir, 'estado.json');
+  await guardar(archivo, { ...inicial(), siguiente_secuencia: '3', ven_id: '900' });
+  await ejecutar(archivo, { publicos: ['1'] }, { reenviarClientes: ['2', '3'], reloj: () => ahora.getTime(),
+    esperar: async () => {}, fuente: { tamano: 100, validar: async () => {}, clientesIds: async () => clientes,
+      ventasClientes: async (ids, cursor) => cursor === '0' ? { filas, clientes, detalles } : { filas: [], clientes: [], detalles: [] } },
+    fetch: async (_, { body }) => ({ status: 200, json: async () => aplicar(JSON.parse(body)) }) });
+  assert.deepEqual(sqlite.prepare('SELECT ven_id, cli_id, estado FROM sicar_ventas ORDER BY ven_id').all(), [
+    { ven_id: '7', cli_id: '2', estado: 'vigente' }, { ven_id: '8', cli_id: '3', estado: 'cancelada' },
+    { ven_id: '9', cli_id: '2', estado: 'vigente' },
+  ]);
+  assert.equal(repo.listarMostrador().length, 0);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) n FROM sicar_detalles').get().n, 3);
+  assert.equal((await cargar(archivo)).ven_id, '900');
+});
+
 test('agente → ruta real → SQLite en memoria: repetidos, ACK perdido, cancelación y exclusión', async t => {
   const sqlite = new Database(':memory:');
   t.after(() => sqlite.close());

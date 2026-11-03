@@ -6,8 +6,8 @@ const { conectar } = require('./conexion');
 const { crearLector } = require('./seguridad');
 const { crearFuente } = require('./mapeo');
 const { ejecutar } = require('./corrida');
-const { clienteSeguro, ventaSegura, esPublico } = require('./formato');
-async function verificar(fuente, imprimir, esperar, log) {
+const { clienteSeguro, ventaSegura, esPublico, id } = require('./formato');
+async function verificar(fuente, imprimir, esperar, log, config) {
   await fuente.validar();
   const info = await fuente.verificar();
   if (/\b(FILE|GRANT OPTION)\b/i.test(JSON.stringify(info.grants))) log('PRIVILEGIOS_AMPLIOS');
@@ -62,7 +62,7 @@ async function verificar(fuente, imprimir, esperar, log) {
     const filas = await fuente.clientes(cursor, fuente.tamano);
     if (!filas.length) break;
     for (const c of filas) {
-      const { cliente, omitido } = clienteSeguro(c);
+      const { cliente, omitido } = clienteSeguro(c, undefined, config.publicos);
       if (cliente) clientes++;
       if (omitido) clientesRaros.push(omitido);
     }
@@ -75,17 +75,17 @@ async function verificar(fuente, imprimir, esperar, log) {
   while (true) {
     const pagina = await fuente.ventas(cursor, tope, fuente.tamano);
     if (!pagina.filas.length) break;
-    const personas = new Set(pagina.clientes.filter(c => clienteSeguro(c).cliente).map(c => String(c.cli_id)));
+    const personas = new Set(pagina.clientes.filter(c => clienteSeguro(c, undefined, config.publicos).cliente).map(c => String(c.cli_id)));
     const conNombre = pagina.filas.filter(v => personas.has(String(v.cli_id)));
     ventas += conNombre.length;
     const clientes = new Map(pagina.clientes.map(c => [String(c.cli_id), c]));
     if (mostrador?.desde_ven_id) {
       publico += pagina.filas.filter(v => BigInt(v.ven_id) >= BigInt(mostrador.desde_ven_id)
-        && esPublico(clientes.get(String(v.cli_id)))).length;
+        && esPublico(clientes.get(String(v.cli_id)), config.publicos)).length;
     }
     for (const v of conNombre) {
       const detalles = pagina.detalles.filter(d => String(d.ven_id) === String(v.ven_id));
-      const { omitida } = ventaSegura(v, clientes.get(String(v.cli_id)), detalles, false);
+      const { omitida } = ventaSegura(v, clientes.get(String(v.cli_id)), detalles, false, undefined, undefined, config.publicos);
       if (omitida) raras.push(omitida);
     }
     cursor = String(pagina.filas.at(-1).ven_id);
@@ -119,10 +119,18 @@ async function main(args = process.argv.slice(2), deps = {}) {
   let liberar = null, conexion;
   try {
     const conocidos = ['--verificar', '--historico-ahora', '--articulos-ahora', '--proveedores-ahora', '--existencias-ahora',
-      '--mostrador-ahora', '--traspasos-ahora'];
-    if (args.some(a => !conocidos.includes(a)) || args.length > 1) throw new Error('CONFIGURACION_INVALIDA');
+      '--mostrador-ahora', '--traspasos-ahora', '--reenviar-clientes'];
+    if (args.some(a => !conocidos.includes(a.split('=')[0])) || args.length > 1) throw new Error('CONFIGURACION_INVALIDA');
+    let reenviarClientes;
+    if (args[0]?.startsWith('--reenviar-clientes')) {
+      try {
+        reenviarClientes = args[0].slice('--reenviar-clientes='.length).split(',').map(id);
+        if (!args[0].startsWith('--reenviar-clientes=') || new Set(reenviarClientes).size !== reenviarClientes.length) throw new Error();
+      } catch { throw new Error('CONFIGURACION_INVALIDA'); }
+    } else if (args.some(a => a.includes('='))) throw new Error('CONFIGURACION_INVALIDA');
     // Carga histórica fuera de 20:00-07:00: solo a mano y solo esta corrida (Victor, 2026-10-15). La tarea programada no la usa.
-    const historicoAhora = args.includes('--historico-ahora');
+    const historicoAhora = args.includes('--historico-ahora') || !!reenviarClientes;
+    if (reenviarClientes) log('REENVIO_CLIENTES_AUTORIZADO_DE_DIA');
     if (historicoAhora) log('HISTORICO_AUTORIZADO_DE_DIA');
     // Igual para la lista de artículos: la primera carga se puede hacer de día, a mano.
     const articulosAhora = args.includes('--articulos-ahora');
@@ -147,10 +155,11 @@ async function main(args = process.argv.slice(2), deps = {}) {
     const fuente = deps.crearFuente ? await deps.crearFuente(conexion, config)
       : crearFuente(await crearLector(conexion, { avisar: log }), config);
     if (args.includes('--verificar')) {
+      if (config.publicos === undefined) log('PUBLICOS_SIN_CONFIGURAR');
       if (!config.historial?.columna_referencia) log('HISTORIAL_SIN_CONFIGURAR');
-      await verificar(fuente, imprimir, esperar, log);
+      await verificar(fuente, imprimir, esperar, log, config);
     } else await ejecutar(config.estado, config, { ...deps, fuente, esperar, log, bloqueado: true, historicoAhora, articulosAhora,
-      proveedoresAhora, existenciasAhora, mostradorAhora, traspasosAhora });
+      proveedoresAhora, existenciasAhora, mostradorAhora, traspasosAhora, reenviarClientes });
   } catch (e) {
     // Solo códigos conocidos, ids y nombres de columna: nunca el mensaje de MySQL (puede traer usuario o datos).
     escribir(describirFallo(e));

@@ -61,6 +61,7 @@ function identificador(nombre) {
 const lista = campos => campos.map(identificador).join(', ');
 const huecos = ids => ids.map(() => '?').join(', ');
 function crearFuente(lector, config = {}) {
+  const publicos = (config.publicos ?? PUBLICOS).map(String);
   const referencia = config.historial?.columna_referencia;
   if (referencia) identificador(referencia);
   let pkDetalle = [];
@@ -94,7 +95,7 @@ function crearFuente(lector, config = {}) {
   // Para --verificar: las de público por número de cliente (o sin cliente, que cuenta como 0) en SQL; el nombre se revisa
   // en JS (index.js). Sin paréntesis tras WHERE/AND: la guardia los toma por función.
   const contarPublico = leer => leer(`SELECT COUNT(*) AS total ${desdeVenta} WHERE v.\`fecha\` >= ? `
-    + `AND COALESCE(t.\`cli_id\`, n.\`cli_id\`, r.\`cli_id\`, 0) IN (0, ${huecos([...PUBLICOS])})`, [INICIO_MOSTRADOR, ...PUBLICOS]);
+    + `AND COALESCE(t.\`cli_id\`, n.\`cli_id\`, r.\`cli_id\`, 0) IN (0, ${huecos(publicos)})`, [INICIO_MOSTRADOR, ...publicos]);
   // Con un id que se puede repetir, el servidor rechaza el lote (ID_DUPLICADO) y el agente se detendría con todo y
   // clientes y ventas. Solo se habilitan si el id es PRIMARY o UNIQUE de una sola columna completa; si no, o si el
   // índice no se puede leer, la lista queda apagada (falla cerrando) sin tumbar la validación.
@@ -275,6 +276,13 @@ function crearFuente(lector, config = {}) {
     async clientesIds(ids) {
       comprobar();
       return lector.pagina(leer => clientesIds(leer, ids));
+    },
+    async ventasClientes(ids, cursor, limite) {
+      comprobar();
+      if (!ids.length) throw new Error('PAGINA_EXCESIVA');
+      return lector.pagina(async leer => completar(leer,
+        await leer(seleccionarVenta + ` WHERE COALESCE(t.\`cli_id\`, n.\`cli_id\`, r.\`cli_id\`) IN (${huecos(ids)})`
+          + ' AND v.`ven_id` > ? ORDER BY v.`ven_id` LIMIT ?', [...ids, cursor, Math.min(limite, lector.tamano)])));
     },
     async historial(cursor, limite) {
       comprobar();

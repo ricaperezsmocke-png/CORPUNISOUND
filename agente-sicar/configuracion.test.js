@@ -14,6 +14,34 @@ async function preparar(t) {
   await fs.writeFile(archivo, JSON.stringify(config));
   return { archivo, config };
 }
+test('publicos acepta ids numéricos o textos y rechaza vacíos, duplicados y tipos inválidos', async t => {
+  const { archivo, config } = await preparar(t);
+  for (const publicos of [[], ['abc'], '1', null, [1, '1'], [true], [1.5]]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, publicos }));
+    await assert.rejects(leerConfiguracion(archivo), /CONFIGURACION_INVALIDA/);
+  }
+  for (const publicos of [['1'], [1, '86']]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, publicos }));
+    assert.deepEqual((await leerConfiguracion(archivo)).publicos, publicos);
+  }
+});
+
+test('--reenviar-clientes acepta la lista y autoriza el reenvío manual de día', async t => {
+  const { archivo, config } = await preparar(t);
+  await fs.writeFile(archivo, JSON.stringify({ ...config, publicos: ['1'] }));
+  const lotes = [], registros = [];
+  const fuente = { tamano: 100, validar: async () => {},
+    clientesIds: async ids => ids.map(cli_id => ({ cli_id, nombre: 'Cliente real' })),
+    ventasClientes: async () => ({ filas: [], clientes: [], detalles: [] }) };
+  await main(['--reenviar-clientes=2,3'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, esperar: async () => {}, log: x => registros.push(x),
+    reloj: () => Date.parse('2026-10-15T18:00:00Z'), fetch: async (_, { body }) => {
+      const lote = JSON.parse(body); lotes.push(lote);
+      return { status: 200, json: async () => ({ next_sequence: String(BigInt(lote.sequence) + 1n) }) };
+    } });
+  assert.deepEqual(lotes.flatMap(l => l.clientes.map(c => c.cli_id)), ['2', '3']);
+  assert.ok(registros.includes('REENVIO_CLIENTES_AUTORIZADO_DE_DIA'));
+});
 test('exige configuración externa; rechaza rutas dentro de repo y estado dentro de repo', async t => {
   const { archivo, config } = await preparar(t);
   assert.equal((await leerConfiguracion(archivo)).llave, 'TIENDA-XYZ-SECRET');

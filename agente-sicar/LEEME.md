@@ -26,6 +26,10 @@ Cada vez que corre hace una sola pasada y termina. El Programador de tareas de W
    - `password`: contraseña de `consultas`.
    - `llave`: la llave de la tienda.
    - `estado`: déjalo como está. Ahí el agente apunta hasta dónde ya mandó.
+   - `publicos`: **no viene en el ejemplo a propósito.** Son los números de cliente que representan público en general
+     en **esa tienda** y cada tienda los mide en su propio SICAR (ver «Público en general por tienda»).
+     **En Ocosingo no se pone:** sin esa clave usa su lista medida. Copiar `["1"]` en Ocosingo mandaría al CRM
+     las ventas de público de los números 2, 3, 13, 21, 33, 4566, 4567 y 4572 como si fueran clientes.
    - `host` tiene que quedarse en `127.0.0.1`: el agente se niega a conectarse a otra máquina.
 3. Protege el archivo: clic derecho en `config.json` → Propiedades → Seguridad. Que solo lo puedan leer el usuario
    que corre la tarea y los administradores. **Nunca** lo mandes por WhatsApp ni lo subas a ningún lado.
@@ -73,11 +77,61 @@ C:\UnisoundSICAR\agente-sicar\correr.cmd --historico-ahora
 Solo vale para esa corrida; la tarea programada nunca la usa. Si la caja se alenta, ciérralo con Ctrl+C: retoma
 donde se quedó sin duplicar. Repite el comando hasta que el registro deje de mostrar `LOTE_CONFIRMADO` nuevos.
 
+### Público en general por tienda y recuperación de clientes
+
+Cada tienda debe medir sus propios números de público en SICAR; **no copies los de otra sucursal**.
+`publicos` acepta un arreglo no vacío de números enteros o textos de dígitos, sin repetidos
+(por ejemplo `[1, "86"]`). Valores inválidos detienen con `CONFIGURACION_INVALIDA`.
+El nombre que empieza con `PUBLICO EN GENERAL` o `PÚBLICO EN GENERAL` sigue contando como público,
+igual que un cliente ausente o sin nombre, aunque su número no esté en la lista.
+
+Si falta `publicos`, se mantiene exactamente la lista antigua de Ocosingo:
+`1, 2, 3, 13, 21, 33, 4566, 4567, 4572`. Aparece `PUBLICOS_SIN_CONFIGURAR` una vez por corrida,
+incluido `--verificar`; es un aviso y no detiene el trabajo. El ejemplo `["1"]` **no es una lista universal**.
+
+Para recuperar los clientes de San Cristóbal que antes se confundían con público:
+
+1. Actualiza los archivos del agente en la PC de San Cristóbal. Conserva su configuración, llave y `estado.json`.
+2. En su `C:\UnisoundSICAR\config.json`, agrega `"publicos": ["1"]`, respetando las comas del JSON.
+   Esa es la lista medida para San Cristóbal; no cambies con ella la configuración de Ocosingo.
+3. Ejecuta `C:\UnisoundSICAR\agente-sicar\correr.cmd --verificar` después del cierre y revisa los conteos.
+4. Ejecuta manualmente, **de noche (entre 20:00 y 07:00)**. Si un reenvío se corta de día, su lote pendiente
+   frena a la tarea programada (`FUERA_DE_HORARIO`) y no suben ventas, cortes ni existencias hasta las 20:00:
+   en ese caso repite el mismo comando a mano hasta ver `REENVIO_CLIENTES_COMPLETO`.
+
+   ```bat
+   C:\UnisoundSICAR\agente-sicar\correr.cmd --reenviar-clientes=2,3,13,21,33
+   ```
+
+5. Revisa `agente-sicar.log`: `REENVIO_CLIENTES_COMPLETO` confirma que terminó la lectura y el envío de todos.
+   Si hubo red caída, Ctrl+C o `TOPE_DE_CORRIDA`, repite **el mismo comando** hasta ver ese aviso.
+   El progreso de reparación se guarda aparte; los reintentos conservan el lote pendiente y su secuencia.
+6. Comprueba en el CRM de San Cristóbal las fichas y ventas de esos cinco clientes, incluidas las canceladas.
+   La tarea programada sigue usando el comando normal, sin esta bandera.
+7. Si el reenvío se detiene siempre en la misma venta por datos raros, no se salta sola: quita a ese cliente
+   de la lista, termina con los demás y avisa a quien mantiene CORPUNISOUND con el número de venta.
+
+La bandera acepta una lista de ids positivos separados por coma, sin espacios ni repetidos; se usa sola.
+Reenvía también clientes sin compras y todas sus ventas, sin límite de fecha, con detalle y cancelaciones.
+Usa la secuencia normal, sin retroceder ni reiniciar el estado, y no mueve los cursores de carga normal.
+Conserva los límites y pausas habituales por lote y por corrida. Como `--historico-ahora`, su ejecución
+manual autoriza trabajar de día en esa corrida; úsala de día solo con autorización de Victor y con la tienda tranquila.
+
+- `REENVIO_CLIENTE_PUBLICO cli_id=...`: uno de los solicitados es público según la configuración o el nombre;
+  no se envió ningún lote. Corrige la lista solicitada o verifica la medición de públicos.
+- `REENVIO_CLIENTE_INEXISTENTE cli_id=...`: no existe uno de los clientes solicitados; no se envió ningún lote.
+- `REENVIO_LOTE_PENDIENTE`: hay un lote anterior de otra corrida. Ejecuta primero el comando normal
+  (histórico de noche, o `--historico-ahora` autorizado), luego repite la reparación. No borres el estado.
+- Un error de datos de venta detiene la reparación: requiere corregir el dato en SICAR y repetir el comando.
+  La reparación no sustituye una venta dañada por una exclusión ni por una cancelación sin detalle.
+
 ### Lista de artículos (departamento y categoría)
 
 Ya terminada la carga inicial, el agente manda **una vez al día, de noche (20:00-07:00)**, la lista completa de
 artículos de SICAR con su departamento y su categoría; el CRM la usa para agrupar lo que compra cada cliente. Va en
 lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente sigue donde se quedó.
+Si la última vuelta completa fue antes de ayer o nunca se hizo, también se manda de día y continúa desde donde quedó
+si se interrumpe. Si se completó ayer o hoy, no se repite de día automáticamente.
 
 - **Viene apagada.** Se prende poniendo `"articulos": true` en `config.json`, y solo después de dos cosas: que el
   servidor de CORPUNISOUND ya tenga esta versión (uno viejo rechaza la lista y el agente se detendría, ventas
@@ -94,6 +148,8 @@ lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente
 Igual que los artículos, el agente manda **una vez al día, de noche (20:00-07:00)**, la lista de proveedores de SICAR
 (solo su número y su nombre). El Radar de Demanda la usa para que el vendedor diga con qué proveedor se consigue lo
 que pidió el cliente, y Compras ve lo pendiente agrupado por proveedor. Va en lotes aparte, después de los artículos.
+También se manda de día si la última vuelta completa fue antes de ayer o nunca se hizo; una vuelta interrumpida sigue
+desde donde quedó mientras esté atrasada. Si se completó ayer o hoy, no se repite de día automáticamente.
 Los proveedores borrados en SICAR (`status` -1) no se mandan. En SICAR la tabla es `proveedor` y su número `pro_id`.
 
 - **Viene apagada.** Se prende poniendo `"proveedores": true` en `config.json`, y solo después de dos cosas: que el

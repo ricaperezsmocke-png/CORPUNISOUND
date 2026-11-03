@@ -1,5 +1,5 @@
 const { randomUUID } = require('node:crypto');
-const PUBLICOS = new Set(['1', '2', '3', '13', '21', '33', '4566', '4567', '4572']);
+const PUBLICOS = Object.freeze(['1', '2', '3', '13', '21', '33', '4566', '4567', '4572']);
 const ZONA = 'America/Mexico_City';
 function id(valor) {
   if (typeof valor === 'number' && !Number.isSafeInteger(valor)) throw new Error('ID_INVALIDO');
@@ -32,9 +32,10 @@ function texto(valor, maximo, opcional = true) {
 }
 const RFC = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/i;
 // Público en general: sin cliente en SICAR, sin nombre, uno de los ids de público o el nombre "PÚBLICO EN GENERAL".
-const esPublico = c => !c || !c.nombre?.trim() || PUBLICOS.has(String(c.cli_id)) || /^P.BLICO EN GENERAL/i.test(c.nombre.trim());
-function cliente(c, avisar = () => {}) {
-  if (esPublico(c)) return null;
+const esPublico = (c, publicos = PUBLICOS) => !c || !c.nombre?.trim()
+  || publicos.some(p => String(p).replace(/^0+(?=\d)/, '') === String(c.cli_id)) || /^P.BLICO EN GENERAL/i.test(c.nombre.trim());
+function cliente(c, avisar = () => {}, publicos) {
+  if (esPublico(c, publicos)) return null;
   const cli_id = id(c.cli_id);
   // Un dato de contacto mal capturado no detiene toda la carga: se omite y queda en el registro.
   function contacto(campo, valor, maximo, patron) {
@@ -48,13 +49,13 @@ function cliente(c, avisar = () => {}) {
   return { cli_id, nombre: texto(c.nombre, 250, false), telefono: contacto('telefono', c.telefono, 40),
     celular: contacto('celular', c.celular, 40), email: contacto('email', c.mail, 254), rfc: contacto('rfc', c.rfc, 13, RFC) };
 }
-function venta(v, c, detalles, enviada, avisar) {
+function venta(v, c, detalles, enviada, avisar, publicos) {
   const ven_id = id(v.ven_id);
-  try { return armarVenta(ven_id, v, c, detalles, enviada, avisar); }
+  try { return armarVenta(ven_id, v, c, detalles, enviada, avisar, publicos); }
   catch (error) { error.ven_id = ven_id; throw error; }
 }
-function armarVenta(ven_id, v, c, detalles, enviada, avisar) {
-  const persona = cliente(c, avisar);
+function armarVenta(ven_id, v, c, detalles, enviada, avisar, publicos) {
+  const persona = cliente(c, avisar, publicos);
   if (!persona) return enviada ? { ven_id, estado: 'excluida' } : null;
   if (!['1', '-1'].includes(String(v.status))) throw new Error('ESTADO_VENTA_DESCONOCIDO');
   // Mismo criterio que el servidor: 0000-00-00 o 30 de febrero no son fechas (el servidor rechazaría el lote con 422).
@@ -94,8 +95,8 @@ function esHorarioHistorico(ahora) {
 const DATOS_RAROS = new Set(['ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO',
   'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE',
   'ESTADO_TRASPASO_DESCONOCIDO']);
-function clienteSeguro(c, avisar) {
-  try { return { cliente: cliente(c, avisar), omitido: null }; }
+function clienteSeguro(c, avisar, publicos) {
+  try { return { cliente: cliente(c, avisar, publicos), omitido: null }; }
   catch (error) {
     if (!DATOS_RAROS.has(error.message) || !/^[1-9]\d*$/.test(String(c?.cli_id))) throw error;
     return { cliente: null, omitido: { cli_id: String(c.cli_id), codigo: error.message } };
@@ -246,16 +247,16 @@ function mostradorSeguro(v, detalles, enviada) {
   }
 }
 // mostrador: { enviada } (ya confirmada en mostrador) cuando el interruptor está prendido; sin él la salida es la de siempre.
-function ventaSegura(v, c, detalles, enviada, avisar, mostrador) {
-  const salida = ventaClienteSegura(v, c, detalles, enviada, avisar);
+function ventaSegura(v, c, detalles, enviada, avisar, mostrador, publicos) {
+  const salida = ventaClienteSegura(v, c, detalles, enviada, avisar, publicos);
   if (!mostrador) return salida;
-  if (!esPublico(c)) return { ...salida, mostrador: null };
+  if (!esPublico(c, publicos)) return { ...salida, mostrador: null };
   // De público la parte de ventas nunca falla por datos (solo devuelve excluida o null): la omisión es de mostrador.
   const m = mostradorSeguro(v, detalles, mostrador.enviada);
   return { venta: salida.venta, omitida: m.omitida, mostrador: m.mostrador };
 }
-function ventaClienteSegura(v, c, detalles, enviada, avisar) {
-  try { return { venta: venta(v, c, detalles, enviada, avisar), omitida: null }; }
+function ventaClienteSegura(v, c, detalles, enviada, avisar, publicos) {
+  try { return { venta: venta(v, c, detalles, enviada, avisar, publicos), omitida: null }; }
   catch (error) {
     if (!DATOS_RAROS.has(error.message) || !error.ven_id) throw error;
     // Cancelada con datos raros (por ejemplo, sin renglones) que el CRM ya tiene: basta avisar que se canceló,
