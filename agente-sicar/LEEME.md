@@ -130,6 +130,8 @@ manual autoriza trabajar de día en esa corrida; úsala de día solo con autoriz
 Ya terminada la carga inicial, el agente manda **una vez al día, de noche (20:00-07:00)**, la lista completa de
 artículos de SICAR con su departamento y su categoría; el CRM la usa para agrupar lo que compra cada cliente. Va en
 lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente sigue donde se quedó.
+Si la última vuelta completa fue antes de ayer o nunca se hizo, también se manda de día y continúa desde donde quedó
+si se interrumpe. Si se completó ayer o hoy, no se repite de día automáticamente.
 
 - **Viene apagada.** Se prende poniendo `"articulos": true` en `config.json`, y solo después de dos cosas: que el
   servidor de CORPUNISOUND ya tenga esta versión (uno viejo rechaza la lista y el agente se detendría, ventas
@@ -146,6 +148,8 @@ lotes aparte, después de las ventas, y si una corrida no la acaba, la siguiente
 Igual que los artículos, el agente manda **una vez al día, de noche (20:00-07:00)**, la lista de proveedores de SICAR
 (solo su número y su nombre). El Radar de Demanda la usa para que el vendedor diga con qué proveedor se consigue lo
 que pidió el cliente, y Compras ve lo pendiente agrupado por proveedor. Va en lotes aparte, después de los artículos.
+También se manda de día si la última vuelta completa fue antes de ayer o nunca se hizo; una vuelta interrumpida sigue
+desde donde quedó mientras esté atrasada. Si se completó ayer o hoy, no se repite de día automáticamente.
 Los proveedores borrados en SICAR (`status` -1) no se mandan. En SICAR la tabla es `proveedor` y su número `pro_id`.
 
 - **Viene apagada.** Se prende poniendo `"proveedores": true` en `config.json`, y solo después de dos cosas: que el

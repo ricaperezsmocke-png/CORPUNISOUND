@@ -420,7 +420,7 @@ test('--articulos-ahora manda la lista de dia solo con el interruptor articulos:
   const dir = await carpeta(t);
   const archivo = path.join(dir, 'config.json');
   const estadoRuta = path.join(dir, 'estado.json');
-  await guardar(estadoRuta, { ...inicial(), fase: 'incremental' });
+  await guardar(estadoRuta, { ...inicial(), fase: 'incremental', articulos_dia: '2026-10-14' }); // al corriente: enviada ayer
   const config = { mysql: { host: 'localhost', database: 'sicar', password: 'p' }, llave: 'k', estado: estadoRuta };
   const lotes = [];
   const vacia = async () => ({ filas: [], clientes: [], detalles: [] });
@@ -448,7 +448,7 @@ test('--proveedores-ahora manda la lista de dia solo con el interruptor proveedo
   const dir = await carpeta(t);
   const archivo = path.join(dir, 'config.json');
   const estadoRuta = path.join(dir, 'estado.json');
-  await guardar(estadoRuta, { ...inicial(), fase: 'incremental' });
+  await guardar(estadoRuta, { ...inicial(), fase: 'incremental', proveedores_dia: '2026-10-14' }); // al corriente: enviada ayer
   const config = { mysql: { host: 'localhost', database: 'sicar', password: 'p' }, llave: 'k', estado: estadoRuta };
   const lotes = [];
   const vacia = async () => ({ filas: [], clientes: [], detalles: [] });

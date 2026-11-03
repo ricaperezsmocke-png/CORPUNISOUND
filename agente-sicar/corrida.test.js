@@ -205,8 +205,8 @@ test('articulos: de noche manda la lista completa en lotes aparte y marca el dia
   await ejecutar(p.archivo, { articulos: true }, p.deps);
   assert.equal(p.lotes.length, 0, 'el mismo dia no se repite');
 });
-test('articulos: de dia no se mandan salvo con articulosAhora', async t => {
-  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+test('articulos: de dia con lista de ayer no se mandan salvo con articulosAhora', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', articulos_dia: '2026-10-14' });
   p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
   conArticulos(p, [articulo(1)]);
   await ejecutar(p.archivo, { articulos: true }, p.deps);
@@ -265,6 +265,62 @@ function conProveedores(p, filas) {
   return leidos;
 }
 const proveedor = n => ({ prv_id: String(n), nombre: `Proveedor ${n}` });
+for (const [lista, prepararLista, fila, clave] of [
+  ['articulos', conArticulos, articulo, 'art_id'],
+  ['proveedores', conProveedores, proveedor, 'prv_id'],
+]) {
+  for (const dia of ['2026-10-13', null]) {
+    test(`${lista}: de dia con lista de ${dia ?? 'nunca'} manda la vuelta completa`, async t => {
+      const p = await preparar(t, { ...inicial(), fase: 'incremental', [`${lista}_dia`]: dia });
+      p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+      const leidos = prepararLista(p, [fila(1), fila(2)]);
+      await ejecutar(p.archivo, { [lista]: true }, p.deps);
+      assert.deepEqual(p.lotes.flatMap(l => l[lista] ?? []).map(x => x[clave]), ['1', '2']);
+      assert.deepEqual(leidos, ['0', '2']);
+      const estado = await cargar(p.archivo);
+      assert.equal(estado[`${lista}_dia`], '2026-10-15');
+      assert.equal(estado[`${lista}_cursor`], '0');
+      p.lotes.length = 0;
+      leidos.length = 0;
+      await ejecutar(p.archivo, { [lista]: true }, p.deps);
+      assert.deepEqual(leidos, [], 'hoy ya se completó: no vuelve a consultar');
+      assert.equal(p.lotes.length, 0);
+    });
+  }
+  test(`${lista}: de dia con lista de ayer no consulta ni manda`, async t => {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', [`${lista}_dia`]: '2026-10-14' });
+    p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+    const leidos = prepararLista(p, [fila(1)]);
+    await ejecutar(p.archivo, { [lista]: true }, p.deps);
+    assert.deepEqual(leidos, []);
+    assert.equal(p.lotes.length, 0);
+    assert.equal((await cargar(p.archivo))[`${lista}_dia`], '2026-10-14');
+  });
+  test(`${lista}: vuelta atrasada empezada de dia se retoma desde el cursor confirmado`, async t => {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', [`${lista}_dia`]: '2026-10-13' });
+    p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
+    const leidos = prepararLista(p, [fila(1), fila(2), fila(3)]);
+    const leer = p.fuente[lista];
+    p.fuente[lista] = async cursor => {
+      if (cursor !== '0') throw new Error('CORRIDA_INTERRUMPIDA');
+      return leer(cursor, 1);
+    };
+    await assert.rejects(ejecutar(p.archivo, { [lista]: true }, p.deps), /CORRIDA_INTERRUMPIDA/);
+    const parcial = await cargar(p.archivo);
+    assert.equal(parcial[`${lista}_cursor`], '1');
+    assert.equal(parcial[`${lista}_dia`], '2026-10-13');
+    p.lotes.length = 0;
+    leidos.length = 0;
+    p.fuente[lista] = cursor => leer(cursor, 1);
+    await ejecutar(p.archivo, { [lista]: true }, p.deps);
+    assert.deepEqual(leidos, ['1', '2', '3']);
+    assert.deepEqual(p.lotes.flatMap(l => l[lista] ?? []).map(x => x[clave]), ['2', '3']);
+    const estado = await cargar(p.archivo);
+    assert.equal(estado[`${lista}_dia`], '2026-10-15');
+    assert.equal(estado[`${lista}_cursor`], '0');
+  });
+}
+
 test('proveedores: de noche manda la lista completa en lotes aparte y marca el dia', async t => {
   const p = await preparar(t, { ...inicial(), fase: 'incremental' });
   p.fuente.tamano = 2;
@@ -280,8 +336,8 @@ test('proveedores: de noche manda la lista completa en lotes aparte y marca el d
   await ejecutar(p.archivo, { proveedores: true }, p.deps);
   assert.equal(p.lotes.length, 0, 'el mismo dia no se repite');
 });
-test('proveedores: de dia no se mandan salvo con proveedoresAhora', async t => {
-  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+test('proveedores: de dia con lista de ayer no se mandan salvo con proveedoresAhora', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', proveedores_dia: '2026-10-14' });
   p.deps.reloj = () => Date.parse('2026-10-15T18:00:00Z');
   conProveedores(p, [proveedor(1)]);
   await ejecutar(p.archivo, { proveedores: true }, p.deps);

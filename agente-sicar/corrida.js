@@ -333,16 +333,21 @@ async function ejecutar(archivo, config, deps) {
       if (!await transmitir(elementos(pagina, estado, avisar, omitir, config), { ventana: cache(pagina, estado) })) return;
       i += paginaIds.length;
     }
-    // Listas diarias (artículos con departamento y categoría; proveedores para el Radar): completas una vez al día, de noche
+    // Listas diarias (artículos con departamento y categoría; proveedores para el Radar): de noche, de día si están atrasadas
     // o a mano, después de las ventas. Cada una apagada mientras su interruptor no sea true: un servidor viejo rechaza la
     // colección y detendría las ventas.
     const hoy = horaLocal(reloj()).slice(0, 10);
     async function listaDiaria(lista, { ahora, disponible, aviso, leer, idDe, seguro, evento }) {
       if (config[lista] !== true) return true;
       // A mano (--articulos-ahora / --proveedores-ahora) se manda una vuelta completa aunque hoy ya se haya mandado:
-      // sirve tras restaurar un respaldo que dejó la lista vacía. Solo, de noche, una vez al día.
+      // sirve tras restaurar un respaldo que dejó la lista vacía. Automáticamente, como máximo una vez al día:
+      // de noche o de día si la última vuelta completa fue antes de ayer (o nunca).
       let vueltaCompleta = false;
-      const toca = () => (ahora ? !vueltaCompleta : estado[`${lista}_dia`] !== hoy && esHorarioHistorico(new Date(reloj())));
+      const toca = () => {
+        const ayer = horaLocal(reloj() - 24 * 3600000).slice(0, 10);
+        const atrasada = !estado[`${lista}_dia`] || estado[`${lista}_dia`] < ayer;
+        return ahora ? !vueltaCompleta : estado[`${lista}_dia`] !== hoy && (esHorarioHistorico(new Date(reloj())) || atrasada);
+      };
       if (!toca()) return true;
       if (!disponible) { log(aviso); return true; }
       while (toca()) {
