@@ -1,5 +1,7 @@
 // Cuentas de las gráficas de progreso. Todo en centavos enteros y en días de calendario:
 // el sistema no sabe qué días descansa cada quien.
+import { pesosConCentavos } from "./marcas.js";
+
 const centavos = (n) => Math.round(Number(n || 0) * 100);
 
 export function diasDelMes(mes) {
@@ -44,4 +46,30 @@ export function faltantePorDia(meta, capturado, dias) {
 export function estadoMeta(meta, capturado) {
   if (!(Number(meta) > 0)) return "sin-meta";
   return centavos(capturado) >= centavos(meta) ? "lograda" : "en-camino";
+}
+
+// Venta de la tienda según SICAR (solo jefatura). Con sin_dato no hay número: ni monto ni 0%.
+const LEYENDAS_SIN_SICAR = {
+  sin_agente: "Sin datos de SICAR: esta tienda no tiene agente.",
+  sin_mostrador: "Sin datos de SICAR: falta prender las ventas de público en general.",
+};
+const pesosDeCentavos = (c) => pesosConCentavos(Math.round(Number(c || 0)) / 100);
+
+export function textoVentaSicar(sicar) {
+  const titulo = "Venta según SICAR";
+  if (!sicar || sicar.sin_dato) {
+    return { titulo, monto: null, detalle: LEYENDAS_SIN_SICAR[sicar?.motivo] || "Sin datos de SICAR por ahora." };
+  }
+  let detalle = "Sin traspasos a tiendas propias · sin restar devoluciones";
+  if (Number(sicar.internas_centavos) > 0) detalle += ` · traspasos excluidos: ${pesosDeCentavos(sicar.internas_centavos)}`;
+  return { titulo, monto: pesosDeCentavos(sicar.venta_centavos), detalle };
+}
+
+// Cierre sellado cuya venta SICAR ya no coincide con la sellada. Sin diferencia (o sin dato): null.
+export function textoSicarCambioCierre(actual, diferenciaCentavos) {
+  const dif = Math.round(Number(diferenciaCentavos || 0));
+  if (dif === 0 || !actual || actual.sin_dato) return null;
+  const signo = dif > 0 ? "+" : "-";
+  return `SICAR cambió después del cierre: ahora ${pesosDeCentavos(actual.venta_centavos)} `
+    + `(diferencia ${signo}${pesosDeCentavos(Math.abs(dif))}). Rectifica con motivo si corresponde.`;
 }

@@ -6,6 +6,29 @@ const { claseActividad } = require("./objetivosActividadesCatalogo");
 const { listarElementos } = require("./objetivosCatalogos");
 const { createHash } = require("node:crypto");
 const { fechaLocal } = require("./fechas");
+const Sentry = require("@sentry/node");
+const { ventaSicarDelMes } = require("./objetivosAvance");
+
+// Venta SICAR de la tienda, calculada SOLO por el servidor. Si el disco de SICAR falla, el cierre
+// manual no se bloquea: queda "sin dato" con motivo error_sicar y el error va a Sentry.
+function tiendaSicarSegura(sqlite, { mes, sucursal_id }) {
+  try {
+    return ventaSicarDelMes(sqlite, { mes, sucursal_id });
+  } catch (e) {
+    Sentry.captureException(e);
+    return { sin_dato: true, motivo: "error_sicar" };
+  }
+}
+
+// Respuesta de un cierre sellado: lo sellado no cambia; al lado va lo que SICAR dice hoy.
+// Cierres viejos sin tienda_sicar salen idénticos.
+function conTiendaSicarActual(cierre, sqlite) {
+  if (!cierre.tienda_sicar) return cierre;
+  const sellado = cierre.tienda_sicar;
+  const actual = tiendaSicarSegura(sqlite, { mes: cierre.mes, sucursal_id: cierre.sucursal_id });
+  const diferencia = sellado.sin_dato || actual.sin_dato ? 0 : actual.venta_centavos - sellado.venta_centavos;
+  return { ...cierre, tienda_sicar_actual: actual, tienda_sicar_diferencia_centavos: diferencia };
+}
 
 function canonico(valor) {
   if (Array.isArray(valor)) return valor.map(canonico).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -112,7 +135,7 @@ function validarPeriodo(mes, sucursal_id) {
   }
 }
 
-function previoCierre(DB, { mes, sucursal_id }) {
+function previoCierre(DB, { mes, sucursal_id }, { sqlite } = {}) {
   validarPeriodo(mes, sucursal_id);
   const participantes = new Set(plantillaDelMes(DB, mes, sucursal_id).map(({ vendedor_id }) => vendedor_id));
   for (const objetivo of DB.pos.objetivos) {
@@ -150,6 +173,7 @@ function previoCierre(DB, { mes, sucursal_id }) {
     };
   });
   const delPeriodo = (r) => r.mes === mes && r.sucursal_id === sucursal_id;
+  const tienda_sicar = tiendaSicarSegura(sqlite, { mes, sucursal_id });
   const contenido = {
     mes, sucursal_id, lineas,
     objetivos: DB.pos.objetivos.filter((r) => (r.vigente || r.retirada) && delPeriodo(r)),
@@ -157,8 +181,11 @@ function previoCierre(DB, { mes, sucursal_id }) {
     plantilla: plantillaDelMes(DB, mes, sucursal_id),
     actividades: actividadesDelMes(DB, { mes, sucursal_id }),
     creditos: creditosDelMes(DB, { mes, sucursal_id }),
+    // Entra en la huella: marcar/desmarcar una cuenta interna o una venta tardía tras el previo da 409.
+    tienda_sicar,
   };
-  return { lineas, huella: createHash("sha256").update(JSON.stringify(canonico(contenido))).digest("hex") };
+  const huella = createHash("sha256").update(JSON.stringify(canonico(contenido))).digest("hex");
+  return { lineas, huella, tienda_sicar };
 }
 
 // Metas eliminadas (retiradas) del mes: el cierre las lista aunque ya no cuenten, para que una
@@ -188,7 +215,8 @@ function estaCerrado(DB, mes, sucursal_id) {
   );
 }
 
-function cerrarMes(DB, { mes, sucursal_id, reales, huella }, usuario, hoy = fechaLocal(new Date())) {
+// tienda_sicar sale del previo recalculado aquí; nada del cuerpo de la petición llega al sello.
+function cerrarMes(DB, { mes, sucursal_id, reales, huella }, usuario, hoy = fechaLocal(new Date()), { sqlite } = {}) {
   validarPeriodo(mes, sucursal_id);
   const [anio, numero] = mes.split("-").map(Number);
   const siguiente = numero === 12 ? `${anio + 1}-01-01` : `${anio}-${String(numero + 1).padStart(2, "0")}-01`;
@@ -200,7 +228,7 @@ function cerrarMes(DB, { mes, sucursal_id, reales, huella }, usuario, hoy = fech
     throw new Error("Se requiere la lista de reales de SICAR de toda la plantilla");
   }
 
-  const revision = previoCierre(DB, { mes, sucursal_id });
+  const revision = previoCierre(DB, { mes, sucursal_id }, { sqlite });
   if (!huella || huella !== revision.huella) {
     throw Object.assign(new Error("Algo cambió desde que revisaste. Revisa otra vez antes de cerrar."), { status: 409 });
   }
@@ -254,6 +282,7 @@ function cerrarMes(DB, { mes, sucursal_id, reales, huella }, usuario, hoy = fech
     resumen_actividades_tienda: resumenActividades(DB, { mes, sucursal_id }),
     rectificaciones: [],
     retiradas: metasRetiradasDelMes(DB, { mes, sucursal_id }),
+    tienda_sicar: structuredClone(revision.tienda_sicar),
   };
 
   // Como crearCorte: cálculo y fotografía completos, sin await antes del alta.
@@ -376,4 +405,6 @@ function cierreDePersona(DB, { mes, sucursal_id, vendedor_id }) {
   };
 }
 
-module.exports = { previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes, cierreDePersona };
+module.exports = {
+  previoCierre, cerrarMes, estaCerrado, rectificarCierre, metasRetiradasDelMes, cierreDePersona, conTiendaSicarActual,
+};

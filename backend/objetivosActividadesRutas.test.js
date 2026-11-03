@@ -401,7 +401,8 @@ test("el cierre sellado y el previo no exponen el drive_file_id de las fotos", a
     { nombre: "Fixture" }, drive);
   estado(await pedir("GET", `${RAIZ}/previo-cierre`, soloCierre), 200);
   const cerrado = await pedir("POST", "/api/objetivos/cierre", soloCierre, {
-    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 1 }).huella,
+    // La huella incluye tienda_sicar: se calcula con la misma conexión SQLite que usa la ruta.
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id: 1 }, { sqlite: require("./persistencia").obtenerConexionSqlite() }).huella,
     mes: MES, sucursal_id: 1, reales: [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 0 })),
   });
   estado(cerrado, 200);

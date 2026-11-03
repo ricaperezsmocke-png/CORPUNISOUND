@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diasDelMes, diasRestantes, estadoMeta, faltantePorDia, serieConRitmo } from "./avance.js";
+import {
+  diasDelMes, diasRestantes, estadoMeta, faltantePorDia, serieConRitmo, textoSicarCambioCierre, textoVentaSicar,
+} from "./avance.js";
 
 test("días del mes respetan febrero bisiesto y diciembre", () => {
   assert.equal(diasDelMes("2024-02"), 29);
@@ -50,4 +52,43 @@ test("el estado distingue sin meta, en camino y lograda (en centavos)", () => {
   assert.equal(estadoMeta(null, 0), "sin-meta");
   assert.equal(estadoMeta(71.6, 71.60000000000001), "lograda");
   assert.equal(estadoMeta(71.6, 71.59), "en-camino");
+});
+
+const DETALLE_SICAR = "Sin traspasos a tiendas propias · sin restar devoluciones";
+
+test("venta SICAR con dato: monto en pesos y la leyenda de devoluciones", () => {
+  const sicar = { venta_centavos: 1234567, internas_centavos: 0, sin_dato: false, motivo: null };
+  assert.deepEqual(textoVentaSicar(sicar), { titulo: "Venta según SICAR", monto: "$12,345.67", detalle: DETALLE_SICAR });
+});
+
+test("venta SICAR con traspasos a cuentas internas: se dice cuánto se excluyó", () => {
+  const sicar = { venta_centavos: 500000, internas_centavos: 250050, sin_dato: false, motivo: null };
+  assert.deepEqual(textoVentaSicar(sicar), {
+    titulo: "Venta según SICAR", monto: "$5,000.00", detalle: `${DETALLE_SICAR} · traspasos excluidos: $2,500.50`,
+  });
+});
+
+test("venta SICAR sin dato: leyenda por motivo y nunca un monto", () => {
+  const casos = [
+    ["sin_agente", "Sin datos de SICAR: esta tienda no tiene agente."],
+    ["sin_mostrador", "Sin datos de SICAR: falta prender las ventas de público en general."],
+    ["sin_integracion", "Sin datos de SICAR por ahora."],
+    ["error_sicar", "Sin datos de SICAR por ahora."],
+  ];
+  for (const [motivo, detalle] of casos) {
+    // Aunque traiga venta_centavos (0 o un residuo), con sin_dato no se muestra número.
+    const r = textoVentaSicar({ venta_centavos: 0, internas_centavos: 0, sin_dato: true, motivo });
+    assert.deepEqual(r, { titulo: "Venta según SICAR", monto: null, detalle }, motivo);
+  }
+});
+
+test("SICAR que cambió después del cierre: diferencia con signo correcto; sin cambio no hay aviso", () => {
+  const actual = { venta_centavos: 950000, sin_dato: false };
+  assert.equal(textoSicarCambioCierre(actual, -50000),
+    "SICAR cambió después del cierre: ahora $9,500.00 (diferencia -$500.00). Rectifica con motivo si corresponde.");
+  assert.equal(textoSicarCambioCierre({ venta_centavos: 1000050, sin_dato: false }, 50),
+    "SICAR cambió después del cierre: ahora $10,000.50 (diferencia +$0.50). Rectifica con motivo si corresponde.");
+  assert.equal(textoSicarCambioCierre(actual, 0), null);
+  assert.equal(textoSicarCambioCierre(undefined, undefined), null, "cierre viejo sin datos SICAR");
+  assert.equal(textoSicarCambioCierre({ sin_dato: true, motivo: "error_sicar" }, 0), null);
 });

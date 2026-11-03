@@ -463,6 +463,10 @@ test("queda constancia de quien sello y cuando", () => {
     ],
     rectificaciones: [],
     retiradas: [],
+    tienda_sicar: {
+      venta_centavos: 0, ventas: 0, cliente_centavos: 0, mostrador_centavos: 0, internas_centavos: 0,
+      sin_dato: true, motivo: "sin_integracion", leyenda: "sin restar devoluciones",
+    },
   });
   assert.deepEqual(DB.pos.objetivo_cierres, [cierre]);
   assert.deepEqual(DB.pos.objetivos, antes.objetivos);
@@ -877,4 +881,135 @@ test("el cierre conserva la lista de metas eliminadas del mes, con quién, cuán
   assert.deepStrictEqual(cierre.retiradas.map((r) => r.elemento), ["Venta", "Marca: Yamaha"]);
   DB.pos.objetivos.find((o) => o.retirada?.motivo === "No llegaba").retirada.motivo = "cambiado después";
   assert.strictEqual(cierre.retiradas[0].retirada.motivo, "No llegaba");
+});
+
+// --- Venta SICAR de la tienda en el previo y el sello (F1, Task 4) ---
+
+function sqliteSicar(t, { mostrador = 10000, cliente = null } = {}) {
+  const Database = require("better-sqlite3");
+  const { crearRepositorioSicar } = require("./sicarRepositorio");
+  const sqlite = new Database(":memory:");
+  t.after(() => sqlite.close());
+  crearRepositorioSicar(sqlite);
+  sqlite.prepare("INSERT INTO sicar_tiendas(sucursal_id) VALUES (1)").run();
+  sqlite.prepare("INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (1, 'c1', 'Cliente')").run();
+  sqlite.prepare(`INSERT INTO sicar_ventas_mostrador (sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en)
+    VALUES (1, 'm1', '2026-09-10T10:00:00', 'vigente', ?, 'x')`).run(mostrador);
+  if (cliente !== null) {
+    sqlite.prepare(`INSERT INTO sicar_ventas (sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
+      VALUES (1, 'v1', 'c1', '2026-09-12T10:00:00', 'vigente', ?, 'r', 'h')`).run(cliente);
+  }
+  return sqlite;
+}
+
+function cerrarConSicar(DB, sqlite, extra = {}) {
+  const previo = previoCierre(DB, MES, { sqlite });
+  return cerrarMes(DB, { ...MES, reales: realesDelMes(), huella: previo.huella, ...extra }, VICTOR, "2026-10-01", { sqlite });
+}
+
+test("el previo trae la venta SICAR de la tienda y la sella", (t) => {
+  const sqlite = sqliteSicar(t);
+  const DB = prepararMes();
+  const previo = previoCierre(DB, MES, { sqlite });
+  assert.strictEqual(previo.tienda_sicar.venta_centavos, 10000);
+  assert.strictEqual(previo.tienda_sicar.sin_dato, false);
+  assert.strictEqual(previo.tienda_sicar.leyenda, "sin restar devoluciones");
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes(), huella: previo.huella }, VICTOR, "2026-10-01", { sqlite });
+  assert.deepStrictEqual(cierre.tienda_sicar, previo.tienda_sicar);
+  assert.deepStrictEqual(DB.pos.objetivo_cierres[0].tienda_sicar, previo.tienda_sicar);
+});
+
+test("marcar una cuenta interna despues del previo cambia la huella y el sello da 409", (t) => {
+  const sqlite = sqliteSicar(t, { cliente: 7000 });
+  const DB = prepararMes();
+  const previo = previoCierre(DB, MES, { sqlite });
+  assert.strictEqual(previo.tienda_sicar.venta_centavos, 17000);
+  sqlite.prepare(`INSERT INTO sicar_internas(sucursal_id, cli_id, motivo, usuario_id, fecha_hora)
+    VALUES (1, 'c1', 'Bodega', 1, '2026-10-01T10:00:00Z')`).run();
+  const datos = { ...MES, reales: realesDelMes(), huella: previo.huella };
+  assert.throws(() => cerrarMes(DB, datos, VICTOR, "2026-10-01", { sqlite }), { status: 409 });
+  assert.strictEqual(DB.pos.objetivo_cierres.length, 0);
+  const nuevo = previoCierre(DB, MES, { sqlite });
+  assert.notStrictEqual(nuevo.huella, previo.huella);
+  assert.strictEqual(nuevo.tienda_sicar.venta_centavos, 10000);
+  assert.strictEqual(nuevo.tienda_sicar.internas_centavos, 7000);
+  // Desmarcar también cambia la huella.
+  sqlite.prepare("DELETE FROM sicar_internas WHERE sucursal_id = 1 AND cli_id = 'c1'").run();
+  assert.throws(() => cerrarMes(DB, { ...datos, huella: nuevo.huella }, VICTOR, "2026-10-01", { sqlite }), { status: 409 });
+  assert.strictEqual(DB.pos.objetivo_cierres.length, 0);
+  const cierre = cerrarMes(DB, { ...datos, huella: previoCierre(DB, MES, { sqlite }).huella }, VICTOR, "2026-10-01", { sqlite });
+  assert.strictEqual(cierre.tienda_sicar.venta_centavos, 17000);
+});
+
+test("el cuerpo no puede mandar tienda_sicar", (t) => {
+  const sqlite = sqliteSicar(t);
+  const DB = prepararMes();
+  const mandado = { venta_centavos: 1, sin_dato: false };
+  const cierre = cerrarConSicar(DB, sqlite, { tienda_sicar: mandado, tienda_sicar_actual: mandado });
+  assert.strictEqual(cierre.tienda_sicar.venta_centavos, 10000);
+  assert.strictEqual(cierre.tienda_sicar_actual, undefined);
+  assert.strictEqual(DB.pos.objetivo_cierres[0].tienda_sicar.venta_centavos, 10000);
+});
+
+test("sin sqlite el previo dice sin_integracion y el cierre funciona como hoy", () => {
+  const DB = prepararMes();
+  const previo = previoCierre(DB, MES);
+  assert.strictEqual(previo.tienda_sicar.sin_dato, true);
+  assert.strictEqual(previo.tienda_sicar.motivo, "sin_integracion");
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes(), huella: previo.huella }, VICTOR, "2026-10-01");
+  assert.strictEqual(cierre.tienda_sicar.motivo, "sin_integracion");
+  assert.strictEqual(cierre.lineas.length, 2);
+  assert.strictEqual(cierre.lineas[0].diferencia, 15000);
+});
+
+test("cierre sellado muestra la diferencia si SICAR cambio despues", (t) => {
+  const { conTiendaSicarActual } = require("./objetivosCierre");
+  // El mostrador sigue vigente para que la tienda conserve dato; la venta cancelada es la de 10000.
+  const sqlite = sqliteSicar(t, { mostrador: 2500, cliente: 10000 });
+  const DB = prepararMes();
+  const cierre = cerrarConSicar(DB, sqlite);
+  const sellado = structuredClone(cierre.tienda_sicar);
+  assert.strictEqual(sellado.venta_centavos, 12500);
+  assert.strictEqual(conTiendaSicarActual(cierre, sqlite).tienda_sicar_diferencia_centavos, 0);
+  sqlite.prepare("UPDATE sicar_ventas SET estado = 'cancelada' WHERE ven_id = 'v1'").run();
+  const respuesta = conTiendaSicarActual(cierre, sqlite);
+  assert.strictEqual(respuesta.tienda_sicar_diferencia_centavos, -10000);
+  assert.strictEqual(respuesta.tienda_sicar_actual.venta_centavos, 2500);
+  assert.deepStrictEqual(respuesta.tienda_sicar, sellado);
+  assert.deepStrictEqual(DB.pos.objetivo_cierres[0].tienda_sicar, sellado);
+  // Si hoy SICAR no tiene dato, la diferencia es 0, nunca un número inventado.
+  sqlite.prepare("UPDATE sicar_ventas_mostrador SET estado = 'cancelada'").run();
+  const sinDato = conTiendaSicarActual(cierre, sqlite);
+  assert.strictEqual(sinDato.tienda_sicar_actual.motivo, "sin_mostrador");
+  assert.strictEqual(sinDato.tienda_sicar_diferencia_centavos, 0);
+  // Cierres viejos sin tienda_sicar salen idénticos.
+  const viejo = { id: 9, ...MES, lineas: [], rectificaciones: [] };
+  assert.strictEqual(conTiendaSicarActual(viejo, sqlite), viejo);
+});
+
+test("si SICAR lanza, el previo y el cierre siguen con error_sicar y se reporta", (t) => {
+  const { conTiendaSicarActual } = require("./objetivosCierre");
+  const Sentry = require("@sentry/node");
+  const captura = t.mock.method(Sentry, "captureException", () => {});
+  const roto = { prepare() { throw new Error("disco SICAR caido"); } };
+  const DB = prepararMes();
+  const previo = previoCierre(DB, MES, { sqlite: roto });
+  assert.deepStrictEqual(previo.tienda_sicar, { sin_dato: true, motivo: "error_sicar" });
+  const cierre = cerrarMes(DB, { ...MES, reales: realesDelMes(), huella: previo.huella }, VICTOR, "2026-10-01", { sqlite: roto });
+  assert.deepStrictEqual(cierre.tienda_sicar, { sin_dato: true, motivo: "error_sicar" });
+  assert.strictEqual(captura.mock.callCount(), 2);
+  assert.strictEqual(captura.mock.calls[0].arguments[0].message, "disco SICAR caido");
+  assert.strictEqual(conTiendaSicarActual(cierre, roto).tienda_sicar_diferencia_centavos, 0);
+});
+
+test("tienda_sicar no se puede rectificar", (t) => {
+  const sqlite = sqliteSicar(t);
+  const DB = prepararMes();
+  const cierre = cerrarConSicar(DB, sqlite);
+  for (const campo of ["tienda_sicar", "venta_centavos"]) {
+    assert.throws(() => rectificarCierre(DB, cierre.id, { vendedor_id: 1, campo, valor_nuevo: 1, motivo: "x" }, VICTOR),
+      /Solo se puede rectificar/);
+  }
+  assert.strictEqual(cierre.tienda_sicar.venta_centavos, 10000);
+  assert.strictEqual(cierre.rectificaciones.length, 0);
 });

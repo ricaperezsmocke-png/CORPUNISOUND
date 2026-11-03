@@ -16,6 +16,9 @@ const { listarPermisos } = require("./permisosCatalogo");
 const { fijarObjetivo, registrarEnPlantilla } = require("./objetivos");
 const { capturarDia } = require("./objetivosCaptura");
 const { cerrarMes, previoCierre } = require("./objetivosCierre");
+const { obtenerConexionSqlite } = require("./persistencia");
+// La misma conexión que usa el servidor: una huella calculada aquí debe coincidir con la de la ruta.
+const SQLITE = { sqlite: obtenerConexionSqlite() };
 
 const MES = "2026-08";
 
@@ -110,8 +113,9 @@ function estado(r, esperado) {
 
 function sellarFixture(sucursal_id = 1) {
   return cerrarMes(app.DB, {
-    huella: previoCierre(app.DB, { mes: MES, sucursal_id }).huella,
-    mes: MES, sucursal_id, reales: (sucursal_id === 1 ? [1, 2] : [3]).map((vendedor_id) => ({ vendedor_id, real_sicar: 100 })) }, { nombre: "Fixture" });
+    huella: previoCierre(app.DB, { mes: MES, sucursal_id }, SQLITE).huella,
+    mes: MES, sucursal_id, reales: (sucursal_id === 1 ? [1, 2] : [3]).map((vendedor_id) => ({ vendedor_id, real_sicar: 100 })) },
+  { nombre: "Fixture" }, undefined, SQLITE);
 }
 
 test("sin sesión, todas las rutas responden 401", async () => {
@@ -295,7 +299,7 @@ test("sin cerrar_mes_objetivos no se llega al previo ni al cierre", async () => 
   estado(await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, soloCierre), 200);
   estado(await pedir("POST", "/api/objetivos", soloCierre, META), 403);
   const sellado = await pedir("POST", "/api/objetivos/cierre", soloCierre, {
-    mes: "2026-07", sucursal_id: "1", reales: [], huella: previoCierre(app.DB, { mes: "2026-07", sucursal_id: 1 }).huella,
+    mes: "2026-07", sucursal_id: "1", reales: [], huella: previoCierre(app.DB, { mes: "2026-07", sucursal_id: 1 }, SQLITE).huella,
   });
   estado(sellado, 200);
   assert.equal(sellado.cuerpo.cerrado_por, "Administradora");
@@ -421,7 +425,8 @@ test("el cierre sellado se lee completo con sus rectificaciones sin modificar la
   const antes = structuredClone(app.DB.pos);
   const r = await pedir("GET", `/api/objetivos/${MES}/1/cierre`, soloCierre);
   estado(r, 200);
-  assert.deepEqual(r.cuerpo, cierre);
+  // Sin cambios en SICAR desde el sello: lo de hoy es igual a lo sellado y la diferencia es 0.
+  assert.deepEqual(r.cuerpo, { ...cierre, tienda_sicar_actual: cierre.tienda_sicar, tienda_sicar_diferencia_centavos: 0 });
   assert.equal(r.cuerpo.cerrado_por, "Fixture");
   assert.ok(r.cuerpo.cerrado_en);
   assert.equal(r.cuerpo.rectificaciones[0].valor_nuevo, 80);
@@ -673,4 +678,97 @@ test("la vendedora no ve una marca cuyas metas se eliminaron; la jefatura sí, p
   assert.equal(deCompanero.cuerpo.marcas.some((m) => m.marca_id === marca.id), false);
   const deGerente = await pedir("GET", `/api/objetivos/${MES}/1`, gerente);
   assert.equal(deGerente.cuerpo.marcas.some((m) => m.marca_id === marca.id), true);
+});
+
+// --- Venta SICAR de la tienda en el previo y el sello (F1, Task 4) ---
+
+function sembrarSicar(t) {
+  const sqlite = obtenerConexionSqlite();
+  const limpiar = () => sqlite.exec(`DELETE FROM sicar_internas; DELETE FROM sicar_ventas; DELETE FROM sicar_ventas_mostrador;
+    DELETE FROM sicar_clientes; DELETE FROM sicar_tiendas;`);
+  limpiar();
+  t.after(limpiar);
+  sqlite.prepare("INSERT INTO sicar_tiendas(sucursal_id) VALUES (1)").run();
+  sqlite.prepare("INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (1, 'c1', 'Cliente')").run();
+  const mostrador = sqlite.prepare(`INSERT INTO sicar_ventas_mostrador (sucursal_id, ven_id, fecha_local, estado, total_centavos, actualizado_en)
+    VALUES (1, ?, ?, 'vigente', ?, 'x')`);
+  mostrador.run("m1", `${MES}-10T10:00:00`, 3000);
+  mostrador.run("m2", `${MES}-11T10:00:00`, 1000);
+  sqlite.prepare(`INSERT INTO sicar_ventas (sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
+    VALUES (1, 'v1', 'c1', '${MES}-12T10:00:00', 'vigente', 500, 'r', 'h')`).run();
+  return sqlite;
+}
+
+test("HTTP cierre: SICAR lo calcula el servidor; el cuerpo no inyecta tienda_sicar; internas cambian la huella", async (t) => {
+  const sqlite = sembrarSicar(t);
+  const reales = [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 100 }));
+  const previo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
+  estado(previo, 200);
+  assert.equal(previo.cuerpo.tienda_sicar.venta_centavos, 4500);
+  assert.equal(previo.cuerpo.tienda_sicar.leyenda, "sin restar devoluciones");
+
+  sqlite.prepare(`INSERT INTO sicar_internas(sucursal_id, cli_id, motivo, usuario_id, fecha_hora)
+    VALUES (1, 'c1', 'Bodega', 1, '2026-09-01T10:00:00Z')`).run();
+  estado(await pedir("POST", "/api/objetivos/cierre", admin, { ...PERIODO, reales, huella: previo.cuerpo.huella }), 409);
+  assert.equal(app.DB.pos.objetivo_cierres.length, 0);
+
+  const nuevo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
+  assert.equal(nuevo.cuerpo.tienda_sicar.venta_centavos, 4000);
+  const falso = { venta_centavos: 1, sin_dato: false, motivo: null };
+  const cierre = await pedir("POST", "/api/objetivos/cierre", admin, {
+    ...PERIODO, reales, huella: nuevo.cuerpo.huella,
+    tienda_sicar: falso, tienda_sicar_actual: falso, tienda_sicar_diferencia_centavos: 999,
+  });
+  estado(cierre, 200);
+  assert.equal(cierre.cuerpo.tienda_sicar.venta_centavos, 4000);
+  assert.equal(cierre.cuerpo.tienda_sicar_actual.venta_centavos, 4000);
+  assert.equal(cierre.cuerpo.tienda_sicar_diferencia_centavos, 0);
+  const sellado = app.DB.pos.objetivo_cierres[0];
+  assert.equal(sellado.tienda_sicar.venta_centavos, 4000);
+  assert.equal(sellado.tienda_sicar_actual, undefined);
+  assert.equal(sellado.tienda_sicar_diferencia_centavos, undefined);
+
+  sqlite.prepare("UPDATE sicar_ventas_mostrador SET estado = 'cancelada' WHERE ven_id = 'm2'").run();
+  const despues = await pedir("GET", `/api/objetivos/${MES}/1/cierre`, admin);
+  estado(despues, 200);
+  assert.equal(despues.cuerpo.tienda_sicar.venta_centavos, 4000);
+  assert.equal(despues.cuerpo.tienda_sicar_actual.venta_centavos, 3000);
+  assert.equal(despues.cuerpo.tienda_sicar_diferencia_centavos, -1000);
+  assert.equal(sellado.tienda_sicar.venta_centavos, 4000);
+  assert.equal(sellado.tienda_sicar_actual, undefined);
+
+  estado(await pedir("POST", `/api/objetivos/cierre/${sellado.id}/rectificar`, admin,
+    { vendedor_id: "1", campo: "tienda_sicar", valor_nuevo: 1, motivo: "Intento" }), 400);
+  assert.equal(sellado.rectificaciones.length, 0);
+});
+
+test("HTTP cierre: un cierre viejo sin tienda_sicar sale igual que antes", async () => {
+  const cierre = sellarFixture();
+  delete cierre.tienda_sicar;
+  const r = await pedir("GET", `/api/objetivos/${MES}/1/cierre`, admin);
+  estado(r, 200);
+  assert.equal("tienda_sicar" in r.cuerpo, false);
+  assert.equal("tienda_sicar_actual" in r.cuerpo, false);
+  assert.equal("tienda_sicar_diferencia_centavos" in r.cuerpo, false);
+});
+
+test("HTTP cierre: si SICAR lanza, previo y cierre siguen con error_sicar y se reporta a Sentry", async (t) => {
+  const sqlite = sembrarSicar(t);
+  const Sentry = require("@sentry/node");
+  const preparar = sqlite.prepare.bind(sqlite);
+  t.mock.method(sqlite, "prepare", (sql) => {
+    if (sql.includes("sicar_ventas")) throw new Error("disco SICAR caido");
+    return preparar(sql);
+  });
+  const captura = t.mock.method(Sentry, "captureException", () => {});
+  const previo = await pedir("GET", `/api/objetivos/${MES}/1/previo-cierre`, admin);
+  estado(previo, 200);
+  assert.deepEqual(previo.cuerpo.tienda_sicar, { sin_dato: true, motivo: "error_sicar" });
+  const reales = [1, 2].map((vendedor_id) => ({ vendedor_id, real_sicar: 100 }));
+  const cierre = await pedir("POST", "/api/objetivos/cierre", admin, { ...PERIODO, reales, huella: previo.cuerpo.huella });
+  estado(cierre, 200);
+  assert.deepEqual(cierre.cuerpo.tienda_sicar, { sin_dato: true, motivo: "error_sicar" });
+  assert.equal(cierre.cuerpo.tienda_sicar_diferencia_centavos, 0);
+  assert.ok(captura.mock.callCount() >= 3);
+  assert.equal(captura.mock.calls[0].arguments[0].message, "disco SICAR caido");
 });

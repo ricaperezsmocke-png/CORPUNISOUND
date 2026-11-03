@@ -4,6 +4,14 @@ const { FINANCIERAS, resumenCreditos } = require("./objetivosCreditos");
 const { resumenActividades } = require("./objetivosActividades");
 const { CLASES_ACTIVIDAD } = require("./objetivosActividadesCatalogo");
 const { listarElementos } = require("./objetivosCatalogos");
+const { ventaSicarTienda, rangoDelMes } = require("./sicarVentaReal");
+
+function ventaSicarDelMes(sqlite, { mes, sucursal_id }) {
+  return {
+    ...ventaSicarTienda(sqlite, { sucursal_id, ...rangoDelMes(mes) }),
+    leyenda: "sin restar devoluciones",
+  };
+}
 
 const centavos = (monto) => Math.round(Number(monto) * 100);
 
@@ -177,4 +185,4 @@ function porcentajesParaVendedora(DB, { mes, sucursal_id }, propio, ahora = new 
   };
 }
 
-module.exports = { porcentaje, avancePersona, avanceTienda, soloPorcentajes, avancePorPersona, porcentajesParaVendedora };
+module.exports = { porcentaje, avancePersona, avanceTienda, soloPorcentajes, avancePorPersona, porcentajesParaVendedora, ventaSicarDelMes };

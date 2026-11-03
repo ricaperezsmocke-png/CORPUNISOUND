@@ -55,6 +55,63 @@ function sumar(dia, dias) {
 }
 const n = (sqlite, DB, extra = {}) => numerosSemana(sqlite, DB, { sucursal_id: 1, lunes: LUNES, ...extra });
 
+function marcarInterna(sqlite, cli) {
+  sqlite.prepare('INSERT OR IGNORE INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (1, ?, ?)').run(cli, cli);
+  sqlite.prepare(`INSERT INTO sicar_internas (sucursal_id, cli_id, motivo, usuario_id, fecha_hora)
+    VALUES (1, ?, 'traspaso', 1, 'x')`).run(cli);
+}
+
+test('cuenta interna no es venta en ningun numero', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  s.mostrador(1, LUNES, 30, 10000);
+  s.articulo(1, 'g', 'GUITARRAS', 'ACUSTICAS');
+  s.articulo(1, 'a', 'ACCESORIOS', 'CUERDAS');
+  DB.pos.cinco_caminos.categorias = CATEGORIAS;
+  s.venta(1, { cli: 'real', fecha: `${LUNES}T10:00:00`, centavos: 20000, detalle: [['g', '1.0000']] });
+  s.venta(1, { cli: 'interna', fecha: `${LUNES}T10:00:00`, centavos: 5000000,
+    detalle: [['g', '1.0000'], ['a', '1.0000'], ['a', '1.0000']] });
+  marcarInterna(sqlite, 'interna');
+  const r = n(sqlite, DB);
+  assert.equal(r.venta_centavos, 320000);
+  assert.equal(r.ventas, 31);
+  assert.equal(r.ticket_promedio_centavos, Math.round(320000 / 31));
+  assert.equal(r.pct_con_cliente, Math.round(1 * 1000 / 31) / 10);
+  assert.equal(r.articulos_por_ticket, Math.round(100 / 31) / 100);
+  assert.equal(r.pct_instrumento_con_accesorio, 0);
+});
+
+test('internas no completan el minimo de ventas semanal ni de la base Radar', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  marcarInterna(sqlite, 'interna');
+  for (const lunes of [LUNES, sumar(LUNES, -7)]) {
+    s.mostrador(1, lunes, 29);
+    s.venta(1, { cli: 'interna', fecha: `${lunes}T10:00:00` });
+  }
+  const r = n(sqlite, DB);
+  assert.equal(r.motivo, 'pocas_ventas');
+  assert.equal(r.ventas, 29);
+  assert.equal(r.radar.no_confiable, null);
+});
+
+test('Radar excluye internas del denominador de semanas base validas', t => {
+  const { sqlite, DB, s } = prepararDB(t);
+  s.tienda(1);
+  marcarInterna(sqlite, 'interna');
+  const anterior = sumar(LUNES, -7);
+  s.mostrador(1, anterior, 30);
+  s.mostrador(1, LUNES, 30);
+  for (let i = 0; i < 30; i++) s.venta(1, { cli: 'interna', fecha: `${anterior}T10:00:00` });
+  for (const [lunes, cantidad] of [[anterior, 10], [LUNES, 6]]) {
+    for (let i = 0; i < cantidad; i++) DB.radar_demanda.registros.push({
+      id: DB.radar_demanda.registros.length + 1, sucursal_id: 1, estado: 'REGISTRADA',
+      fecha_registro: `${lunes}T18:00:00.000Z`,
+    });
+  }
+  assert.equal(n(sqlite, DB).radar.no_confiable, true);
+});
+
 test('20 con cliente y 20 de mostrador: 50% con cliente y ticket = total/40; cancelada y excluida no cuentan', t => {
   const { sqlite, DB, s } = prepararDB(t);
   s.tienda(1);
@@ -250,8 +307,9 @@ test('cuentas internas: no cuentan como con cliente, ni como nuevas, ni en recom
   sqlite.prepare("INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (2, 'Y', 'Otro')").run();
   interna.run(2, 'Y');
   const r = n(sqlite, DB);
-  assert.equal(r.ventas, 33, 'la venta de la cuenta interna sigue siendo venta');
-  assert.equal(r.pct_con_cliente, 3.0); // 1 de 33
+  // spec decision 2: traspasos/cuentas internas nunca cuentan como venta
+  assert.equal(r.ventas, 31);
+  assert.equal(r.pct_con_cliente, 3.2); // 1 de 31
   assert.equal(r.clientes_nuevos, 1);
   assert.equal(r.recompra_90, 0.0);
 });
