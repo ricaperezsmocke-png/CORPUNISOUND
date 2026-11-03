@@ -604,3 +604,13 @@ test('proveedores: selecciona RFC solamente cuando existe la columna opcional', 
     assert.equal(fuente.proveedoresDisponibles, true);
   }
 });
+
+
+test('compras: historial ordenado por fecha pasa seguridad SQL', async () => {
+  const { fuente, consultas } = prepararCompras();
+  await fuente.validar();
+  await fuente.compras('0', 100);
+  const consulta = consultas.at(-1);
+  assert.match(consulta.sql, /ORDER BY h\.`fecha`$/);
+  assert.doesNotThrow(() => validarSQL(consulta.sql));
+});

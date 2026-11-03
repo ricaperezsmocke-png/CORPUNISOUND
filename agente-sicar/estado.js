@@ -9,6 +9,7 @@ function inicial() {
     articulos_cursor: '0', articulos_dia: null, proveedores_cursor: '0', proveedores_dia: null,
     existencias: {}, existencias_dia: null, cortes_cursor: '0',
     cortes_enviados: [], mostrador_cursor: '0', mostrador_desde_ven_id: null, mostrador_enviadas: {}, mostrador_terminado: false,
+    compras_cursor: '0', compras_semana: null, compras_vuelta: null, compras_firmas: {},
     traspasos_cursor: '0', traspasos_semana: null, traspasos_vuelta: null, traspasos_firmas: {},
     avisos_dia: null, avisos: [] };
 }
@@ -94,6 +95,19 @@ async function cargar(archivo) {
     || Object.entries(firmas).some(([k, x]) => !/^[1-9]\d*$/.test(k) || typeof x !== 'string' || !/^[0-9a-f]{16}$/.test(x))) {
     throw new Error('ESTADO_INVALIDO');
   }
+  // Compras: compatible con estados anteriores, con la misma validacion que traspasos.
+  estado.compras_cursor ??= '0';
+  estado.compras_semana ??= null;
+  estado.compras_vuelta ??= null;
+  estado.compras_firmas ??= {};
+  const semanaCompra = estado.compras_semana, vueltaCompra = estado.compras_vuelta, firmasCompra = estado.compras_firmas;
+  if (typeof estado.compras_cursor !== 'string' || !/^\d+$/.test(estado.compras_cursor)
+    || (semanaCompra !== null && (typeof semanaCompra !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(semanaCompra)))
+    || (vueltaCompra !== null && (typeof vueltaCompra !== 'string' || !/^[1-9]\d*$/.test(vueltaCompra)))
+    || typeof firmasCompra !== 'object' || Array.isArray(firmasCompra)
+    || Object.entries(firmasCompra).some(([k, x]) => !/^[1-9]\d*$/.test(k) || typeof x !== 'string' || !/^[0-9a-f]{16}$/.test(x))) {
+    throw new Error('ESTADO_INVALIDO');
+  }
   // Avisos del día: qué avisos repetibles (evento o evento:id) ya quedaron en el registro hoy, para no repetirlos en cada
   // corrida. Un estado.json de antes, o uno con este recuerdo raro, arranca sin recuerdo: es solo para el registro y no
   // vale detener las ventas por él (lo peor es anotar otra vez lo de hoy).
@@ -136,6 +150,7 @@ async function bloquear(archivo) {
   return async () => { await handle.close(); await fs.unlink(`${archivo}.lock`); };
 }
 const EVENTOS = new Set([
+  'COMPRA_OMITIDA', 'COMPRAS_NO_DISPONIBLES', 'COMPRAS_DESCARTADAS',
   'RED_NO_DISPONIBLE', 'CONSULTAS_LENTAS_PAGINA_REDUCIDA', 'ERROR_NO_CLASIFICADO', 'LOTE_CONFIRMADO',
   'HTTP_400', 'HTTP_401', 'HTTP_409', 'HTTP_413', 'HTTP_422', 'HTTP_429', 'HTTP_503', 'HTTP_INESPERADO',
   'HISTORIAL_SIN_CONFIGURAR', 'FUERA_DE_HORARIO', 'OTRA_CORRIDA_ACTIVA', 'PRIVILEGIOS_AMPLIOS',
@@ -151,8 +166,9 @@ const EVENTOS = new Set([
 ]);
 // Solo ids numéricos, nombres de campo y columnas: nunca valores capturados ni mensajes crudos.
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,
-  prv_id: /^\d{1,20}$/, cor_id: /^\d{1,20}$/, tra_id: /^\d{1,20}$/,
-  campo: /^(telefono|celular|email|rfc)$/, codigo: { test: x => DATOS_RAROS.has(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
+  prv_id: /^\d{1,20}$/, cor_id: /^\d{1,20}$/, tra_id: /^\d{1,20}$/, com_id: /^\d{1,20}$/,
+  campo: /^(telefono|celular|email|rfc)$/, codigo: { test: x => DATOS_RAROS.has(x)
+    || ['PROVEEDOR_INVALIDO', 'STATUS_DESCONOCIDO', 'SIN_DETALLE', 'DEMASIADOS_RENGLONES', 'IMPORTE_INVALIDO'].includes(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
 function detalle(datos) {
   if (!datos || typeof datos !== 'object' || datos instanceof Error) return '';
   return Object.entries(DETALLES).filter(([k, patron]) => typeof datos[k] === 'string' && patron.test(datos[k]))

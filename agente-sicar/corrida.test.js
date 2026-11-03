@@ -1762,3 +1762,177 @@ test('traspasos: la vuelta de dia completa no deja el aviso de esperar la noche'
   assert.equal(p.mensajes.includes('TRASPASOS_ESPERANDO_NOCHE'), false);
   assert.equal((await cargar(p.archivo)).traspasos_semana, '2026-10-15');
 });
+
+
+const compraSicar = (n, extra = {}) => ({ com_id: String(n), pro_id: '7', fecha: '2026-10-10 12:00:00',
+  folio: `C-${n}`, comentario: '', status: '1', ...extra });
+function conCompras(p, filas) {
+  p.fuente.comprasDisponibles = true;
+  const leidos = [];
+  p.fuente.compras = async (cursor, limite, desde) => {
+    leidos.push([cursor, desde]);
+    const compras = filas.filter(c => BigInt(c.com_id) > BigInt(cursor) && (!desde || c.fecha >= desde)).slice(0, limite);
+    return { compras, detalles: compras.map(c => ({ com_id: c.com_id, art_id: '8', cantidad: '1',
+      precioSin: '50.00', precioCon: '58.00', importeCon: '58.00' })), cancelaciones: [] };
+  };
+  return leidos;
+}
+const comprasMandadas = p => p.lotes.flatMap(l => l.compras ?? []);
+test('compras: primera carga y atraso mayor a ocho dias corren de dia en paginas de 100', async t => {
+  for (const semana of [null, '2026-10-06']) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', compras_semana: semana });
+    p.deps.reloj = DE_DIA;
+    conCompras(p, Array.from({ length: 150 }, (_, i) => compraSicar(i + 1)));
+    await ejecutar(p.archivo, { compras: true }, p.deps);
+    assert.deepEqual(p.lotes.filter(l => l.compras).map(l => l.compras.length), [100, 50]);
+    const estado = await cargar(p.archivo);
+    assert.deepEqual([estado.compras_cursor, estado.compras_semana, estado.compras_vuelta], ['150', '2026-10-15', null]);
+    assert.equal(Object.keys(estado.compras_firmas).length, 150);
+  }
+});
+test('compras: semana reciente o de ocho dias solo nuevas y relectura de 60 dias; cancelada se reenvia', async t => {
+  for (const semana of ['2026-10-14', '2026-10-07']) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', compras_cursor: '1', compras_semana: semana });
+    p.deps.reloj = DE_DIA;
+    const filas = [compraSicar(1, { fecha: '2024-01-01 12:00:00' }), compraSicar(2, { fecha: '2026-09-01 12:00:00' })];
+    const leidos = conCompras(p, filas);
+    await ejecutar(p.archivo, { compras: true }, p.deps);
+    assert.deepEqual(comprasMandadas(p).map(c => c.com_id), ['2']);
+    assert.ok(leidos.some(([, desde]) => desde === '2026-08-16'));
+    assert.equal((await cargar(p.archivo)).compras_semana, semana);
+    p.lotes.length = 0;
+    await ejecutar(p.archivo, { compras: true }, p.deps);
+    assert.equal(comprasMandadas(p).length, 0);
+    filas[1].status = '-1';
+    await ejecutar(p.archivo, { compras: true }, p.deps);
+    assert.deepEqual(comprasMandadas(p).map(c => c.estado), ['cancelada']);
+  }
+});
+test('compras: proveedor nulo viaja omitido y la siguiente compra avanza el cursor', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  conCompras(p, [compraSicar(1, { pro_id: null }), compraSicar(2)]);
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  assert.deepEqual(p.lotes.flatMap(l => l.compras_omitidas ?? []), [{ com_id: '1', codigo: 'PROVEEDOR_INVALIDO' }]);
+  assert.deepEqual(comprasMandadas(p).map(c => c.com_id), ['2']);
+  assert.equal((await cargar(p.archivo)).compras_cursor, '2');
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  assert.equal(p.lotes.length, 0);
+});
+
+test('compras: lote de solo compras con 503 persistente se descarta, salen las ventas y se reenvian despues', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', compras_semana: '2026-10-14' });
+  p.deps.reloj = DE_DIA;
+  conCompras(p, [compraSicar(1)]);
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).compras ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { compras: true }, { ...p.deps, intentos: 1 });
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { compras: true }, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('COMPRAS_DESCARTADAS'));
+  assert.ok(!p.mensajes.includes('CORTES_DESCARTADOS') && !p.mensajes.includes('EXISTENCIAS_DESCARTADAS'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1, 'las ventas salen en la misma corrida');
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.compras_cursor, '0');
+  assert.equal(estado.detenido, null);
+  p.deps.fetch = fetch;
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  estado = await cargar(p.archivo);
+  assert.deepEqual([comprasMandadas(p).map(x => x.com_id)], [['1']]);
+  assert.equal(estado.compras_cursor, '1');
+  assert.equal(estado.pendiente, null);
+});
+test('compras: pendiente con compras y ventas, clientes, articulos, proveedores o mostrador no se descarta con 503', async t => {
+  for (const otra of [{ ventas: [{ ven_id: '5', estado: 'excluida' }] }, { clientes: [{ cli_id: '42', nombre: 'José' }] },
+    { articulos: [{ art_id: '1' }] }, { proveedores: [{ prv_id: '4' }] }, { mostrador: [{ ven_id: '5', estado: 'cancelada' }] }]) {
+    const pendiente = pendienteDe({ compras: [{ com_id: '1' }], ...otra });
+    const p = await preparar(t, { ...inicial(), fase: 'incremental', pendiente });
+    p.deps.reloj = DE_DIA;
+    p.fuente.ventas = async () => assert.fail('No debe leer ventas con un lote atorado');
+    p.deps.fetch = async () => ({ status: 503, json: async () => ({}) });
+    await ejecutar(p.archivo, {}, p.deps);
+    assert.ok(!p.mensajes.includes('COMPRAS_DESCARTADAS'));
+    assert.deepEqual((await cargar(p.archivo)).pendiente, pendiente);
+  }
+});
+test('compras: interruptor apagado no los lee y los lotes no llevan la llave; ventas igual', async t => {
+  for (const config of [{}, { compras: false }, { compras: 'true' }, { compras: 1 }]) {
+    const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+    const leidos = conCompras(p, [compraSicar(1)]);
+    p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+    await ejecutar(p.archivo, config, p.deps);
+    assert.equal(leidos.length, 0);
+    assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+    assert.ok(p.lotes.every(l => !Object.hasOwn(l, 'compras')), 'un servidor viejo rechazaria la llave');
+    assert.equal(p.mensajes.includes('COMPRAS_NO_DISPONIBLES'), false);
+    const estado = await cargar(p.archivo);
+    assert.deepEqual([estado.compras_cursor, estado.compras_semana], ['0', null]);
+  }
+});
+test('compras: sin columnas avisa una vez, no los lee y las ventas se siguen mandando', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.fuente.comprasDisponibles = false;
+  p.fuente.compras = async () => assert.fail('No debe consultar');
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  assert.equal(p.mensajes.filter(m => m === 'COMPRAS_NO_DISPONIBLES').length, 1);
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1);
+});
+test('compras omitidos: lote atorado de solo omitidos se descarta, salen las ventas y se reenvian despues', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', compras_semana: '2026-10-14' });
+  p.deps.reloj = DE_DIA;
+  conCompras(p, [compraSicar(1, { status: 3 })]);
+  const fetch = p.deps.fetch;
+  const atorar = async (...args) => (JSON.parse(args[1].body).compras_omitidas ? { status: 503, json: async () => ({}) } : fetch(...args));
+  p.deps.fetch = atorar;
+  await ejecutar(p.archivo, { compras: true }, { ...p.deps, intentos: 1 });
+  const atorado = JSON.parse((await cargar(p.archivo)).pendiente.bytes);
+  assert.deepEqual(Object.keys(atorado).filter(k => Array.isArray(atorado[k]) && atorado[k].length), ['compras_omitidas']);
+  p.fuente.ventas = async cursor => cursor === '0' ? { filas: [v], clientes: [c], detalles: [d] } : vacia();
+  await ejecutar(p.archivo, { compras: true }, { ...p.deps, intentos: 1 });
+  assert.ok(p.mensajes.includes('COMPRAS_DESCARTADAS'));
+  assert.equal(p.lotes.filter(l => l.ventas.length).length, 1, 'las ventas salen en la misma corrida');
+  let estado = await cargar(p.archivo);
+  assert.equal(estado.ven_id, '9');
+  assert.equal(estado.compras_cursor, '0', 'el cursor no paso al omitido sin confirmacion');
+  assert.equal(estado.detenido, null);
+  p.deps.fetch = fetch;
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  estado = await cargar(p.archivo);
+  assert.deepEqual(p.lotes.filter(l => l.compras_omitidas).map(l => l.compras_omitidas), [[{ com_id: '1', codigo: 'STATUS_DESCONOCIDO' }]]);
+  assert.equal(estado.compras_cursor, '1');
+  assert.equal(estado.pendiente, null);
+});
+test('compras: vuelta interrumpida conserva progreso confirmado y reanuda de dia', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  conCompras(p, Array.from({ length: 101 }, (_, i) => compraSicar(i + 1)));
+  const fetch = p.deps.fetch;
+  p.deps.fetch = async (...args) => JSON.parse(args[1].body).compras?.[0].com_id === '101'
+    ? { status: 503, json: async () => ({}) } : fetch(...args);
+  await ejecutar(p.archivo, { compras: true }, { ...p.deps, intentos: 1 });
+  const estado = await cargar(p.archivo);
+  assert.deepEqual([estado.compras_cursor, estado.compras_vuelta, estado.compras_semana], ['100', '100', null]);
+  assert.equal(Object.keys(estado.compras_firmas).length, 100);
+  p.deps.fetch = fetch;
+  p.lotes.length = 0;
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  assert.deepEqual(comprasMandadas(p).map(c => c.com_id), ['101']);
+  const final = await cargar(p.archivo);
+  assert.deepEqual([final.compras_cursor, final.compras_vuelta, final.compras_semana], ['101', null, '2026-10-15']);
+});
+test('compras: vuelta semanal nocturna reenvia antiguas y poda sus firmas', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental', compras_cursor: '1', compras_semana: '2026-10-07' });
+  p.deps.reloj = NOCHE;
+  conCompras(p, [compraSicar(1, { fecha: '2024-01-01 12:00:00' })]);
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  assert.deepEqual(comprasMandadas(p).map(c => c.com_id), ['1']);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.compras_semana, '2026-10-14');
+  assert.deepEqual(estado.compras_firmas, {});
+});

@@ -221,7 +221,7 @@ function crearFuente(lector, config = {}) {
         const detalles = await leer('SELECT d.`com_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon`, d.`importeCon` '
           + 'FROM `detallec` d WHERE d.`com_id` IN (' + huecos(ids) + ') ORDER BY d.`com_id`, d.`art_id`', ids);
         const cancelaciones = await leer('SELECT h.`id`, h.`fecha` FROM `historial` h WHERE h.`tabla` = ? AND h.`movimiento` = 2 '
-          + 'AND h.`id` IN (' + huecos(ids) + ')', ['Compra', ...ids]);
+          + 'AND h.`id` IN (' + huecos(ids) + ') ORDER BY h.`fecha`', ['Compra', ...ids]);
         return { compras, detalles, cancelaciones };
       });
     },

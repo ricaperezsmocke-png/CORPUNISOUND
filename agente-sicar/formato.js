@@ -317,16 +317,17 @@ function traspasoSeguro(datos) {
 }
 function compraSegura({ compra: c, detalles, cancelaciones }) {
   const com_id = id(c.com_id);
-  const pro_id = id(c.pro_id);
   const omitir = codigo => ({ compra: null, omitida: { com_id, codigo } });
   if (!['1', '-1'].includes(String(c.status))) return omitir('STATUS_DESCONOCIDO');
   const suyos = detalles.filter(d => String(d.com_id) === com_id);
   if (!suyos.length) return omitir('SIN_DETALLE');
   if (suyos.length > 500) return omitir('DEMASIADOS_RENGLONES');
+  let pro_id;
   try {
+    pro_id = id(c.pro_id);
     const fecha = fechaLocal(c.fecha);
     const estado = String(c.status) === '1' ? 'vigente' : 'cancelada';
-    const cancelacion = cancelaciones.find(h => String(h.id) === com_id);
+    const cancelacion = cancelaciones.filter(h => String(h.id) === com_id).at(-1);
     const cancelada_en = estado === 'cancelada' && cancelacion ? fechaLocal(cancelacion.fecha) : null;
     const detalle = suyos.map(d => ({ art_id: id(d.art_id), cantidad: decimal(d.cantidad, 4), precio_sin: decimal(d.precioSin, 2),
       precio_con: decimal(d.precioCon, 2), importe_con: decimal(d.importeCon, 2) }));
@@ -334,6 +335,7 @@ function compraSegura({ compra: c, detalles, cancelaciones }) {
     return { compra: { com_id, fecha, pro_id, folio: String(c.folio ?? '').trim().slice(0, 60),
       comentario: String(c.comentario ?? '').trim().slice(0, 200), estado, cancelada_en, total_con, detalle }, omitida: null };
   } catch (error) {
+    if (pro_id === undefined && error.message === 'ID_INVALIDO') return omitir('PROVEEDOR_INVALIDO');
     if (error.message === 'FECHA_INVALIDA') return omitir('FECHA_INVALIDA');
     if (['DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO'].includes(error.message)) return omitir('IMPORTE_INVALIDO');
     throw error;

@@ -378,3 +378,19 @@ test('proveedores: RFC opcional normalizado o null si invalido', () => {
   }
   assert.equal(Object.hasOwn(proveedorSeguro({ prv_id: '7', nombre: 'Casa' }).proveedor, 'rfc'), false);
 });
+
+
+test('compras: proveedor nulo o invalido se omite sin lanzar', () => {
+  for (const pro_id of [null, 'x', '0']) {
+    assert.deepEqual(compraSegura({ compra: { ...compraBase, pro_id }, detalles: [renglonCompra], cancelaciones: [] }),
+      { compra: null, omitida: { com_id: '41', codigo: 'PROVEEDOR_INVALIDO' } });
+  }
+});
+test('compras: status texto y dos cancelaciones conservan la mas reciente', () => {
+  for (const status of ['1', '-1']) {
+    const resultado = compraSegura({ compra: { ...compraBase, status }, detalles: [renglonCompra],
+      cancelaciones: [{ id: '41', fecha: '2026-11-03 13:00:00' }, { id: '41', fecha: '2026-11-03 14:00:00' }] });
+    assert.equal(resultado.compra.estado, status === '1' ? 'vigente' : 'cancelada');
+    assert.equal(resultado.compra.cancelada_en, status === '1' ? null : '2026-11-03T14:00:00');
+  }
+});
