@@ -998,3 +998,38 @@ test('Task 3: restaura generacion vieja con proveedores sin columna RFC', async 
     [{ prv_id: '7', nombre: 'Casa Veerkamp', rfc: null }]);
   for (const tabla of COMPRAS_TASK3) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
 });
+
+const cerrarTask5 = f => f.sqlite.exec(`INSERT INTO compras_cerradas (sucursal_id,com_id,motivo,actor,fecha)
+  VALUES (42,'9007199254740993','Muestra sin factura','9','2026-11-04T12:00:00Z')`);
+test('Decisión 2: respaldo nuevo conserva compras cerradas con y sin bandeja', async t => {
+  for (const bandeja of [false, true]) {
+    const f = preparar(t), g = preparar(t), s = api();
+    if (bandeja) for (const db of [f, g]) require('./centroLeads/persistencia').inicializarPersistenciaCentroLeads(db.sqlite);
+    sembrarUnionTask4(f, false); cerrarTask5(f);
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    assert.equal(Object.keys(m.conteos).length, bandeja ? 56 : 35);
+    assert.equal(m.conteos.compras_cerradas, 1);
+    s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+    const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+    p.aplicar(); p.liberar();
+    assert.deepEqual(g.sqlite.prepare('SELECT * FROM compras_cerradas').all(), f.sqlite.prepare('SELECT * FROM compras_cerradas').all());
+    assert.deepEqual(g.sqlite.pragma('foreign_key_check'), []);
+  }
+});
+
+test('Decisión 2: generación anterior de 34 o 55 tablas restaura con compras cerradas vacía', async t => {
+  for (const bandeja of [false, true]) {
+    const f = preparar(t), g = preparar(t), s = api();
+    if (bandeja) for (const db of [f, g]) require('./centroLeads/persistencia').inicializarPersistenciaCentroLeads(db.sqlite);
+    sembrarUnionTask4(f); sembrarUnionTask4(g, false); cerrarTask5(g);
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    // Sin cierres la copia conserva la forma anterior: la misma que ya existe en Drive.
+    assert.equal(Object.keys(m.conteos).length, bandeja ? 55 : 34);
+    assert.equal(Object.hasOwn(m.conteos, 'compras_cerradas'), false);
+    s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+    const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+    p.aplicar(); p.liberar();
+    assert.equal(cuenta(g, 'compras_cerradas'), 0);
+    assert.equal(cuenta(g, 'facturas_compras'), 1);
+  }
+});

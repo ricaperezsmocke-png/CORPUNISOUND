@@ -159,7 +159,10 @@ const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, {
   clientesNativos: () => DB.crm.clientes,
   alGuardarCompras: (sucursalId, comIds) => facturasCompras?.alGuardarCompras(sucursalId, comIds),
 }) : null;
-if (repoSicar) facturasCompras = require('./facturasCompras').crearFacturasCompras({ sqlite: conexionSqlite });
+if (repoSicar) {
+  // DB se declara más abajo: la función solo lo lee al armar el resumen, ya con el servidor arriba.
+  facturasCompras = require('./facturasCompras').crearFacturasCompras({ sqlite: conexionSqlite, usuarios: () => DB.admin?.usuarios || [] });
+}
 app.use(cors({
   origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
 }));
@@ -3200,6 +3203,10 @@ if (repoSicar) {
     ejecutarConciliacion((req, actor) => facturasCompras.ninguna(Number(req.params.id), req.body?.motivo, actor)));
   app.post('/api/facturas-por-llegar/:id/desunir', requiereLogin, requierePermiso('conciliar_facturas', resolverPermisosDeRol),
     ejecutarConciliacion((req, actor) => facturasCompras.desunir(Number(req.params.id), req.body?.motivo, actor)));
+  app.post('/api/facturas-compras/cerrar', requiereLogin, requierePermiso('conciliar_facturas', resolverPermisosDeRol),
+    ejecutarConciliacion((req, actor) => facturasCompras.cerrarCompra({
+      sucursal_id: Number(req.body?.sucursal_id), com_id: req.body?.com_id,
+    }, req.body?.motivo, actor)));
   if (require.main === module) {
     setInterval(() => {
       try { facturasCompras.revisar(); }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido, avisosOmitidas, cargarConciliacion,
-  fechaDeCompra,
+  fechaDeCompra, puedeMarcarLlego, textoCerrada,
 } from "./conciliacion.js";
 
 test("unión muestra fecha, folio y centavos con formato de la app", () => {
@@ -20,6 +20,18 @@ test("botones de conciliación ocultos con permisos vecinos", () => {
   assert.equal(puedeConciliar(["ver_facturas_por_llegar", "registrar_facturas_por_llegar"]), false);
   assert.equal(puedeConciliar(undefined), false);
   assert.equal(puedeConciliar(["conciliar_facturas"]), true);
+});
+
+test("botón Ya llegó solo con conciliar_facturas; registrar no basta", () => {
+  assert.equal(puedeMarcarLlego(["ver_facturas_por_llegar", "registrar_facturas_por_llegar"]), false);
+  assert.equal(puedeMarcarLlego(undefined), false);
+  assert.equal(puedeMarcarLlego(["ver_facturas_por_llegar", "conciliar_facturas"]), true);
+});
+
+test("compra cerrada sin factura dice quién la cerró y por qué", () => {
+  const c = { folio: "A9", fecha: "2026-10-01T12:00:00", total_centavos: 1621800, actor_nombre: "Ana", motivo: "Mercancía de muestra" };
+  assert.equal(textoCerrada(c), "Compra SICAR A9 del 01/10/2026 · $16,218.00 · cerrada por Ana: Mercancía de muestra");
+  assert.equal(textoCerrada({ ...c, folio: "" }), "Compra SICAR — del 01/10/2026 · $16,218.00 · cerrada por Ana: Mercancía de muestra");
 });
 
 test("motivo de conciliación rechaza vacío y espacios sin imponer el límite de cancelar", () => {

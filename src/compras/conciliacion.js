@@ -1,6 +1,12 @@
 import { fechaCorta, formatoCentavos } from "./facturasPorLlegar.js";
 
 export const puedeConciliar = (permisos) => (permisos || []).includes("conciliar_facturas");
+// Decisión de Victor: marcar a mano "Ya llegó" es conciliar; quien solo registra facturas no lo ve.
+export const puedeMarcarLlego = (permisos) => puedeConciliar(permisos);
+export function textoCerrada(c) {
+  return `Compra SICAR ${c.folio || "—"} del ${fechaCorta(c.fecha)} · ${formatoCentavos(c.total_centavos)}`
+    + ` · cerrada por ${c.actor_nombre}: ${c.motivo}`;
+}
 export const motivoConciliacionValido = (motivo) => typeof motivo === "string" && motivo.trim().length > 0;
 export function textoAutor(compra) {
   if (compra.modo === "automatica") return "Unida sola";

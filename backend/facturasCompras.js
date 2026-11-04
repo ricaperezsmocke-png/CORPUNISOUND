@@ -26,7 +26,7 @@ function dia(valor) {
   return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === texto ? ms : NaN;
 }
 
-function crearFacturasCompras({ sqlite }) {
+function crearFacturasCompras({ sqlite, usuarios = () => [] }) {
   const factura = id => {
     const numero = Number(id);
     if (!Number.isSafeInteger(numero) || numero <= 0) throw error(404, 'Factura no encontrada.');
@@ -41,7 +41,8 @@ function crearFacturasCompras({ sqlite }) {
   const libres = () => sqlite.prepare(`SELECT c.*,p.rfc,p.nombre AS proveedor FROM sicar_compras c
     JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
     LEFT JOIN facturas_compras u ON u.sucursal_id=c.sucursal_id AND u.com_id=c.com_id
-    WHERE c.estado='vigente' AND u.id IS NULL`).all();
+    LEFT JOIN compras_cerradas k ON k.sucursal_id=c.sucursal_id AND k.com_id=c.com_id
+    WHERE c.estado='vigente' AND u.id IS NULL AND k.com_id IS NULL`).all();
   function coinciden(f, compras) {
     const rfc = normalizarRfc(f.rfc_emisor);
     if (f.estado !== 'por_llegar' || f.moneda !== 'MXN' || !rfc || !Number.isSafeInteger(f.total_centavos)) return [];
@@ -61,11 +62,13 @@ function crearFacturasCompras({ sqlite }) {
     const marca = JSON.parse(h.detalle);
     return JSON.stringify(marca.candidatas) === JSON.stringify(lista(compras));
   }
+  // Pareja separada a mano o porque la compra se canceló en SICAR: nunca se vuelve a unir sola, la confirma una persona.
   function separadaAMano(id, compra) {
     return sqlite.prepare(`SELECT detalle FROM facturas_por_llegar_historial
-      WHERE factura_id=? AND accion='desunir'`).all(id).some(h => {
-      const { union } = JSON.parse(h.detalle);
-      return union.sucursal_id === compra.sucursal_id && union.com_id === compra.com_id;
+      WHERE factura_id=? AND accion IN ('desunir','desunir_cancelada')`).all(id).some(h => {
+      const detalle = JSON.parse(h.detalle);
+      const union = detalle.union || detalle.compra;
+      return Number(union?.sucursal_id) === compra.sucursal_id && union?.com_id === compra.com_id;
     });
   }
   function unir(f, c, modo, actor, opciones) {
@@ -147,6 +150,22 @@ function crearFacturasCompras({ sqlite }) {
       return factura(f.id);
     }).immediate();
   }
+  // Una compra vigente sin unión que nunca tendrá factura: una persona la cierra con motivo y deja su nombre.
+  function cerrarCompra(seleccion, motivo, actor) {
+    const texto = motivoValido(motivo);
+    return sqlite.transaction(() => {
+      const sucursal = Number(seleccion?.sucursal_id);
+      const comId = typeof seleccion?.com_id === 'string' ? seleccion.com_id : '';
+      const c = Number.isSafeInteger(sucursal) && sucursal > 0 && comId ? sqlite.prepare(`SELECT c.sucursal_id,c.com_id
+        FROM sicar_compras c LEFT JOIN facturas_compras u ON u.sucursal_id=c.sucursal_id AND u.com_id=c.com_id
+        LEFT JOIN compras_cerradas k ON k.sucursal_id=c.sucursal_id AND k.com_id=c.com_id
+        WHERE c.sucursal_id=? AND c.com_id=? AND c.estado='vigente' AND u.id IS NULL AND k.com_id IS NULL`).get(sucursal, comId) : null;
+      if (!c) throw error(409, 'La compra ya no está vigente sin factura.');
+      sqlite.prepare('INSERT INTO compras_cerradas (sucursal_id,com_id,motivo,actor,fecha) VALUES (?,?,?,?,?)')
+        .run(c.sucursal_id, c.com_id, texto, String(actor), ahora());
+      return { ...c, motivo: texto, actor: String(actor) };
+    }).immediate();
+  }
   function alGuardarCompras() {
     try {
       // La misma revisión global repara cancelaciones que no alcanzaron a pasar por el hook.
@@ -161,7 +180,8 @@ function crearFacturasCompras({ sqlite }) {
     const sinFactura = sqlite.prepare(`SELECT c.*,p.nombre AS proveedor FROM sicar_compras c
       LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
       LEFT JOIN facturas_compras u ON u.sucursal_id=c.sucursal_id AND u.com_id=c.com_id
-      WHERE c.estado='vigente' AND u.id IS NULL`).all();
+      LEFT JOIN compras_cerradas k ON k.sucursal_id=c.sucursal_id AND k.com_id=c.com_id
+      WHERE c.estado='vigente' AND u.id IS NULL AND k.com_id IS NULL`).all();
     // Día de activación = día (hora de México) de la primera compra recibida de esa sucursal. Solo una compra hecha en
     // SICAR ese día o después puede salir en rojo: si la carga inicial se corta, lo viejo sigue contando como viejo.
     const activacion = new Map(sqlite.prepare(`SELECT sucursal_id,MIN(primera_vez) primera
@@ -182,7 +202,13 @@ function crearFacturasCompras({ sqlite }) {
       FROM sicar_proveedores p JOIN sicar_compras c ON c.sucursal_id=p.sucursal_id AND c.pro_id=p.prv_id
       GROUP BY p.sucursal_id,p.prv_id`).all().filter(p => !normalizarRfc(p.rfc))
       .map(({ rfc, ...p }) => p);
-    return { por_confirmar: porConfirmar,
+    const nombres = new Map(usuarios().map(u => [String(u.id), u.nombre]));
+    const cerradas = sqlite.prepare(`SELECT k.sucursal_id,k.com_id,c.folio,c.fecha,c.total_centavos,c.comentario,
+      p.nombre AS proveedor,k.motivo,k.actor,k.fecha AS fecha_cierre
+      FROM compras_cerradas k LEFT JOIN sicar_compras c ON c.sucursal_id=k.sucursal_id AND c.com_id=k.com_id
+      LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id ORDER BY k.fecha DESC`).all()
+      .map(({ fecha_cierre, ...k }) => ({ ...k, actor_nombre: nombres.get(k.actor) || `Usuario #${k.actor}`, fecha_cierre }));
+    return { por_confirmar: porConfirmar, compras_cerradas: cerradas,
       facturas_sin_compra_15: facturas.filter(f => Date.now() - Date.parse(f.creada_en) > 15 * DIA),
       compras_sin_factura_15: sinFactura.filter(c => nueva(c) && hoy - dia(c.fecha) > 15 * DIA),
       compras_viejas_sin_factura: sinFactura.filter(c => !nueva(c)).length,
@@ -190,7 +216,7 @@ function crearFacturasCompras({ sqlite }) {
       compras_omitidas: sqlite.prepare(`SELECT sucursal_id,com_id,codigo,ultima_vez FROM sicar_compras_omitidas
         ORDER BY ultima_vez DESC,sucursal_id,com_id`).all() };
   }
-  return { candidatas, revisar, confirmar, ninguna, desunir, alGuardarCompras, resumen };
+  return { candidatas, revisar, confirmar, ninguna, desunir, cerrarCompra, alGuardarCompras, resumen };
 }
 
 module.exports = { crearFacturasCompras, normalizarRfc, folioCoincide };

@@ -186,6 +186,8 @@ test('rutas: permisos separados con roles vecinos', async t => {
     981: [...vecinos, 'ver_facturas_por_llegar'],
     982: [...vecinos, 'registrar_facturas_por_llegar'],
     983: [...vecinos],
+    984: [...vecinos, 'conciliar_facturas'],
+    985: [...vecinos, 'ver_facturas_por_llegar', 'registrar_facturas_por_llegar'],
   };
   for (const [id, permisos] of Object.entries(roles)) {
     app.DB.admin.roles.push({ id: Number(id), nombre: `Facturas ${id}`, permisos, modulos: ['inventario'] });
@@ -211,7 +213,12 @@ test('rutas: permisos separados con roles vecinos', async t => {
   assert.equal((await pedir(`/api/facturas-por-llegar/${ok.datos.id}/llego`, 981, 'POST')).status, 403);
   assert.equal((await pedir(`/api/facturas-por-llegar/${ok.datos.id}/cancelar`, 982, 'POST', { motivo: 'no' })).status, 400);
   assert.equal((await pedir(`/api/facturas-por-llegar/${ok.datos.id}/cancelar`, 982, 'POST', { motivo: 'Se repuso' })).datos.estado, 'cancelada');
-  assert.equal((await pedir('/api/facturas-por-llegar/999/llego', 982, 'POST')).status, 404);
+  assert.equal((await pedir('/api/facturas-por-llegar/999/llego', 984, 'POST')).status, 404);
+  // Decisión de Victor: "Ya llegó" a mano es conciliar, no registrar.
+  const otra = await pedir('/api/facturas-por-llegar', 982, 'POST', { xml: xmlDe({ uuid: 'OTRA-UUID-LLEGO' }) });
+  assert.equal((await pedir(`/api/facturas-por-llegar/${otra.datos.id}/llego`, 985, 'POST')).status, 403);
+  const llego = await pedir(`/api/facturas-por-llegar/${otra.datos.id}/llego`, 984, 'POST');
+  assert.equal(llego.status, 200); assert.equal(llego.datos.llego_por, '984');
 });
 
 test('permisos nuevos en el catalogo, modulo inventario', () => {

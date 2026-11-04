@@ -224,6 +224,11 @@ const ESQUEMA = `
     total_al_unir_centavos INTEGER NOT NULL CHECK (typeof(total_al_unir_centavos) = 'integer'),
     UNIQUE (sucursal_id, com_id), FOREIGN KEY (factura_id) REFERENCES facturas_por_llegar(id)
   );
+  -- Compras de SICAR que una persona cerró con motivo porque nunca tendrán factura: salen del rojo y no son candidatas.
+  CREATE TABLE IF NOT EXISTS compras_cerradas (
+    sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, com_id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,

@@ -152,7 +152,8 @@ function registrarRutasFacturasPorLlegar(app, { DB, sqlite, requiereLogin, requi
     ejecutar(201, (m, actor, req) => m.registrar(req.body?.xml, actor)));
   app.get('/api/facturas-por-llegar', ...permiso('ver_facturas_por_llegar'),
     ejecutar(200, (m, actor, req) => m.listar({ estado: req.query.estado })));
-  app.post('/api/facturas-por-llegar/:id/llego', ...permiso('registrar_facturas_por_llegar'),
+  // Marcar a mano que llegó es una decisión de conciliación: no la toma quien solo registra facturas.
+  app.post('/api/facturas-por-llegar/:id/llego', ...permiso('conciliar_facturas'),
     ejecutar(200, (m, actor, req) => m.marcarLlego(idDe(req), actor)));
   app.post('/api/facturas-por-llegar/:id/cancelar', ...permiso('registrar_facturas_por_llegar'),
     ejecutar(200, (m, actor, req) => m.cancelar(idDe(req), req.body?.motivo, actor)));
