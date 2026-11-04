@@ -165,3 +165,35 @@ notas de crédito (no llegan); instalar el agente en Yajalón/Palenque/Innotec (
 4. **Factura cuyo único pendiente es el tramo gris:** sigue visible como "pendiente de comprobación", sin avisos de
    traslado ni de descuento sobre esas piezas.
 5. Con el arranque desde hoy ya no hace falta historia de ventas de 2024; la cobertura de ventas desde 2025 basta.
+
+## 12. Contratos tras la revisión del plan por Codex (2026-11-04, llamadas de Claude)
+
+1. **Arranque por tienda y corte.** Cada sucursal con agente (CEDIS, Ocosingo, San Cristóbal) se **incorpora** al
+   seguimiento por separado. Al incorporarla se guarda su **foto** (existencia por clave) y su **corte** = el
+   `actualizado_en` más reciente de sus existencias recibidas. Solo cuentan movimientos de esa tienda **posteriores al
+   corte** (ventas y compras tienen fecha y hora). Traspasos (solo traen día) del **mismo día del corte** quedan "por
+   aclarar"; los de días posteriores cuentan normal. Las compras de CEDIS posteriores al corte de CEDIS son las
+   facturas que se siguen. Antes de incorporar, la pantalla muestra por tienda la hora de su foto, cuántas claves y los
+   problemas (claves repetidas, existencias negativas, foto vieja de más de 24 h); con foto vieja no deja incorporar.
+2. **Tienda que recibe agente después** (Yajalón, Palenque, Innotec): lo que se le mandó **antes** de incorporarla queda
+   gris para siempre; al incorporarla (con su propia foto) lo que se le mande después cuenta normal. Así no se le
+   descuentan ventas de mercancía que no se sabe si era de una factura.
+3. **Dinero exacto.** El valor de cada lote = `precio_sin_centavos × cantidad` (costo sin IVA del renglón, tal como lo
+   manda el agente). Las piezas se llevan en diezmilésimas exactas; el valor se reparte **proporcional** a las piezas
+   y los centavos sobrantes se asignan en orden fijo, de modo que vendido + queda + tránsito + gris + por aclarar =
+   valor del lote **al centavo**. Nunca se multiplica un costo por pieza ya redondeado.
+4. **Traspasos:** se leen **también los cancelados** para detectar contradicciones (origen cancelado y destino
+   recibido = por aclarar). Recepción con `fecha_aplicado` del destino; si falta, por aclarar. Un mismo folio con
+   varias coincidencias = por aclarar. Cada punta resuelve su clave con su propio catálogo; nunca se comparan `art_id`
+   entre tiendas.
+5. **Calidad de datos visible:** cada factura y artículo muestra "datos al {fecha}" (la menor fecha de actualización
+   de sus fuentes) y el motivo concreto si algo es incierto. Una tienda cuyos datos tienen más de 2 días se marca
+   atrasada y no se sugieren traslados con ella.
+6. **Recalcular sin trabar el servidor:** tabla de claves pendientes; al guardar lotes del agente (compras, traspasos,
+   ventas, existencias) se marcan pendientes las claves afectadas; un ciclo procesa pendientes por bloques y una vuelta
+   diaria completa. Al cambiar el resultado de una factura se reemplazan **todos** sus renglones en una transacción;
+   una factura cancelada o sin claves borra sus resultados.
+7. **Avisos con historial:** cada revisado/pospuesto queda en un historial; la posposición vence en su fecha y el aviso
+   vuelve; el aviso se retira solo si la factura se agota o se cancela.
+8. **Pantalla de configuración** de los valores (plazos, porcentajes, semanas) para quien tenga
+   `gestionar_seguimiento_facturas`, con historial de cambios.
