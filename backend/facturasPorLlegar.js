@@ -34,6 +34,7 @@ function normalizarMoneda(valor) {
 }
 
 function crearFacturasPorLlegar({ sqlite, DB }) {
+  const conciliacion = require('./facturasCompras').crearFacturasCompras({ sqlite });
   const compraRecibida = uuid => (DB.inventario?.compras || []).some(c => normalizarUuid(c.uuid_cfdi) === uuid);
   const historial = (id, accion, actor, detalle) => sqlite.prepare(
     'INSERT INTO facturas_por_llegar_historial(factura_id, accion, actor, fecha, detalle) VALUES (?, ?, ?, ?, ?)')
@@ -41,7 +42,14 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
   const hidratar = f => {
     if (!f) return f;
     const { conceptos_json: json, ...resto } = f;
-    return { ...resto, conceptos: JSON.parse(json), moneda_prohibida: resto.moneda !== 'MXN' };
+    const compra = sqlite.prepare(`SELECT u.sucursal_id,u.com_id,c.fecha,c.folio,c.total_centavos,c.comentario,u.modo,u.actor
+      FROM facturas_compras u LEFT JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
+      WHERE u.factura_id=?`).get(f.id);
+    if (compra && compra.actor !== 'sicar') {
+      const usuario = (DB.admin?.usuarios || []).find(u => Number(u.id) === Number(compra.actor));
+      compra.actor_nombre = usuario?.nombre || `Usuario #${compra.actor}`;
+    }
+    return { ...resto, conceptos: JSON.parse(json), moneda_prohibida: resto.moneda !== 'MXN', ...(compra ? { compra } : {}) };
   };
   const obtener = id => hidratar(sqlite.prepare('SELECT * FROM facturas_por_llegar WHERE id = ?').get(id));
   const llegoSola = id => {
@@ -69,16 +77,22 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
     }
     const moneda = normalizarMoneda(cfdi.moneda);
     const tipoCambio = cfdi.tipoCambio === null || cfdi.tipoCambio === undefined ? null : String(cfdi.tipoCambio).trim();
-    return sqlite.transaction(() => {
+    const registrada = sqlite.transaction(() => {
       const id = Number(sqlite.prepare(`INSERT INTO facturas_por_llegar(uuid, rfc_emisor, nombre_emisor, fecha_emision,
-        total_centavos, conceptos_json, estado, creada_por, creada_en, moneda, tipo_cambio)
-        VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?, ?, ?)`)
+        total_centavos, conceptos_json, estado, creada_por, creada_en, moneda, tipo_cambio, serie, folio)
+        VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?, ?, ?, ?, ?)`)
         .run(uuid, cfdi.emisor.rfc, cfdi.emisor.nombre, cfdi.fecha, total, JSON.stringify(cfdi.conceptos),
-          String(actor), ahora(), moneda, tipoCambio).lastInsertRowid);
+          String(actor), ahora(), moneda, tipoCambio, cfdi.serie, cfdi.folio).lastInsertRowid);
       historial(id, 'registrar', actor, moneda === 'MXN' ? null : `moneda ${moneda} (prohibida)`);
       if (compraRecibida(uuid)) llegoSola(id);
       return obtener(id);
     })();
+    try { conciliacion.revisar(); }
+    catch {
+      console.error('CONCILIACION_FALLO');
+      return registrada;
+    }
+    return obtener(registrada.id);
   }
 
   function listar({ estado } = {}) {
@@ -138,7 +152,8 @@ function registrarRutasFacturasPorLlegar(app, { DB, sqlite, requiereLogin, requi
     ejecutar(201, (m, actor, req) => m.registrar(req.body?.xml, actor)));
   app.get('/api/facturas-por-llegar', ...permiso('ver_facturas_por_llegar'),
     ejecutar(200, (m, actor, req) => m.listar({ estado: req.query.estado })));
-  app.post('/api/facturas-por-llegar/:id/llego', ...permiso('registrar_facturas_por_llegar'),
+  // Marcar a mano que llegó es una decisión de conciliación: no la toma quien solo registra facturas.
+  app.post('/api/facturas-por-llegar/:id/llego', ...permiso('conciliar_facturas'),
     ejecutar(200, (m, actor, req) => m.marcarLlego(idDe(req), actor)));
   app.post('/api/facturas-por-llegar/:id/cancelar', ...permiso('registrar_facturas_por_llegar'),
     ejecutar(200, (m, actor, req) => m.cancelar(idDe(req), req.body?.motivo, actor)));

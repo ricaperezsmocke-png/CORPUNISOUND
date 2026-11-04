@@ -173,7 +173,7 @@ test('proveedores opcionales aceptan lote exclusivo y rechazan limites, duplicad
     ['limite', b => { b.proveedores = Array.from({ length: 501 }, (_, i) => ({ ...proveedor, prv_id: String(i + 1) })); }, 'LIMITE_ENTIDADES'],
     ['duplicado', b => { b.proveedores.push({ ...proveedor }); }, 'ID_DUPLICADO'],
     ['id invalido', b => { b.proveedores[0].prv_id = 7; }, 'ID_INVALIDO'],
-    ['propiedad extra', b => { b.proveedores[0].rfc = 'XAXX010101000'; }, 'PROPIEDAD_NO_DECLARADA'],
+    ['propiedad extra', b => { b.proveedores[0].telefono = '9191234567'; }, 'PROPIEDAD_NO_DECLARADA'],
     ['sin nombre', b => { b.proveedores[0].nombre = '  '; }, 'TEXTO_INVALIDO'],
     ['nombre largo', b => { b.proveedores[0].nombre = 'a'.repeat(251); }, 'TEXTO_INVALIDO'],
     ['utf8 invalido', b => { b.proveedores[0].nombre = 'Casa �'; }, 'TEXTO_INVALIDO'],
@@ -377,4 +377,105 @@ test('traspasos_omitidos: opcional, hasta 1000, ids validos y unicos, solo tra_i
     cambiar(entrada);
     assert.throws(() => validarLoteSicar(entrada), e => e.codigo === codigo, nombre);
   }
+});
+
+function compraTask3() {
+  return { com_id: '9007199254740993', fecha: '2026-11-03T10:30:00', pro_id: '7', folio: '', comentario: '',
+    estado: 'vigente', cancelada_en: null, total_con: '340.00', detalle: [
+      { art_id: '81', cantidad: '1.0000', precio_sin: '86.21', precio_con: '100.00', importe_con: '100.00' },
+      { art_id: '81', cantidad: '2.0000', precio_sin: '103.45', precio_con: '120.00', importe_con: '240.00' },
+    ] };
+}
+
+test('Task 3: acepta contrato real de compras, articulos repetidos y RFC opcional', () => {
+  const entrada = { ...lote(), compras: [compraTask3()], proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'XAXX010101000' }],
+    compras_omitidas: [{ com_id: '8', codigo: 'SIN_DETALLE' }] };
+  assert.equal(require('./sicarIngesta').validarLoteSicar(entrada), entrada);
+});
+
+for (const [nombre, mutar] of [
+  ['estado exacto', c => { c.estado = 'CANCELADA '; }],
+  ['501 renglones', c => { c.detalle = Array(501).fill(c.detalle[0]); }],
+  ['sin detalle', c => { c.detalle = []; }],
+  ['cantidad cero sin escala', c => { c.detalle[0].cantidad = '0'; }],
+  ['cantidad cero', c => { c.detalle[0].cantidad = '0.0000'; }],
+  ['cantidad negativa', c => { c.detalle[0].cantidad = '-1.0000'; }],
+  ['fecha imposible', c => { c.fecha = '2026-02-30T10:30:00'; }],
+  ['cancelacion imposible', c => { c.cancelada_en = 'ayer'; }],
+  ['id numerico', c => { c.com_id = 12; }],
+  ['proveedor invalido', c => { c.pro_id = '0'; }],
+  ['folio largo', c => { c.folio = 'a'.repeat(61); }],
+  ['comentario largo', c => { c.comentario = 'a'.repeat(201); }],
+  ['propiedad desconocida', c => { c.extra = true; }],
+  ['detalle desconocido', c => { c.detalle[0].extra = true; }],
+]) {
+  test(`Task 3: rechaza con 400 ${nombre}`, () => {
+    const c = compraTask3(); mutar(c);
+    assert.throws(() => require('./sicarIngesta').validarLoteSicar({ ...lote(), compras: [c] }), { status: 400 });
+  });
+}
+for (const campo of ['total_con', 'precio_sin', 'precio_con', 'importe_con']) {
+  test(`Task 3: rechaza dinero invalido en ${campo}`, () => {
+    for (const valor of ['-1.00', '1.001', '1e2', '90071992547409.92', 100]) {
+      const c = compraTask3();
+      (campo === 'total_con' ? c : c.detalle[0])[campo] = valor;
+      assert.throws(() => require('./sicarIngesta').validarLoteSicar({ ...lote(), compras: [c] }), { status: 400 });
+    }
+  });
+}
+test('Task 3: limita compras y omitidas, valida RFC y acepta codigos desconocidos como OTRO', t => {
+  for (const extra of [
+    { compras: Array(101).fill(compraTask3()) }, { compras: [compraTask3(), compraTask3()] },
+    { compras_omitidas: [{ com_id: '8', codigo: 'SIN_DETALLE', extra: true }] },
+    { compras_omitidas: Array(1001).fill({ com_id: '8', codigo: 'SIN_DETALLE' }) },
+    { proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'rfc incorrecto' }] },
+  ]) assert.throws(() => require('./sicarIngesta').validarLoteSicar({ ...lote(), ...extra }));
+  const entrada = { ...lote(), compras_omitidas: [{ com_id: '8', codigo: 'NO_EXISTE' }] };
+  assert.equal(require('./sicarIngesta').validarLoteSicar(entrada), entrada);
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const recibo = repo.aplicarLote({ sucursalId: 6, lote: entrada, hash: 'codigo-no-existe' });
+  assert.equal(recibo.aceptados.ventas, 1);
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '8', codigo: 'OTRO' }]);
+  assert.equal(sqlite.prepare('SELECT total_centavos FROM sicar_ventas').get().total_centavos, 10000);
+});
+
+test('Task 3: RFC normalizado acepta enie y ampersand pero rechaza signos ajenos', () => {
+  const validar = rfc => require('./sicarIngesta').validarLoteSicar({ ...lote(),
+    proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc }] });
+  assert.doesNotThrow(() => validar('\u00d1AA010101AA1'));
+  assert.doesNotThrow(() => validar('&AA010101AA1'));
+  assert.doesNotThrow(() => validar(null));
+  for (const rfc of ['?AA010101AA1', 'xaa010101aa1', '', ' XAXX010101000 ']) {
+    assert.throws(() => validar(rfc), { status: 400, codigo: 'RFC_INVALIDO' });
+  }
+});
+
+test('Task 3: rechaza saltos de linea finales en RFC, ids y decimales', () => {
+  const validar = extra => require('./sicarIngesta').validarLoteSicar({ ...lote(), ...extra });
+  assert.throws(() => validar({ proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'XAXX010101000\n' }] }));
+  for (const campo of ['com_id', 'pro_id', 'total_con']) {
+    const c = compraTask3(); c[campo] += '\n';
+    assert.throws(() => validar({ compras: [c] }), { status: 400 });
+  }
+  for (const campo of ['art_id', 'cantidad', 'precio_sin', 'precio_con', 'importe_con']) {
+    const c = compraTask3(); c.detalle[0][campo] += '\n';
+    assert.throws(() => validar({ compras: [c] }), { status: 400 });
+  }
+  assert.throws(() => validar({ compras_omitidas: [{ com_id: '8\n', codigo: 'SIN_DETALLE' }] }), { status: 400 });
+});
+
+test('Ronda 1: ingesta acepta codigo desconocido junto a ventas y el repositorio lo guarda como OTRO', t => {
+  const entrada = { ...lote(), compras_omitidas: [{ com_id: '8', codigo: 'NUEVO_CODIGO' }] };
+  const { validarLoteSicar } = require('./sicarIngesta');
+  assert.equal(validarLoteSicar(entrada), entrada);
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const recibo = repo.aplicarLote({ sucursalId: 6, lote: entrada, hash: 'ronda-1' });
+  assert.equal(recibo.aceptados.ventas, 1);
+  assert.equal(recibo.aceptados.compras_omitidas, 1);
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '8', codigo: 'OTRO' }]);
+  assert.equal(sqlite.prepare('SELECT total_centavos FROM sicar_ventas').get().total_centavos, 10000);
 });

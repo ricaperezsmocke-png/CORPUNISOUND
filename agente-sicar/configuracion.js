@@ -55,6 +55,8 @@ async function leerConfiguracion(archivo) {
   if (config.mostrador !== undefined && typeof config.mostrador !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   // Y la de traspasos (Seguimiento de facturas, 2026-10-25): solo true la prende; primero el servidor nuevo en producción.
   if (config.traspasos !== undefined && typeof config.traspasos !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
+  // Compras: solo true la prende, una vez disponible el servidor nuevo.
+  if (config.compras !== undefined && typeof config.compras !== 'boolean') throw new Error('CONFIGURACION_INVALIDA');
   return config;
 }
 module.exports = { leerConfiguracion };

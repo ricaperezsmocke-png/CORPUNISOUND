@@ -2,7 +2,7 @@ const { setTimeout: pausa } = require('node:timers/promises');
 const { createHash } = require('node:crypto');
 const { cargar, guardar, bloquear, LIMITE_AVISOS } = require('./estado');
 const { cliente, venta, esPublico, sobre, cabe, esHorarioHistorico, id, clienteSeguro, ventaSegura, articuloSeguro,
-  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro } = require('./formato');
+  proveedorSeguro, existenciaSegura, corteSeguro, traspasoSeguro, compraSegura } = require('./formato');
 const { enviarPendiente } = require('./envio');
 const MAXIMO_LOTES_POR_CORRIDA = 300;
 const MAXIMO_PAGINAS_POR_CORRIDA = 1000;
@@ -30,6 +30,8 @@ function elementos(pagina, estado, avisar, omitir, config = {}, soloPublico = fa
   });
 }
 function agregar(lote, elemento) {
+  if (elemento.compra) (lote.compras ??= []).push(elemento.compra);
+  if (elemento.compra_omitida) (lote.compras_omitidas ??= []).push(elemento.compra_omitida);
   if (elemento.cliente && !lote.clientes.some(c => c.cli_id === elemento.cliente.cli_id)) lote.clientes.push(elemento.cliente);
   if (elemento.venta) lote.ventas.push(elemento.venta);
   // La colección solo aparece cuando hay artículos: un lote sin ellos queda idéntico al de antes.
@@ -53,11 +55,11 @@ function sinIdsRepetidos(filas) {
 }
 const vacio = lote => !lote.clientes.length && !lote.ventas.length && !lote.articulos?.length && !lote.proveedores?.length
   && !lote.existencias?.length && !lote.cortes?.length && !lote.mostrador?.length && !lote.traspasos?.length
-  && !lote.traspasos_omitidos?.length;
+  && !lote.traspasos_omitidos?.length && !lote.compras?.length && !lote.compras_omitidas?.length;
 // Solo un lote de existencias, cortes y/o traspasos (validos u omitidos) se puede descartar; nunca uno que traiga clientes, ventas, artículos,
 // proveedores o mostrador (la carga de mostrador mueve su cursor solo al confirmar, pero sus ventas sí cuentan).
 const descartable = lote => (!!lote.existencias?.length || !!lote.cortes?.length || !!lote.traspasos?.length
-  || !!lote.traspasos_omitidos?.length)
+  || !!lote.traspasos_omitidos?.length || !!lote.compras?.length || !!lote.compras_omitidas?.length)
   && !lote.clientes?.length
   && !lote.ventas?.length && !lote.articulos?.length && !lote.proveedores?.length && !lote.mostrador?.length;
 const EXISTENCIAS_POR_LOTE = 500;
@@ -74,6 +76,12 @@ const FECHA_SICAR = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 const DIAS_RECUERDO_VENTAS = 90;
 // Traspasos: hasta 100 por lote (tope del servidor). Cambian después de creados (1 → 2 o -1) y SICAR no guarda cuándo: en
 // cada corrida se releen los abiertos y los de los últimos 30 días; una vez por semana, de noche, se releen todos.
+const COMPRAS_POR_LOTE = 100;
+const DIAS_RELECTURA_COMPRAS = 60;
+const DIAS_VUELTA_COMPRAS = 7;
+const DIAS_ATRASO_COMPRAS = 8;
+const huellaCompra = item => firma(item.compra ?? item);
+const comId = item => (item.compra ?? item.compra_omitida).com_id;
 const TRASPASOS_POR_LOTE = 100;
 const DIAS_RELECTURA_TRASPASOS = 30;
 const DIAS_VUELTA_TRASPASOS = 7;
@@ -194,6 +202,7 @@ async function ejecutar(archivo, config, deps) {
         await guardar(archivo, estado);
         if (atorado.existencias?.length) log('EXISTENCIAS_DESCARTADAS');
         if (atorado.cortes?.length) log('CORTES_DESCARTADOS');
+        if (atorado.compras?.length || atorado.compras_omitidas?.length) log('COMPRAS_DESCARTADAS');
         if (atorado.traspasos?.length || atorado.traspasos_omitidos?.length) log('TRASPASOS_DESCARTADOS');
       }
     }
@@ -607,7 +616,80 @@ async function ejecutar(archivo, config, deps) {
       }
       return true;
     }
-    await mandarTraspasos();
+    // Compras: primera carga de dia; vuelta semanal nocturna o de dia con mas de ocho dias de atraso.
+    // Cada confirmacion guarda cursor, progreso de vuelta y huellas. Relectura por fecha de los ultimos 60 dias.
+    async function mandarCompras() {
+      if (config.compras !== true) return true;
+      if (!fuente.comprasDisponibles) { avisarUnaVez('COMPRAS_NO_DISPONIBLES'); return true; }
+      const posterior = (a, b) => BigInt(a) > BigInt(b);
+      async function leerPagina(cursor, desde) {
+        const pagina = await fuente.compras(cursor, COMPRAS_POR_LOTE, desde);
+        if (!pagina.compras.length) return null;
+        const compras = [];
+        let ultimo = cursor;
+        for (const fila of pagina.compras) {
+          const com_id = id(fila.com_id);
+          if (!posterior(com_id, ultimo)) throw new Error('ID_INVALIDO');
+          ultimo = com_id;
+          const { compra, omitida } = compraSegura({ compra: fila, detalles: pagina.detalles, cancelaciones: pagina.cancelaciones });
+          if (omitida) {
+            avisarUnaVez('COMPRA_OMITIDA', com_id, omitida);
+            compras.push({ compra_omitida: { com_id, codigo: omitida.codigo } });
+          } else compras.push({ compra });
+        }
+        return { compras, ultimo };
+      }
+      const conFirmas = (base, items) => ({ ...base, ...Object.fromEntries(items.map(item => [comId(item), huellaCompra(item)])) });
+      const noche = esHorarioHistorico(new Date(reloj()));
+      const haceUnaSemana = horaLocal(reloj() - DIAS_VUELTA_COMPRAS * 86400000).slice(0, 10);
+      const vencida = estado.compras_semana === null || estado.compras_semana <= haceUnaSemana;
+      const haceOchoDias = horaLocal(reloj() - DIAS_ATRASO_COMPRAS * 86400000).slice(0, 10);
+      const atrasada = estado.compras_semana === null || estado.compras_semana < haceOchoDias;
+      if (atrasada || (noche && (vencida || estado.compras_vuelta !== null))) {
+        while (true) {
+          const pagina = await leerPagina(estado.compras_vuelta ?? '0', null);
+          if (!pagina) {
+            if (!await transmitir([], { compras_vuelta: null, compras_semana: hoy }, 'incremental')) return false;
+            break;
+          }
+          const cursor = posterior(pagina.ultimo, estado.compras_cursor) ? pagina.ultimo : estado.compras_cursor;
+          const cambios = { compras_vuelta: pagina.ultimo, compras_cursor: cursor,
+            compras_firmas: conFirmas(estado.compras_firmas, pagina.compras) };
+          if (!await transmitir(pagina.compras, cambios, 'incremental')) return false;
+        }
+      }
+      while (true) {
+        const pagina = await leerPagina(estado.compras_cursor, null);
+        if (!pagina) break;
+        const cambios = { compras_cursor: pagina.ultimo, compras_firmas: conFirmas(estado.compras_firmas, pagina.compras) };
+        if (!await transmitir(pagina.compras, cambios, 'incremental')) return false;
+      }
+      const desde = horaLocal(reloj() - DIAS_RELECTURA_COMPRAS * 86400000).slice(0, 10);
+      const releidos = [];
+      for (let cursor = '0'; ;) {
+        const pagina = await leerPagina(cursor, desde);
+        if (!pagina) break;
+        cursor = pagina.ultimo;
+        releidos.push(...pagina.compras);
+      }
+      const vigentes = new Set(releidos.map(comId));
+      let mapa = Object.fromEntries(Object.entries(estado.compras_firmas).filter(([com_id]) => vigentes.has(com_id)));
+      const cambiados = releidos.filter(item => mapa[comId(item)] !== huellaCompra(item));
+      if (!cambiados.length) {
+        if (Object.keys(mapa).length !== Object.keys(estado.compras_firmas).length) {
+          estado.compras_firmas = mapa;
+          await guardar(archivo, estado);
+        }
+        return true;
+      }
+      for (let i = 0; i < cambiados.length; i += COMPRAS_POR_LOTE) {
+        const tramo = cambiados.slice(i, i + COMPRAS_POR_LOTE);
+        mapa = conFirmas(mapa, tramo);
+        if (!await transmitir(tramo, { compras_firmas: mapa }, 'incremental')) return false;
+      }
+      return true;
+    }
+    if (await mandarTraspasos()) await mandarCompras();
     await guardarAvisos();
   } finally { await liberar(); }
 }

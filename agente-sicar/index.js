@@ -6,7 +6,26 @@ const { conectar } = require('./conexion');
 const { crearLector } = require('./seguridad');
 const { crearFuente } = require('./mapeo');
 const { ejecutar } = require('./corrida');
-const { clienteSeguro, ventaSegura, esPublico, id } = require('./formato');
+const { clienteSeguro, ventaSegura, esPublico, id, compraSegura } = require('./formato');
+// Solo lectura: las últimas 50 compras de los últimos 60 días pasan por las mismas reglas que al mandarlas.
+async function probarCompras(fuente, imprimir, esperar) {
+  const desde = new Date(Date.now() - 60 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+  let ultimas = [];
+  for (let cursor = '0'; ;) {
+    const pagina = await fuente.compras(cursor, 50, desde);
+    if (!pagina.compras.length) break;
+    for (const fila of pagina.compras) {
+      ultimas.push(compraSegura({ compra: fila, detalles: pagina.detalles, cancelaciones: pagina.cancelaciones }).omitida);
+    }
+    ultimas = ultimas.slice(-50);
+    cursor = id(pagina.compras.at(-1).com_id);
+    await esperar(1000);
+  }
+  const codigos = {};
+  for (const omitida of ultimas) if (omitida) codigos[omitida.codigo] = (codigos[omitida.codigo] || 0) + 1;
+  const omitidas = ultimas.filter(Boolean).length;
+  imprimir(`Compras de prueba: ${ultimas.length} leídas, ${omitidas} se omitirían: ${JSON.stringify(codigos)}`);
+}
 async function verificar(fuente, imprimir, esperar, log, config) {
   await fuente.validar();
   const info = await fuente.verificar();
@@ -26,6 +45,18 @@ async function verificar(fuente, imprimir, esperar, log, config) {
     imprimir('Proveedores APAGADOS, faltan columnas: ' + JSON.stringify(proveedores.faltantes));
     log('PROVEEDORES_NO_DISPONIBLES');
   } else imprimir(`Proveedores vigentes en SICAR (sin los borrados): ${proveedores.total}`);
+  const compras = info.compras || { columnas: [], faltantes: ['compra'], total: null };
+  imprimir('Columnas de compra: ' + JSON.stringify(compras.columnas));
+  if (compras.faltantes.length) {
+    imprimir('Compras APAGADAS, faltan columnas: ' + JSON.stringify(compras.faltantes));
+    log('COMPRAS_NO_DISPONIBLES');
+  } else {
+    imprimir(`Compras en SICAR: ${compras.total}`);
+    if (typeof fuente.compras === 'function') {
+      // Es solo diagnóstico: si la lectura falla, se avisa y el resto de --verificar sigue.
+      try { await probarCompras(fuente, imprimir, esperar); } catch { imprimir('Compras de prueba: no se pudieron leer'); }
+    }
+  }
   const existencias = info.existencias || { columnas: [], faltantes: ['articulo'], total: null, ms: null };
   imprimir('Columnas de existencias: ' + JSON.stringify(existencias.columnas));
   if (existencias.faltantes.length) {

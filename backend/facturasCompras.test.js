@@ -1,0 +1,376 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const Database = require('better-sqlite3');
+
+test('Ronda 1: desunir impide reunir automáticamente la misma pareja y permite confirmación manual', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra(); modulo.revisar();
+  assert.equal(obtener(id).llego_por, 'sicar');
+  modulo.desunir(id, 'No corresponde esta compra', '9');
+  const detalle = JSON.parse(sqlite.prepare("SELECT detalle FROM facturas_por_llegar_historial WHERE accion='desunir'").get().detalle);
+  assert.equal(detalle.union.sucursal_id, c.sucursal_id); assert.equal(detalle.union.com_id, c.com_id);
+  const reiniciado = require('./facturasCompras').crearFacturasCompras({ sqlite });
+  reiniciado.alGuardarCompras(c.sucursal_id, [c.com_id]); reiniciado.revisar();
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.deepEqual(reiniciado.resumen().por_confirmar.map(f => f.id), [id]);
+  reiniciado.confirmar(id, c, '9');
+  assert.equal(sqlite.prepare('SELECT modo FROM facturas_compras').get().modo, 'manual');
+  reiniciado.desunir(id, 'Se confirma la separación', '9'); reiniciado.revisar();
+  assert.equal(obtener(id).estado, 'por_llegar');
+});
+
+test('Ronda 1: aviso de compra cancelada desaparece al confirmar otra compra o cancelar factura', t => {
+  for (const resolver of ['confirmar', 'cancelar']) {
+    const { sqlite, modulo, factura, compra } = prepararDB(t);
+    const id = factura(); compra(); modulo.revisar();
+    sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run(); modulo.alGuardarCompras(6, ['1']);
+    assert.equal(modulo.resumen().canceladas_despues.length, 1);
+    if (resolver === 'confirmar') modulo.confirmar(id, compra({ id: '2', folio: '' }), '9');
+    else require('./facturasPorLlegar').crearFacturasPorLlegar({ sqlite, DB: {} }).cancelar(id, 'Factura repuesta', '9');
+    assert.equal(modulo.resumen().canceladas_despues.length, 0);
+    assert.equal(sqlite.prepare("SELECT count(*) n FROM facturas_por_llegar_historial WHERE accion='desunir_cancelada'").get().n, 1);
+  }
+});
+
+test('Ronda 1: revisión diaria deshace cancelaciones sin hook en todas las sucursales', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const a = factura(); compra(); modulo.revisar();
+  const b = factura({ rfc: 'DEF010101XY9' }); compra({ sucursal: 42, rfc: 'DEF010101XY9' }); modulo.revisar();
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run();
+  modulo.revisar(); modulo.revisar();
+  for (const id of [a, b]) {
+    assert.equal(obtener(id).estado, 'por_llegar');
+    assert.equal(obtener(id).llego_por, null); assert.equal(obtener(id).llego_en, null);
+  }
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.equal(modulo.resumen().canceladas_despues.length, 2);
+});
+
+test('Decisión 3: compra cancelada que vuelve a vigente no se une sola; queda por confirmar y se confirma a mano', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra(); modulo.revisar();
+  assert.equal(sqlite.prepare('SELECT modo FROM facturas_compras').get().modo, 'automatica');
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run(); modulo.revisar();
+  assert.equal(obtener(id).estado, 'por_llegar');
+  sqlite.prepare("UPDATE sicar_compras SET estado='vigente'").run(); modulo.revisar(); modulo.alGuardarCompras(6, ['1']);
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.deepEqual(modulo.resumen().por_confirmar.map(f => f.id), [id]);
+  modulo.confirmar(id, c, '9');
+  assert.equal(sqlite.prepare('SELECT modo FROM facturas_compras').get().modo, 'manual');
+  assert.equal(obtener(id).estado, 'llego');
+});
+
+function prepararDB(t, conexion) {
+  const sqlite = conexion || new Database(':memory:');
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  if (!conexion) t.after(() => sqlite.close());
+  const modulo = require('./facturasCompras').crearFacturasCompras({ sqlite });
+  function factura(extra = {}) {
+    const f = { uuid: String(Math.random()), rfc: 'ABC010101XY9', fecha: '2026-01-01T12:00:00',
+      total: 10000, serie: 'A', folio: '123', moneda: 'MXN', ...extra };
+    return Number(sqlite.prepare(`INSERT INTO facturas_por_llegar
+      (uuid,rfc_emisor,fecha_emision,total_centavos,serie,folio,moneda,conceptos_json,estado,creada_por,creada_en)
+      VALUES (@uuid,@rfc,@fecha,@total,@serie,@folio,@moneda,'[]','por_llegar','7','2026-01-01T12:00:00Z')`).run(f).lastInsertRowid);
+  }
+  function compra(extra = {}) {
+    const c = { sucursal: 6, id: '1', fecha: '2026-01-02T12:00:00', total: 10000, folio: 'A-000123',
+      rfc: 'ABC010101XY9', primera: '2026-01-01T12:00:00Z', ...extra };
+    sqlite.prepare('INSERT OR IGNORE INTO sicar_tiendas(sucursal_id) VALUES (?)').run(c.sucursal);
+    sqlite.prepare(`INSERT OR REPLACE INTO sicar_proveedores(sucursal_id,prv_id,nombre,rfc,actualizado_en)
+      VALUES (?,'1','Proveedor',?,'2026-01-01')`).run(c.sucursal, c.rfc);
+    sqlite.prepare(`INSERT INTO sicar_compras
+      (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+      VALUES (@sucursal,@id,@fecha,'1',@folio,'COMPRA CEDIS','vigente',@total,@primera,@primera)`).run(c);
+    return { sucursal_id: c.sucursal, com_id: c.id };
+  }
+  const obtener = id => sqlite.prepare('SELECT * FROM facturas_por_llegar WHERE id=?').get(id);
+  return { sqlite, modulo, factura, compra, obtener };
+}
+
+test('1. RFC, total exacto, folio y fecha unen sola', t => {
+  const { modulo, factura, compra, obtener, sqlite } = prepararDB(t);
+  const id = factura(); compra(); modulo.revisar(); modulo.revisar(); modulo.alGuardarCompras(6, ['1']);
+  assert.equal(obtener(id).llego_por, 'sicar');
+  assert.equal(obtener(id).llego_en, '2026-01-02T12:00:00');
+  assert.equal(sqlite.prepare('SELECT modo FROM facturas_compras').get().modo, 'automatica');
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM facturas_por_llegar_historial WHERE accion='unir'").get().n, 1);
+});
+test('2. Margen de 100 centavos incluido y 101 excluido', t => {
+  for (const delta of [-101, -100, 100, 101]) {
+    const { modulo, factura, compra, obtener } = prepararDB(t);
+    const id = factura(); compra({ total: 10000 + delta });
+    assert.equal(modulo.candidatas(id).length, Math.abs(delta) <= 100 ? 1 : 0);
+    modulo.revisar(); assert.equal(obtener(id).estado, Math.abs(delta) <= 100 ? 'llego' : 'por_llegar');
+  }
+});
+test('3. Fecha anterior y día 61 excluidos; día 60 incluido', t => {
+  for (const [fecha, n] of [['2025-12-31', 0], ['2026-01-01', 1], ['2026-03-02', 1], ['2026-03-03', 0]]) {
+    const { modulo, factura, compra } = prepararDB(t);
+    const id = factura(); compra({ fecha: fecha + 'T00:00:00' }); assert.equal(modulo.candidatas(id).length, n);
+  }
+});
+test('4. RFC normalizado une', t => {
+  const { modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); compra({ rfc: 'abc-010101 xy9' }); modulo.revisar(); assert.equal(obtener(id).estado, 'llego');
+});
+test('5. Serie y ceros coinciden; folio vacío queda Por confirmar', t => {
+  for (const folio of ['A-000123', '000123', '']) {
+    const { modulo, factura, compra, obtener } = prepararDB(t);
+    const id = factura(); compra({ folio }); modulo.revisar();
+    assert.equal(obtener(id).estado, folio ? 'llego' : 'por_llegar');
+    assert.equal(modulo.resumen().por_confirmar.length, folio ? 0 : 1);
+  }
+});
+test('6. Dos facturas y una compra no se unen solas', t => {
+  const { modulo, factura, compra, obtener } = prepararDB(t);
+  const ids = [factura(), factura()]; compra(); modulo.revisar();
+  assert.ok(ids.every(id => obtener(id).estado === 'por_llegar'));
+  assert.equal(modulo.resumen().por_confirmar.length, 2);
+});
+test('7. Cancelación desune e historial y aviso persisten sin duplicarse', t => {
+  const { modulo, factura, compra, obtener, sqlite } = prepararDB(t);
+  const id = factura(); compra(); modulo.revisar();
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run();
+  modulo.alGuardarCompras(6, ['1']); modulo.alGuardarCompras(6, ['1']);
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.equal(sqlite.prepare("SELECT actor FROM facturas_por_llegar_historial WHERE accion='desunir_cancelada'").get().actor, 'sicar');
+  assert.equal(modulo.resumen().canceladas_despues.length, 1);
+});
+test('8. Cambio de total conserva unión y muestra antes y después', t => {
+  const { modulo, factura, compra, obtener, sqlite } = prepararDB(t);
+  const id = factura(); compra(); modulo.revisar();
+  sqlite.prepare('UPDATE sicar_compras SET total_centavos=15000').run(); modulo.alGuardarCompras(6, ['1']);
+  assert.equal(obtener(id).estado, 'llego');
+  const aviso = modulo.resumen().cambiaron[0];
+  assert.equal(aviso.total_al_unir_centavos, 10000); assert.equal(aviso.total_centavos, 15000);
+});
+test('9. Confirmación valida candidata y registra actor manual', t => {
+  const { modulo, factura, compra, sqlite } = prepararDB(t);
+  const id = factura(); const c = compra({ folio: '' });
+  assert.throws(() => modulo.confirmar(id, { ...c, com_id: 'otra' }, '9'), { status: 409 });
+  modulo.confirmar(String(id), { ...c, sucursal_id: '6' }, '9');
+  assert.deepEqual(sqlite.prepare('SELECT modo,actor FROM facturas_compras').get(), { modo: 'manual', actor: '9' });
+  assert.throws(() => modulo.confirmar(id, c, '9'), { status: 409 });
+});
+test('10. Proveedor sin RFC excluido y contado', t => {
+  const { modulo, factura, compra } = prepararDB(t);
+  const id = factura(); compra({ rfc: null });
+  assert.equal(modulo.candidatas(id).length, 0);
+  assert.equal(modulo.resumen().proveedores_sin_rfc[0].compras, 1);
+});
+test('11. USD nunca candidata', t => {
+  const { modulo, factura, compra } = prepararDB(t);
+  const id = factura({ moneda: 'USD' }); compra(); assert.equal(modulo.candidatas(id).length, 0);
+});
+test('12. Rutas exigen conciliar aunque el rol pueda ver y registrar', async t => {
+  process.env.DB_PATH = ':memory:'; process.env.NODE_ENV = 'test'; process.env.SENTRY_ENABLED = 'false';
+  process.env.JWT_SECRET = 'facturas-compras-prueba';
+  const app = require('./server');
+  const sqlite = require('./persistencia').obtenerConexionSqlite();
+  t.after(() => sqlite.close());
+  const { factura, compra } = prepararDB(t, sqlite);
+  const id = factura(); const c = compra({ folio: '' });
+  for (const rol of [991, 992]) {
+    const permisos = ['ver_facturas_por_llegar', 'registrar_facturas_por_llegar'];
+    if (rol === 992) permisos.push('conciliar_facturas');
+    app.DB.admin.roles.push({ id: rol, nombre: String(rol), permisos, modulos: ['inventario'] });
+    app.DB.admin.usuarios.push({ id: rol, usuario: String(rol), rol_id: rol, sucursal_id: 1, activo: true });
+  }
+  const servidor = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => servidor.once('listening', resolve));
+  t.after(async () => { servidor.closeAllConnections(); await new Promise(resolve => servidor.close(resolve)); });
+  const pedir = (accion, rol, body, metodo = 'POST') => fetch(
+    `http://127.0.0.1:${servidor.address().port}/api/facturas-por-llegar/${id}/${accion}`, {
+      method: metodo, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' +
+        require('./auth').firmarToken({ id: rol, rol_id: rol, sucursal_id: 1 }) }, body: body && JSON.stringify(body),
+    });
+  for (const accion of ['confirmar', 'ninguna', 'desunir']) assert.equal((await pedir(accion, 991, c)).status, 403);
+  assert.equal((await pedir('candidatas', 991, undefined, 'GET')).status, 200);
+  const r = await pedir('confirmar', 992, { ...c, sucursal_id: '6', actor: 'falso' });
+  assert.equal(r.status, 200);
+  assert.equal(sqlite.prepare('SELECT actor FROM facturas_compras').get().actor, '992');
+});
+test('13. Carga inicial excluida; compra recibida 20 días después incluida', t => {
+  const { modulo, compra } = prepararDB(t);
+  // Regla vigente: cuenta el día de la compra en SICAR contra el día de activación (primera_vez más antigua).
+  compra({ fecha: '2025-12-20T12:00:00' }); compra({ id: '2', fecha: '2026-01-21T12:00:00', primera: '2026-01-21T12:00:00Z' });
+  const r = modulo.resumen();
+  assert.deepEqual(r.compras_sin_factura_15.map(c => c.com_id), ['2']);
+  assert.equal(r.compras_viejas_sin_factura, 1);
+});
+test('14. Dos sucursales con mismo RFC total y folio son dos candidatas', t => {
+  const { modulo, factura, compra, obtener, sqlite } = prepararDB(t);
+  const id = factura(); compra(); compra({ sucursal: 42 }); modulo.revisar();
+  assert.equal(modulo.candidatas(id).length, 2); assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(modulo.resumen().por_confirmar.length, 1);
+  sqlite.prepare("UPDATE sicar_proveedores SET rfc='OTRO' WHERE sucursal_id=42").run();
+  assert.deepEqual(modulo.candidatas(id).map(c => c.sucursal_id), [6]);
+});
+test('Ninguna suprime la lista; una candidata nueva vuelve a proponer; desunir exige motivo', t => {
+  const { modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra({ folio: '' });
+  assert.throws(() => modulo.ninguna(id, '', '8'), { status: 400 });
+  modulo.ninguna(id, 'No corresponde', '8'); modulo.revisar();
+  assert.equal(modulo.resumen().por_confirmar.length, 0);
+  compra({ id: '2' }); modulo.revisar(); assert.equal(modulo.resumen().por_confirmar.length, 1);
+  modulo.confirmar(id, c, '8');
+  assert.throws(() => modulo.desunir(id, '', '8'), { status: 400 });
+  modulo.desunir(id, 'Corrección', '8'); assert.equal(obtener(id).estado, 'por_llegar');
+});
+
+test('Hook real después del commit une, relee y desune una cancelación', t => {
+  const { sqlite, modulo, factura, obtener } = prepararDB(t);
+  const id = factura();
+  const repo = require('./sicarRepositorio').crearRepositorioSicar(sqlite, { alGuardarCompras: modulo.alGuardarCompras });
+  const c = { com_id: '9007199254740993', fecha: '2026-01-02T10:00:00', pro_id: '7', folio: 'A123', comentario: '',
+    estado: 'vigente', cancelada_en: null, total_con: '100.00', detalle: [
+      { art_id: '81', cantidad: '1.0000', precio_sin: '86.21', precio_con: '100.00', importe_con: '100.00' },
+    ] };
+  function enviar(sequence, compra) {
+    return repo.aplicarLote({ sucursalId: 42, hash: `h-${sequence}`, lote: {
+      schema_version: 1, mapping_version: 'ocosingo-f0-v1', batch_id: `b-${sequence}`, sequence,
+      clientes: [], ventas: [], proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'ABC010101XY9' }], compras: [compra],
+    } });
+  }
+  enviar('1', c); enviar('2', c);
+  assert.equal(obtener(id).estado, 'llego');
+  assert.equal(sqlite.prepare('SELECT com_id FROM facturas_compras').get().com_id, c.com_id);
+  enviar('3', { ...c, estado: 'cancelada', cancelada_en: '2026-01-03T12:00:00' });
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(modulo.resumen().canceladas_despues.length, 1);
+});
+
+test('Migración conserva facturas antiguas y sin folio solo permite confirmar manualmente', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra();
+  sqlite.exec('ALTER TABLE facturas_por_llegar DROP COLUMN serie; ALTER TABLE facturas_por_llegar DROP COLUMN folio');
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  require('./sicarRepositorio').crearRepositorioSicar(sqlite);
+  assert.equal(obtener(id).serie, null); assert.equal(obtener(id).folio, null);
+  modulo.revisar(); assert.equal(obtener(id).estado, 'por_llegar');
+  modulo.confirmar(id, c, '9'); assert.equal(obtener(id).estado, 'llego');
+});
+
+test('Fallo de historial revierte unión completa y el hook no lanza', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra();
+  sqlite.exec(`CREATE TRIGGER fallar_historial BEFORE INSERT ON facturas_por_llegar_historial
+    BEGIN SELECT RAISE(ABORT, 'fallo de prueba'); END`);
+  assert.throws(() => modulo.confirmar(id, c, '9'), /fallo de prueba/);
+  const mensajes = [];
+  t.mock.method(console, 'error', (...args) => mensajes.push(args));
+  assert.doesNotThrow(() => modulo.alGuardarCompras(6, ['1']));
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.equal(mensajes.length, 1);
+});
+
+test('Ninguna impide la unión automática de la misma lista aunque el folio se corrija', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); compra({ folio: '' }); modulo.ninguna(id, 'No corresponde', '8');
+  sqlite.prepare("UPDATE sicar_compras SET folio='A123'").run();
+  modulo.alGuardarCompras(6, ['1']); modulo.revisar();
+  assert.equal(obtener(id).estado, 'por_llegar'); assert.equal(modulo.resumen().por_confirmar.length, 0);
+});
+
+test('Carga inicial cortada en dos tandas con 3 días de separación no saca compras viejas en rojo', t => {
+  const { modulo, compra } = prepararDB(t);
+  compra({ id: '1', fecha: '2024-03-10T12:00:00', primera: '2026-01-01T23:30:00Z' });
+  compra({ id: '2', fecha: '2024-11-05T12:00:00', primera: '2026-01-01T23:40:00Z' });
+  compra({ id: '3', fecha: '2024-12-31T12:00:00', primera: '2026-01-04T23:30:00Z' });
+  compra({ id: '4', fecha: '2025-06-01T12:00:00', primera: '2026-01-05T03:00:00Z' });
+  const r = modulo.resumen();
+  assert.deepEqual(r.compras_sin_factura_15, []);
+  assert.equal(r.compras_viejas_sin_factura, 4);
+  // Activación: 2026-01-01 en hora de México (23:30 UTC); la compra de ese mismo día ya es nueva.
+  compra({ id: '5', fecha: '2026-01-01T09:00:00', primera: '2026-01-02T00:00:00Z' });
+  compra({ id: '6', fecha: '2026-01-21T12:00:00', primera: '2026-01-21T12:00:00Z' });
+  compra({ id: '7', sucursal: 42, fecha: '2024-05-01T12:00:00', primera: '2026-02-10T12:00:00Z' });
+  const despues = modulo.resumen();
+  assert.deepEqual(despues.compras_sin_factura_15.map(c => c.com_id).sort(), ['5', '6']);
+  assert.equal(despues.compras_viejas_sin_factura, 5);
+});
+test('El resumen lista las compras de SICAR que no se pudieron leer', t => {
+  const { modulo, sqlite } = prepararDB(t);
+  assert.deepEqual(modulo.resumen().compras_omitidas, []);
+  const insertar = sqlite.prepare(`INSERT INTO sicar_compras_omitidas (sucursal_id,com_id,codigo,primera_vez,ultima_vez)
+    VALUES (?,?,?,?,?)`);
+  insertar.run(6, '41', 'TEXTO_INVALIDO', '2026-11-01T10:00:00Z', '2026-11-03T10:00:00Z');
+  insertar.run(6, '9', 'ARTICULO_INVALIDO', '2026-11-02T10:00:00Z', '2026-11-04T10:00:00Z');
+  assert.deepEqual(modulo.resumen().compras_omitidas, [
+    { sucursal_id: 6, com_id: '9', codigo: 'ARTICULO_INVALIDO', ultima_vez: '2026-11-04T10:00:00Z' },
+    { sucursal_id: 6, com_id: '41', codigo: 'TEXTO_INVALIDO', ultima_vez: '2026-11-03T10:00:00Z' }]);
+});
+test('Avisos de cancelada y de cambio despues de unida traen fecha de compra, comentario y proveedor', t => {
+  const { modulo, factura, compra, sqlite } = prepararDB(t);
+  factura(); compra(); modulo.revisar();
+  sqlite.prepare('UPDATE sicar_compras SET total_centavos=15000').run();
+  const cambio = modulo.resumen().cambiaron[0];
+  assert.deepEqual([cambio.fecha_compra, cambio.comentario, cambio.proveedor], ['2026-01-02T12:00:00', 'COMPRA CEDIS', 'Proveedor']);
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run(); modulo.revisar();
+  const { compra: cancelada } = modulo.resumen().canceladas_despues[0].detalle;
+  assert.deepEqual([cancelada.fecha_compra, cancelada.comentario, cancelada.proveedor], ['2026-01-02T12:00:00', 'COMPRA CEDIS', 'Proveedor']);
+  const otra = prepararDB(t);
+  otra.factura(); otra.compra(); otra.modulo.revisar();
+  // Sin proveedor en el catálogo el aviso sigue saliendo (LEFT JOIN), solo sin nombre.
+  otra.sqlite.prepare('DELETE FROM sicar_proveedores').run();
+  otra.sqlite.prepare('UPDATE sicar_compras SET total_centavos=16000').run();
+  assert.equal(otra.modulo.resumen().cambiaron[0].proveedor, null);
+});
+
+test('Decisión 2: cerrar con motivo saca la compra del rojo y la lista con quién y por qué', t => {
+  const { sqlite, compra } = prepararDB(t);
+  const modulo = require('./facturasCompras').crearFacturasCompras({ sqlite, usuarios: () => [{ id: 9, nombre: 'Ana' }] });
+  compra(); compra({ id: '2', fecha: '2025-12-20T12:00:00' });
+  assert.deepEqual(modulo.resumen().compras_sin_factura_15.map(c => c.com_id), ['1']);
+  assert.equal(modulo.resumen().compras_viejas_sin_factura, 1);
+  for (const motivo of ['', '   ', undefined, 5]) {
+    assert.throws(() => modulo.cerrarCompra({ sucursal_id: 6, com_id: '1' }, motivo, '9'), { status: 400 });
+  }
+  modulo.cerrarCompra({ sucursal_id: '6', com_id: '1' }, '  Muestra del proveedor  ', '9');
+  modulo.cerrarCompra({ sucursal_id: 6, com_id: '2' }, 'Compra vieja ya pagada', '77');
+  const r = modulo.resumen();
+  assert.deepEqual(r.compras_sin_factura_15, []);
+  assert.equal(r.compras_viejas_sin_factura, 0);
+  const [a, b] = [...r.compras_cerradas].sort((x, y) => x.com_id.localeCompare(y.com_id));
+  const { fecha_cierre, ...resto } = a;
+  assert.deepEqual(resto, { sucursal_id: 6, com_id: '1', folio: 'A-000123', fecha: '2026-01-02T12:00:00', total_centavos: 10000,
+    comentario: 'COMPRA CEDIS', proveedor: 'Proveedor', motivo: 'Muestra del proveedor', actor: '9', actor_nombre: 'Ana' });
+  assert.ok(Number.isFinite(Date.parse(fecha_cierre)));
+  assert.equal(b.actor_nombre, 'Usuario #77');
+  // Si SICAR la cancela después, sigue cerrada.
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada' WHERE com_id='1'").run(); modulo.revisar();
+  assert.equal(modulo.resumen().compras_cerradas.length, 2);
+});
+
+test('Decisión 2: compra unida, cancelada, inexistente o ya cerrada no se cierra (409)', t => {
+  const { modulo, factura, compra } = prepararDB(t);
+  factura(); compra(); modulo.revisar();
+  assert.throws(() => modulo.cerrarCompra({ sucursal_id: 6, com_id: '1' }, 'No llegó factura', '9'), { status: 409 });
+  compra({ id: '2', total: 50000 }); compra({ id: '3', total: 60000 });
+  modulo.cerrarCompra({ sucursal_id: 6, com_id: '2' }, 'Sin factura', '9');
+  assert.throws(() => modulo.cerrarCompra({ sucursal_id: 6, com_id: '2' }, 'Otra vez', '9'), { status: 409 });
+  for (const sel of [{ sucursal_id: 6, com_id: 'no-existe' }, { sucursal_id: 7, com_id: '3' }, { sucursal_id: 6, com_id: 3 }, null]) {
+    assert.throws(() => modulo.cerrarCompra(sel, 'Sin factura', '9'), { status: 409 });
+  }
+  const { sqlite } = prepararDB(t);
+  const otro = require('./facturasCompras').crearFacturasCompras({ sqlite });
+  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id) VALUES (6)').run();
+  sqlite.prepare(`INSERT INTO sicar_compras (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+    VALUES (6,'9','2026-01-02','1','','','cancelada',100,'2026-01-01','2026-01-01')`).run();
+  assert.throws(() => otro.cerrarCompra({ sucursal_id: 6, com_id: '9' }, 'Sin factura', '9'), { status: 409 });
+});
+
+test('Decisión 2: compra cerrada no es candidata de una factura que cumple RFC, total y folio', t => {
+  const { modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra();
+  modulo.cerrarCompra(c, 'Se pagó sin factura', '9');
+  assert.deepEqual(modulo.candidatas(id), []);
+  modulo.revisar(); modulo.alGuardarCompras(6, ['1']);
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.deepEqual(modulo.resumen().por_confirmar, []);
+  assert.throws(() => modulo.confirmar(id, c, '9'), { status: 409 });
+});

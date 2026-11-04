@@ -10,7 +10,9 @@ const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 
   'sicar_proveedores', 'sicar_existencias', 'sicar_cortes', 'sicar_cortes_pagos', 'sicar_cortes_cobros',
   'sicar_cajeros', 'sicar_cajeros_historial', 'sicar_ventas_mostrador', 'sicar_detalles_mostrador',
   'sicar_traspasos', 'sicar_traspasos_detalle', 'sicar_sucursales_mapa', 'sicar_sucursales_mapa_historial',
-  'facturas_por_llegar', 'facturas_por_llegar_historial']);
+  'facturas_por_llegar', 'facturas_por_llegar_historial',
+  'sicar_compras', 'sicar_compras_detalle', 'sicar_compras_omitidas', 'facturas_compras',
+  'compras_cerradas']);
 // Bandeja de clientes (spec 2026-10-18 §4.7): sus tablas viajan en la misma copia y se restauran en la misma transacción
 // que los datos del negocio, porque sus cliente_id apuntan a clientes del JSON. Solo si la base ya las tiene.
 const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes', 'lead_contenidos', 'lead_eventos_externos',
@@ -30,12 +32,19 @@ const TABLAS_20 = Object.freeze(TABLAS.slice(0, 20));
 const TABLAS_22 = Object.freeze(TABLAS.slice(0, 22));
 // Generación de las ventas de mostrador (2026-10-24), antes de traspasos, mapa de sucursales y facturas por llegar.
 const TABLAS_24 = Object.freeze(TABLAS.slice(0, 24));
+const TABLAS_30 = Object.freeze(TABLAS.slice(0, 30));
+// Generación de compras, anterior a las uniones factura-compra (con y sin bandeja).
+const TABLAS_33 = Object.freeze(TABLAS.slice(0, 33));
+// Generación de las uniones factura-compra (2026-11-04), anterior a las compras cerradas con motivo.
+const TABLAS_34 = Object.freeze(TABLAS.slice(0, 34));
 const GENERACIONES = Object.freeze([Object.freeze(TABLAS.slice(0, 10)), Object.freeze(TABLAS.slice(0, 12)),
   Object.freeze(TABLAS.slice(0, 14)), TABLAS_15,
   Object.freeze([...TABLAS_15, ...TABLAS_LEADS]), TABLAS_16, Object.freeze([...TABLAS_16, ...TABLAS_LEADS]),
   TABLAS_17, Object.freeze([...TABLAS_17, ...TABLAS_LEADS]), TABLAS_20, Object.freeze([...TABLAS_20, ...TABLAS_LEADS]),
   TABLAS_22, Object.freeze([...TABLAS_22, ...TABLAS_LEADS]), TABLAS_24, Object.freeze([...TABLAS_24, ...TABLAS_LEADS]),
-  TABLAS, TODAS]);
+  TABLAS_30, Object.freeze([...TABLAS_30, ...TABLAS_LEADS]),
+  TABLAS_33, Object.freeze([...TABLAS_33, ...TABLAS_LEADS]),
+  TABLAS_34, Object.freeze([...TABLAS_34, ...TABLAS_LEADS]), TABLAS, TODAS]);
 const CON_BANDEJA = new Set(GENERACIONES.filter(tablas => tablas.includes(TABLAS_LEADS[0])));
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
@@ -186,8 +195,15 @@ async function crearSnapshotSicar(repo, drive, contexto) {
     lector.exec('BEGIN');
     // Fija la foto antes del primer await, incluso si Drive tarda en obtener la carpeta.
     if (lector.prepare('SELECT max(version) v FROM sicar_esquema').get().v !== 2) throw new Error('Versión SICAR incompatible.');
+    // Sin compras, alertas ni uniones, la generación de 30 tablas representa los mismos datos.
+    // Si aparecen, las compras y sus uniones viajan juntas en la generación de 34 tablas; con compras cerradas, en la de 35.
+    const hay = tabla => !!lector.prepare(`SELECT 1 FROM ${tabla} LIMIT 1`).get();
+    const hayCerradas = hay('compras_cerradas');
+    const hayCompras = hayCerradas || TABLAS.slice(30, 34).some(hay);
+    const base = hayCerradas ? TABLAS : hayCompras ? TABLAS_34 : TABLAS_30;
+    tablasFoto = base;
     if (conLeads(lector)) {
-      tablasFoto = TODAS;
+      tablasFoto = [...base, ...TABLAS_LEADS];
       m.version_leads = versionLeads(lector);
     }
     vigilancia = setInterval(() => {
@@ -291,7 +307,7 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
     sqlite.transaction(() => {
       for (const tabla of TABLAS) {
         const original = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(tabla).sql;
-        const preparado = original.replace(/\b(?:sicar|facturas)_[a-z_]+\b/g, nombre => TABLAS.includes(nombre) ? PREFIJO + nombre : nombre);
+        const preparado = original.replace(/\b(?:sicar|facturas|compras)_[a-z_]+\b/g, nombre => TABLAS.includes(nombre) ? PREFIJO + nombre : nombre);
         sqlite.exec(preparado);
       }
     })();
@@ -312,6 +328,11 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
       const sentencia = sqlite.prepare(`INSERT INTO ${PREFIJO}${c.tabla} (${campos.join(',')}) VALUES (${campos.map(() => '?').join(',')})`);
       sqlite.transaction(() => {
         for (const fila of filas) {
+          if (c.tabla === 'facturas_por_llegar' && fila && !Object.hasOwn(manifiesto.conteos, 'facturas_compras')) {
+            for (const campo of ['serie', 'folio']) if (!Object.hasOwn(fila, campo)) fila[campo] = null;
+          }
+          if (c.tabla === 'sicar_proveedores' && fila && !Object.hasOwn(fila, 'rfc')
+            && !Object.hasOwn(manifiesto.conteos, 'sicar_compras')) fila.rfc = null;
           if (c.tabla === 'sicar_detalles' && fila && !Object.hasOwn(fila, 'renglon')) {
             // El snapshot antiguo conserva el orden de rowid, incluso entre trozos.
             const identidad = JSON.stringify([fila.sucursal_id, fila.ven_id]);

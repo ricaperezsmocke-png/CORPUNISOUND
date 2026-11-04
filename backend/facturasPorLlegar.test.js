@@ -3,6 +3,43 @@ const assert = require('node:assert/strict');
 
 const UUID = 'ABCDEF12-3456-7890-ABCD-EF1234567890';
 
+test('compra manual resuelve actor_nombre y conserva respaldo para usuario inexistente', t => {
+  const { sqlite, DB, modulo } = preparar();
+  t.after(() => sqlite.close());
+  DB.admin = { usuarios: [{ id: 992, nombre: 'Ana' }] };
+  const f = modulo.registrar(xmlDe(), '7');
+  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id) VALUES (42)').run();
+  sqlite.prepare(`INSERT INTO sicar_proveedores(sucursal_id,prv_id,nombre,rfc,actualizado_en)
+    VALUES (42,'1','Proveedor','DINX800101ABC','2026-07-01')`).run();
+  sqlite.prepare(`INSERT INTO sicar_compras
+    (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+    VALUES (42,'9','2026-07-02T10:00:00','1','A123','COMPRA','vigente',1621800,'2026-07-02','2026-07-02')`).run();
+  require('./facturasCompras').crearFacturasCompras({ sqlite }).confirmar(f.id, { sucursal_id: 42, com_id: '9' }, '992');
+  assert.equal(modulo.listar().facturas[0].compra.actor_nombre, 'Ana');
+  DB.admin.usuarios = [];
+  assert.equal(modulo.listar().facturas[0].compra.actor_nombre, 'Usuario #992');
+});
+
+test('Ronda 1: registrar conserva factura e historial si la conciliación falla después del commit', t => {
+  let conexion;
+  let enTransaccion;
+  let guardadas;
+  const mensajes = [];
+  t.mock.method(console, 'error', (...args) => mensajes.push(args));
+  t.mock.method(require('./facturasCompras'), 'crearFacturasCompras', () => ({ revisar() {
+    enTransaccion = conexion.inTransaction;
+    guardadas = conexion.prepare('SELECT count(*) n FROM facturas_por_llegar').get().n;
+    throw new Error('Datos privados: ' + UUID);
+  } }));
+  const { sqlite, modulo } = preparar(); conexion = sqlite; t.after(() => sqlite.close());
+  const f = modulo.registrar(xmlDe(), '7');
+  assert.equal(enTransaccion, false); assert.equal(guardadas, 1);
+  assert.equal(f.uuid, UUID); assert.equal(f.estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT uuid FROM facturas_por_llegar WHERE id=?').get(f.id).uuid, UUID);
+  assert.deepEqual(sqlite.prepare('SELECT accion FROM facturas_por_llegar_historial').all(), [{ accion: 'registrar' }]);
+  assert.deepEqual(mensajes, [['CONCILIACION_FALLO']]);
+});
+
 function xmlDe({ uuid = UUID, tipo = 'I', total = '16217.997', rfc = 'DINX800101ABC', moneda, tipoCambio } = {}) {
   const extra = (moneda === undefined ? '' : ` Moneda="${moneda}"`) + (tipoCambio === undefined ? '' : ` TipoCambio="${tipoCambio}"`);
   const timbre = uuid === null ? '' : `<cfdi:Complemento><tfd:TimbreFiscalDigital UUID="${uuid}" /></cfdi:Complemento>`;
@@ -35,7 +72,24 @@ test('cfdi: agrega total y tipoComprobante sin tocar lo demas', () => {
   const r = parsearFacturaXML(xmlDe());
   assert.equal(r.total, '16217.997');
   assert.equal(r.tipoComprobante, 'I');
-  assert.deepEqual(Object.keys(r).sort(), ['conceptos', 'emisor', 'fecha', 'folioFiscal', 'moneda', 'tipoCambio', 'tipoComprobante', 'total']);
+  assert.deepEqual(Object.keys(r).sort(),
+    ['conceptos', 'emisor', 'fecha', 'folio', 'folioFiscal', 'moneda', 'serie', 'tipoCambio', 'tipoComprobante', 'total']);
+});
+
+test('registrar y listar conservan serie y folio; una compra existente une al registrar', () => {
+  const { sqlite, modulo } = preparar();
+  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id) VALUES (42)').run();
+  sqlite.prepare(`INSERT INTO sicar_proveedores(sucursal_id,prv_id,nombre,rfc,actualizado_en)
+    VALUES (42,'1','Proveedor','DINX800101ABC','2026-07-01')`).run();
+  sqlite.prepare(`INSERT INTO sicar_compras
+    (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+    VALUES (42,'9','2026-07-02T10:00:00','1','A123','COMPRA','vigente',1621800,'2026-07-02','2026-07-02')`).run();
+  const f = modulo.registrar(xmlDe().replace('Version="4.0"', 'Version="4.0" Serie="A" Folio="000123"'), '7');
+  assert.equal(f.serie, 'A'); assert.equal(f.folio, '000123'); assert.equal(f.estado, 'llego');
+  assert.deepEqual(f.compra, { sucursal_id: 42, com_id: '9', fecha: '2026-07-02T10:00:00', folio: 'A123',
+    total_centavos: 1621800, comentario: 'COMPRA', modo: 'automatica', actor: 'sicar' });
+  assert.deepEqual(modulo.listar().facturas[0].compra, f.compra);
+  sqlite.close();
 });
 
 test('registrar: factura de Ingreso entra por_llegar con total en centavos y uuid normalizado', () => {
@@ -132,6 +186,8 @@ test('rutas: permisos separados con roles vecinos', async t => {
     981: [...vecinos, 'ver_facturas_por_llegar'],
     982: [...vecinos, 'registrar_facturas_por_llegar'],
     983: [...vecinos],
+    984: [...vecinos, 'conciliar_facturas'],
+    985: [...vecinos, 'ver_facturas_por_llegar', 'registrar_facturas_por_llegar'],
   };
   for (const [id, permisos] of Object.entries(roles)) {
     app.DB.admin.roles.push({ id: Number(id), nombre: `Facturas ${id}`, permisos, modulos: ['inventario'] });
@@ -157,7 +213,12 @@ test('rutas: permisos separados con roles vecinos', async t => {
   assert.equal((await pedir(`/api/facturas-por-llegar/${ok.datos.id}/llego`, 981, 'POST')).status, 403);
   assert.equal((await pedir(`/api/facturas-por-llegar/${ok.datos.id}/cancelar`, 982, 'POST', { motivo: 'no' })).status, 400);
   assert.equal((await pedir(`/api/facturas-por-llegar/${ok.datos.id}/cancelar`, 982, 'POST', { motivo: 'Se repuso' })).datos.estado, 'cancelada');
-  assert.equal((await pedir('/api/facturas-por-llegar/999/llego', 982, 'POST')).status, 404);
+  assert.equal((await pedir('/api/facturas-por-llegar/999/llego', 984, 'POST')).status, 404);
+  // Decisión de Victor: "Ya llegó" a mano es conciliar, no registrar.
+  const otra = await pedir('/api/facturas-por-llegar', 982, 'POST', { xml: xmlDe({ uuid: 'OTRA-UUID-LLEGO' }) });
+  assert.equal((await pedir(`/api/facturas-por-llegar/${otra.datos.id}/llego`, 985, 'POST')).status, 403);
+  const llego = await pedir(`/api/facturas-por-llegar/${otra.datos.id}/llego`, 984, 'POST');
+  assert.equal(llego.status, 200); assert.equal(llego.datos.llego_por, '984');
 });
 
 test('permisos nuevos en el catalogo, modulo inventario', () => {

@@ -290,3 +290,41 @@ test('traspasos: un estado.json de antes arranca sin cursor, sin vuelta y sin fi
     assert.equal(registrar(x => x)(evento), evento);
   }
 });
+
+test('compras: un estado.json de antes arranca sin cursor, sin vuelta y sin firmas; rechaza valores raros', async t => {
+  const archivo = await entorno(t);
+  const nuevo = inicial();
+  assert.equal(nuevo.compras_cursor, '0');
+  assert.equal(nuevo.compras_semana, null);
+  assert.equal(nuevo.compras_vuelta, null);
+  assert.deepEqual(nuevo.compras_firmas, {});
+  const viejo = inicial();
+  for (const campo of ['compras_cursor', 'compras_semana', 'compras_vuelta', 'compras_firmas']) delete viejo[campo];
+  await fs.writeFile(archivo, JSON.stringify(viejo));
+  const cargado = await cargar(archivo);
+  assert.deepEqual([cargado.compras_cursor, cargado.compras_semana, cargado.compras_vuelta, cargado.compras_firmas], ['0', null, null, {}]);
+  const bueno = { compras_cursor: '2500', compras_semana: '2026-10-20', compras_vuelta: '1200', compras_firmas: { 41: '0123456789abcdef' } };
+  await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...bueno }));
+  const leido = await cargar(archivo);
+  assert.deepEqual([leido.compras_cursor, leido.compras_semana, leido.compras_vuelta, leido.compras_firmas],
+    ['2500', '2026-10-20', '1200', { 41: '0123456789abcdef' }]);
+  for (const raro of [{ compras_cursor: 'x' }, { compras_cursor: 5 }, { compras_semana: '20-10-2026' }, { compras_semana: 7 },
+    { compras_vuelta: '0' }, { compras_vuelta: 'x' }, { compras_firmas: [] }, { compras_firmas: { 0: '0123456789abcdef' } },
+    { compras_firmas: { 41: 'zz' } }]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...viejo, ...raro }));
+    await assert.rejects(cargar(archivo), /ESTADO_INVALIDO/, JSON.stringify(raro));
+  }
+  assert.equal(registrar(x => x)('COMPRA_OMITIDA', { com_id: '41', codigo: 'PROVEEDOR_INVALIDO' }),
+    'COMPRA_OMITIDA com_id=41 codigo=PROVEEDOR_INVALIDO');
+  for (const evento of ['COMPRAS_NO_DISPONIBLES', 'COMPRAS_DESCARTADAS']) {
+    assert.equal(registrar(x => x)(evento), evento);
+  }
+});
+test('registro de compra omitida muestra ARTICULO_INVALIDO y TEXTO_INVALIDO', () => {
+  for (const codigo of ['ARTICULO_INVALIDO', 'TEXTO_INVALIDO']) {
+    assert.equal(registrar(x => x)('COMPRA_OMITIDA', { com_id: '41', codigo }), `COMPRA_OMITIDA com_id=41 codigo=${codigo}`);
+  }
+});
+test('registro de compra omitida muestra CANTIDAD_INVALIDA', () => {
+  assert.equal(registrar(x => x)('COMPRA_OMITIDA', { com_id: '41', codigo: 'CANTIDAD_INVALIDA' }), 'COMPRA_OMITIDA com_id=41 codigo=CANTIDAD_INVALIDA');
+});
