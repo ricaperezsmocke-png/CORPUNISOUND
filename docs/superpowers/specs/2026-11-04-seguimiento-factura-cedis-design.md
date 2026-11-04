@@ -140,3 +140,28 @@ Por **artículo (clave)**, recorriendo en orden de fecha todos sus movimientos (
 
 Avisos por WhatsApp; vista para encargados; cambiar precios o mover inventario desde CORPUNISOUND; devoluciones y
 notas de crédito (no llegan); instalar el agente en Yajalón/Palenque/Innotec (lo hará Victor después).
+
+## 11. Decisiones tras la revisión del constructor (2026-11-04)
+
+**De Victor:**
+- **Arranca con las facturas nuevas, de hoy en adelante.** No se siguen facturas viejas. El día de arranque el sistema
+  guarda una **foto de existencias** de CEDIS y de cada tienda con agente (de `sicar_existencias`) como lote
+  **"mercancía anterior"**; las ventas y salidas consumen primero esa foto y después las facturas nuevas (FIFO). La
+  mercancía anterior no tiene barra por factura ni avisos.
+- **Empaques:** las compras con `factor` ≠ 1 vienen en empaques (29 renglones en 12 meses; p. ej. 1 bolsa de 36 púas).
+  El agente agrega `detallec.factor` (opcional; sin la columna = 1) al renglón de compra y el servidor guarda
+  `factor`. **Piezas = cantidad × factor; costo por pieza = importe / piezas.** Traspasos y ventas ya vienen en piezas.
+  El costo de los traspasos no se usa (con factor ≠ 1 viene inflado ×factor): el valor sale del costo del lote.
+
+**De Claude (llamadas técnicas, revisables):**
+1. Parte de una factura que dependa de algo desconocido (clave ambigua, unidad dudosa) = **"no calculable"** y sin
+   recomendaciones con cantidades; nunca se presenta un reparto supuesto como venta comprobada.
+2. **Traspaso visto por las dos puntas:** la salida (fecha, cantidad, estado enviado/cancelado) la manda el SICAR de
+   origen; la recepción (recibido, fecha de recepción, cantidad recibida) la manda el SICAR de destino. Si difieren en
+   cantidad, la diferencia queda **"en tránsito por aclarar"**, ni vendida ni disponible. Si origen dice cancelado y
+   destino recibido: "por aclarar".
+3. **Mismo día:** como el traspaso trae solo el día, dentro de un mismo día se procesan **primero las compras y
+   después los traspasos y ventas** (la administradora captura la compra al llegar la mercancía).
+4. **Factura cuyo único pendiente es el tramo gris:** sigue visible como "pendiente de comprobación", sin avisos de
+   traslado ni de descuento sobre esas piezas.
+5. Con el arranque desde hoy ya no hace falta historia de ventas de 2024; la cobertura de ventas desde 2025 basta.
