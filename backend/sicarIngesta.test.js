@@ -423,13 +423,22 @@ for (const campo of ['total_con', 'precio_sin', 'precio_con', 'importe_con']) {
     }
   });
 }
-test('Task 3: limita compras y omitidas y valida codigos y RFC cerrando', () => {
+test('Task 3: limita compras y omitidas, valida RFC y acepta codigos desconocidos como OTRO', t => {
   for (const extra of [
     { compras: Array(101).fill(compraTask3()) }, { compras: [compraTask3(), compraTask3()] },
-    { compras_omitidas: [{ com_id: '8', codigo: 'NO_EXISTE' }] },
+    { compras_omitidas: [{ com_id: '8', codigo: 'SIN_DETALLE', extra: true }] },
     { compras_omitidas: Array(1001).fill({ com_id: '8', codigo: 'SIN_DETALLE' }) },
     { proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'rfc incorrecto' }] },
   ]) assert.throws(() => require('./sicarIngesta').validarLoteSicar({ ...lote(), ...extra }));
+  const entrada = { ...lote(), compras_omitidas: [{ com_id: '8', codigo: 'NO_EXISTE' }] };
+  assert.equal(require('./sicarIngesta').validarLoteSicar(entrada), entrada);
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const recibo = repo.aplicarLote({ sucursalId: 6, lote: entrada, hash: 'codigo-no-existe' });
+  assert.equal(recibo.aceptados.ventas, 1);
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '8', codigo: 'OTRO' }]);
+  assert.equal(sqlite.prepare('SELECT total_centavos FROM sicar_ventas').get().total_centavos, 10000);
 });
 
 test('Task 3: RFC normalizado acepta enie y ampersand pero rechaza signos ajenos', () => {
@@ -455,4 +464,18 @@ test('Task 3: rechaza saltos de linea finales en RFC, ids y decimales', () => {
     assert.throws(() => validar({ compras: [c] }), { status: 400 });
   }
   assert.throws(() => validar({ compras_omitidas: [{ com_id: '8\n', codigo: 'SIN_DETALLE' }] }), { status: 400 });
+});
+
+test('Ronda 1: ingesta acepta codigo desconocido junto a ventas y el repositorio lo guarda como OTRO', t => {
+  const entrada = { ...lote(), compras_omitidas: [{ com_id: '8', codigo: 'NUEVO_CODIGO' }] };
+  const { validarLoteSicar } = require('./sicarIngesta');
+  assert.equal(validarLoteSicar(entrada), entrada);
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const recibo = repo.aplicarLote({ sucursalId: 6, lote: entrada, hash: 'ronda-1' });
+  assert.equal(recibo.aceptados.ventas, 1);
+  assert.equal(recibo.aceptados.compras_omitidas, 1);
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '8', codigo: 'OTRO' }]);
+  assert.equal(sqlite.prepare('SELECT total_centavos FROM sicar_ventas').get().total_centavos, 10000);
 });

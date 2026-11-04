@@ -664,3 +664,33 @@ test('Task 3: fallo al insertar detalle revierte compra, RFC, alertas y secuenci
   assert.equal(recibo.aceptados.compras_omitidas, 1);
   assert.equal(llamadas, 1);
 });
+
+test('Ronda 1: hook fallido conserva recibo y compras y registra solo HOOK_COMPRAS_FALLO', t => {
+  const { sqlite } = prepararDB(t);
+  const errores = [];
+  t.mock.method(console, 'error', (...args) => errores.push(args));
+  const repo = require('./sicarRepositorio').crearRepositorioSicar(sqlite, { alGuardarCompras() {
+    throw new Error('Datos privados de la compra');
+  } });
+  const datos = { ...lote(), clientes: [], ventas: [], compras: [compraTask3()] };
+  let recibo;
+  assert.doesNotThrow(() => { recibo = aplicar(repo, datos); });
+  assert.equal(recibo.aceptados.compras, 1);
+  assert.equal(sqlite.prepare('SELECT total_centavos FROM sicar_compras').get().total_centavos, 34000);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_compras_detalle').get().n, 2);
+  assert.equal(repo.estado(1).siguiente_secuencia, '2');
+  assert.deepEqual(errores, [['HOOK_COMPRAS_FALLO']]);
+  assert.deepEqual(aplicar(repo, datos), recibo);
+  assert.equal(errores.length, 1);
+});
+
+test('Ronda 1: codigo desconocido se guarda como OTRO y conserva las ventas del lote', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const datos = { ...lote(), compras_omitidas: [{ com_id: '8', codigo: 'NUEVO_CODIGO' }] };
+  const recibo = aplicar(repo, datos);
+  assert.equal(recibo.aceptados.ventas, 1);
+  assert.equal(recibo.aceptados.compras_omitidas, 1);
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '8', codigo: 'OTRO' }]);
+  assert.equal(sqlite.prepare('SELECT total_centavos FROM sicar_ventas').get().total_centavos, 10000);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_detalles').get().n, 2);
+});

@@ -245,6 +245,9 @@ const ESQUEMA = `
 const CODIGOS_TRASPASO_OMITIDO = new Set(['ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO', 'TEXTO_INVALIDO',
   'TEXTO_VACIO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE', 'ESTADO_TRASPASO_DESCONOCIDO', 'OTRO']);
 
+const CODIGOS_COMPRA_OMITIDA = new Set(['FECHA_INVALIDA', 'STATUS_DESCONOCIDO', 'SIN_DETALLE',
+  'DEMASIADOS_RENGLONES', 'IMPORTE_INVALIDO', 'PROVEEDOR_INVALIDO']);
+
 // Los importes se convierten sin aritmética decimal binaria. Los precios unitarios
 // conservan sus cuatro decimales exactos como texto, conforme al contrato v1.
 function centavos(decimal) {
@@ -561,7 +564,8 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
       }
     }
     for (const o of lote.compras_omitidas || []) {
-      sentencias.compraOmitida.run({ sucursal_id: sucursalId, com_id: o.com_id, codigo: o.codigo, fecha: actualizado_en });
+      const codigo = CODIGOS_COMPRA_OMITIDA.has(o.codigo) ? o.codigo : 'OTRO';
+      sentencias.compraOmitida.run({ sucursal_id: sucursalId, com_id: o.com_id, codigo, fecha: actualizado_en });
     }
     for (const c of lote.compras || []) {
       sentencias.borrarCompraOmitida.run(sucursalId, c.com_id);
@@ -636,7 +640,11 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
       const anterior = reciboAnterior(datos.sucursalId, datos.lote.batch_id, datos.hash);
       if (anterior) return anterior;
       const recibo = aplicar.immediate(datos);
-      if (datos.lote.compras?.length) alGuardarCompras?.(datos.sucursalId, datos.lote.compras.map(c => c.com_id));
+      if (datos.lote.compras?.length) {
+        try { alGuardarCompras?.(datos.sucursalId, datos.lote.compras.map(c => c.com_id)); }
+        // El commit ya termino: el fallo del hook no debe convertir el recibo en un error de ingesta.
+        catch { console.error('HOOK_COMPRAS_FALLO'); }
+      }
       return recibo;
     },
     guardarLlave: llave => guardarLlave.immediate(llave),

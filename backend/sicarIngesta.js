@@ -177,9 +177,6 @@ function validarTraspaso(t, indice) {
   return t.detalle.length;
 }
 
-const CODIGOS_COMPRA_OMITIDA = new Set(['FECHA_INVALIDA', 'STATUS_DESCONOCIDO', 'SIN_DETALLE',
-  'DEMASIADOS_RENGLONES', 'IMPORTE_INVALIDO', 'PROVEEDOR_INVALIDO']);
-
 // Compras usa 400 para todo incumplimiento del contrato, sin cambiar las colecciones anteriores.
 function contratoCompra(validar) {
   try { return validar(); }
@@ -288,11 +285,11 @@ function validarLoteSicar(body, mapping = 'ocosingo-f0-v1') {
     arreglo(body.compras, 100, 'com_id');
     body.compras.forEach((c, i) => enReferencia(`compras[${i}]`, () => validarCompra(c, i)));
   });
+  // Como en traspasos, un codigo nuevo no frena las ventas: el repositorio lo guarda como OTRO.
   if (body.compras_omitidas !== undefined) contratoCompra(() => {
     arreglo(body.compras_omitidas, 1000, 'com_id');
     body.compras_omitidas.forEach((o, i) => enReferencia(`compras_omitidas[${i}]`, () => {
       objeto(o, ['com_id', 'codigo']);
-      if (!CODIGOS_COMPRA_OMITIDA.has(o.codigo)) fallar('CODIGO_INVALIDO');
     }));
   });
   body.clientes.forEach((c, i) => enReferencia(`clientes[${i}]`, () => {
