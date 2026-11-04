@@ -35,7 +35,24 @@ test('cfdi: agrega total y tipoComprobante sin tocar lo demas', () => {
   const r = parsearFacturaXML(xmlDe());
   assert.equal(r.total, '16217.997');
   assert.equal(r.tipoComprobante, 'I');
-  assert.deepEqual(Object.keys(r).sort(), ['conceptos', 'emisor', 'fecha', 'folioFiscal', 'moneda', 'tipoCambio', 'tipoComprobante', 'total']);
+  assert.deepEqual(Object.keys(r).sort(),
+    ['conceptos', 'emisor', 'fecha', 'folio', 'folioFiscal', 'moneda', 'serie', 'tipoCambio', 'tipoComprobante', 'total']);
+});
+
+test('registrar y listar conservan serie y folio; una compra existente une al registrar', () => {
+  const { sqlite, modulo } = preparar();
+  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id) VALUES (42)').run();
+  sqlite.prepare(`INSERT INTO sicar_proveedores(sucursal_id,prv_id,nombre,rfc,actualizado_en)
+    VALUES (42,'1','Proveedor','DINX800101ABC','2026-07-01')`).run();
+  sqlite.prepare(`INSERT INTO sicar_compras
+    (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+    VALUES (42,'9','2026-07-02T10:00:00','1','A123','COMPRA','vigente',1621800,'2026-07-02','2026-07-02')`).run();
+  const f = modulo.registrar(xmlDe().replace('Version="4.0"', 'Version="4.0" Serie="A" Folio="000123"'), '7');
+  assert.equal(f.serie, 'A'); assert.equal(f.folio, '000123'); assert.equal(f.estado, 'llego');
+  assert.deepEqual(f.compra, { sucursal_id: 42, com_id: '9', fecha: '2026-07-02T10:00:00', folio: 'A123',
+    total_centavos: 1621800, comentario: 'COMPRA', modo: 'automatica', actor: 'sicar' });
+  assert.deepEqual(modulo.listar().facturas[0].compra, f.compra);
+  sqlite.close();
 });
 
 test('registrar: factura de Ingreso entra por_llegar con total en centavos y uuid normalizado', () => {

@@ -2,6 +2,17 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const { parsearFacturaXML } = require("./cfdi");
 
+test('CFDI conserva sus campos y agrega serie y folio textuales o null', () => {
+  const original = parsearFacturaXML(CFDI_MUESTRA);
+  const agregado = parsearFacturaXML(CFDI_MUESTRA.replace('Version="4.0"', 'Version="4.0" Serie="A" Folio="000123"'));
+  assert.strictEqual(original.serie, null);
+  assert.strictEqual(original.folio, null);
+  assert.strictEqual(agregado.serie, 'A');
+  assert.strictEqual(agregado.folio, '000123');
+  const { serie, folio, ...resto } = agregado;
+  assert.deepStrictEqual({ ...resto, serie: null, folio: null }, original);
+});
+
 const CFDI_MUESTRA = `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
   Version="4.0" Fecha="2026-07-01T12:00:00" SubTotal="13981.032" Total="16217.997" Moneda="MXN" TipoDeComprobante="I">

@@ -836,7 +836,10 @@ const sembrarNuevas = f => f.sqlite.exec(`INSERT OR IGNORE INTO sicar_tiendas(su
   INSERT INTO sicar_traspasos_detalle VALUES (1, 'T1', '9', '2.0000', 1000, 1160);
   INSERT INTO sicar_sucursales_mapa VALUES ('1', 3, 'Victor', 'hoy');
   INSERT INTO sicar_sucursales_mapa_historial VALUES (1, '1', NULL, '3', 'Victor', 'hoy');
-  INSERT INTO facturas_por_llegar VALUES (7, 'UUID-1', 'RFC', 'Proveedor', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL, 'MXN', NULL);
+  INSERT INTO facturas_por_llegar
+    (id, uuid, rfc_emisor, nombre_emisor, fecha_emision, total_centavos, conceptos_json, estado,
+      creada_por, creada_en, llego_en, llego_por, motivo, moneda, tipo_cambio)
+    VALUES (7, 'UUID-1', 'RFC', 'Proveedor', '2026-10-20', 11600, '[]', 'por_llegar', 'Ana', 'hoy', NULL, NULL, NULL, 'MXN', NULL);
   INSERT INTO facturas_por_llegar_historial VALUES (1, 7, 'alta', 'Ana', 'hoy', NULL)`);
 const filasNuevas = f => Object.fromEntries(NUEVAS.map(tabla => [tabla, f.sqlite.prepare(`SELECT * FROM ${tabla} ORDER BY rowid`).all()]));
 
@@ -900,6 +903,71 @@ test('restaurar con traspasos omitidos guardados no choca con sicar_tiendas y lo
 });
 
 const COMPRAS_TASK3 = ['sicar_compras', 'sicar_compras_detalle', 'sicar_compras_omitidas'];
+
+function sembrarUnionTask4(f, unir = true) {
+  f.sqlite.exec(`INSERT INTO sicar_tiendas(sucursal_id) VALUES (42);
+    INSERT INTO sicar_compras
+      (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+      VALUES (42,'9007199254740993','2026-11-03T10:00:00','7','A123','COMPRA','vigente',10000,'2026-11-03','2026-11-03');
+    INSERT INTO facturas_por_llegar
+      (id,uuid,rfc_emisor,fecha_emision,total_centavos,conceptos_json,estado,creada_por,creada_en,serie,folio)
+      VALUES (7,'UUID-T4','ABC010101XY9','2026-11-01',10000,'[]','por_llegar','8','2026-11-01','A','123')`);
+  if (unir) f.sqlite.exec(`UPDATE facturas_por_llegar SET estado='llego',llego_por='sicar',llego_en='2026-11-03T10:00:00';
+    INSERT INTO facturas_compras(factura_id,sucursal_id,com_id,modo,actor,fecha,total_al_unir_centavos)
+      VALUES (7,42,'9007199254740993','automatica','sicar','2026-11-03T12:00:00Z',10000)`);
+}
+
+test('Task 4: respaldo nuevo conserva unión y factura con y sin bandeja', async t => {
+  for (const bandeja of [false, true]) {
+    const f = preparar(t), g = preparar(t), s = api();
+    if (bandeja) for (const db of [f, g]) require('./centroLeads/persistencia').inicializarPersistenciaCentroLeads(db.sqlite);
+    sembrarUnionTask4(f);
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    assert.equal(Object.keys(m.conteos).length, bandeja ? 55 : 34);
+    assert.equal(m.conteos.facturas_compras, 1);
+    s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+    const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+    p.aplicar(); p.liberar();
+    for (const tabla of ['facturas_compras', 'facturas_por_llegar', 'sicar_compras']) {
+      assert.deepEqual(g.sqlite.prepare(`SELECT * FROM ${tabla}`).all(), f.sqlite.prepare(`SELECT * FROM ${tabla}`).all());
+    }
+    assert.deepEqual(g.sqlite.pragma('foreign_key_check'), []);
+  }
+});
+
+test('Task 4: generación anterior de 33 o 54 tablas restaura y vacía las uniones', async t => {
+  for (const bandeja of [false, true]) {
+    const f = preparar(t), g = preparar(t), s = api();
+    if (bandeja) for (const db of [f, g]) require('./centroLeads/persistencia').inicializarPersistenciaCentroLeads(db.sqlite);
+    sembrarUnionTask4(f, false); sembrarUnionTask4(g);
+    const m = sinTablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }), ['facturas_compras']);
+    assert.equal(Object.keys(m.conteos).length, bandeja ? 54 : 33);
+    s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+    const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+    p.aplicar(); p.liberar();
+    assert.equal(cuenta(g, 'facturas_compras'), 0);
+    assert.deepEqual(g.sqlite.prepare('SELECT * FROM facturas_por_llegar').all(), f.sqlite.prepare('SELECT * FROM facturas_por_llegar').all());
+    assert.equal(cuenta(g, 'sicar_compras'), 1);
+    assert.deepEqual(g.sqlite.pragma('foreign_key_check'), []);
+  }
+});
+
+test('Task 4: respaldo anterior a serie y folio restaura sus 15 columnas por nombre y completa NULL', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  sembrarUnionTask4(f, false); sembrarUnionTask4(g);
+  f.sqlite.exec('ALTER TABLE facturas_por_llegar DROP COLUMN serie; ALTER TABLE facturas_por_llegar DROP COLUMN folio');
+  const original = f.sqlite.prepare('SELECT * FROM facturas_por_llegar').get();
+  const m = sinTablas(await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE }), ['facturas_compras']);
+  const trozo = m.trozos.find(c => c.tabla === 'facturas_por_llegar');
+  const datos = desempaquetar(f.drive.archivos.get(trozo.drive_file_id), LLAVE);
+  assert.equal(Object.keys(datos.filas[0]).length, 15);
+  assert.equal(Object.hasOwn(datos.filas[0], 'serie'), false);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  p.aplicar(); p.liberar();
+  assert.deepEqual(g.sqlite.prepare('SELECT * FROM facturas_por_llegar').get(), { ...original, serie: null, folio: null });
+  assert.equal(cuenta(g, 'facturas_compras'), 0);
+});
 test('Task 3: nueva generacion respalda y restaura compras, renglones, omitidas y RFC', async t => {
   const f = preparar(t), g = preparar(t), s = api();
   f.repo.aplicarLote({ sucursalId: 6, hash: 'compras', lote: { batch_id: 'compras', sequence: '1', clientes: [], ventas: [],

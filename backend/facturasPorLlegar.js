@@ -34,6 +34,7 @@ function normalizarMoneda(valor) {
 }
 
 function crearFacturasPorLlegar({ sqlite, DB }) {
+  const conciliacion = require('./facturasCompras').crearFacturasCompras({ sqlite });
   const compraRecibida = uuid => (DB.inventario?.compras || []).some(c => normalizarUuid(c.uuid_cfdi) === uuid);
   const historial = (id, accion, actor, detalle) => sqlite.prepare(
     'INSERT INTO facturas_por_llegar_historial(factura_id, accion, actor, fecha, detalle) VALUES (?, ?, ?, ?, ?)')
@@ -41,7 +42,10 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
   const hidratar = f => {
     if (!f) return f;
     const { conceptos_json: json, ...resto } = f;
-    return { ...resto, conceptos: JSON.parse(json), moneda_prohibida: resto.moneda !== 'MXN' };
+    const compra = sqlite.prepare(`SELECT u.sucursal_id,u.com_id,c.fecha,c.folio,c.total_centavos,c.comentario,u.modo,u.actor
+      FROM facturas_compras u LEFT JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
+      WHERE u.factura_id=?`).get(f.id);
+    return { ...resto, conceptos: JSON.parse(json), moneda_prohibida: resto.moneda !== 'MXN', ...(compra ? { compra } : {}) };
   };
   const obtener = id => hidratar(sqlite.prepare('SELECT * FROM facturas_por_llegar WHERE id = ?').get(id));
   const llegoSola = id => {
@@ -71,12 +75,13 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
     const tipoCambio = cfdi.tipoCambio === null || cfdi.tipoCambio === undefined ? null : String(cfdi.tipoCambio).trim();
     return sqlite.transaction(() => {
       const id = Number(sqlite.prepare(`INSERT INTO facturas_por_llegar(uuid, rfc_emisor, nombre_emisor, fecha_emision,
-        total_centavos, conceptos_json, estado, creada_por, creada_en, moneda, tipo_cambio)
-        VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?, ?, ?)`)
+        total_centavos, conceptos_json, estado, creada_por, creada_en, moneda, tipo_cambio, serie, folio)
+        VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?, ?, ?, ?, ?)`)
         .run(uuid, cfdi.emisor.rfc, cfdi.emisor.nombre, cfdi.fecha, total, JSON.stringify(cfdi.conceptos),
-          String(actor), ahora(), moneda, tipoCambio).lastInsertRowid);
+          String(actor), ahora(), moneda, tipoCambio, cfdi.serie, cfdi.folio).lastInsertRowid);
       historial(id, 'registrar', actor, moneda === 'MXN' ? null : `moneda ${moneda} (prohibida)`);
       if (compraRecibida(uuid)) llegoSola(id);
+      conciliacion.revisar();
       return obtener(id);
     })();
   }

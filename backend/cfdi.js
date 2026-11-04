@@ -55,6 +55,8 @@ function parsearFacturaXML(xmlTexto) {
   return {
     emisor,
     folioFiscal,
+    serie: comprobante.Serie === undefined ? null : String(comprobante.Serie),
+    folio: comprobante.Folio === undefined ? null : String(comprobante.Folio),
     fecha: comprobante.Fecha || null,
     total: comprobante.Total === undefined ? null : String(comprobante.Total),
     tipoComprobante: comprobante.TipoDeComprobante || null,

@@ -218,6 +218,12 @@ const ESQUEMA = `
     id INTEGER PRIMARY KEY, factura_id INTEGER NOT NULL, accion TEXT NOT NULL, actor TEXT NOT NULL,
     fecha TEXT NOT NULL, detalle TEXT, FOREIGN KEY (factura_id) REFERENCES facturas_por_llegar(id)
   );
+  CREATE TABLE IF NOT EXISTS facturas_compras (
+    id INTEGER PRIMARY KEY, factura_id INTEGER NOT NULL UNIQUE, sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL,
+    modo TEXT NOT NULL CHECK (modo IN ('automatica','manual')), actor TEXT NOT NULL, fecha TEXT NOT NULL,
+    total_al_unir_centavos INTEGER NOT NULL CHECK (typeof(total_al_unir_centavos) = 'integer'),
+    UNIQUE (sucursal_id, com_id), FOREIGN KEY (factura_id) REFERENCES facturas_por_llegar(id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -418,6 +424,11 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    for (const columna of ['serie', 'folio']) {
+      if (!sqlite.pragma('table_info(facturas_por_llegar)').some(c => c.name === columna)) {
+        sqlite.exec(`ALTER TABLE facturas_por_llegar ADD COLUMN ${columna} TEXT`);
+      }
+    }
     if (!sqlite.pragma('table_info(sicar_proveedores)').some(c => c.name === 'rfc')) {
       sqlite.exec('ALTER TABLE sicar_proveedores ADD COLUMN rfc TEXT');
     }

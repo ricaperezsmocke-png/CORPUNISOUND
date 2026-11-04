@@ -154,7 +154,12 @@ const { registrarAgenteSicar, registrarRutasSicar } = require("./sicarRutas");
 const { crearNativoConVinculos, editarNativoConVinculos } = require("./sicarVinculos");
 const { crearConsultasCRM } = require("./crmFuentes");
 // Sin SQLite (solo tolerado en desarrollo) la integración SICAR queda apagada y responde 503.
-const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, { clientesNativos: () => DB.crm.clientes }) : null;
+let facturasCompras = null;
+const repoSicar = conexionSqlite ? crearRepositorioSicar(conexionSqlite, {
+  clientesNativos: () => DB.crm.clientes,
+  alGuardarCompras: (sucursalId, comIds) => facturasCompras?.alGuardarCompras(sucursalId, comIds),
+}) : null;
+if (repoSicar) facturasCompras = require('./facturasCompras').crearFacturasCompras({ sqlite: conexionSqlite });
 app.use(cors({
   origin: process.env.FRONTEND_URL || true, // 'true' permite cualquier origen en desarrollo local
 }));
@@ -3175,6 +3180,32 @@ if (repoSicar) {
   require("./facturasPorLlegar").registrarRutasFacturasPorLlegar(app, {
     DB, sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol,
   });
+  const ejecutarConciliacion = fn => (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try { res.json(fn(req, String(req.usuarioToken.id))); }
+    catch (e) {
+      if (!e.status) console.error('FACTURAS_COMPRAS_FALLO', e.message);
+      res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo completar la operación.' });
+    }
+  };
+  app.get('/api/facturas-compras/resumen', requiereLogin, requierePermiso('ver_facturas_por_llegar', resolverPermisosDeRol),
+    ejecutarConciliacion(() => facturasCompras.resumen()));
+  app.get('/api/facturas-por-llegar/:id/candidatas', requiereLogin, requierePermiso('ver_facturas_por_llegar', resolverPermisosDeRol),
+    ejecutarConciliacion(req => facturasCompras.candidatas(Number(req.params.id))));
+  app.post('/api/facturas-por-llegar/:id/confirmar', requiereLogin, requierePermiso('conciliar_facturas', resolverPermisosDeRol),
+    ejecutarConciliacion((req, actor) => facturasCompras.confirmar(Number(req.params.id), {
+      sucursal_id: Number(req.body?.sucursal_id), com_id: req.body?.com_id,
+    }, actor)));
+  app.post('/api/facturas-por-llegar/:id/ninguna', requiereLogin, requierePermiso('conciliar_facturas', resolverPermisosDeRol),
+    ejecutarConciliacion((req, actor) => facturasCompras.ninguna(Number(req.params.id), req.body?.motivo, actor)));
+  app.post('/api/facturas-por-llegar/:id/desunir', requiereLogin, requierePermiso('conciliar_facturas', resolverPermisosDeRol),
+    ejecutarConciliacion((req, actor) => facturasCompras.desunir(Number(req.params.id), req.body?.motivo, actor)));
+  if (require.main === module) {
+    setInterval(() => {
+      try { facturasCompras.revisar(); }
+      catch (e) { console.error('FACTURAS_COMPRAS_REVISION_FALLO', e.message); }
+    }, 86400000).unref();
+  }
 }
 
 // Supervisión de tiendas: visita mensual y fallas. Ver supervisionRutas.js.
