@@ -3,6 +3,26 @@ const assert = require('node:assert/strict');
 
 const UUID = 'ABCDEF12-3456-7890-ABCD-EF1234567890';
 
+test('Ronda 1: registrar conserva factura e historial si la conciliación falla después del commit', t => {
+  let conexion;
+  let enTransaccion;
+  let guardadas;
+  const mensajes = [];
+  t.mock.method(console, 'error', (...args) => mensajes.push(args));
+  t.mock.method(require('./facturasCompras'), 'crearFacturasCompras', () => ({ revisar() {
+    enTransaccion = conexion.inTransaction;
+    guardadas = conexion.prepare('SELECT count(*) n FROM facturas_por_llegar').get().n;
+    throw new Error('Datos privados: ' + UUID);
+  } }));
+  const { sqlite, modulo } = preparar(); conexion = sqlite; t.after(() => sqlite.close());
+  const f = modulo.registrar(xmlDe(), '7');
+  assert.equal(enTransaccion, false); assert.equal(guardadas, 1);
+  assert.equal(f.uuid, UUID); assert.equal(f.estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT uuid FROM facturas_por_llegar WHERE id=?').get(f.id).uuid, UUID);
+  assert.deepEqual(sqlite.prepare('SELECT accion FROM facturas_por_llegar_historial').all(), [{ accion: 'registrar' }]);
+  assert.deepEqual(mensajes, [['CONCILIACION_FALLO']]);
+});
+
 function xmlDe({ uuid = UUID, tipo = 'I', total = '16217.997', rfc = 'DINX800101ABC', moneda, tipoCambio } = {}) {
   const extra = (moneda === undefined ? '' : ` Moneda="${moneda}"`) + (tipoCambio === undefined ? '' : ` TipoCambio="${tipoCambio}"`);
   const timbre = uuid === null ? '' : `<cfdi:Complemento><tfd:TimbreFiscalDigital UUID="${uuid}" /></cfdi:Complemento>`;

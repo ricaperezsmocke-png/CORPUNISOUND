@@ -2,6 +2,51 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Database = require('better-sqlite3');
 
+test('Ronda 1: desunir impide reunir automáticamente la misma pareja y permite confirmación manual', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const id = factura(); const c = compra(); modulo.revisar();
+  assert.equal(obtener(id).llego_por, 'sicar');
+  modulo.desunir(id, 'No corresponde esta compra', '9');
+  const detalle = JSON.parse(sqlite.prepare("SELECT detalle FROM facturas_por_llegar_historial WHERE accion='desunir'").get().detalle);
+  assert.equal(detalle.union.sucursal_id, c.sucursal_id); assert.equal(detalle.union.com_id, c.com_id);
+  const reiniciado = require('./facturasCompras').crearFacturasCompras({ sqlite });
+  reiniciado.alGuardarCompras(c.sucursal_id, [c.com_id]); reiniciado.revisar();
+  assert.equal(obtener(id).estado, 'por_llegar');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.deepEqual(reiniciado.resumen().por_confirmar.map(f => f.id), [id]);
+  reiniciado.confirmar(id, c, '9');
+  assert.equal(sqlite.prepare('SELECT modo FROM facturas_compras').get().modo, 'manual');
+  reiniciado.desunir(id, 'Se confirma la separación', '9'); reiniciado.revisar();
+  assert.equal(obtener(id).estado, 'por_llegar');
+});
+
+test('Ronda 1: aviso de compra cancelada desaparece al confirmar otra compra o cancelar factura', t => {
+  for (const resolver of ['confirmar', 'cancelar']) {
+    const { sqlite, modulo, factura, compra } = prepararDB(t);
+    const id = factura(); compra(); modulo.revisar();
+    sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run(); modulo.alGuardarCompras(6, ['1']);
+    assert.equal(modulo.resumen().canceladas_despues.length, 1);
+    if (resolver === 'confirmar') modulo.confirmar(id, compra({ id: '2', folio: '' }), '9');
+    else require('./facturasPorLlegar').crearFacturasPorLlegar({ sqlite, DB: {} }).cancelar(id, 'Factura repuesta', '9');
+    assert.equal(modulo.resumen().canceladas_despues.length, 0);
+    assert.equal(sqlite.prepare("SELECT count(*) n FROM facturas_por_llegar_historial WHERE accion='desunir_cancelada'").get().n, 1);
+  }
+});
+
+test('Ronda 1: revisión diaria deshace cancelaciones sin hook en todas las sucursales', t => {
+  const { sqlite, modulo, factura, compra, obtener } = prepararDB(t);
+  const a = factura(); compra(); modulo.revisar();
+  const b = factura({ rfc: 'DEF010101XY9' }); compra({ sucursal: 42, rfc: 'DEF010101XY9' }); modulo.revisar();
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run();
+  modulo.revisar(); modulo.revisar();
+  for (const id of [a, b]) {
+    assert.equal(obtener(id).estado, 'por_llegar');
+    assert.equal(obtener(id).llego_por, null); assert.equal(obtener(id).llego_en, null);
+  }
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM facturas_compras').get().n, 0);
+  assert.equal(modulo.resumen().canceladas_despues.length, 2);
+});
+
 function prepararDB(t, conexion) {
   const sqlite = conexion || new Database(':memory:');
   require('./sicarRepositorio').crearRepositorioSicar(sqlite);

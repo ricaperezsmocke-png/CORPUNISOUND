@@ -61,6 +61,13 @@ function crearFacturasCompras({ sqlite }) {
     const marca = JSON.parse(h.detalle);
     return JSON.stringify(marca.candidatas) === JSON.stringify(lista(compras));
   }
+  function separadaAMano(id, compra) {
+    return sqlite.prepare(`SELECT detalle FROM facturas_por_llegar_historial
+      WHERE factura_id=? AND accion='desunir'`).all(id).some(h => {
+      const { union } = JSON.parse(h.detalle);
+      return union.sucursal_id === compra.sucursal_id && union.com_id === compra.com_id;
+    });
+  }
   function unir(f, c, modo, actor, opciones) {
     sqlite.prepare(`INSERT INTO facturas_compras
       (factura_id,sucursal_id,com_id,modo,actor,fecha,total_al_unir_centavos) VALUES (?,?,?,?,?,?,?)`)
@@ -71,6 +78,10 @@ function crearFacturasCompras({ sqlite }) {
     return { ...factura(f.id), compra: { ...c, modo, actor: String(actor) } };
   }
   function revisarDentro() {
+    const canceladas = sqlite.prepare(`SELECT u.*,c.estado,c.fecha AS fecha_compra,c.folio,c.total_centavos
+      FROM facturas_compras u JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
+      WHERE c.estado='cancelada'`).all();
+    for (const u of canceladas) separar(u.factura_id, 'sicar', 'desunir_cancelada', { compra: u });
     const compras = libres();
     if (!compras.length) return;
     const porRfc = new Map();
@@ -87,7 +98,7 @@ function crearFacturasCompras({ sqlite }) {
     for (const { f, opciones } of filas) {
       if (opciones.length !== 1) continue;
       const c = opciones[0];
-      if (usos.get(clave(c)) === 1 && folioCoincide(c.folio, f) && !descartada(f.id, opciones)) {
+      if (usos.get(clave(c)) === 1 && folioCoincide(c.folio, f) && !descartada(f.id, opciones) && !separadaAMano(f.id, c)) {
         unir(f, c, 'automatica', 'sicar', opciones);
       }
     }
@@ -129,22 +140,15 @@ function crearFacturasCompras({ sqlite }) {
       const f = factura(id);
       const union = sqlite.prepare('SELECT * FROM facturas_compras WHERE factura_id=?').get(f.id);
       if (!union) throw error(409, 'La factura no tiene una compra unida.');
+      // union conserva sucursal_id y com_id: esta pareja no se volverá a unir automáticamente.
       separar(f.id, actor, 'desunir', { motivo: texto, union });
       return factura(f.id);
     }).immediate();
   }
-  function alGuardarCompras(sucursalId, comIds) {
+  function alGuardarCompras() {
     try {
-      sqlite.transaction(() => {
-        const ids = new Set(comIds.map(String));
-        const unidas = sqlite.prepare(`SELECT u.*,c.estado,c.fecha AS fecha_compra,c.folio,c.total_centavos
-          FROM facturas_compras u JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
-          WHERE u.sucursal_id=?`).all(Number(sucursalId));
-        for (const u of unidas) {
-          if (ids.has(u.com_id) && u.estado === 'cancelada') separar(u.factura_id, 'sicar', 'desunir_cancelada', { compra: u });
-        }
-        revisarDentro();
-      }).immediate();
+      // La misma revisión global repara cancelaciones que no alcanzaron a pasar por el hook.
+      revisar();
     } catch (e) { console.error('FACTURAS_COMPRAS_HOOK_FALLO', e.message); }
   }
   function resumen() {
@@ -164,7 +168,9 @@ function crearFacturasCompras({ sqlite }) {
       FROM facturas_compras u JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
       WHERE ABS(c.total_centavos-u.total_al_unir_centavos)>100`).all();
     const canceladas = sqlite.prepare(`SELECT h.*,f.uuid FROM facturas_por_llegar_historial h
-      JOIN facturas_por_llegar f ON f.id=h.factura_id WHERE h.accion='desunir_cancelada' ORDER BY h.id DESC`).all()
+      JOIN facturas_por_llegar f ON f.id=h.factura_id
+      LEFT JOIN facturas_compras u ON u.factura_id=f.id
+      WHERE h.accion='desunir_cancelada' AND f.estado='por_llegar' AND u.id IS NULL ORDER BY h.id DESC`).all()
       .map(h => ({ ...h, detalle: JSON.parse(h.detalle) }));
     const proveedores = sqlite.prepare(`SELECT p.sucursal_id,p.prv_id,p.nombre,p.rfc,COUNT(c.com_id) compras
       FROM sicar_proveedores p JOIN sicar_compras c ON c.sucursal_id=p.sucursal_id AND c.pro_id=p.prv_id

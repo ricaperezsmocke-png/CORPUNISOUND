@@ -73,7 +73,7 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
     }
     const moneda = normalizarMoneda(cfdi.moneda);
     const tipoCambio = cfdi.tipoCambio === null || cfdi.tipoCambio === undefined ? null : String(cfdi.tipoCambio).trim();
-    return sqlite.transaction(() => {
+    const registrada = sqlite.transaction(() => {
       const id = Number(sqlite.prepare(`INSERT INTO facturas_por_llegar(uuid, rfc_emisor, nombre_emisor, fecha_emision,
         total_centavos, conceptos_json, estado, creada_por, creada_en, moneda, tipo_cambio, serie, folio)
         VALUES (?, ?, ?, ?, ?, ?, 'por_llegar', ?, ?, ?, ?, ?, ?)`)
@@ -81,9 +81,14 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
           String(actor), ahora(), moneda, tipoCambio, cfdi.serie, cfdi.folio).lastInsertRowid);
       historial(id, 'registrar', actor, moneda === 'MXN' ? null : `moneda ${moneda} (prohibida)`);
       if (compraRecibida(uuid)) llegoSola(id);
-      conciliacion.revisar();
       return obtener(id);
     })();
+    try { conciliacion.revisar(); }
+    catch {
+      console.error('CONCILIACION_FALLO');
+      return registrada;
+    }
+    return obtener(registrada.id);
   }
 
   function listar({ estado } = {}) {
