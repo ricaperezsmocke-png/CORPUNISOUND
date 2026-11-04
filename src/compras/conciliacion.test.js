@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido, avisosOmitidas, cargarConciliacion,
+  textoUnion, textoAutor, puedeConciliar, avisosRojos, motivoConciliacionValido, avisosOmitidas, cargarConciliacion,
   fechaDeCompra, puedeMarcarLlego, textoCerrada,
 } from "./conciliacion.js";
 
@@ -51,7 +51,6 @@ test("rojos conservan selección del servidor y ordenan más días primero sin m
   const copia = structuredClone(resumen);
   const avisos = avisosRojos(resumen, new Date("2026-11-04T05:30:00Z"));
   assert.deepEqual(avisos.map(a => a.texto), [
-    "Compra de SICAR sin factura desde hace 33 días",
     "Factura sin compra en SICAR desde hace 19 días",
     "La compra se canceló en SICAR después de unida",
     "La compra cambió en SICAR después de unida: antes $1,234.56, ahora $1,250.00",
@@ -60,10 +59,9 @@ test("rojos conservan selección del servidor y ordenan más días primero sin m
   assert.deepEqual(avisosRojos(null), []);
 });
 
-test("compras históricas se muestran aparte sin rojo", () => {
-  assert.equal(textoViejas(1399), "1399 compras anteriores sin factura (no se marcan en rojo)");
-  assert.equal(textoViejas(0), "0 compras anteriores sin factura (no se marcan en rojo)");
-  assert.equal(textoViejas(1), "1 compra anterior sin factura (no se marca en rojo)");
+test("avisosRojos no genera avisos a partir de compras_sin_factura_15", () => {
+  const resumen = { compras_sin_factura_15: [{ sucursal_id: 6, com_id: "2", fecha: "2026-10-01T23:00:00" }] };
+  assert.deepEqual(avisosRojos(resumen, new Date("2026-11-04T05:30:00Z")), []);
 });
 
 test("unión manual sin nombre del actor dice Confirmada manualmente, nunca undefined", () => {
