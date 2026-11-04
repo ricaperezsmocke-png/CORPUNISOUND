@@ -5,6 +5,9 @@ import {
   textoEspera, nombreEstado, motivoValido, puedeRegistrar, resumenFacturas, fechaCorta, archivoXmlValido,
   mensajeResultado, textoTotal, textoMonedaProhibida, resumenProhibidas,
 } from "./facturasPorLlegar.js";
+import {
+  textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido,
+} from "./conciliacion.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
 const CAJA = "rounded-lg border border-slate-300 bg-white";
@@ -123,28 +126,163 @@ function SubirXml({ onSubido }) {
   );
 }
 
+function ElegirUnion({ accion, onCerrar, onHecho }) {
+  const { factura, tipo, compra } = accion;
+  const [motivo, setMotivo] = useState("");
+  const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const pendiente = useRef(false);
+  const pideMotivo = tipo !== "confirmar";
+  const titulo = tipo === "confirmar" ? "Es esta compra" : tipo === "ninguna" ? "Ninguna de estas" : "Desunir";
+  const enviar = async (e) => {
+    e.preventDefault();
+    if (pendiente.current || (pideMotivo && !motivoConciliacionValido(motivo))) return;
+    pendiente.current = true;
+    setEnviando(true);
+    setError("");
+    try {
+      const body = pideMotivo ? { motivo: motivo.trim() } : { sucursal_id: compra.sucursal_id, com_id: compra.com_id };
+      const r = await apiFetch(`/facturas-por-llegar/${factura.id}/${tipo}`, { method: "POST", body: JSON.stringify(body) });
+      const cuerpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(cuerpo.error || "No se pudo completar la operación.");
+      onHecho();
+    } catch (e) {
+      setError(e.message || "No se pudo completar la operación.");
+    } finally {
+      pendiente.current = false;
+      setEnviando(false);
+    }
+  };
+  return (
+    <div className={FONDO} role="dialog" aria-modal="true" aria-labelledby="titulo-union">
+      <form className={MODAL} onSubmit={enviar}>
+        <h2 id="titulo-union" className="mb-2 font-semibold">{titulo}</h2>
+        <IdentidadFactura factura={factura} />
+        {compra && <DetalleCompra compra={compra} />}
+        {pideMotivo && (
+          <label className={ETIQUETA}>Motivo
+            <textarea className={CAMPO} rows={3} required value={motivo} onChange={e => setMotivo(e.target.value)} />
+          </label>
+        )}
+        {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className={BTN} disabled={enviando} onClick={onCerrar}>Volver</button>
+          <button type="submit" className={BTN_PRIMARIO} disabled={enviando || (pideMotivo && !motivoConciliacionValido(motivo))}>
+            {enviando ? "Guardando…" : titulo}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function IdentidadFactura({ factura: f }) {
+  return (
+    <div className="mb-2 break-words text-sm">
+      <p>{f.nombre_emisor || f.rfc_emisor || "Factura"} · {textoTotal(f)}</p>
+      <p>Factura {f.serie || ""}{f.folio || "—"} · {fechaCorta(f.fecha_emision)}</p>
+      <p className={NOTA_GRIS}>{f.uuid}</p>
+    </div>
+  );
+}
+
+function DetalleCompra({ compra: c }) {
+  return (
+    <div className="my-2 break-words text-sm">
+      <p>Compra SICAR {c.folio || "—"} · {fechaCorta(c.fecha || c.fecha_compra)} · {textoTotal(c)}</p>
+      <p>{c.proveedor}</p>
+      <p>{c.comentario || "Sin comentario"}</p>
+      <p className={NOTA_GRIS}>Sucursal {c.sucursal_id} · Compra {c.com_id}</p>
+    </div>
+  );
+}
+
+function ResumenConciliacion({ resumen, concilia, onAccion }) {
+  if (!resumen) return null;
+  return (
+    <div className="my-4 space-y-4">
+      <section className={`${CAJA} p-3`}>
+        <h2 className="mb-2 font-semibold">Por confirmar</h2>
+        {resumen.por_confirmar.length === 0 && <p className={NOTA_GRIS}>No hay facturas por confirmar.</p>}
+        {resumen.por_confirmar.map(f => (
+          <article key={f.id} className="mb-3 border-b border-slate-200 pb-3">
+            <IdentidadFactura factura={f} />
+            {f.candidatas.map(c => (
+              <div key={`${c.sucursal_id}:${c.com_id}`} className="mb-2 rounded border border-slate-200 p-2">
+                <DetalleCompra compra={c} />
+                {concilia && (
+                  <button type="button" className={BTN} onClick={() => onAccion({ factura: f, tipo: "confirmar", compra: c })}>
+                    Es esta compra
+                  </button>
+                )}
+              </div>
+            ))}
+            {concilia && (
+              <button type="button" className={BTN} onClick={() => onAccion({ factura: f, tipo: "ninguna" })}>Ninguna de estas</button>
+            )}
+          </article>
+        ))}
+      </section>
+      <section aria-label="Avisos de conciliación">
+        {avisosRojos(resumen).map(({ tipo, fila, texto }) => (
+          <article key={`${tipo}:${fila.id ?? `${fila.sucursal_id}:${fila.com_id}`}`} className={NOTA_ROJA}>
+            <p className="font-semibold">{texto}</p>
+            {tipo === "factura" ? <IdentidadFactura factura={fila} /> : (
+              <>
+                <DetalleCompra compra={tipo === "cancelada" ? fila.detalle.compra : fila} />
+                {fila.factura_id && <p>Factura #{fila.factura_id}{fila.uuid ? ` · ${fila.uuid}` : ""}</p>}
+              </>
+            )}
+          </article>
+        ))}
+      </section>
+      <p className={NOTA_GRIS}>{textoViejas(resumen.compras_viejas_sin_factura)}</p>
+      <section className={`${CAJA} p-3`}>
+        <h2 className="font-semibold">Proveedores sin RFC en SICAR</h2>
+        <p className="my-2 text-sm">Llénalo en SICAR de CEDIS; aquí se actualiza solo.</p>
+        {resumen.proveedores_sin_rfc.length === 0 && <p className={NOTA_GRIS}>No hay proveedores sin RFC.</p>}
+        <ul className="space-y-1 text-sm">
+          {resumen.proveedores_sin_rfc.map(p => (
+            <li key={`${p.sucursal_id}:${p.prv_id}`}>{p.nombre} · {p.compras} compras</li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 export default function FacturasPorLlegar({ permisos = [] }) {
   const [estado, setEstado] = useState("por_llegar");
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
   const [accion, setAccion] = useState(null);
+  const [union, setUnion] = useState(null);
+  const [resumen, setResumen] = useState(null);
   const peticiones = useRef(contadorDePeticiones());
   const registra = puedeRegistrar(permisos);
+  const concilia = puedeConciliar(permisos);
 
   const cargar = useCallback(async () => {
     const numero = peticiones.current.nueva();
     setCargando(true);
     setError("");
     try {
-      const r = await apiFetch(`/facturas-por-llegar${estado ? `?estado=${estado}` : ""}`);
-      const cuerpo = await r.json();
+      const [cuerpo, resumenNuevo] = await Promise.all([
+        `/facturas-por-llegar${estado ? `?estado=${estado}` : ""}`, "/facturas-compras/resumen",
+      ].map(async ruta => {
+        const r = await apiFetch(ruta);
+        const respuesta = await r.json();
+        if (!r.ok) throw new Error(respuesta?.error || "No se pudieron cargar las facturas y su conciliación.");
+        return respuesta;
+      }));
       if (!peticiones.current.vigente(numero)) return;
-      setDatos(r.ok ? cuerpo : null);
-      setError(r.ok ? "" : cuerpo?.error || "No se pudieron cargar las facturas.");
+      setDatos(cuerpo);
+      setResumen(resumenNuevo);
     } catch (e) {
       if (!peticiones.current.vigente(numero)) return;
       setDatos(null);
+      setResumen(null);
       setError(e.message || "No se pudieron cargar las facturas.");
     } finally {
       if (peticiones.current.vigente(numero)) setCargando(false);
@@ -156,7 +294,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
   const facturas = datos?.facturas || [];
   const aviso = resumenFacturas(datos);
   const prohibidas = resumenProhibidas(datos);
-  const hecho = () => { setAccion(null); cargar(); };
+  const hecho = () => { setAccion(null); setUnion(null); cargar(); };
   return (
     <div className={PAGINA}>
       <h1 className="mb-1 text-xl font-bold text-slate-900">Facturas por Llegar</h1>
@@ -164,6 +302,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
         Facturas que el proveedor ya emitió y cuya mercancía todavía no llega. Se marcan solas cuando se recibe la compra.
       </p>
       {registra && <SubirXml onSubido={cargar} />}
+      <button type="button" className={BTN} disabled={cargando} onClick={cargar}>Actualizar</button>
       <div className="mb-3 max-w-xs">
         <label className={ETIQUETA}>Mostrar
           <select className={CAMPO} value={estado} onChange={(e) => setEstado(e.target.value)}>
@@ -175,6 +314,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
       {aviso && <p role="status" className={NOTA_AMBAR}>{aviso}</p>}
       {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
       {cargando && <p className="mb-2 text-sm text-slate-500">Cargando…</p>}
+      <ResumenConciliacion resumen={resumen} concilia={concilia && !cargando} onAccion={setUnion} />
       <div className={`${CAJA} overflow-x-auto`}>
         <table className="w-full min-w-[900px] text-sm">
           <thead>
@@ -185,30 +325,39 @@ export default function FacturasPorLlegar({ permisos = [] }) {
               <th className={`${ENCABEZADO} text-right`}>Total</th>
               <th className={ENCABEZADO}>Estado</th>
               <th className={ENCABEZADO}>Espera</th>
-              {registra && <th className={ENCABEZADO}>Acciones</th>}
+              {(registra || concilia) && <th className={ENCABEZADO}>Acciones</th>}
             </tr>
           </thead>
           <tbody>
             {facturas.map((f) => (
               <tr key={f.id}>
                 <td className={CELDA}>{f.nombre_emisor || "—"}<span className="block text-xs text-slate-500">{f.rfc_emisor}</span></td>
-                <td className={`${CELDA} break-all text-xs`}>{f.uuid}</td>
+                <td className={`${CELDA} break-all text-xs`}>{f.uuid}<p>{f.serie || ""}{f.folio || ""}</p></td>
                 <td className={CELDA}>{fechaCorta(f.fecha_emision)}</td>
                 <td className={`${CELDA} ${DERECHA}`}>
                   {textoTotal(f)}
                   {f.moneda_prohibida && <span role="alert" className="mt-1 block text-left text-xs font-semibold text-red-800">{textoMonedaProhibida(f)}</span>}
                 </td>
                 <td className={CELDA}>
-                  {nombreEstado(f.estado)}
+                  {f.compra ? (
+                    <>
+                      <p>{textoUnion(f.compra)}</p>
+                      <p className={NOTA_GRIS}>{textoAutor(f.compra)}</p>
+                      <p className={NOTA_GRIS}>{f.compra.comentario || "Sin comentario"}</p>
+                    </>
+                  ) : nombreEstado(f.estado)}
                   {f.estado === "cancelada" && f.motivo && <span className="block text-xs text-slate-500">{f.motivo}</span>}
                 </td>
                 <td className={`${CELDA} ${f.aviso ? "font-semibold text-amber-800" : ""}`}>
                   {textoEspera(f)}
                   {f.aviso && <span className="block text-xs">Más de {datos.dias_aviso} días: preguntar al proveedor</span>}
                 </td>
-                {registra && (
+                {(registra || concilia) && (
                   <td className={CELDA}>
-                    {f.estado === "por_llegar" && (
+                    {concilia && f.compra && (
+                      <button type="button" className={BTN} disabled={cargando} onClick={() => setUnion({ factura: f, tipo: "desunir" })}>Desunir</button>
+                    )}
+                    {registra && f.estado === "por_llegar" && (
                       <div className="flex flex-wrap gap-2">
                         <button type="button" className={BTN} onClick={() => setAccion({ factura: f, tipo: "llego" })}>Ya llegó</button>
                         <button type="button" className={BTN} onClick={() => setAccion({ factura: f, tipo: "cancelar" })}>Cancelar</button>
@@ -223,6 +372,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
       </div>
       {!cargando && !error && datos && facturas.length === 0 && <p className="mt-3 text-sm text-slate-700">No hay facturas con este filtro</p>}
       {accion && <Accion accion={accion} onCerrar={() => setAccion(null)} onHecho={hecho} />}
+      {union && concilia && <ElegirUnion accion={union} onCerrar={() => setUnion(null)} onHecho={hecho} />}
     </div>
   );
 }

@@ -45,6 +45,10 @@ function crearFacturasPorLlegar({ sqlite, DB }) {
     const compra = sqlite.prepare(`SELECT u.sucursal_id,u.com_id,c.fecha,c.folio,c.total_centavos,c.comentario,u.modo,u.actor
       FROM facturas_compras u LEFT JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
       WHERE u.factura_id=?`).get(f.id);
+    if (compra && compra.actor !== 'sicar') {
+      const usuario = (DB.admin?.usuarios || []).find(u => Number(u.id) === Number(compra.actor));
+      compra.actor_nombre = usuario?.nombre || `Usuario #${compra.actor}`;
+    }
     return { ...resto, conceptos: JSON.parse(json), moneda_prohibida: resto.moneda !== 'MXN', ...(compra ? { compra } : {}) };
   };
   const obtener = id => hidratar(sqlite.prepare('SELECT * FROM facturas_por_llegar WHERE id = ?').get(id));

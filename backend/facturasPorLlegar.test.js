@@ -3,6 +3,23 @@ const assert = require('node:assert/strict');
 
 const UUID = 'ABCDEF12-3456-7890-ABCD-EF1234567890';
 
+test('compra manual resuelve actor_nombre y conserva respaldo para usuario inexistente', t => {
+  const { sqlite, DB, modulo } = preparar();
+  t.after(() => sqlite.close());
+  DB.admin = { usuarios: [{ id: 992, nombre: 'Ana' }] };
+  const f = modulo.registrar(xmlDe(), '7');
+  sqlite.prepare('INSERT INTO sicar_tiendas(sucursal_id) VALUES (42)').run();
+  sqlite.prepare(`INSERT INTO sicar_proveedores(sucursal_id,prv_id,nombre,rfc,actualizado_en)
+    VALUES (42,'1','Proveedor','DINX800101ABC','2026-07-01')`).run();
+  sqlite.prepare(`INSERT INTO sicar_compras
+    (sucursal_id,com_id,fecha,pro_id,folio,comentario,estado,total_centavos,primera_vez,actualizado_en)
+    VALUES (42,'9','2026-07-02T10:00:00','1','A123','COMPRA','vigente',1621800,'2026-07-02','2026-07-02')`).run();
+  require('./facturasCompras').crearFacturasCompras({ sqlite }).confirmar(f.id, { sucursal_id: 42, com_id: '9' }, '992');
+  assert.equal(modulo.listar().facturas[0].compra.actor_nombre, 'Ana');
+  DB.admin.usuarios = [];
+  assert.equal(modulo.listar().facturas[0].compra.actor_nombre, 'Usuario #992');
+});
+
 test('Ronda 1: registrar conserva factura e historial si la conciliación falla después del commit', t => {
   let conexion;
   let enTransaccion;
