@@ -7,7 +7,7 @@ function id(valor) {
   if (!/^[1-9][0-9]{0,127}$/.test(texto)) throw new Error('ID_INVALIDO');
   return texto;
 }
-// redondear solo para precios unitarios (informativos): los importes que suman nunca se redondean.
+// redondear solo para precios unitarios (informativos) y el importeCon de compras, que SICAR ya guarda con 2 decimales.
 function decimal(valor, escala, redondear = false) {
   if (typeof valor !== 'string' || !/^\d+(?:\.\d+)?$/.test(valor)) throw new Error('DECIMAL_INVALIDO');
   const [entero, fraccion = ''] = valor.split('.');
@@ -315,6 +315,8 @@ function traspasoSeguro(datos) {
     return { traspaso: null, omitido: { tra_id, codigo: error.message } };
   }
 }
+// Los precios de SICAR traen hasta 6 decimales (detallec decimal(20,6)): se redondean a 2, mitad hacia arriba, sin float.
+// Un art_id o un texto que el servidor rechazaria omite solo esa compra; nunca detiene al agente ni atora el cursor.
 function compraSegura({ compra: c, detalles, cancelaciones }) {
   const com_id = id(c.com_id);
   const omitir = codigo => ({ compra: null, omitida: { com_id, codigo } });
@@ -322,23 +324,34 @@ function compraSegura({ compra: c, detalles, cancelaciones }) {
   const suyos = detalles.filter(d => String(d.com_id) === com_id);
   if (!suyos.length) return omitir('SIN_DETALLE');
   if (suyos.length > 500) return omitir('DEMASIADOS_RENGLONES');
+  const articulo = valor => {
+    try { return id(valor); } catch { throw new Error('ARTICULO_INVALIDO'); }
+  };
   let pro_id;
   try {
     pro_id = id(c.pro_id);
     const fecha = fechaLocal(c.fecha);
     const estado = String(c.status) === '1' ? 'vigente' : 'cancelada';
     const cancelacion = cancelaciones.filter(h => String(h.id) === com_id).at(-1);
-    const cancelada_en = estado === 'cancelada' && cancelacion ? fechaLocal(cancelacion.fecha) : null;
-    const detalle = suyos.map(d => ({ art_id: id(d.art_id), cantidad: decimal(d.cantidad, 4), precio_sin: decimal(d.precioSin, 2),
-      precio_con: decimal(d.precioCon, 2), importe_con: decimal(d.importeCon, 2) }));
+    const cancelada_en = estado === 'cancelada' && cancelacion ? fechaCancelacion(cancelacion.fecha) : null;
+    const detalle = suyos.map(d => ({ art_id: articulo(d.art_id), cantidad: decimal(d.cantidad, 4),
+      precio_sin: decimal(d.precioSin, 2, true), precio_con: decimal(d.precioCon, 2, true), importe_con: decimal(d.importeCon, 2, true) }));
     const total_con = importe(detalle.reduce((suma, d) => suma + centavos(d.importe_con), 0n));
-    return { compra: { com_id, fecha, pro_id, folio: String(c.folio ?? '').trim().slice(0, 60),
-      comentario: String(c.comentario ?? '').trim().slice(0, 200), estado, cancelada_en, total_con, detalle }, omitida: null };
+    return { compra: { com_id, fecha, pro_id, folio: texto(String(c.folio ?? '').trim().slice(0, 60), 60),
+      comentario: texto(String(c.comentario ?? '').trim().slice(0, 200), 200), estado, cancelada_en, total_con, detalle }, omitida: null };
   } catch (error) {
     if (pro_id === undefined && error.message === 'ID_INVALIDO') return omitir('PROVEEDOR_INVALIDO');
-    if (error.message === 'FECHA_INVALIDA') return omitir('FECHA_INVALIDA');
+    if (['FECHA_INVALIDA', 'ARTICULO_INVALIDO', 'TEXTO_INVALIDO'].includes(error.message)) return omitir(error.message);
     if (['DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO'].includes(error.message)) return omitir('IMPORTE_INVALIDO');
     throw error;
+  }
+}
+// Una cancelacion con fecha imposible en el historial no oculta que la compra esta cancelada: va sin fecha.
+function fechaCancelacion(valor) {
+  try { return fechaLocal(valor); }
+  catch (error) {
+    if (error.message !== 'FECHA_INVALIDA') throw error;
+    return null;
   }
 }
 module.exports = { PUBLICOS, esPublico, id, decimal, cliente, venta, sobre, cabe, esHorarioHistorico, DATOS_RAROS, clienteSeguro, ventaSegura, articuloSeguro,

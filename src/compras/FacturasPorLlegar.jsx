@@ -6,7 +6,7 @@ import {
   mensajeResultado, textoTotal, textoMonedaProhibida, resumenProhibidas,
 } from "./facturasPorLlegar.js";
 import {
-  textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido,
+  textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido, avisosOmitidas, cargarConciliacion,
 } from "./conciliacion.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -197,7 +197,8 @@ function DetalleCompra({ compra: c }) {
   );
 }
 
-function ResumenConciliacion({ resumen, concilia, onAccion }) {
+function ResumenConciliacion({ resumen, error, concilia, onAccion }) {
+  if (error) return <p role="alert" className={`${NOTA_ROJA} my-4`}>{error}</p>;
   if (!resumen) return null;
   return (
     <div className="my-4 space-y-4">
@@ -235,6 +236,9 @@ function ResumenConciliacion({ resumen, concilia, onAccion }) {
             )}
           </article>
         ))}
+        {avisosOmitidas(resumen).map(({ clave, texto }) => (
+          <article key={`omitida:${clave}`} className={NOTA_ROJA}><p className="font-semibold">{texto}</p></article>
+        ))}
       </section>
       <p className={NOTA_GRIS}>{textoViejas(resumen.compras_viejas_sin_factura)}</p>
       <section className={`${CAJA} p-3`}>
@@ -259,6 +263,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
   const [accion, setAccion] = useState(null);
   const [union, setUnion] = useState(null);
   const [resumen, setResumen] = useState(null);
+  const [errorResumen, setErrorResumen] = useState("");
   const peticiones = useRef(contadorDePeticiones());
   const registra = puedeRegistrar(permisos);
   const concilia = puedeConciliar(permisos);
@@ -267,23 +272,14 @@ export default function FacturasPorLlegar({ permisos = [] }) {
     const numero = peticiones.current.nueva();
     setCargando(true);
     setError("");
+    setErrorResumen("");
     try {
-      const [cuerpo, resumenNuevo] = await Promise.all([
-        `/facturas-por-llegar${estado ? `?estado=${estado}` : ""}`, "/facturas-compras/resumen",
-      ].map(async ruta => {
-        const r = await apiFetch(ruta);
-        const respuesta = await r.json();
-        if (!r.ok) throw new Error(respuesta?.error || "No se pudieron cargar las facturas y su conciliación.");
-        return respuesta;
-      }));
+      const r = await cargarConciliacion(apiFetch, estado);
       if (!peticiones.current.vigente(numero)) return;
-      setDatos(cuerpo);
-      setResumen(resumenNuevo);
-    } catch (e) {
-      if (!peticiones.current.vigente(numero)) return;
-      setDatos(null);
-      setResumen(null);
-      setError(e.message || "No se pudieron cargar las facturas.");
+      setDatos(r.datos);
+      setResumen(r.resumen);
+      setError(r.error);
+      setErrorResumen(r.errorResumen);
     } finally {
       if (peticiones.current.vigente(numero)) setCargando(false);
     }
@@ -314,7 +310,7 @@ export default function FacturasPorLlegar({ permisos = [] }) {
       {aviso && <p role="status" className={NOTA_AMBAR}>{aviso}</p>}
       {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
       {cargando && <p className="mb-2 text-sm text-slate-500">Cargando…</p>}
-      <ResumenConciliacion resumen={resumen} concilia={concilia && !cargando} onAccion={setUnion} />
+      <ResumenConciliacion resumen={resumen} error={errorResumen} concilia={concilia && !cargando} onAccion={setUnion} />
       <div className={`${CAJA} overflow-x-auto`}>
         <table className="w-full min-w-[900px] text-sm">
           <thead>

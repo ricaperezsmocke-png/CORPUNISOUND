@@ -168,7 +168,8 @@ const EVENTOS = new Set([
 const DETALLES = { cli_id: /^\d{1,20}$/, ven_id: /^\d{1,20}$/, his_id: /^\d{1,20}$/, art_id: /^\d{1,20}$/,
   prv_id: /^\d{1,20}$/, cor_id: /^\d{1,20}$/, tra_id: /^\d{1,20}$/, com_id: /^\d{1,20}$/,
   campo: /^(telefono|celular|email|rfc)$/, codigo: { test: x => DATOS_RAROS.has(x)
-    || ['PROVEEDOR_INVALIDO', 'STATUS_DESCONOCIDO', 'SIN_DETALLE', 'DEMASIADOS_RENGLONES', 'IMPORTE_INVALIDO'].includes(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
+    || ['PROVEEDOR_INVALIDO', 'STATUS_DESCONOCIDO', 'SIN_DETALLE', 'DEMASIADOS_RENGLONES', 'IMPORTE_INVALIDO',
+      'TEXTO_INVALIDO', 'ARTICULO_INVALIDO'].includes(x) }, columna: /^[a-zA-Z_][a-zA-Z_0-9]*\.[a-zA-Z_][a-zA-Z_0-9]*$/ };
 function detalle(datos) {
   if (!datos || typeof datos !== 'object' || datos instanceof Error) return '';
   return Object.entries(DETALLES).filter(([k, patron]) => typeof datos[k] === 'string' && patron.test(datos[k]))

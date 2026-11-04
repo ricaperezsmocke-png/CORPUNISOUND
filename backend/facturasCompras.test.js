@@ -180,7 +180,8 @@ test('12. Rutas exigen conciliar aunque el rol pueda ver y registrar', async t =
 });
 test('13. Carga inicial excluida; compra recibida 20 días después incluida', t => {
   const { modulo, compra } = prepararDB(t);
-  compra(); compra({ id: '2', primera: '2026-01-21T12:00:00Z' });
+  // Regla vigente: cuenta el día de la compra en SICAR contra el día de activación (primera_vez más antigua).
+  compra({ fecha: '2025-12-20T12:00:00' }); compra({ id: '2', fecha: '2026-01-21T12:00:00', primera: '2026-01-21T12:00:00Z' });
   const r = modulo.resumen();
   assert.deepEqual(r.compras_sin_factura_15.map(c => c.com_id), ['2']);
   assert.equal(r.compras_viejas_sin_factura, 1);
@@ -258,4 +259,33 @@ test('Ninguna impide la unión automática de la misma lista aunque el folio se 
   sqlite.prepare("UPDATE sicar_compras SET folio='A123'").run();
   modulo.alGuardarCompras(6, ['1']); modulo.revisar();
   assert.equal(obtener(id).estado, 'por_llegar'); assert.equal(modulo.resumen().por_confirmar.length, 0);
+});
+
+test('Carga inicial cortada en dos tandas con 3 días de separación no saca compras viejas en rojo', t => {
+  const { modulo, compra } = prepararDB(t);
+  compra({ id: '1', fecha: '2024-03-10T12:00:00', primera: '2026-01-01T23:30:00Z' });
+  compra({ id: '2', fecha: '2024-11-05T12:00:00', primera: '2026-01-01T23:40:00Z' });
+  compra({ id: '3', fecha: '2024-12-31T12:00:00', primera: '2026-01-04T23:30:00Z' });
+  compra({ id: '4', fecha: '2025-06-01T12:00:00', primera: '2026-01-05T03:00:00Z' });
+  const r = modulo.resumen();
+  assert.deepEqual(r.compras_sin_factura_15, []);
+  assert.equal(r.compras_viejas_sin_factura, 4);
+  // Activación: 2026-01-01 en hora de México (23:30 UTC); la compra de ese mismo día ya es nueva.
+  compra({ id: '5', fecha: '2026-01-01T09:00:00', primera: '2026-01-02T00:00:00Z' });
+  compra({ id: '6', fecha: '2026-01-21T12:00:00', primera: '2026-01-21T12:00:00Z' });
+  compra({ id: '7', sucursal: 42, fecha: '2024-05-01T12:00:00', primera: '2026-02-10T12:00:00Z' });
+  const despues = modulo.resumen();
+  assert.deepEqual(despues.compras_sin_factura_15.map(c => c.com_id).sort(), ['5', '6']);
+  assert.equal(despues.compras_viejas_sin_factura, 5);
+});
+test('El resumen lista las compras de SICAR que no se pudieron leer', t => {
+  const { modulo, sqlite } = prepararDB(t);
+  assert.deepEqual(modulo.resumen().compras_omitidas, []);
+  const insertar = sqlite.prepare(`INSERT INTO sicar_compras_omitidas (sucursal_id,com_id,codigo,primera_vez,ultima_vez)
+    VALUES (?,?,?,?,?)`);
+  insertar.run(6, '41', 'TEXTO_INVALIDO', '2026-11-01T10:00:00Z', '2026-11-03T10:00:00Z');
+  insertar.run(6, '9', 'ARTICULO_INVALIDO', '2026-11-02T10:00:00Z', '2026-11-04T10:00:00Z');
+  assert.deepEqual(modulo.resumen().compras_omitidas, [
+    { sucursal_id: 6, com_id: '9', codigo: 'ARTICULO_INVALIDO', ultima_vez: '2026-11-04T10:00:00Z' },
+    { sucursal_id: 6, com_id: '41', codigo: 'TEXTO_INVALIDO', ultima_vez: '2026-11-03T10:00:00Z' }]);
 });

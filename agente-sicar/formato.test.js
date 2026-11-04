@@ -364,7 +364,6 @@ for (const [codigo, compra, detalles] of [
   ['FECHA_INVALIDA', { ...compraBase, fecha: '2026-02-30 10:00:00' }, [renglonCompra]],
   ['SIN_DETALLE', compraBase, []],
   ['DEMASIADOS_RENGLONES', compraBase, Array(501).fill(renglonCompra)],
-  ['IMPORTE_INVALIDO', compraBase, [{ ...renglonCompra, importeCon: '580.001' }]],
   ['IMPORTE_INVALIDO', compraBase, [{ ...renglonCompra, precioCon: '-1' }]],
 ]) {
   test(`compras: omite ${codigo} (${detalles.length} renglones, ${detalles[0]?.precioCon})`, () => {
@@ -392,5 +391,48 @@ test('compras: status texto y dos cancelaciones conservan la mas reciente', () =
       cancelaciones: [{ id: '41', fecha: '2026-11-03 13:00:00' }, { id: '41', fecha: '2026-11-03 14:00:00' }] });
     assert.equal(resultado.compra.estado, status === '1' ? 'vigente' : 'cancelada');
     assert.equal(resultado.compra.cancelada_en, status === '1' ? null : '2026-11-03T14:00:00');
+  }
+});
+test('compras: folio o comentario con caracter de control o de sustitucion se omite con TEXTO_INVALIDO', () => {
+  for (const extra of [{ comentario: 'COMPRA YAJAL�N' }, { folio: 'F\u0001-1' }, { comentario: 'Mal\u001fdato' }]) {
+    assert.deepEqual(compraSegura({ compra: { ...compraBase, ...extra }, detalles: [renglonCompra], cancelaciones: [] }),
+      { compra: null, omitida: { com_id: '41', codigo: 'TEXTO_INVALIDO' } });
+  }
+  const bien = compraSegura({ compra: { ...compraBase, comentario: 'COMPRA YAJALÓN' }, detalles: [renglonCompra], cancelaciones: [] });
+  assert.equal(bien.compra.comentario, 'COMPRA YAJALÓN');
+});
+test('compras: art_id nulo, cero o texto se omite con ARTICULO_INVALIDO sin lanzar', () => {
+  for (const art_id of [null, 0, '0', 'x', undefined]) {
+    assert.deepEqual(compraSegura({ compra: compraBase, detalles: [{ ...renglonCompra, art_id }], cancelaciones: [] }),
+      { compra: null, omitida: { com_id: '41', codigo: 'ARTICULO_INVALIDO' } });
+  }
+});
+test('compras: precios con mas de 2 decimales se redondean a la mitad hacia arriba y la compra no se omite', () => {
+  const casos = [
+    [['862.068966', '1000.000000', '1000.000000', '1'], ['862.07', '1000.00', '1000.00']],
+    // Datos reales de CEDIS (detallec decimal(20,6)): precioSin, precioCon, importeCon, cantidad.
+    [['14.6916', '17.0423', '613.52', '36'], ['14.69', '17.04', '613.52']],
+    [['76.681', '88.95', '889.50', '10'], ['76.68', '88.95', '889.50']],
+    [['815.4914', '945.97', '945.97', '1'], ['815.49', '945.97', '945.97']],
+    [['0.005', '0.004999', '580.005', '1'], ['0.01', '0.00', '580.01']],
+  ];
+  for (const [[precioSin, precioCon, importeCon, cantidad], [sin, con, importe]] of casos) {
+    const r = compraSegura({ compra: compraBase, detalles: [{ ...renglonCompra, precioSin, precioCon, importeCon, cantidad }],
+      cancelaciones: [] });
+    assert.equal(r.omitida, null);
+    assert.deepEqual([r.compra.detalle[0].precio_sin, r.compra.detalle[0].precio_con, r.compra.detalle[0].importe_con], [sin, con, importe]);
+    assert.equal(r.compra.total_con, importe);
+  }
+  const dos = compraSegura({ compra: compraBase, cancelaciones: [], detalles: [{ ...renglonCompra, importeCon: '580.001' },
+    { ...renglonCompra, art_id: '9', importeCon: '0.005' }] });
+  assert.deepEqual(dos.compra.detalle.map(d => d.importe_con), ['580.00', '0.01']);
+  assert.equal(dos.compra.total_con, '580.01');
+});
+test('compras: cancelada con fecha de historial invalida se manda cancelada con cancelada_en nulo', () => {
+  for (const fecha of ['2026-02-30 10:00:00', '0000-00-00 00:00:00', 'basura']) {
+    const r = compraSegura({ compra: { ...compraBase, status: -1 }, detalles: [renglonCompra], cancelaciones: [{ id: '41', fecha }] });
+    assert.equal(r.omitida, null);
+    assert.equal(r.compra.estado, 'cancelada');
+    assert.equal(r.compra.cancelada_en, null);
   }
 });

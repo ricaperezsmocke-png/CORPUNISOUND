@@ -314,3 +314,26 @@ test('--verificar informa columnas y total de compras o aviso de apagadas', asyn
     assert.equal(registros.includes('COMPRAS_NO_DISPONIBLES'), !!faltantes.length);
   }
 });
+test('--verificar pasa las ultimas 50 compras de 60 dias por las reglas del agente y dice cuantas se omitirian', async t => {
+  const { archivo } = await preparar(t);
+  const filas = Array.from({ length: 70 }, (_, i) => ({ com_id: String(i + 1), fecha: '2026-11-01 10:00:00', pro_id: '7',
+    folio: `F-${i + 1}`, comentario: i === 65 ? 'YAJAL�N' : 'Compra', status: i === 68 ? 3 : 1 }));
+  const lecturas = [];
+  const salida = [], registros = [];
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }), comprasDisponibles: true,
+    compras: async (cursor, limite, desde) => {
+      lecturas.push([cursor, limite, desde]);
+      const compras = filas.filter(c => BigInt(c.com_id) > BigInt(cursor)).slice(0, limite);
+      return { compras, cancelaciones: [], detalles: compras.map(c => ({ com_id: c.com_id, art_id: c.com_id === '67' ? null : '8',
+        cantidad: '36', precioSin: '14.6916', precioCon: '17.0423', importeCon: '613.52' })) };
+    },
+    verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [],
+      compras: { columnas: ['compra.com_id'], faltantes: [], total: '70' } }) };
+  await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, imprimir: x => salida.push(x), log: x => registros.push(x),
+    esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+  assert.ok(lecturas.length >= 1 && lecturas.every(([, , desde]) => /^\d{4}-\d{2}-\d{2}$/.test(desde)));
+  assert.ok(salida.includes('Compras de prueba: 50 leídas, 3 se omitirían: {"TEXTO_INVALIDO":1,"ARTICULO_INVALIDO":1,"STATUS_DESCONOCIDO":1}'),
+    JSON.stringify(salida.filter(x => x.startsWith('Compras'))));
+});

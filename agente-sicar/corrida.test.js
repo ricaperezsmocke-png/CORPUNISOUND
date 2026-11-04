@@ -1936,3 +1936,19 @@ test('compras: vuelta semanal nocturna reenvia antiguas y poda sus firmas', asyn
   assert.equal(estado.compras_semana, '2026-10-14');
   assert.deepEqual(estado.compras_firmas, {});
 });
+test('compras: renglon con art_id nulo viaja omitido ARTICULO_INVALIDO y la siguiente compra avanza el cursor', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  p.deps.reloj = DE_DIA;
+  conCompras(p, [compraSicar(1), compraSicar(2)]);
+  const leer = p.fuente.compras;
+  p.fuente.compras = async (...args) => {
+    const pagina = await leer(...args);
+    return { ...pagina, detalles: pagina.detalles.map(d => (d.com_id === '1' ? { ...d, art_id: null } : d)) };
+  };
+  await ejecutar(p.archivo, { compras: true }, p.deps);
+  assert.deepEqual(p.lotes.flatMap(l => l.compras_omitidas ?? []), [{ com_id: '1', codigo: 'ARTICULO_INVALIDO' }]);
+  assert.deepEqual(comprasMandadas(p).map(c => c.com_id), ['2']);
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.compras_cursor, '2');
+  assert.equal(estado.detenido, null);
+});

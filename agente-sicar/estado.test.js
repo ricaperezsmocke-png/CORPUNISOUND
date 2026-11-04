@@ -320,3 +320,8 @@ test('compras: un estado.json de antes arranca sin cursor, sin vuelta y sin firm
     assert.equal(registrar(x => x)(evento), evento);
   }
 });
+test('registro de compra omitida muestra ARTICULO_INVALIDO y TEXTO_INVALIDO', () => {
+  for (const codigo of ['ARTICULO_INVALIDO', 'TEXTO_INVALIDO']) {
+    assert.equal(registrar(x => x)('COMPRA_OMITIDA', { com_id: '41', codigo }), `COMPRA_OMITIDA com_id=41 codigo=${codigo}`);
+  }
+});

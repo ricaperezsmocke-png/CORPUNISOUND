@@ -160,9 +160,11 @@ function crearFacturasCompras({ sqlite }) {
       LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
       LEFT JOIN facturas_compras u ON u.sucursal_id=c.sucursal_id AND u.com_id=c.com_id
       WHERE c.estado='vigente' AND u.id IS NULL`).all();
-    const primeras = new Map(sqlite.prepare(`SELECT sucursal_id,MIN(primera_vez) primera
-      FROM sicar_compras GROUP BY sucursal_id`).all().map(c => [c.sucursal_id, Date.parse(c.primera)]));
-    const nueva = c => Date.parse(c.primera_vez) >= primeras.get(c.sucursal_id) + DIA;
+    // Día de activación = día (hora de México) de la primera compra recibida de esa sucursal. Solo una compra hecha en
+    // SICAR ese día o después puede salir en rojo: si la carga inicial se corta, lo viejo sigue contando como viejo.
+    const activacion = new Map(sqlite.prepare(`SELECT sucursal_id,MIN(primera_vez) primera
+      FROM sicar_compras GROUP BY sucursal_id`).all().map(c => [c.sucursal_id, dia(fechaLocal(c.primera))]));
+    const nueva = c => dia(c.fecha) >= activacion.get(c.sucursal_id);
     const hoy = dia(fechaLocal());
     const cambiaron = sqlite.prepare(`SELECT u.*,c.total_centavos,c.fecha AS fecha_compra,c.folio
       FROM facturas_compras u JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
@@ -180,7 +182,9 @@ function crearFacturasCompras({ sqlite }) {
       facturas_sin_compra_15: facturas.filter(f => Date.now() - Date.parse(f.creada_en) > 15 * DIA),
       compras_sin_factura_15: sinFactura.filter(c => nueva(c) && hoy - dia(c.fecha) > 15 * DIA),
       compras_viejas_sin_factura: sinFactura.filter(c => !nueva(c)).length,
-      canceladas_despues: canceladas, cambiaron, proveedores_sin_rfc: proveedores };
+      canceladas_despues: canceladas, cambiaron, proveedores_sin_rfc: proveedores,
+      compras_omitidas: sqlite.prepare(`SELECT sucursal_id,com_id,codigo,ultima_vez FROM sicar_compras_omitidas
+        ORDER BY ultima_vez DESC,sucursal_id,com_id`).all() };
   }
   return { candidatas, revisar, confirmar, ninguna, desunir, alGuardarCompras, resumen };
 }

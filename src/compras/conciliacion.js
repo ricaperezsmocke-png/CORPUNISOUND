@@ -2,7 +2,11 @@ import { fechaCorta, formatoCentavos } from "./facturasPorLlegar.js";
 
 export const puedeConciliar = (permisos) => (permisos || []).includes("conciliar_facturas");
 export const motivoConciliacionValido = (motivo) => typeof motivo === "string" && motivo.trim().length > 0;
-export const textoAutor = (compra) => compra.modo === "automatica" ? "Unida sola" : `Confirmada por ${compra.actor_nombre}`;
+export function textoAutor(compra) {
+  if (compra.modo === "automatica") return "Unida sola";
+  const nombre = typeof compra.actor_nombre === "string" ? compra.actor_nombre.trim() : "";
+  return nombre ? `Confirmada por ${nombre}` : "Confirmada manualmente";
+}
 export const textoViejas = (n) => `${n} compras anteriores sin factura (no se marcan en rojo)`;
 
 export function textoUnion(compra) {
@@ -34,4 +38,33 @@ export function avisosRojos(resumen, ahora = new Date()) {
     texto: `La compra cambió en SICAR después de unida: antes ${formatoCentavos(c.total_al_unir_centavos)}, ahora ${formatoCentavos(c.total_centavos)}`,
   }));
   return [...facturas, ...compras, ...canceladas, ...cambiaron].sort((a, b) => b.dias - a.dias);
+}
+
+// Compras que el agente no pudo leer: no entran a la conciliación, pero alguien tiene que revisarlas en SICAR.
+export function avisosOmitidas(resumen) {
+  return (resumen?.compras_omitidas || []).map(o => ({
+    clave: `${o.sucursal_id}:${o.com_id}`,
+    texto: `Compra de SICAR ${o.com_id} no se pudo leer (${o.codigo}); revísala en SICAR de CEDIS.`,
+  }));
+}
+
+// Lista y resumen se piden por separado: si uno falla, el otro se ve igual y cada uno muestra su error.
+export async function cargarConciliacion(pedir, estado) {
+  const leer = async (ruta, mensaje) => {
+    const r = await pedir(ruta);
+    const cuerpo = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(cuerpo?.error || mensaje);
+    return cuerpo;
+  };
+  const [lista, resumen] = await Promise.allSettled([
+    leer(`/facturas-por-llegar${estado ? `?estado=${estado}` : ""}`, "No se pudieron cargar las facturas."),
+    leer("/facturas-compras/resumen", "No se pudo cargar la conciliación con compras de SICAR."),
+  ]);
+  const motivo = (r, mensaje) => (r.status === "rejected" ? r.reason?.message || mensaje : "");
+  return {
+    datos: lista.status === "fulfilled" ? lista.value : null,
+    error: motivo(lista, "No se pudieron cargar las facturas."),
+    resumen: resumen.status === "fulfilled" ? resumen.value : null,
+    errorResumen: motivo(resumen, "No se pudo cargar la conciliación con compras de SICAR."),
+  };
 }
