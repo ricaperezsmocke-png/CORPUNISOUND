@@ -360,3 +360,23 @@ test('compra con comentario mal decodificado viaja omitida TEXTO_INVALIDO y el s
   assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '41', codigo: 'TEXTO_INVALIDO' }]);
   assert.deepEqual(sqlite.prepare('SELECT com_id, comentario FROM sicar_compras').all(), [{ com_id: '42', comentario: 'COMPRA YAJALÓN' }]);
 });
+
+test('compra con un renglon en cantidad cero o negativa viaja omitida CANTIDAD_INVALIDA y el servidor acepta el lote', t => {
+  const { sobre, compraSegura } = require('./formato');
+  const { validarLoteSicar, hashSicar } = require('../backend/sicarIngesta');
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  const repo = crearRepositorioSicar(sqlite);
+  const fila = { com_id: '41', fecha: '2026-11-03 12:34:56', pro_id: '7', folio: 'F-1', comentario: 'Compra', status: 1 };
+  const renglon = { com_id: '41', art_id: '8', cantidad: '1', precioSin: '50.00', precioCon: '58.00', importeCon: '58.00' };
+  for (const cantidad of ['0', '0.000000', '-1', '-0.5']) {
+    const r = compraSegura({ compra: fila, detalles: [renglon, { ...renglon, art_id: '9', cantidad }], cancelaciones: [] });
+    assert.deepEqual(r, { compra: null, omitida: { com_id: '41', codigo: 'CANTIDAD_INVALIDA' } }, cantidad);
+  }
+  const mala = compraSegura({ compra: fila, detalles: [{ ...renglon, cantidad: '0' }], cancelaciones: [] });
+  const lote = sobre('1', 'incremental', new Date('2026-11-04T03:00:00Z'));
+  lote.compras_omitidas = [mala.omitida];
+  assert.equal(validarLoteSicar(lote), lote);
+  repo.aplicarLote({ sucursalId: 6, lote, hash: hashSicar(JSON.stringify(lote)) });
+  assert.deepEqual(sqlite.prepare('SELECT com_id, codigo FROM sicar_compras_omitidas').all(), [{ com_id: '41', codigo: 'CANTIDAD_INVALIDA' }]);
+});

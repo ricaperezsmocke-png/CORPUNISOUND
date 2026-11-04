@@ -327,6 +327,13 @@ function compraSegura({ compra: c, detalles, cancelaciones }) {
   const articulo = valor => {
     try { return id(valor); } catch { throw new Error('ARTICULO_INVALIDO'); }
   };
+  // El servidor rechaza cantidad <= 0 con 400 (CANTIDAD_INVALIDA) y eso detendria al agente: se omite solo esa compra.
+  const cantidad = valor => {
+    if (typeof valor === 'string' && /^-\d+(?:\.\d+)?$/.test(valor)) throw new Error('CANTIDAD_INVALIDA');
+    const texto4 = decimal(valor, 4);
+    if (BigInt(texto4.replace('.', '')) <= 0n) throw new Error('CANTIDAD_INVALIDA');
+    return texto4;
+  };
   let pro_id;
   try {
     pro_id = id(c.pro_id);
@@ -334,14 +341,14 @@ function compraSegura({ compra: c, detalles, cancelaciones }) {
     const estado = String(c.status) === '1' ? 'vigente' : 'cancelada';
     const cancelacion = cancelaciones.filter(h => String(h.id) === com_id).at(-1);
     const cancelada_en = estado === 'cancelada' && cancelacion ? fechaCancelacion(cancelacion.fecha) : null;
-    const detalle = suyos.map(d => ({ art_id: articulo(d.art_id), cantidad: decimal(d.cantidad, 4),
+    const detalle = suyos.map(d => ({ art_id: articulo(d.art_id), cantidad: cantidad(d.cantidad),
       precio_sin: decimal(d.precioSin, 2, true), precio_con: decimal(d.precioCon, 2, true), importe_con: decimal(d.importeCon, 2, true) }));
     const total_con = importe(detalle.reduce((suma, d) => suma + centavos(d.importe_con), 0n));
     return { compra: { com_id, fecha, pro_id, folio: texto(String(c.folio ?? '').trim().slice(0, 60), 60),
       comentario: texto(String(c.comentario ?? '').trim().slice(0, 200), 200), estado, cancelada_en, total_con, detalle }, omitida: null };
   } catch (error) {
     if (pro_id === undefined && error.message === 'ID_INVALIDO') return omitir('PROVEEDOR_INVALIDO');
-    if (['FECHA_INVALIDA', 'ARTICULO_INVALIDO', 'TEXTO_INVALIDO'].includes(error.message)) return omitir(error.message);
+    if (['FECHA_INVALIDA', 'ARTICULO_INVALIDO', 'TEXTO_INVALIDO', 'CANTIDAD_INVALIDA'].includes(error.message)) return omitir(error.message);
     if (['DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO'].includes(error.message)) return omitir('IMPORTE_INVALIDO');
     throw error;
   }

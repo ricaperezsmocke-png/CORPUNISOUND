@@ -337,3 +337,18 @@ test('--verificar pasa las ultimas 50 compras de 60 dias por las reglas del agen
   assert.ok(salida.includes('Compras de prueba: 50 leídas, 3 se omitirían: {"TEXTO_INVALIDO":1,"ARTICULO_INVALIDO":1,"STATUS_DESCONOCIDO":1}'),
     JSON.stringify(salida.filter(x => x.startsWith('Compras'))));
 });
+test('--verificar sigue si la lectura de compras de prueba falla', async t => {
+  const { archivo } = await preparar(t);
+  const salida = [];
+  const fuente = { tamano: 100, validar: async () => {}, tope: async () => '0', clientes: async () => [],
+    ventas: async () => ({ filas: [], clientes: [], detalles: [] }), comprasDisponibles: true,
+    compras: async () => { throw new Error('ER_LOCK_WAIT_TIMEOUT'); },
+    verificar: async () => ({ grants: [], columnas: [], ventas: [], clientes: [],
+      compras: { columnas: ['compra.com_id'], faltantes: [], total: '70' } }) };
+  await main(['--verificar'], { configPath: archivo, conectar: async () => ({ end: async () => {} }),
+    crearFuente: async () => fuente, imprimir: x => salida.push(x), log: () => {},
+    esperar: async () => {}, fetch: async () => assert.fail('No debe enviar HTTP') });
+  assert.ok(salida.includes('Compras de prueba: no se pudieron leer'), JSON.stringify(salida));
+  assert.ok(salida.some(x => x.startsWith('Columnas de existencias')));
+  assert.ok(salida.includes('Clientes con nombre: 0'));
+});

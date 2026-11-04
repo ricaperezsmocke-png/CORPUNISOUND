@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido, avisosOmitidas, cargarConciliacion,
+  fechaDeCompra,
 } from "./conciliacion.js";
 
 test("unión muestra fecha, folio y centavos con formato de la app", () => {
@@ -50,6 +51,7 @@ test("rojos conservan selección del servidor y ordenan más días primero sin m
 test("compras históricas se muestran aparte sin rojo", () => {
   assert.equal(textoViejas(1399), "1399 compras anteriores sin factura (no se marcan en rojo)");
   assert.equal(textoViejas(0), "0 compras anteriores sin factura (no se marcan en rojo)");
+  assert.equal(textoViejas(1), "1 compra anterior sin factura (no se marca en rojo)");
 });
 
 test("unión manual sin nombre del actor dice Confirmada manualmente, nunca undefined", () => {
@@ -95,4 +97,9 @@ test("si falla la lista el resumen se conserva y cada uno trae su error", async 
   const resumenSinTexto = await cargarConciliacion(async ruta => (ruta.startsWith("/facturas-compras")
     ? respuesta(false, null) : respuesta(true, { facturas: [] })), "");
   assert.equal(resumenSinTexto.errorResumen, "No se pudo cargar la conciliación con compras de SICAR.");
+});
+
+test("detalle de compra usa la fecha de la compra en SICAR, no la de la unión", () => {
+  assert.equal(fechaDeCompra({ fecha: "2026-11-03T18:00:00Z", fecha_compra: "2026-10-01T12:00:00" }), "2026-10-01T12:00:00");
+  assert.equal(fechaDeCompra({ fecha: "2026-10-05T12:00:00" }), "2026-10-05T12:00:00");
 });

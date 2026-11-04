@@ -78,8 +78,10 @@ function crearFacturasCompras({ sqlite }) {
     return { ...factura(f.id), compra: { ...c, modo, actor: String(actor) } };
   }
   function revisarDentro() {
-    const canceladas = sqlite.prepare(`SELECT u.*,c.estado,c.fecha AS fecha_compra,c.folio,c.total_centavos
+    const canceladas = sqlite.prepare(`SELECT u.*,c.estado,c.fecha AS fecha_compra,c.folio,c.total_centavos,
+      c.comentario,p.nombre AS proveedor
       FROM facturas_compras u JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
+      LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
       WHERE c.estado='cancelada'`).all();
     for (const u of canceladas) separar(u.factura_id, 'sicar', 'desunir_cancelada', { compra: u });
     const compras = libres();
@@ -166,8 +168,10 @@ function crearFacturasCompras({ sqlite }) {
       FROM sicar_compras GROUP BY sucursal_id`).all().map(c => [c.sucursal_id, dia(fechaLocal(c.primera))]));
     const nueva = c => dia(c.fecha) >= activacion.get(c.sucursal_id);
     const hoy = dia(fechaLocal());
-    const cambiaron = sqlite.prepare(`SELECT u.*,c.total_centavos,c.fecha AS fecha_compra,c.folio
+    const cambiaron = sqlite.prepare(`SELECT u.*,c.total_centavos,c.fecha AS fecha_compra,c.folio,
+      c.comentario,p.nombre AS proveedor
       FROM facturas_compras u JOIN sicar_compras c ON c.sucursal_id=u.sucursal_id AND c.com_id=u.com_id
+      LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
       WHERE ABS(c.total_centavos-u.total_al_unir_centavos)>100`).all();
     const canceladas = sqlite.prepare(`SELECT h.*,f.uuid FROM facturas_por_llegar_historial h
       JOIN facturas_por_llegar f ON f.id=h.factura_id

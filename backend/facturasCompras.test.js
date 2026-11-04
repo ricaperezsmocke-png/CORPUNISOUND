@@ -289,3 +289,19 @@ test('El resumen lista las compras de SICAR que no se pudieron leer', t => {
     { sucursal_id: 6, com_id: '9', codigo: 'ARTICULO_INVALIDO', ultima_vez: '2026-11-04T10:00:00Z' },
     { sucursal_id: 6, com_id: '41', codigo: 'TEXTO_INVALIDO', ultima_vez: '2026-11-03T10:00:00Z' }]);
 });
+test('Avisos de cancelada y de cambio despues de unida traen fecha de compra, comentario y proveedor', t => {
+  const { modulo, factura, compra, sqlite } = prepararDB(t);
+  factura(); compra(); modulo.revisar();
+  sqlite.prepare('UPDATE sicar_compras SET total_centavos=15000').run();
+  const cambio = modulo.resumen().cambiaron[0];
+  assert.deepEqual([cambio.fecha_compra, cambio.comentario, cambio.proveedor], ['2026-01-02T12:00:00', 'COMPRA CEDIS', 'Proveedor']);
+  sqlite.prepare("UPDATE sicar_compras SET estado='cancelada'").run(); modulo.revisar();
+  const { compra: cancelada } = modulo.resumen().canceladas_despues[0].detalle;
+  assert.deepEqual([cancelada.fecha_compra, cancelada.comentario, cancelada.proveedor], ['2026-01-02T12:00:00', 'COMPRA CEDIS', 'Proveedor']);
+  const otra = prepararDB(t);
+  otra.factura(); otra.compra(); otra.modulo.revisar();
+  // Sin proveedor en el catálogo el aviso sigue saliendo (LEFT JOIN), solo sin nombre.
+  otra.sqlite.prepare('DELETE FROM sicar_proveedores').run();
+  otra.sqlite.prepare('UPDATE sicar_compras SET total_centavos=16000').run();
+  assert.equal(otra.modulo.resumen().cambiaron[0].proveedor, null);
+});

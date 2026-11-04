@@ -7,6 +7,7 @@ import {
 } from "./facturasPorLlegar.js";
 import {
   textoUnion, textoAutor, puedeConciliar, textoViejas, avisosRojos, motivoConciliacionValido, avisosOmitidas, cargarConciliacion,
+  fechaDeCompra,
 } from "./conciliacion.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -189,7 +190,7 @@ function IdentidadFactura({ factura: f }) {
 function DetalleCompra({ compra: c }) {
   return (
     <div className="my-2 break-words text-sm">
-      <p>Compra SICAR {c.folio || "—"} · {fechaCorta(c.fecha || c.fecha_compra)} · {textoTotal(c)}</p>
+      <p>Compra SICAR {c.folio || "—"} · {fechaCorta(fechaDeCompra(c))} · {textoTotal(c)}</p>
       <p>{c.proveedor}</p>
       <p>{c.comentario || "Sin comentario"}</p>
       <p className={NOTA_GRIS}>Sucursal {c.sucursal_id} · Compra {c.com_id}</p>

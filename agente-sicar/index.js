@@ -52,7 +52,10 @@ async function verificar(fuente, imprimir, esperar, log, config) {
     log('COMPRAS_NO_DISPONIBLES');
   } else {
     imprimir(`Compras en SICAR: ${compras.total}`);
-    if (typeof fuente.compras === 'function') await probarCompras(fuente, imprimir, esperar);
+    if (typeof fuente.compras === 'function') {
+      // Es solo diagnóstico: si la lectura falla, se avisa y el resto de --verificar sigue.
+      try { await probarCompras(fuente, imprimir, esperar); } catch { imprimir('Compras de prueba: no se pudieron leer'); }
+    }
   }
   const existencias = info.existencias || { columnas: [], faltantes: ['articulo'], total: null, ms: null };
   imprimir('Columnas de existencias: ' + JSON.stringify(existencias.columnas));

@@ -7,7 +7,10 @@ export function textoAutor(compra) {
   const nombre = typeof compra.actor_nombre === "string" ? compra.actor_nombre.trim() : "";
   return nombre ? `Confirmada por ${nombre}` : "Confirmada manualmente";
 }
-export const textoViejas = (n) => `${n} compras anteriores sin factura (no se marcan en rojo)`;
+export const textoViejas = (n) => (n === 1 ? "1 compra anterior sin factura (no se marca en rojo)"
+  : `${n} compras anteriores sin factura (no se marcan en rojo)`);
+// En avisos de unión, `fecha` es el día de la unión: la fecha de la compra en SICAR viene en `fecha_compra`.
+export const fechaDeCompra = (compra) => compra.fecha_compra || compra.fecha;
 
 export function textoUnion(compra) {
   return `Llegó · compra SICAR ${compra.folio || "—"} del ${fechaCorta(compra.fecha)} · ${formatoCentavos(compra.total_centavos)}`;

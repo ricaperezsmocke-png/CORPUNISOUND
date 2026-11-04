@@ -325,3 +325,6 @@ test('registro de compra omitida muestra ARTICULO_INVALIDO y TEXTO_INVALIDO', ()
     assert.equal(registrar(x => x)('COMPRA_OMITIDA', { com_id: '41', codigo }), `COMPRA_OMITIDA com_id=41 codigo=${codigo}`);
   }
 });
+test('registro de compra omitida muestra CANTIDAD_INVALIDA', () => {
+  assert.equal(registrar(x => x)('COMPRA_OMITIDA', { com_id: '41', codigo: 'CANTIDAD_INVALIDA' }), 'COMPRA_OMITIDA com_id=41 codigo=CANTIDAD_INVALIDA');
+});
