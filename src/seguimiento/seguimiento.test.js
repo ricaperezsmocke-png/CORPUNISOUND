@@ -124,3 +124,10 @@ test("fechas y horas en hora de Chiapas, no en UTC", () => {
 test("sin traslado sugerido se explica por qué, sin culpar a nadie", () => {
   assert.match(TEXTOS.sin_traslado, /ninguna tienda/i);
 });
+
+test("factura con renglones sin clave: información insuficiente antes que cualquier otra acción", () => {
+  assert.equal(siguienteAccion(factura({ renglones_sin_seguimiento: 1, dinero: null })),
+    "Información insuficiente: 1 renglón sin clave en el catálogo de CEDIS");
+  assert.equal(siguienteAccion(factura({ renglones_sin_seguimiento: 3, dinero: null })),
+    "Información insuficiente: 3 renglones sin clave en el catálogo de CEDIS");
+});

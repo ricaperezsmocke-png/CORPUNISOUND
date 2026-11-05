@@ -75,6 +75,10 @@ const ETAPAS = {
 export const etiquetaEtapa = (etapa) => ETAPAS[etapa] || "Sin aviso";
 
 export function siguienteAccion(f) {
+  const faltan = f.renglones_sin_seguimiento || 0;
+  if (faltan > 0) {
+    return `${TEXTOS.insuficiente}: ${faltan} ${faltan === 1 ? "renglón" : "renglones"} sin clave en el catálogo de CEDIS`;
+  }
   const gris = BigInt(f.piezas?.sin_agente ?? "0");
   if (f.agotada && !f.aviso) return gris > 0n ? "Pendiente de comprobación" : "Agotada";
   if (f.aviso?.estado === "pospuesto") return `Pospuesto hasta ${f.aviso.pospuesto_hasta}`;

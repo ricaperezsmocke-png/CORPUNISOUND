@@ -267,4 +267,4 @@ function movimientosPorClave(sqlite, clave, { ahora = new Date().toISOString() }
   })();
 }
 
-module.exports = { movimientosPorClave };
+module.exports = { movimientosPorClave, corteLocal };

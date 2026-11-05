@@ -5,6 +5,7 @@ const { fechaLocal } = require('../fechas');
 const { aDiezmilesimas } = require('../cantidades');
 const { NO_INTERNA } = require('../sicarVentaReal');
 const { leerConfig } = require('./config');
+const { corteLocal } = require('./lector');
 const { revisarFoto } = require('./incorporar');
 const { etapa: etapaDe, velocidades, sugerirTraslados, textoMargen, avisoArticuloCompartido } = require('./estrategias');
 
@@ -29,6 +30,35 @@ function encabezados(sqlite) {
   return new Map(sqlite.prepare(`SELECT c.com_id, c.folio, c.fecha, c.comentario, c.pro_id, p.nombre proveedor
     FROM sicar_compras c LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
     WHERE c.sucursal_id=?`).all(CEDIS).map(c => [c.com_id, c]));
+}
+
+/**
+ * Renglones de cada compra vigente de CEDIS posterior a su corte, según SICAR. Sirve para descubrir renglones que el
+ * cálculo no pudo seguir (artículo sin clave en el catálogo de CEDIS): esa factura no se presenta como completa.
+ */
+function renglonesEsperados(sqlite) {
+  const cedis = sqlite.prepare('SELECT corte FROM seguimiento_tiendas WHERE sucursal_id=?').get(CEDIS);
+  if (!cedis) return new Map();
+  return new Map(sqlite.prepare(`SELECT c.com_id, c.fecha, count(*) n FROM sicar_compras c
+    JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
+    WHERE c.sucursal_id=? AND c.estado='vigente' AND c.fecha > ? GROUP BY c.com_id`).all(CEDIS, corteLocal(cedis.corte))
+    .map(f => [f.com_id, f]));
+}
+
+/** Factura sin ningún renglón calculable: aparece con ceros y "información insuficiente", nunca desaparece. */
+function sinDatos(com_id, esperada, encabezado, aviso, ahora) {
+  const fecha = esperada.fecha.slice(0, 10);
+  return { sucursal_id: CEDIS, com_id, folio: encabezado?.folio ?? null, proveedor: encabezado?.proveedor ?? null,
+    comentario: encabezado?.comentario ?? null, fecha_compra: fecha, dias: diasDesde(fecha, ahora), etapa: null, agotada: false,
+    piezas: Object.fromEntries(['comprado', 'vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].map(k => [k, '0'])),
+    dinero: null, pendiente_centavos: '0', claves: [], tiendas: [], datos_al: null, renglones_sin_seguimiento: esperada.n,
+    aviso: aviso ? { id: aviso.id, etapa: aviso.etapa, estado: aviso.estado, pospuesto_hasta: aviso.pospuesto_hasta } : null };
+}
+
+/** Marca la factura si SICAR tiene más renglones de los que se pudieron seguir; sin dinero parcial. */
+function completar(factura, esperada, calculados) {
+  const faltan = esperada ? Math.max(0, esperada.n - calculados) : 0;
+  return faltan ? { ...factura, renglones_sin_seguimiento: faltan, dinero: null } : { ...factura, renglones_sin_seguimiento: 0 };
 }
 
 function avisosActivos(sqlite) {
@@ -114,8 +144,12 @@ function listar(sqlite, query = {}, ahora = new Date().toISOString()) {
       if (!porFactura.has(fila.com_id)) porFactura.set(fila.com_id, []);
       porFactura.get(fila.com_id).push(fila);
     }
-    const todas = [...porFactura].map(([com_id, filas]) => resumir(com_id, filas, cabezas.get(com_id), avisos.get(com_id), config, ahora))
-      .filter(f => pasaFiltros(f, filtros)).sort(compararFacturas);
+    const esperadas = renglonesEsperados(sqlite);
+    const calculadas = [...porFactura].map(([com_id, filas]) => completar(
+      resumir(com_id, filas, cabezas.get(com_id), avisos.get(com_id), config, ahora), esperadas.get(com_id), filas.length));
+    const faltantes = [...esperadas].filter(([com_id]) => !porFactura.has(com_id))
+      .map(([com_id, e]) => sinDatos(com_id, e, cabezas.get(com_id), avisos.get(com_id), ahora));
+    const todas = [...calculadas, ...faltantes].filter(f => pasaFiltros(f, filtros)).sort(compararFacturas);
     const inicio = (filtros.pagina - 1) * filtros.por_pagina;
     return { total: todas.length, pagina: filtros.pagina, por_pagina: filtros.por_pagina,
       facturas: todas.slice(inicio, inicio + filtros.por_pagina) };
@@ -208,9 +242,12 @@ function detalle(sqlite, sucursal_id, com_id, ahora = new Date().toISOString()) 
   if (Number(sucursal_id) !== CEDIS || typeof com_id !== 'string' || !/^\d{1,128}$/.test(com_id)) throw error(404, 'Factura no encontrada.');
   return sqlite.transaction(() => {
     const filas = filasResultado(sqlite, com_id);
-    if (!filas.length) throw error(404, 'Factura no encontrada.');
+    const esperada = renglonesEsperados(sqlite).get(com_id);
+    const cabeza = encabezados(sqlite).get(com_id), aviso = avisosActivos(sqlite).get(com_id);
+    if (!filas.length && !esperada) throw error(404, 'Factura no encontrada.');
     const config = leerConfig(sqlite);
-    const factura = resumir(com_id, filas, encabezados(sqlite).get(com_id), avisosActivos(sqlite).get(com_id), config, ahora);
+    const factura = filas.length ? completar(resumir(com_id, filas, cabeza, aviso, config, ahora), esperada, filas.length)
+      : sinDatos(com_id, esperada, cabeza, aviso, ahora);
     const descripcion = sqlite.prepare('SELECT descripcion FROM sicar_articulos WHERE sucursal_id=? AND clave=? LIMIT 1');
     const renglones = filas.map(r => ({ renglon: r.renglon, clave: r.clave, descripcion: descripcion.get(CEDIS, r.clave)?.descripcion ?? null,
       ...r.datos, estrategias: estrategias(sqlite, r, factura, config, ahora) }));
