@@ -231,6 +231,43 @@ const ESQUEMA = `
     sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
     PRIMARY KEY (sucursal_id, com_id)
   );
+  CREATE TABLE IF NOT EXISTS seguimiento_config (
+    clave TEXT PRIMARY KEY NOT NULL, valor TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_config_historial (
+    id INTEGER PRIMARY KEY, clave TEXT NOT NULL, anterior TEXT, nuevo TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_tiendas (
+    sucursal_id INTEGER PRIMARY KEY, corte TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_foto (
+    sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, piezas_diezmilesimas TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, clave),
+    FOREIGN KEY (sucursal_id) REFERENCES seguimiento_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_foto_problemas (
+    sucursal_id INTEGER NOT NULL, clave TEXT, motivo TEXT NOT NULL,
+    FOREIGN KEY (sucursal_id) REFERENCES seguimiento_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_pendientes (
+    clave TEXT PRIMARY KEY NOT NULL, desde TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_resultado (
+    sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, renglon INTEGER NOT NULL, clave TEXT,
+    datos_json TEXT NOT NULL, version INTEGER NOT NULL, calculado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, com_id, renglon)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_avisos (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, etapa TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('nuevo', 'revisado', 'pospuesto', 'retirado')), pospuesto_hasta TEXT,
+    UNIQUE (sucursal_id, com_id, etapa)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_avisos_historial (
+    id INTEGER PRIMARY KEY, aviso_id INTEGER NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('nuevo', 'revisado', 'pospuesto', 'retirado')),
+    motivo TEXT, actor TEXT, fecha TEXT,
+    FOREIGN KEY (aviso_id) REFERENCES seguimiento_avisos(id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
