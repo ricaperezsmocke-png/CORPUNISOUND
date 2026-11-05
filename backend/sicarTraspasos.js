@@ -1,6 +1,7 @@
 // Consulta de traspasos tal como los mandaron los agentes de SICAR, mas el mapa de numeros de sucursal SICAR a tienda.
 // No se recalcula nada: se muestran las cifras de cada SICAR y las diferencias entre las dos puntas, sin acusar a nadie.
 const { fechaLocal } = require('./fechas');
+const { aDiezmilesimas } = require('./cantidades');
 
 const DIA = 86400000;
 const DIAS_POR_DEFECTO = 30;
@@ -44,14 +45,6 @@ function tiendaDelAlcance(alcance) {
 
 const diaMs = texto => Date.parse(`${texto.slice(0, 10)}T00:00:00Z`);
 const dias = (desde, hasta) => Math.round((diaMs(hasta) - diaMs(desde)) / DIA);
-
-// "12.3400" -> 123400n (diezmilesimas), exacto y sin flotantes.
-function aDiezmilesimas(texto) {
-  const m = /^(-?)(\d+)(?:\.(\d{1,4}))?$/.exec(String(texto));
-  if (!m) return 0n;
-  const n = BigInt(m[2]) * 10000n + BigInt((m[3] ?? '').padEnd(4, '0'));
-  return m[1] ? -n : n;
-}
 
 function diezmilesimasATexto(valor) {
   const abs = valor < 0n ? -valor : valor;

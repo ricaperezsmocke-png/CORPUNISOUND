@@ -1,4 +1,5 @@
 const { esPublicoSicar } = require('./sicarVinculos');
+const { aDiezmilesimas } = require('./cantidades');
 
 class ErrorSicar extends Error {
   constructor(codigo, mensaje, siguienteSecuencia) {
@@ -188,6 +189,7 @@ const ESQUEMA = `
   CREATE TABLE IF NOT EXISTS sicar_compras_detalle (
     sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, renglon INTEGER NOT NULL CHECK (renglon BETWEEN 0 AND 499),
     art_id TEXT NOT NULL, cantidad TEXT NOT NULL,
+    factor_diezmilesimas INTEGER NOT NULL DEFAULT 10000,
     precio_sin_centavos INTEGER NOT NULL CHECK (typeof(precio_sin_centavos) = 'integer' AND precio_sin_centavos BETWEEN 0 AND 9007199254740991),
     precio_con_centavos INTEGER NOT NULL CHECK (typeof(precio_con_centavos) = 'integer' AND precio_con_centavos BETWEEN 0 AND 9007199254740991),
     importe_con_centavos INTEGER NOT NULL CHECK (typeof(importe_con_centavos) = 'integer' AND importe_con_centavos BETWEEN 0 AND 9007199254740991),
@@ -364,8 +366,8 @@ function prepararEscrituras(sqlite) {
         total_centavos=excluded.total_centavos, actualizado_en=excluded.actualizado_en`),
     borrarCompraDetalle: sqlite.prepare('DELETE FROM sicar_compras_detalle WHERE sucursal_id=? AND com_id=?'),
     compraDetalle: sqlite.prepare(`INSERT INTO sicar_compras_detalle
-      (sucursal_id, com_id, renglon, art_id, cantidad, precio_sin_centavos, precio_con_centavos, importe_con_centavos)
-      VALUES (@sucursal_id, @com_id, @renglon, @art_id, @cantidad, @precio_sin, @precio_con, @importe_con)`),
+      (sucursal_id, com_id, renglon, art_id, cantidad, precio_sin_centavos, precio_con_centavos, importe_con_centavos, factor_diezmilesimas)
+      VALUES (@sucursal_id, @com_id, @renglon, @art_id, @cantidad, @precio_sin, @precio_con, @importe_con, @factor_diezmilesimas)`),
     compraOmitida: sqlite.prepare(`INSERT INTO sicar_compras_omitidas (sucursal_id, com_id, codigo, primera_vez, ultima_vez)
       VALUES (@sucursal_id, @com_id, @codigo, @fecha, @fecha)
       ON CONFLICT(sucursal_id, com_id) DO UPDATE SET codigo=excluded.codigo, ultima_vez=excluded.ultima_vez`),
@@ -430,6 +432,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    if (!sqlite.pragma('table_info(sicar_compras_detalle)').some(c => c.name === 'factor_diezmilesimas')) {
+      sqlite.exec('ALTER TABLE sicar_compras_detalle ADD COLUMN factor_diezmilesimas INTEGER NOT NULL DEFAULT 10000');
+    }
     for (const columna of ['serie', 'folio']) {
       if (!sqlite.pragma('table_info(facturas_por_llegar)').some(c => c.name === columna)) {
         sqlite.exec(`ALTER TABLE facturas_por_llegar ADD COLUMN ${columna} TEXT`);
@@ -592,6 +597,7 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
       sentencias.borrarCompraDetalle.run(sucursalId, c.com_id);
       for (const [renglon, d] of c.detalle.entries()) {
         sentencias.compraDetalle.run({ sucursal_id: sucursalId, com_id: c.com_id, renglon, art_id: d.art_id, cantidad: d.cantidad,
+          factor_diezmilesimas: aDiezmilesimas(d.factor ?? '1'),
           precio_sin: centavos(d.precio_sin), precio_con: centavos(d.precio_con), importe_con: centavos(d.importe_con) });
       }
     }
