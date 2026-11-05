@@ -197,10 +197,11 @@ function existenciasDe(sqlite, clave, tiendas, config, ahora) {
     const filas = sqlite.prepare(`SELECT CAST(e.existencia_diezmilesimas AS TEXT) piezas, e.actualizado_en FROM sicar_articulos a
       LEFT JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
       WHERE a.sucursal_id=? AND a.clave=?`).all(s, clave);
-    // Sin artículo con esa clave: cero solo si el catálogo está completo (ninguna existencia sin su artículo).
+    // Sin artículo con esa clave: cero solo si el catálogo está completo (ninguna existencia sin artículo o sin clave).
     if (!filas.length) {
       const huerfana = sqlite.prepare(`SELECT 1 FROM sicar_existencias e LEFT JOIN sicar_articulos a
-        ON a.sucursal_id=e.sucursal_id AND a.art_id=e.art_id WHERE e.sucursal_id=? AND a.art_id IS NULL LIMIT 1`).get(s);
+        ON a.sucursal_id=e.sucursal_id AND a.art_id=e.art_id
+        WHERE e.sucursal_id=? AND (a.art_id IS NULL OR a.clave IS NULL OR trim(a.clave) = '') LIMIT 1`).get(s);
       if (huerfana) motivos[s] = 'catalogo_incompleto';
       else valores[s] = 0n;
     }

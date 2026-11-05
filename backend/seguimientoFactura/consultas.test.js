@@ -204,3 +204,18 @@ test('existencia sin artículo en catálogo: SICAR desconocido, nunca un falso c
   assert.equal(c.sicar, null);
   assert.equal(c.motivo_sicar, 'catalogo_incompleto');
 });
+
+test('existencia de un artículo sin clave (NULL, vacía o espacios): SICAR desconocido, no cuadra en cero', t => {
+  for (const clave of [null, '', '   ']) {
+    const db = escenarioTraslado(t);
+    // Solo el caso a probar: ninguna existencia huérfana; el artículo existe pero sin clave.
+    db.exec("DELETE FROM sicar_existencias WHERE sucursal_id=1 AND art_id='art-1'");
+    db.exec("DELETE FROM sicar_articulos WHERE sucursal_id=1 AND art_id='art-1'");
+    db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+      VALUES (1, 'sin-clave', ?, 'Púas', ?)`).run(clave, AL);
+    db.prepare('INSERT INTO sicar_existencias VALUES (1, ?, ?, ?)').run('sin-clave', 50000, AL);
+    const c = procesarYDetalle(db).renglones[0].comparacion.find(x => x.sucursal_id === 1);
+    assert.equal(c.motivo_sicar, 'catalogo_incompleto', JSON.stringify(clave));
+    assert.equal(c.sicar, null);
+  }
+});
