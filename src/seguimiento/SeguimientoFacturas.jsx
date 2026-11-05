@@ -4,7 +4,7 @@ import ModalConfirmar from "../ModalConfirmar.jsx";
 import { contadorDePeticiones, fechaRelativa } from "../sicar/cortesSicar.js";
 import {
   TEXTOS, piezasTexto, pesosTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
-  textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion,
+  textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -123,6 +123,7 @@ function Estrategias({ e, renglon, nombres }) {
   if (!e) return null;
   return (
     <div className="mt-2 space-y-1 text-sm">
+      {textoPorArticulo(e.facturas_en_aviso) && <p className="text-slate-600">{textoPorArticulo(e.facturas_en_aviso)}</p>}
       {e.traslados.length === 0 && <p className="text-slate-600">{TEXTOS.sin_traslado}</p>}
       {e.traslados.map((s, i) => <p key={i}>{textoTraslado(s, nombres, renglon.clave, renglon.descripcion)}</p>)}
       {e.margen && <p>{e.margen.texto}</p>}

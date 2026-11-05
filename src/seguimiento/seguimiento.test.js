@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
-  parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion,
+  parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion, textoPorArticulo,
 } from "./seguimiento.js";
 
 const factura = (extra = {}) => ({
@@ -142,4 +142,10 @@ test("comparación contra SICAR: la diferencia es un movimiento por aclarar, no 
     "Ocosingo: SICAR 0 · calculado pendiente de recálculo");
   assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, diferencia: null }, n),
     "Ocosingo: clave repetida en SICAR, no se puede comparar · calculado 0");
+});
+
+test("sugerencia por artículo con varias facturas: se avisa que no se suma", () => {
+  assert.equal(textoPorArticulo(1), null);
+  assert.equal(textoPorArticulo(3),
+    "Sugerencia por artículo: cuenta las 3 facturas en aviso de esta clave. Es la misma en cada una; no la sumes.");
 });

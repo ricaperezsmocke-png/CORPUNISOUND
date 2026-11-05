@@ -85,3 +85,28 @@ test('detalle compara el saldo calculado contra la existencia de SICAR por tiend
     { sucursal_id: 6, calculado: '90000', sicar: '80000', diferencia: '-10000' },
   ]);
 });
+
+test('traslado por artículo: dos facturas viejas de la misma clave no duplican la sugerencia', t => {
+  const { detalle } = require('./consultas');
+  const servicio = require('./servicio');
+  const db = prepararDB(t);
+  for (const suc of [6, 1]) db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (?, ?)').run(suc, '2026-09-01T18:00:00.000Z');
+  for (const id of ['1', '2']) {
+    db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+      primera_vez, actualizado_en) VALUES (6, ?, '2026-09-20T10:00:00', '1', ?, '', 'vigente', 0, ?, ?)`).run(id, `F${id}`, AL, AL);
+    db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, ?, 0, 'art-6', '5.0000', 10000, 1000, 0, 0)").run(id);
+  }
+  db.prepare('INSERT INTO sicar_existencias VALUES (6, ?, ?, ?)').run('art-6', 100000, AL); // 10 en CEDIS
+  // Ocosingo vendió 16 en 8 semanas (8 + 8 en dos semanas distintas): para 4 semanas necesita 8.
+  for (const [id, dia] of [['v1', '2026-10-20'], ['v2', '2026-10-27']]) {
+    db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (1, ?, ?, ?, 100, ?)').run(id, `${dia}T12:00:00`, 'vigente', AL);
+    db.prepare('INSERT INTO sicar_detalles_mostrador VALUES (1, ?, 0, ?, ?, 100, 0)').run(id, 'art-1', '8.0000');
+  }
+  servicio.marcarPendientes(db, 6, ['art-6'], AL);
+  servicio.procesarPendientes(db, { ahora: AL });
+  for (const id of ['1', '2']) {
+    const e = detalle(db, 6, id, AL).renglones[0].estrategias;
+    assert.deepEqual(e.traslados, [{ de: 6, a: 1, piezas: '80000', razon: 'destino_vende_mas' }], `factura ${id}`);
+    assert.equal(e.facturas_en_aviso, 2);
+  }
+});

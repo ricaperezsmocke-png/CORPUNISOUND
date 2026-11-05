@@ -156,6 +156,9 @@ const MOTIVOS = {
 };
 export const textoMotivo = (motivo) => MOTIVOS[motivo] || motivo;
 
+export const textoPorArticulo = (n) => (n > 1
+  ? `Sugerencia por artículo: cuenta las ${n} facturas en aviso de esta clave. Es la misma en cada una; no la sumes.` : null);
+
 /** Saldo calculado contra existencia SICAR de una tienda. Una diferencia nunca se presenta como faltante. */
 export function textoComparacion(c, nombres) {
   const tienda = nombres[c.sucursal_id] || `Tienda ${c.sucursal_id}`;

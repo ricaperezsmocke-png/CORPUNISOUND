@@ -221,8 +221,17 @@ function estrategias(sqlite, renglon, factura, config, ahora) {
   const { datos, clave } = renglon;
   if (!factura.etapa) return null;
   const tiendas = sqlite.prepare('SELECT sucursal_id FROM seguimiento_tiendas ORDER BY sucursal_id').all().map(t => t.sucursal_id);
-  const saldoViejo = Object.fromEntries(Object.entries(datos.por_sucursal)
-    .filter(([, s]) => BigInt(s.queda) > 0n).map(([s, v]) => [s, BigInt(v.queda)]));
+  const mismaClave = sqlite.prepare('SELECT com_id, datos_json FROM seguimiento_resultado WHERE sucursal_id=? AND clave=?')
+    .all(CEDIS, clave).map(f => ({ com_id: f.com_id, clave, datos: JSON.parse(f.datos_json) }));
+  // El traslado se calcula POR ARTÍCULO con el saldo de todas sus facturas en aviso: así dos facturas viejas de la
+  // misma clave muestran la misma sugerencia y Compras no mueve el doble.
+  const enAviso = mismaClave.filter(f => f.datos.fecha_compra && etapaDe(diasDesde(f.datos.fecha_compra, ahora), config));
+  const saldoViejo = {};
+  for (const f of enAviso) {
+    for (const [s, v] of Object.entries(f.datos.por_sucursal)) {
+      if (BigInt(v.queda) > 0n) saldoViejo[s] = (saldoViejo[s] ?? 0n) + BigInt(v.queda);
+    }
+  }
   const traslados = sugerirTraslados({ saldoViejo, velocidades: velocidades(ventasPorSemana(sqlite, clave, tiendas, config, ahora), config),
     existencias: existenciasDe(sqlite, clave, tiendas), transito: transitoHacia(sqlite, clave),
     atrasadas: datos.calidad?.atrasadas ?? [], config });
@@ -230,12 +239,10 @@ function estrategias(sqlite, renglon, factura, config, ahora) {
   const costo = comprado > 0n ? (valor * 10000n + comprado - 1n) / comprado : null;
   const margen = costo === null ? null
     : textoMargen({ costo_pieza_centavos: costo, ultimo_precio_centavos: ultimoPrecio(sqlite, clave), etapa: factura.etapa, config });
-  const mismaClave = sqlite.prepare('SELECT com_id, datos_json FROM seguimiento_resultado WHERE sucursal_id=? AND clave=?')
-    .all(CEDIS, clave).map(f => ({ com_id: f.com_id, clave, datos: JSON.parse(f.datos_json) }));
   const recientes = mismaClave.filter(f => f.com_id !== renglon.com_id
     && f.datos.fecha_compra > datos.fecha_compra && BigInt(f.datos.queda) + BigInt(f.datos.transito) > 0n)
     .map(f => ({ piezas: BigInt(f.datos.queda) + BigInt(f.datos.transito), dias: diasDesde(f.datos.fecha_compra, ahora) }));
-  return { traslados, margen, articulo_compartido: avisoArticuloCompartido(recientes) };
+  return { traslados, facturas_en_aviso: enAviso.length, margen, articulo_compartido: avisoArticuloCompartido(recientes) };
 }
 
 /**
