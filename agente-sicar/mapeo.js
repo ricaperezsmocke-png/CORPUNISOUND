@@ -218,7 +218,8 @@ function crearFuente(lector, config = {}) {
         const compras = desde === null ? await leer(LEER_COMPRAS, [cursor, n]) : await leer(RELEER_COMPRAS, [cursor, desde, n]);
         if (!compras.length) return { compras, detalles: [], cancelaciones: [] };
         const ids = compras.map(c => String(c.com_id));
-        const detalles = await leer('SELECT d.`com_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon`, d.`importeCon` '
+        const factor = columnasCompras.includes('detallec.factor') ? ', d.`factor`' : '';
+        const detalles = await leer('SELECT d.`com_id`, d.`art_id`, d.`cantidad`, d.`precioSin`, d.`precioCon`, d.`importeCon`' + factor + ' '
           + 'FROM `detallec` d WHERE d.`com_id` IN (' + huecos(ids) + ') ORDER BY d.`com_id`, d.`art_id`', ids);
         const cancelaciones = await leer('SELECT h.`id`, h.`fecha` FROM `historial` h WHERE h.`tabla` = ? AND h.`movimiento` = 2 '
           + 'AND h.`id` IN (' + huecos(ids) + ') ORDER BY h.`fecha`', ['Compra', ...ids]);
@@ -271,6 +272,7 @@ function crearFuente(lector, config = {}) {
         traspasosFaltantes = requeridasTraspasos.filter(c => !presentes.has(c));
         const requeridasCompras = Object.entries(COLUMNAS_COMPRAS).flatMap(([tabla, campos]) => campos.map(c => tabla + '.' + c));
         columnasCompras = requeridasCompras.filter(c => presentes.has(c));
+        if (presentes.has('detallec.factor')) columnasCompras.push('detallec.factor');
         comprasFaltantes = requeridasCompras.filter(c => !presentes.has(c));
         validado = true;
       });
