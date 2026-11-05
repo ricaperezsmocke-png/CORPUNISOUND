@@ -96,7 +96,8 @@ function pesos(centavos) {
   return `${signo}$${enteros}.${String(abs % 100n).padStart(2, '0')}`;
 }
 
-const PORCENTAJE = { margen_75: 'ganancia_75_porcentaje', margen_50: 'ganancia_50_porcentaje' };
+const PORCENTAJE = { margen_75: 'ganancia_75_porcentaje', margen_50: 'ganancia_50_porcentaje',
+  liquidar: 'ganancia_liquidacion_porcentaje' };
 
 /**
  * Texto del aviso de margen. No inventa un precio vigente: el último precio vendido solo sirve de referencia,
@@ -104,7 +105,7 @@ const PORCENTAJE = { margen_75: 'ganancia_75_porcentaje', margen_50: 'ganancia_5
  */
 function textoMargen({ costo_pieza_centavos, ultimo_precio_centavos, etapa: e, config }) {
   const costo = BigInt(costo_pieza_centavos);
-  if (e === 'liquidar') {
+  if (e === 'liquidar' && !BigInt(config.ganancia_liquidacion_porcentaje ?? 0)) {
     return { texto: `Liquidar a costo: ${pesos(costo)} por pieza (sin IVA). No vender abajo de ese costo.`,
       precio_referencia_centavos: null };
   }

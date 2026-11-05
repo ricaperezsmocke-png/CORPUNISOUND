@@ -140,12 +140,23 @@ test("comparación contra SICAR: la diferencia es un movimiento por aclarar, no 
   assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: "0", diferencia: "0" }, n), "Ocosingo: SICAR 0 · calculado 0 · cuadra");
   assert.equal(textoComparacion({ sucursal_id: 1, calculado: null, sicar: "0", diferencia: null }, n),
     "Ocosingo: SICAR 0 · calculado pendiente de recálculo");
-  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, diferencia: null }, n),
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, motivo_sicar: "clave_repetida", diferencia: null }, n),
     "Ocosingo: clave repetida en SICAR, no se puede comparar · calculado 0");
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, motivo_sicar: "existencia_atrasada", diferencia: null }, n),
+    "Ocosingo: existencia de SICAR atrasada, no se puede comparar · calculado 0");
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, motivo_sicar: "sin_existencia", diferencia: null }, n),
+    "Ocosingo: SICAR no reporta existencia, no se puede comparar · calculado 0");
 });
 
 test("sugerencia por artículo con varias facturas: se avisa que no se suma", () => {
   assert.equal(textoPorArticulo(1), null);
   assert.equal(textoPorArticulo(3),
     "Sugerencia por artículo: cuenta las 3 facturas en aviso de esta clave. Es la misma en cada una; no la sumes.");
+});
+
+test("todo enviado a tienda sin agente: pendiente de comprobación aunque no sea agotada", () => {
+  const gris = { comprado: "100000", vendido: "0", queda: "0", transito: "0", sin_agente: "100000", por_aclarar: "0" };
+  assert.equal(siguienteAccion(factura({ etapa: null, aviso: null, agotada: false, piezas: gris })), "Pendiente de comprobación");
+  const aclarar = { comprado: "100000", vendido: "90000", queda: "0", transito: "0", sin_agente: "0", por_aclarar: "10000" };
+  assert.equal(siguienteAccion(factura({ etapa: null, aviso: null, agotada: false, piezas: aclarar })), "Movimientos por aclarar");
 });

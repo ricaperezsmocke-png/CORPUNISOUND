@@ -77,12 +77,13 @@ test('detalle compara el saldo calculado contra la existencia de SICAR por tiend
   db.prepare("INSERT INTO sicar_ventas_mostrador VALUES (6, 'v1', '2026-10-01T10:00:00', 'vigente', 100, ?)").run(AL);
   db.prepare("INSERT INTO sicar_detalles_mostrador VALUES (6, 'v1', 0, 'art-6', '3.0000', 100, 0)").run();
   db.prepare('INSERT INTO sicar_existencias VALUES (6, ?, ?, ?)').run('art-6', 80000, AL); // SICAR dice 8; calculado 2 + 10 − 3 = 9
+  db.prepare('INSERT INTO sicar_existencias VALUES (1, ?, 0, ?)').run('art-1', AL);
   servicio.marcarPendientes(db, 6, ['art-6'], AL);
   servicio.procesarPendientes(db, { ahora: AL });
   const [r] = detalle(db, 6, '1', AL).renglones;
   assert.deepEqual(r.comparacion, [
-    { sucursal_id: 1, calculado: '0', sicar: '0', diferencia: '0' },
-    { sucursal_id: 6, calculado: '90000', sicar: '80000', diferencia: '-10000' },
+    { sucursal_id: 1, calculado: '0', sicar: '0', motivo_sicar: null, diferencia: '0' },
+    { sucursal_id: 6, calculado: '90000', sicar: '80000', motivo_sicar: null, diferencia: '-10000' },
   ]);
 });
 
@@ -97,6 +98,7 @@ test('traslado por artículo: dos facturas viejas de la misma clave no duplican 
     db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, ?, 0, 'art-6', '5.0000', 10000, 1000, 0, 0)").run(id);
   }
   db.prepare('INSERT INTO sicar_existencias VALUES (6, ?, ?, ?)').run('art-6', 100000, AL); // 10 en CEDIS
+  db.prepare('INSERT INTO sicar_existencias VALUES (1, ?, 0, ?)').run('art-1', AL);
   // Ocosingo vendió 16 en 8 semanas (8 + 8 en dos semanas distintas): para 4 semanas necesita 8.
   for (const [id, dia] of [['v1', '2026-10-20'], ['v2', '2026-10-27']]) {
     db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (1, ?, ?, ?, 100, ?)').run(id, `${dia}T12:00:00`, 'vigente', AL);
@@ -109,4 +111,78 @@ test('traslado por artículo: dos facturas viejas de la misma clave no duplican 
     assert.deepEqual(e.traslados, [{ de: 6, a: 1, piezas: '80000', razon: 'destino_vende_mas' }], `factura ${id}`);
     assert.equal(e.facturas_en_aviso, 2);
   }
+});
+
+// ---- Revisión de Codex 2026-11-05 ----
+function escenarioTraslado(t, { costo = 1000, existenciaDestino = 'actual' } = {}) {
+  const db = prepararDB(t);
+  for (const suc of [6, 1]) db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (?, ?)').run(suc, '2026-09-01T18:00:00.000Z');
+  db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+    primera_vez, actualizado_en) VALUES (6, '1', '2026-09-20T10:00:00', '1', 'F1', '', 'vigente', 0, ?, ?)`).run(AL, AL);
+  db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, '1', 0, 'art-6', '10.0000', 10000, ?, 0, 0)").run(costo);
+  db.prepare('INSERT INTO sicar_existencias VALUES (6, ?, ?, ?)').run('art-6', 100000, AL);
+  if (existenciaDestino === 'actual') db.prepare('INSERT INTO sicar_existencias VALUES (1, ?, 0, ?)').run('art-1', AL);
+  if (existenciaDestino === 'vieja') db.prepare('INSERT INTO sicar_existencias VALUES (1, ?, 0, ?)').run('art-1', '2026-08-28T18:00:00.000Z');
+  for (const [id, dia] of [['v1', '2026-10-20'], ['v2', '2026-10-27']]) {
+    db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (1, ?, ?, ?, 100, ?)').run(id, `${dia}T12:00:00`, 'vigente', AL);
+    db.prepare('INSERT INTO sicar_detalles_mostrador VALUES (1, ?, 0, ?, ?, 100, 0)').run(id, 'art-1', '8.0000');
+  }
+  return db;
+}
+const procesarYDetalle = (db, ahora = AL) => {
+  const servicio = require('./servicio');
+  servicio.marcarPendientes(db, 6, ['art-6'], ahora);
+  servicio.procesarPendientes(db, { ahora });
+  return require('./consultas').detalle(db, 6, '1', ahora);
+};
+const INSUFICIENTE = [{ de: 6, a: null, piezas: null, razon: 'informacion_insuficiente' }];
+
+test('existencia destino ausente o vieja: no se sugiere cantidad', t => {
+  assert.deepEqual(procesarYDetalle(escenarioTraslado(t)).renglones[0].estrategias.traslados,
+    [{ de: 6, a: 1, piezas: '80000', razon: 'destino_vende_mas' }], 'con existencia actual sí');
+  for (const existenciaDestino of ['ausente', 'vieja']) {
+    const d = procesarYDetalle(escenarioTraslado(t, { existenciaDestino }));
+    assert.deepEqual(d.renglones[0].estrategias.traslados, INSUFICIENTE, existenciaDestino);
+    assert.equal(d.renglones[0].comparacion.find(c => c.sucursal_id === 1).sicar, null);
+  }
+});
+
+test('costo cero o desconocido: nada de liquidar a $0 ni precio sugerido', t => {
+  const d = procesarYDetalle(escenarioTraslado(t, { costo: 0 }), '2027-02-01T18:00:00.000Z');
+  assert.equal(d.factura.etapa, 'liquidar');
+  assert.doesNotMatch(d.renglones[0].estrategias.margen.texto, /\$0\.00/);
+  assert.match(d.renglones[0].estrategias.margen.texto, /no es calculable/);
+});
+
+test('clave con problema en la foto: sin dinero en la lista y sin cantidades sugeridas', t => {
+  const db = escenarioTraslado(t);
+  db.prepare("INSERT INTO seguimiento_foto_problemas VALUES (6, 'A', 'existencia_negativa')").run();
+  const d = procesarYDetalle(db);
+  assert.equal(d.factura.dinero, null);
+  assert.deepEqual(d.renglones[0].estrategias.traslados, INSUFICIENTE);
+  assert.equal(require('./consultas').listar(db, {}, AL).facturas[0].dinero, null);
+});
+
+test('factura enviada completa a tienda sin agente: no es agotada y sigue visible con el filtro inicial', t => {
+  const db = escenarioTraslado(t);
+  db.prepare('INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES (?, ?)').run('s2', 2);
+  db.prepare("INSERT INTO sicar_traspasos VALUES (6, 'g', 'G', 's6', 's2', '2026-09-25', 'enviado', NULL, NULL, 0, ?)").run(AL);
+  db.prepare("INSERT INTO sicar_traspasos_detalle VALUES (6, 'g', 'art-6', '10.0000', 0, 0)").run();
+  procesarYDetalle(db);
+  const lista = require('./consultas').listar(db, { ocultar_agotadas: '1' }, AL);
+  assert.equal(lista.total, 1);
+  assert.equal(lista.facturas[0].agotada, false);
+  assert.equal(lista.facturas[0].etapa, null, 'lo gris no genera avisos');
+});
+
+test('liquidar respeta el porcentaje de ganancia configurado', t => {
+  const db = escenarioTraslado(t);
+  require('./rutas').cambiarConfig(db, { ganancia_liquidacion_porcentaje: 25 }, '1', AL);
+  db.prepare("INSERT INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (1, 'c', 'Cliente')").run();
+  db.prepare(`INSERT INTO sicar_ventas(sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
+    VALUES (1, 'p', 'c', '2026-10-30T10:00:00', 'vigente', 100, 'r', 'h')`).run();
+  db.prepare("INSERT INTO sicar_detalles VALUES (1, 'p', 'art-1', 0, 'A', 'Art', '1.0000', '30.00', '30.00', 3000, 0)").run();
+  const m = procesarYDetalle(db, '2027-02-01T18:00:00.000Z').renglones[0].estrategias.margen;
+  assert.match(m.texto, /25 %/);
+  assert.equal(m.precio_referencia_centavos, '1500'); // costo $10 + ⌈25 % de ($30 − $10)⌉
 });

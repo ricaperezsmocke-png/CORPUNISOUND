@@ -79,8 +79,14 @@ export function siguienteAccion(f) {
   if (faltan > 0) {
     return `${TEXTOS.insuficiente}: ${faltan} ${faltan === 1 ? "renglón" : "renglones"} sin clave en el catálogo de CEDIS`;
   }
-  const gris = BigInt(f.piezas?.sin_agente ?? "0");
-  if (f.agotada && !f.aviso) return gris > 0n ? "Pendiente de comprobación" : "Agotada";
+  const p = f.piezas || {};
+  const saldo = BigInt(p.queda ?? "0") + BigInt(p.transito ?? "0");
+  if (!f.aviso && saldo === 0n) {
+    // Sin saldo para avisos, pero lo gris o por aclarar sigue pendiente: nunca se presenta como agotada.
+    if (BigInt(p.sin_agente ?? "0") > 0n) return "Pendiente de comprobación";
+    if (BigInt(p.por_aclarar ?? "0") > 0n) return TEXTOS.por_aclarar;
+    return "Agotada";
+  }
   if (f.aviso?.estado === "pospuesto") return `Pospuesto hasta ${f.aviso.pospuesto_hasta}`;
   if (f.aviso?.estado === "revisado") return `Revisado: ${etiquetaEtapa(f.aviso.etapa)}`;
   return etiquetaEtapa(f.etapa);
@@ -159,11 +165,16 @@ export const textoMotivo = (motivo) => MOTIVOS[motivo] || motivo;
 export const textoPorArticulo = (n) => (n > 1
   ? `Sugerencia por artículo: cuenta las ${n} facturas en aviso de esta clave. Es la misma en cada una; no la sumes.` : null);
 
+const SIN_SICAR = {
+  clave_repetida: "clave repetida en SICAR", existencia_atrasada: "existencia de SICAR atrasada",
+  sin_existencia: "SICAR no reporta existencia",
+};
+
 /** Saldo calculado contra existencia SICAR de una tienda. Una diferencia nunca se presenta como faltante. */
 export function textoComparacion(c, nombres) {
   const tienda = nombres[c.sucursal_id] || `Tienda ${c.sucursal_id}`;
   const calculado = c.calculado === null ? "calculado pendiente de recálculo" : `calculado ${piezasTexto(c.calculado)}`;
-  if (c.sicar === null) return `${tienda}: clave repetida en SICAR, no se puede comparar · ${calculado}`;
+  if (c.sicar === null) return `${tienda}: ${SIN_SICAR[c.motivo_sicar] || "existencia SICAR desconocida"}, no se puede comparar · ${calculado}`;
   const base = `${tienda}: SICAR ${piezasTexto(c.sicar)} · ${calculado}`;
   if (c.diferencia === null) return base;
   return c.diferencia === "0" ? `${base} · cuadra` : `${base} · diferencia ${piezasTexto(c.diferencia)} (movimientos por aclarar)`;

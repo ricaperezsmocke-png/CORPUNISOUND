@@ -58,7 +58,8 @@ function sinDatos(com_id, esperada, encabezado, aviso, ahora) {
 /** Marca la factura si SICAR tiene más renglones de los que se pudieron seguir; sin dinero parcial. */
 function completar(factura, esperada, calculados) {
   const faltan = esperada ? Math.max(0, esperada.n - calculados) : 0;
-  return faltan ? { ...factura, renglones_sin_seguimiento: faltan, dinero: null } : { ...factura, renglones_sin_seguimiento: 0 };
+  return faltan ? { ...factura, renglones_sin_seguimiento: faltan, dinero: null, agotada: false }
+    : { ...factura, renglones_sin_seguimiento: 0 };
 }
 
 function avisosActivos(sqlite) {
@@ -67,6 +68,8 @@ function avisosActivos(sqlite) {
 }
 
 /** Suma los renglones de una factura. Si un renglón no tiene dinero calculable, la factura lo dice. */
+const atribucionInvalida = datos => (datos.motivos || []).includes('clave_con_problema');
+
 function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
   const piezas = Object.fromEntries(['comprado', 'vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].map(k => [k, 0n]));
   const dinero = Object.fromEntries(TRAMOS.map(k => [k, 0n]));
@@ -76,6 +79,8 @@ function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
     for (const k of Object.keys(piezas)) piezas[k] += BigInt(datos[k]);
     if (datos.dinero) for (const k of TRAMOS) dinero[k] += BigInt(datos.dinero[k]);
     else calculable = false;
+    // Atribución inválida (clave con problema en la foto): no se presenta un reparto en dinero como si fuera cierto.
+    if (atribucionInvalida(datos)) calculable = false;
     for (const s of Object.keys(datos.por_sucursal)) tiendas.add(Number(s));
     const al = datos.calidad?.datos_al;
     if (!al) calculable = false;
@@ -87,7 +92,9 @@ function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
   return {
     sucursal_id: CEDIS, com_id, folio: encabezado?.folio ?? null, proveedor: encabezado?.proveedor ?? null,
     comentario: encabezado?.comentario ?? null, fecha_compra: fecha, dias,
-    etapa: saldo > 0n ? etapaDe(dias, config) : null, agotada: saldo === 0n,
+    // Agotada solo si no queda NADA pendiente: lo gris o por aclarar sigue visible (pendiente de comprobación).
+    etapa: saldo > 0n ? etapaDe(dias, config) : null,
+    agotada: saldo === 0n && piezas.sin_agente === 0n && piezas.por_aclarar === 0n,
     piezas: Object.fromEntries(Object.entries(piezas).map(([k, v]) => [k, String(v)])),
     dinero: calculable ? Object.fromEntries(TRAMOS.map(k => [k, String(dinero[k])])) : null,
     pendiente_centavos: String(dinero.queda + dinero.transito), claves: [...new Set(renglones.map(r => r.clave))],
@@ -177,16 +184,24 @@ function ventasPorSemana(sqlite, clave, tiendas, config, ahora) {
 }
 
 /** Existencia SICAR de la clave por tienda; clave repetida en una tienda = desconocida (undefined). */
-function existenciasDe(sqlite, clave, tiendas) {
-  const salida = {};
+/**
+ * Existencia SICAR de la clave por tienda. Lo desconocido queda desconocido (sin valor, con motivo): clave repetida,
+ * artículo sin fila de existencia, o existencia más vieja que dias_datos_atrasados. Sin artículo en el catálogo = 0.
+ */
+function existenciasDe(sqlite, clave, tiendas, config, ahora) {
+  const valores = {}, motivos = {};
+  const limite = config.dias_datos_atrasados * DIA_MS, instante = Date.parse(ahora);
   for (const s of tiendas) {
-    const filas = sqlite.prepare(`SELECT CAST(e.existencia_diezmilesimas AS TEXT) piezas FROM sicar_articulos a
+    const filas = sqlite.prepare(`SELECT CAST(e.existencia_diezmilesimas AS TEXT) piezas, e.actualizado_en FROM sicar_articulos a
       LEFT JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
       WHERE a.sucursal_id=? AND a.clave=?`).all(s, clave);
-    if (filas.length > 1) continue;
-    salida[s] = filas.length && filas[0].piezas !== null ? BigInt(filas[0].piezas) : 0n;
+    if (!filas.length) valores[s] = 0n;
+    else if (filas.length > 1) motivos[s] = 'clave_repetida';
+    else if (filas[0].piezas === null) motivos[s] = 'sin_existencia';
+    else if (!(instante - Date.parse(filas[0].actualizado_en) <= limite)) motivos[s] = 'existencia_atrasada';
+    else valores[s] = BigInt(filas[0].piezas);
   }
-  return salida;
+  return { valores, motivos };
 }
 
 /**
@@ -232,12 +247,18 @@ function estrategias(sqlite, renglon, factura, config, ahora) {
       if (BigInt(v.queda) > 0n) saldoViejo[s] = (saldoViejo[s] ?? 0n) + BigInt(v.queda);
     }
   }
-  const traslados = sugerirTraslados({ saldoViejo, velocidades: velocidades(ventasPorSemana(sqlite, clave, tiendas, config, ahora), config),
-    existencias: existenciasDe(sqlite, clave, tiendas), transito: transitoHacia(sqlite, clave),
-    atrasadas: datos.calidad?.atrasadas ?? [], config });
+  // Si la atribución de la clave no es confiable, no hay cantidades: solo "información insuficiente" por origen.
+  const invalida = atribucionInvalida(datos) || enAviso.some(f => atribucionInvalida(f.datos));
+  const traslados = invalida
+    ? Object.keys(saldoViejo).map(Number).sort((a, b) => a - b).map(de => ({ de, a: null, piezas: null, razon: 'informacion_insuficiente' }))
+    : sugerirTraslados({ saldoViejo, velocidades: velocidades(ventasPorSemana(sqlite, clave, tiendas, config, ahora), config),
+      existencias: existenciasDe(sqlite, clave, tiendas, config, ahora).valores, transito: transitoHacia(sqlite, clave),
+      atrasadas: datos.calidad?.atrasadas ?? [], config });
   const comprado = BigInt(datos.comprado), valor = BigInt(datos.valor_centavos);
-  const costo = comprado > 0n ? (valor * 10000n + comprado - 1n) / comprado : null;
-  const margen = costo === null ? null
+  // Costo desconocido o cero: ninguna recomendación de precio (nunca "liquidar a $0.00").
+  const costo = comprado > 0n && valor > 0n && datos.dinero && !invalida ? (valor * 10000n + comprado - 1n) / comprado : null;
+  const margen = costo === null
+    ? { texto: 'El costo de esta factura no es calculable: revísalo antes de cambiar precios.', precio_referencia_centavos: null }
     : textoMargen({ costo_pieza_centavos: costo, ultimo_precio_centavos: ultimoPrecio(sqlite, clave), etapa: factura.etapa, config });
   const recientes = mismaClave.filter(f => f.com_id !== renglon.com_id
     && f.datos.fecha_compra > datos.fecha_compra && BigInt(f.datos.queda) + BigInt(f.datos.transito) > 0n)
@@ -250,14 +271,14 @@ function estrategias(sqlite, renglon, factura, config, ahora) {
  * "movimientos por aclarar", nunca como faltante. calculado null = resultado viejo pendiente de recálculo;
  * sicar null = clave repetida en esa tienda (no se puede saber).
  */
-function comparar(sqlite, { clave, datos }) {
+function comparar(sqlite, { clave, datos }, config, ahora) {
   const tiendas = sqlite.prepare('SELECT sucursal_id FROM seguimiento_tiendas ORDER BY sucursal_id').all().map(t => t.sucursal_id);
-  const existencias = existenciasDe(sqlite, clave, tiendas);
+  const { valores, motivos } = existenciasDe(sqlite, clave, tiendas, config, ahora);
   return tiendas.map(s => {
     const calculado = datos.saldo_clave ? BigInt(datos.saldo_clave[s] ?? '0') : null;
-    const sicar = existencias[s];
+    const sicar = valores[s];
     return { sucursal_id: s, calculado: calculado === null ? null : String(calculado), sicar: sicar === undefined ? null : String(sicar),
-      diferencia: calculado === null || sicar === undefined ? null : String(sicar - calculado) };
+      motivo_sicar: motivos[s] ?? null, diferencia: calculado === null || sicar === undefined ? null : String(sicar - calculado) };
   });
 }
 
@@ -273,7 +294,7 @@ function detalle(sqlite, sucursal_id, com_id, ahora = new Date().toISOString()) 
       : sinDatos(com_id, esperada, cabeza, aviso, ahora);
     const descripcion = sqlite.prepare('SELECT descripcion FROM sicar_articulos WHERE sucursal_id=? AND clave=? LIMIT 1');
     const renglones = filas.map(r => ({ renglon: r.renglon, clave: r.clave, descripcion: descripcion.get(CEDIS, r.clave)?.descripcion ?? null,
-      ...r.datos, estrategias: estrategias(sqlite, r, factura, config, ahora), comparacion: comparar(sqlite, r) }));
+      ...r.datos, estrategias: estrategias(sqlite, r, factura, config, ahora), comparacion: comparar(sqlite, r, config, ahora) }));
     const avisos = sqlite.prepare('SELECT * FROM seguimiento_avisos WHERE sucursal_id=? AND com_id=? ORDER BY id').all(CEDIS, com_id)
       .map(a => ({ ...a, historial: sqlite.prepare(`SELECT estado, motivo, actor, fecha FROM seguimiento_avisos_historial
         WHERE aviso_id=? ORDER BY id`).all(a.id) }));
