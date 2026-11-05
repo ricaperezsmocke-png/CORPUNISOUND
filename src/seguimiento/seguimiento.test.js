@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
-  parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal,
+  parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion,
 } from "./seguimiento.js";
 
 const factura = (extra = {}) => ({
@@ -131,4 +131,15 @@ test("factura con renglones sin clave: información insuficiente antes que cualq
     "Información insuficiente: 1 renglón sin clave en el catálogo de CEDIS");
   assert.equal(siguienteAccion(factura({ renglones_sin_seguimiento: 3, dinero: null })),
     "Información insuficiente: 3 renglones sin clave en el catálogo de CEDIS");
+});
+
+test("comparación contra SICAR: la diferencia es un movimiento por aclarar, no un faltante", () => {
+  const n = { 1: "Ocosingo", 6: "CEDIS" };
+  assert.equal(textoComparacion({ sucursal_id: 6, calculado: "90000", sicar: "80000", diferencia: "-10000" }, n),
+    "CEDIS: SICAR 8 · calculado 9 · diferencia -1 (movimientos por aclarar)");
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: "0", diferencia: "0" }, n), "Ocosingo: SICAR 0 · calculado 0 · cuadra");
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: null, sicar: "0", diferencia: null }, n),
+    "Ocosingo: SICAR 0 · calculado pendiente de recálculo");
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, diferencia: null }, n),
+    "Ocosingo: clave repetida en SICAR, no se puede comparar · calculado 0");
 });

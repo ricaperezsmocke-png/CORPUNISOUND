@@ -238,6 +238,22 @@ function estrategias(sqlite, renglon, factura, config, ahora) {
   return { traslados, margen, articulo_compartido: avisoArticuloCompartido(recientes) };
 }
 
+/**
+ * Saldo calculado de la clave contra la existencia SICAR en cada tienda incorporada. La diferencia se muestra como
+ * "movimientos por aclarar", nunca como faltante. calculado null = resultado viejo pendiente de recálculo;
+ * sicar null = clave repetida en esa tienda (no se puede saber).
+ */
+function comparar(sqlite, { clave, datos }) {
+  const tiendas = sqlite.prepare('SELECT sucursal_id FROM seguimiento_tiendas ORDER BY sucursal_id').all().map(t => t.sucursal_id);
+  const existencias = existenciasDe(sqlite, clave, tiendas);
+  return tiendas.map(s => {
+    const calculado = datos.saldo_clave ? BigInt(datos.saldo_clave[s] ?? '0') : null;
+    const sicar = existencias[s];
+    return { sucursal_id: s, calculado: calculado === null ? null : String(calculado), sicar: sicar === undefined ? null : String(sicar),
+      diferencia: calculado === null || sicar === undefined ? null : String(sicar - calculado) };
+  });
+}
+
 function detalle(sqlite, sucursal_id, com_id, ahora = new Date().toISOString()) {
   if (Number(sucursal_id) !== CEDIS || typeof com_id !== 'string' || !/^\d{1,128}$/.test(com_id)) throw error(404, 'Factura no encontrada.');
   return sqlite.transaction(() => {
@@ -250,7 +266,7 @@ function detalle(sqlite, sucursal_id, com_id, ahora = new Date().toISOString()) 
       : sinDatos(com_id, esperada, cabeza, aviso, ahora);
     const descripcion = sqlite.prepare('SELECT descripcion FROM sicar_articulos WHERE sucursal_id=? AND clave=? LIMIT 1');
     const renglones = filas.map(r => ({ renglon: r.renglon, clave: r.clave, descripcion: descripcion.get(CEDIS, r.clave)?.descripcion ?? null,
-      ...r.datos, estrategias: estrategias(sqlite, r, factura, config, ahora) }));
+      ...r.datos, estrategias: estrategias(sqlite, r, factura, config, ahora), comparacion: comparar(sqlite, r) }));
     const avisos = sqlite.prepare('SELECT * FROM seguimiento_avisos WHERE sucursal_id=? AND com_id=? ORDER BY id').all(CEDIS, com_id)
       .map(a => ({ ...a, historial: sqlite.prepare(`SELECT estado, motivo, actor, fecha FROM seguimiento_avisos_historial
         WHERE aviso_id=? ORDER BY id`).all(a.id) }));

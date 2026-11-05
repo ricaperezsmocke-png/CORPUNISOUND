@@ -155,3 +155,13 @@ const MOTIVOS = {
   sin_punta_origen: "Recepción sin registro de salida en el origen",
 };
 export const textoMotivo = (motivo) => MOTIVOS[motivo] || motivo;
+
+/** Saldo calculado contra existencia SICAR de una tienda. Una diferencia nunca se presenta como faltante. */
+export function textoComparacion(c, nombres) {
+  const tienda = nombres[c.sucursal_id] || `Tienda ${c.sucursal_id}`;
+  const calculado = c.calculado === null ? "calculado pendiente de recálculo" : `calculado ${piezasTexto(c.calculado)}`;
+  if (c.sicar === null) return `${tienda}: clave repetida en SICAR, no se puede comparar · ${calculado}`;
+  const base = `${tienda}: SICAR ${piezasTexto(c.sicar)} · ${calculado}`;
+  if (c.diferencia === null) return base;
+  return c.diferencia === "0" ? `${base} · cuadra` : `${base} · diferencia ${piezasTexto(c.diferencia)} (movimientos por aclarar)`;
+}

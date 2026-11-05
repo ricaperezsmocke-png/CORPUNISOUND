@@ -54,7 +54,13 @@ function revisarAvisos(sqlite, com_id, config, ahora) {
 
 function recalcularClave(sqlite, clave, config, ahora) {
   const { movimientos, calidad } = movimientosPorClave(sqlite, clave, { ahora });
-  const { lotes, incierto } = calcular(movimientos);
+  const { lotes, incierto, anterior } = calcular(movimientos);
+  // Saldo calculado de la clave por tienda (sin factura + todas sus facturas): se compara contra la existencia SICAR.
+  const saldo = new Map(Object.entries(anterior).map(([s, v]) => [s, BigInt(v)]));
+  for (const l of lotes) {
+    for (const [s, v] of Object.entries(l.por_sucursal)) saldo.set(s, (saldo.get(s) ?? 0n) + BigInt(v.queda));
+  }
+  const saldo_clave = Object.fromEntries([...saldo].map(([s, v]) => [s, String(v)]));
   const fechas = new Map(movimientos.filter(m => m.tipo === 'compra')
     .map(m => [JSON.stringify([m.lote.com_id, m.lote.renglon]), m.fecha.slice(0, 10)]));
   const facturas = new Set(sqlite.prepare('SELECT com_id FROM seguimiento_resultado WHERE clave=? AND sucursal_id=?')
@@ -64,7 +70,7 @@ function recalcularClave(sqlite, clave, config, ahora) {
     (sucursal_id, com_id, renglon, clave, datos_json, version, calculado_en) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   for (const l of lotes) {
     const { sucursal_id, com_id, renglon } = l.lote;
-    const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([com_id, renglon])), calidad, incierto };
+    const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([com_id, renglon])), calidad, incierto, saldo_clave };
     guardar.run(sucursal_id, com_id, renglon, clave, JSON.stringify(datos), VERSION, ahora);
     facturas.add(com_id);
   }

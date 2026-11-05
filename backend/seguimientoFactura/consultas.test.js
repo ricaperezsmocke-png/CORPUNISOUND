@@ -64,3 +64,24 @@ test('renglón de compra sin clave: la factura dice información insuficiente y 
   assert.equal(f('3').dinero.queda, '20000');
   assert.equal(detalle(db, 6, '2', AL).factura.renglones_sin_seguimiento, 1);
 });
+
+test('detalle compara el saldo calculado contra la existencia de SICAR por tienda', t => {
+  const { detalle } = require('./consultas');
+  const servicio = require('./servicio');
+  const db = prepararDB(t);
+  for (const suc of [6, 1]) db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (?, ?)').run(suc, '2026-09-01T18:00:00.000Z');
+  db.prepare("INSERT INTO seguimiento_foto VALUES (6, 'A', '20000')").run(); // 2 piezas anteriores en CEDIS
+  db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+    primera_vez, actualizado_en) VALUES (6, '1', '2026-09-20T10:00:00', '1', 'F1', '', 'vigente', 0, ?, ?)`).run(AL, AL);
+  db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, '1', 0, 'art-6', '10.0000', 10000, 1000, 0, 0)").run();
+  db.prepare("INSERT INTO sicar_ventas_mostrador VALUES (6, 'v1', '2026-10-01T10:00:00', 'vigente', 100, ?)").run(AL);
+  db.prepare("INSERT INTO sicar_detalles_mostrador VALUES (6, 'v1', 0, 'art-6', '3.0000', 100, 0)").run();
+  db.prepare('INSERT INTO sicar_existencias VALUES (6, ?, ?, ?)').run('art-6', 80000, AL); // SICAR dice 8; calculado 2 + 10 − 3 = 9
+  servicio.marcarPendientes(db, 6, ['art-6'], AL);
+  servicio.procesarPendientes(db, { ahora: AL });
+  const [r] = detalle(db, 6, '1', AL).renglones;
+  assert.deepEqual(r.comparacion, [
+    { sucursal_id: 1, calculado: '0', sicar: '0', diferencia: '0' },
+    { sucursal_id: 6, calculado: '90000', sicar: '80000', diferencia: '-10000' },
+  ]);
+});

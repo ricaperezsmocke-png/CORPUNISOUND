@@ -4,7 +4,7 @@ import ModalConfirmar from "../ModalConfirmar.jsx";
 import { contadorDePeticiones, fechaRelativa } from "../sicar/cortesSicar.js";
 import {
   TEXTOS, piezasTexto, pesosTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
-  textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal,
+  textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -151,6 +151,14 @@ function Renglon({ r, nombres }) {
         </tbody>
       </table>
       {motivos.length > 0 && <p className="mt-2 text-sm text-amber-800">Por aclarar: {motivos.map(textoMotivo).join(" · ")}</p>}
+      {r.comparacion?.length > 0 && (
+        <div className="mt-2 text-sm">
+          <p className="font-semibold">Existencia SICAR contra lo calculado (todas las facturas y la mercancía anterior)</p>
+          {r.comparacion.map((c) => (
+            <p key={c.sucursal_id} className={c.diferencia && c.diferencia !== "0" ? "text-amber-800" : ""}>{textoComparacion(c, nombres)}</p>
+          ))}
+        </div>
+      )}
       <Estrategias e={r.estrategias} renglon={r} nombres={nombres} />
     </div>
   );
