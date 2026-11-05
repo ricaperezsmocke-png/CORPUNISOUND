@@ -1,4 +1,6 @@
 const { esPublicoSicar } = require('./sicarVinculos');
+const { artIdsDelLote, marcarPendientes } = require('./seguimientoFactura/pendientes');
+const { aDiezmilesimas } = require('./cantidades');
 
 class ErrorSicar extends Error {
   constructor(codigo, mensaje, siguienteSecuencia) {
@@ -188,6 +190,7 @@ const ESQUEMA = `
   CREATE TABLE IF NOT EXISTS sicar_compras_detalle (
     sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, renglon INTEGER NOT NULL CHECK (renglon BETWEEN 0 AND 499),
     art_id TEXT NOT NULL, cantidad TEXT NOT NULL,
+    factor_diezmilesimas INTEGER NOT NULL DEFAULT 10000,
     precio_sin_centavos INTEGER NOT NULL CHECK (typeof(precio_sin_centavos) = 'integer' AND precio_sin_centavos BETWEEN 0 AND 9007199254740991),
     precio_con_centavos INTEGER NOT NULL CHECK (typeof(precio_con_centavos) = 'integer' AND precio_con_centavos BETWEEN 0 AND 9007199254740991),
     importe_con_centavos INTEGER NOT NULL CHECK (typeof(importe_con_centavos) = 'integer' AND importe_con_centavos BETWEEN 0 AND 9007199254740991),
@@ -229,6 +232,43 @@ const ESQUEMA = `
     sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
     PRIMARY KEY (sucursal_id, com_id)
   );
+  CREATE TABLE IF NOT EXISTS seguimiento_config (
+    clave TEXT PRIMARY KEY NOT NULL, valor TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_config_historial (
+    id INTEGER PRIMARY KEY, clave TEXT NOT NULL, anterior TEXT, nuevo TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_tiendas (
+    sucursal_id INTEGER PRIMARY KEY, corte TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_foto (
+    sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, piezas_diezmilesimas TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, clave),
+    FOREIGN KEY (sucursal_id) REFERENCES seguimiento_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_foto_problemas (
+    sucursal_id INTEGER NOT NULL, clave TEXT, motivo TEXT NOT NULL,
+    FOREIGN KEY (sucursal_id) REFERENCES seguimiento_tiendas(sucursal_id)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_pendientes (
+    clave TEXT PRIMARY KEY NOT NULL, desde TEXT
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_resultado (
+    sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, renglon INTEGER NOT NULL, clave TEXT,
+    datos_json TEXT NOT NULL, version INTEGER NOT NULL, calculado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, com_id, renglon)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_avisos (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, etapa TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('nuevo', 'revisado', 'pospuesto', 'retirado')), pospuesto_hasta TEXT,
+    UNIQUE (sucursal_id, com_id, etapa)
+  );
+  CREATE TABLE IF NOT EXISTS seguimiento_avisos_historial (
+    id INTEGER PRIMARY KEY, aviso_id INTEGER NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('nuevo', 'revisado', 'pospuesto', 'retirado')),
+    motivo TEXT, actor TEXT, fecha TEXT,
+    FOREIGN KEY (aviso_id) REFERENCES seguimiento_avisos(id)
+  );
   CREATE TABLE IF NOT EXISTS sicar_envios (
     sucursal_id INTEGER NOT NULL, batch_id TEXT NOT NULL, secuencia TEXT NOT NULL,
     hash TEXT NOT NULL, respuesta TEXT NOT NULL, clientes INTEGER NOT NULL, ventas INTEGER NOT NULL,
@@ -249,6 +289,11 @@ const ESQUEMA = `
   CREATE INDEX IF NOT EXISTS sicar_vinculos_cliente ON sicar_vinculos(cliente_id);
   CREATE INDEX IF NOT EXISTS sicar_decisiones_identidad ON sicar_decisiones(sucursal_id, cli_id, bloquear_union);
   CREATE INDEX IF NOT EXISTS sicar_intentos_hora ON sicar_intentos(hora);
+  -- Seguimiento por factura: buscar por clave y por artículo sin recorrer tablas completas (autorizado por Victor 2026-11-05).
+  CREATE INDEX IF NOT EXISTS sicar_articulos_clave ON sicar_articulos(clave, sucursal_id);
+  CREATE INDEX IF NOT EXISTS sicar_detalles_articulo ON sicar_detalles(sucursal_id, art_id);
+  CREATE INDEX IF NOT EXISTS sicar_detalles_mostrador_articulo ON sicar_detalles_mostrador(sucursal_id, art_id);
+  CREATE INDEX IF NOT EXISTS sicar_traspasos_detalle_articulo ON sicar_traspasos_detalle(sucursal_id, art_id);
   INSERT OR IGNORE INTO sicar_esquema(version, aplicada) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 `;
 
@@ -364,8 +409,8 @@ function prepararEscrituras(sqlite) {
         total_centavos=excluded.total_centavos, actualizado_en=excluded.actualizado_en`),
     borrarCompraDetalle: sqlite.prepare('DELETE FROM sicar_compras_detalle WHERE sucursal_id=? AND com_id=?'),
     compraDetalle: sqlite.prepare(`INSERT INTO sicar_compras_detalle
-      (sucursal_id, com_id, renglon, art_id, cantidad, precio_sin_centavos, precio_con_centavos, importe_con_centavos)
-      VALUES (@sucursal_id, @com_id, @renglon, @art_id, @cantidad, @precio_sin, @precio_con, @importe_con)`),
+      (sucursal_id, com_id, renglon, art_id, cantidad, precio_sin_centavos, precio_con_centavos, importe_con_centavos, factor_diezmilesimas)
+      VALUES (@sucursal_id, @com_id, @renglon, @art_id, @cantidad, @precio_sin, @precio_con, @importe_con, @factor_diezmilesimas)`),
     compraOmitida: sqlite.prepare(`INSERT INTO sicar_compras_omitidas (sucursal_id, com_id, codigo, primera_vez, ultima_vez)
       VALUES (@sucursal_id, @com_id, @codigo, @fecha, @fecha)
       ON CONFLICT(sucursal_id, com_id) DO UPDATE SET codigo=excluded.codigo, ultima_vez=excluded.ultima_vez`),
@@ -430,6 +475,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    if (!sqlite.pragma('table_info(sicar_compras_detalle)').some(c => c.name === 'factor_diezmilesimas')) {
+      sqlite.exec('ALTER TABLE sicar_compras_detalle ADD COLUMN factor_diezmilesimas INTEGER NOT NULL DEFAULT 10000');
+    }
     for (const columna of ['serie', 'folio']) {
       if (!sqlite.pragma('table_info(facturas_por_llegar)').some(c => c.name === columna)) {
         sqlite.exec(`ALTER TABLE facturas_por_llegar ADD COLUMN ${columna} TEXT`);
@@ -486,6 +534,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
       throw new ErrorSicar('SECUENCIA_INCORRECTA', 'La secuencia no es la siguiente esperada.', siguiente);
     }
     sentencias.tienda.run(sucursalId);
+    // Seguimiento por factura: claves afectadas antes (clave vieja, renglones que se reemplazan) y después de escribir.
+    const artsSeguimiento = artIdsDelLote(sqlite, sucursalId, lote);
+    marcarPendientes(sqlite, sucursalId, artsSeguimiento);
     const identidades = [];
     const descartados = { clientes: 0, ventas: 0, renglones: 0 };
     const publicos = new Set(sqlite.prepare('SELECT sucursal_id, cli_id, nombre FROM sicar_clientes WHERE sucursal_id=?')
@@ -592,9 +643,11 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
       sentencias.borrarCompraDetalle.run(sucursalId, c.com_id);
       for (const [renglon, d] of c.detalle.entries()) {
         sentencias.compraDetalle.run({ sucursal_id: sucursalId, com_id: c.com_id, renglon, art_id: d.art_id, cantidad: d.cantidad,
+          factor_diezmilesimas: aDiezmilesimas(d.factor ?? '1'),
           precio_sin: centavos(d.precio_sin), precio_con: centavos(d.precio_con), importe_con: centavos(d.importe_con) });
       }
     }
+    marcarPendientes(sqlite, sucursalId, artsSeguimiento);
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
       aceptados: { ...(lote.compras !== undefined ? { compras: lote.compras.length } : {}),

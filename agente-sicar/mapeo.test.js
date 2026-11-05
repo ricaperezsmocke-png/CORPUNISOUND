@@ -9,6 +9,43 @@ const columnas = {
   detallev: 'linea_id ven_id art_id clave descripcion cantidad precioCon precioSin importeCon descTotal',
   historial: 'his_id tabla movimiento referencia_real',
 };
+for (const conFactor of [true, false]) {
+  test(`compras: factor opcional ${conFactor ? 'presente' : 'ausente'} en pagina y relectura pasa seguridad`, async () => {
+    const consultas = [];
+    const tablas = { ...columnas, compra: 'com_id fecha pro_id folio comentario status',
+      detallec: 'com_id art_id cantidad precioSin precioCon importeCon' + (conFactor ? ' factor' : '') };
+    const leer = async (sql, parametros) => {
+      validarSQL(sql);
+      consultas.push({ sql, parametros });
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) return Object.entries(tablas).flatMap(([TABLE_NAME, campos]) =>
+        campos.split(' ').map(COLUMN_NAME => ({ TABLE_NAME, COLUMN_NAME })));
+      if (sql.startsWith('SHOW INDEX')) return [{ Key_name: 'PRIMARY', Seq_in_index: 1, Column_name: 'linea_id' }];
+      if (sql.includes('COUNT(*)')) return [{ total: '1' }];
+      if (sql.includes('FROM `compra`')) return [{ com_id: '41' }];
+      if (sql.includes('FROM `detallec`')) return [{ com_id: '41', art_id: '8', cantidad: '2',
+        precioSin: '500', precioCon: '580', importeCon: '1160', ...(conFactor ? { factor: '36' } : {}) }];
+      return [];
+    };
+    const fuente = crearFuente({ pagina: fn => fn(leer), tamano: 100 });
+    await fuente.validar();
+    assert.equal(fuente.comprasDisponibles, true);
+    const info = await fuente.verificar();
+    assert.deepEqual(info.compras.faltantes, []);
+    assert.equal(info.compras.columnas.includes('detallec.factor'), conFactor);
+    for (const desde of [null, '2026-11-01']) {
+      const pagina = await fuente.compras('40', 100, desde);
+      const q = consultas.filter(q => q.sql.includes('FROM `detallec`')).at(-1);
+      assert.equal(q.sql.includes('d.`factor`'), conFactor);
+      assert.deepEqual(q.parametros, ['41']);
+      const { compraSegura } = require('./formato');
+      const r = compraSegura({ compra: { com_id: '41', pro_id: '7', fecha: '2026-11-03 12:00:00', status: 1 },
+        detalles: pagina.detalles, cancelaciones: [] });
+      assert.equal(r.omitida, null);
+      assert.equal(r.compra.detalle[0].factor, conFactor ? '36.0000' : '1.0000');
+    }
+  });
+}
+
 function preparar({ falta, config = {} } = {}) {
   const consultas = [];
   const leer = async (sql, parametros) => {

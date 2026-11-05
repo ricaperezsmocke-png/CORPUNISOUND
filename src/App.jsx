@@ -23,6 +23,7 @@ import ExistenciasSicar from "./sicar/ExistenciasSicar.jsx";
 import CortesSicar from "./sicar/CortesSicar.jsx";
 import TraspasosSicar from "./sicar/TraspasosSicar.jsx";
 import FacturasPorLlegar from "./compras/FacturasPorLlegar.jsx";
+import SeguimientoFacturas from "./seguimiento/SeguimientoFacturas.jsx";
 import { apiFetch } from "./api";
 import { vistaApagada } from "./menuCategorias.js";
 
@@ -155,6 +156,7 @@ function App() {
         {vista === "existencias_sicar" && <ExistenciasSicar />}
         {vista === "traspasos_sicar" && <TraspasosSicar permisos={usuario.permisos} usuario={usuario} />}
         {vista === "facturas_por_llegar" && <FacturasPorLlegar permisos={usuario.permisos} />}
+        {vista === "seguimiento_facturas" && <SeguimientoFacturas permisos={usuario.permisos} />}
         {vista === "cortes_sicar" && <CortesSicar permisos={usuario.permisos} usuario={usuario} />}
         {vista === "garantias" && (
           <Garantias onVolver={() => setVista("dashboard")} permisos={usuario.permisos} usuario={usuario} pantallas={pantallas} />

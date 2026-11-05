@@ -334,6 +334,12 @@ function compraSegura({ compra: c, detalles, cancelaciones }) {
     if (BigInt(texto4.replace('.', '')) <= 0n) throw new Error('CANTIDAD_INVALIDA');
     return texto4;
   };
+  // Solo la columna ausente equivale a una pieza por empaque; un dato presente inválido omite la compra.
+  const factor = d => {
+    const texto4 = decimal(Object.hasOwn(d, 'factor') ? d.factor : '1', 4);
+    if (BigInt(texto4.replace('.', '')) <= 0n) throw new Error('DECIMAL_INVALIDO');
+    return texto4;
+  };
   let pro_id;
   try {
     pro_id = id(c.pro_id);
@@ -341,7 +347,7 @@ function compraSegura({ compra: c, detalles, cancelaciones }) {
     const estado = String(c.status) === '1' ? 'vigente' : 'cancelada';
     const cancelacion = cancelaciones.filter(h => String(h.id) === com_id).at(-1);
     const cancelada_en = estado === 'cancelada' && cancelacion ? fechaCancelacion(cancelacion.fecha) : null;
-    const detalle = suyos.map(d => ({ art_id: articulo(d.art_id), cantidad: cantidad(d.cantidad),
+    const detalle = suyos.map(d => ({ art_id: articulo(d.art_id), cantidad: cantidad(d.cantidad), factor: factor(d),
       precio_sin: decimal(d.precioSin, 2, true), precio_con: decimal(d.precioCon, 2, true), importe_con: decimal(d.importeCon, 2, true) }));
     const total_con = importe(detalle.reduce((suma, d) => suma + centavos(d.importe_con), 0n));
     return { compra: { com_id, fecha, pro_id, folio: texto(String(c.folio ?? '').trim().slice(0, 60), 60),

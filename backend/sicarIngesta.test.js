@@ -387,6 +387,37 @@ function compraTask3() {
     ] };
 }
 
+test('compras: acepta factor opcional positivo con hasta cuatro decimales sin modificar la entrada', () => {
+  for (const factor of ['36.0000', '36', '1.2', '1.234', '0.0001']) {
+    const compra = compraTask3();
+    compra.detalle[0].factor = factor;
+    const entrada = { ...lote(), compras: [compra] };
+    const antes = structuredClone(entrada);
+    assert.equal(require('./sicarIngesta').validarLoteSicar(entrada), entrada);
+    assert.deepEqual(entrada, antes);
+  }
+});
+
+test('compras: acepta factor ausente sin agregarlo al renglon', () => {
+  const entrada = { ...lote(), compras: [compraTask3()] };
+  const antes = structuredClone(entrada);
+  assert.equal(require('./sicarIngesta').validarLoteSicar(entrada), entrada);
+  assert.deepEqual(entrada, antes);
+});
+
+for (const factor of ['0', 'abc', '0.0000', '-1.0000', '1.00001', '1e2', '', '36.0000\n', '36\n',
+  ' 36', '36.', null, undefined, 36, '900719925474.0992']) {
+  test(`compras: rechaza factor invalido ${JSON.stringify(factor)} con 400`, () => {
+    const compra = compraTask3();
+    compra.detalle[1].factor = factor;
+    const entrada = { ...lote(), compras: [compra] };
+    const antes = structuredClone(entrada);
+    assert.throws(() => require('./sicarIngesta').validarLoteSicar(entrada),
+      { status: 400, codigo: 'IMPORTE_INVALIDO', referencia: 'compras[0].detalle[1]' });
+    assert.deepEqual(entrada, antes);
+  });
+}
+
 test('Task 3: acepta contrato real de compras, articulos repetidos y RFC opcional', () => {
   const entrada = { ...lote(), compras: [compraTask3()], proveedores: [{ prv_id: '7', nombre: 'Proveedor', rfc: 'XAXX010101000' }],
     compras_omitidas: [{ com_id: '8', codigo: 'SIN_DETALLE' }] };

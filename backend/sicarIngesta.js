@@ -200,9 +200,16 @@ function validarCompra(c, indice) {
   arreglo(c.detalle, 500, 'art_id', false);
   if (!c.detalle.length) fallar('DETALLE_VACIO');
   c.detalle.forEach((d, i) => enReferencia(`compras[${indice}].detalle[${i}]`, () => {
-    objeto(d, ['art_id', 'cantidad', 'precio_sin', 'precio_con', 'importe_con']);
+    objeto(d, ['art_id', 'cantidad', 'precio_sin', 'precio_con', 'importe_con', 'factor']);
     decimal(d.cantidad, 4);
     if (BigInt(d.cantidad.replace('.', '')) <= 0n) fallar('CANTIDAD_INVALIDA');
+    if (Object.hasOwn(d, 'factor')) {
+      if (typeof d.factor !== 'string' || d.factor.length > 32 || !/^\d+(?:\.\d{1,4})?$/.test(d.factor)) fallar('IMPORTE_INVALIDO');
+      const [entero, fraccion = ''] = d.factor.split('.');
+      const factor = `${entero}.${fraccion.padEnd(4, '0')}`;
+      decimal(factor, 4);
+      if (BigInt(factor.replace('.', '')) <= 0n) fallar('IMPORTE_INVALIDO');
+    }
     for (const campo of ['precio_sin', 'precio_con', 'importe_con']) decimal(d[campo], 2);
   }));
 }
