@@ -82,6 +82,8 @@ const PERMISOS = [
   { clave: "ver_facturas_por_llegar", etiqueta: "Ver Facturas por Llegar", modulo: "inventario", implementado: true },
   { clave: "registrar_facturas_por_llegar", etiqueta: "Registrar Facturas por Llegar", modulo: "inventario", implementado: true },
   { clave: "conciliar_facturas", etiqueta: "Conciliar Facturas con Compras", modulo: "inventario", implementado: true },
+  { clave: "ver_seguimiento_facturas", etiqueta: "Ver Seguimiento de Facturas CEDIS", modulo: "inventario", implementado: true },
+  { clave: "gestionar_seguimiento_facturas", etiqueta: "Gestionar Seguimiento de Facturas CEDIS", modulo: "inventario", implementado: true },
   { clave: "gestionar_garantias", etiqueta: "Gestionar Garantías", modulo: "inventario", implementado: true },
   { clave: "migrar_datos", etiqueta: "Migrar Datos (Importar/Exportar)", modulo: "inventario", implementado: true },
   { clave: "ver_predicciones", etiqueta: "Ver Predicciones de Demanda", modulo: "inventario", implementado: true },
