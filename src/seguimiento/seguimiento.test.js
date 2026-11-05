@@ -109,6 +109,7 @@ test("posponer exige motivo de 3 a 200 caracteres y fecha futura", () => {
 test("motivos de incertidumbre en palabras, nunca como faltante", () => {
   assert.equal(textoMotivo("recepcion_menor"), "Llegaron menos piezas de las enviadas");
   assert.equal(textoMotivo("venta_sin_existencia"), "Venta sin existencia registrada");
+  assert.equal(textoMotivo("cuenta_interna"), "Salida a cuenta interna (no cuenta como venta)");
   assert.equal(textoMotivo("algo_nuevo"), "algo_nuevo");
   for (const t of Object.values(TEXTOS)) assert.doesNotMatch(t, /faltante|robo|culpa/i);
 });

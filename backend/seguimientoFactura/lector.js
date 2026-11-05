@@ -90,18 +90,21 @@ function leerVentas(ctx) {
     // revision es la secuencia de ingesta, NO una fecha. El envío conserva la fecha de esa revisión.
     const envio = mostrador ? '' : `LEFT JOIN sicar_envios e
       ON e.sucursal_id=v.sucursal_id AND e.secuencia=v.revision AND e.hash=v.hash`;
-    const filas = sqlite.prepare(`SELECT v.sucursal_id, v.ven_id, v.fecha_local, d.renglon, d.cantidad,
+    // Las ventas a cuentas internas sí sacan mercancía de la tienda: se leen, pero quedan por aclarar (no vendidas).
+    const interna = mostrador ? '0' : `NOT (${NO_INTERNA('v')})`;
+    const filas = sqlite.prepare(`SELECT v.sucursal_id, v.ven_id, v.fecha_local, d.renglon, d.cantidad, ${interna} interna,
       a.actualizado_en catalogo_al, ${actualizacion} actualizado_en FROM ${ventas} v
       JOIN seguimiento_tiendas t ON t.sucursal_id=v.sucursal_id
       JOIN ${detalles} d ON d.sucursal_id=v.sucursal_id AND d.ven_id=v.ven_id
       JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
-      ${envio} WHERE v.estado='vigente' AND a.clave=? ${mostrador ? '' : `AND ${NO_INTERNA('v')}`}`).all(clave);
+      ${envio} WHERE v.estado='vigente' AND a.clave=?`).all(clave);
     for (const f of filas) {
       if (f.fecha_local <= tiendas.get(f.sucursal_id).local) continue;
       fuente(f.actualizado_en);
       fuente(f.catalogo_al);
       agregar({ tipo: 'venta', fecha: f.fecha_local, sucursal_id: f.sucursal_id, piezas: aDiezmilesimas(f.cantidad),
-        ven_id: f.ven_id, renglon: f.renglon, fuente: mostrador ? 'mostrador' : 'cliente' });
+        ven_id: f.ven_id, renglon: f.renglon, fuente: mostrador ? 'mostrador' : 'cliente',
+        ...(f.interna ? { por_aclarar: 'cuenta_interna' } : {}) });
     }
   }
 }

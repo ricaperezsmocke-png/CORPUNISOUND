@@ -75,7 +75,10 @@ test('corte local exacto por tienda, vigencia, internas y catálogo propio; foto
   venta(db, 'cedis-antes', { suc: 6 });
   db.exec("UPDATE seguimiento_foto SET piezas_diezmilesimas='9007199254740993' WHERE sucursal_id=1");
   const r = leer(db);
-  assert.deepEqual(r.movimientos.filter(m => m.tipo === 'venta').map(m => m.ven_id).sort(), [ID, 'despues', 'mostrador'].sort());
+  const ventas = r.movimientos.filter(m => m.tipo === 'venta');
+  assert.deepEqual(ventas.map(m => m.ven_id).sort(), [ID, 'despues', 'interna', 'mostrador'].sort());
+  // La venta interna sí saca la mercancía de la tienda, pero queda por aclarar: nunca cuenta como vendida.
+  assert.deepEqual(ventas.filter(m => m.por_aclarar).map(m => [m.ven_id, m.por_aclarar]), [['interna', 'cuenta_interna']]);
   assert.ok(r.movimientos.filter(m => m.tipo === 'venta').every(m => m.piezas === 12500n));
   assert.equal(r.movimientos.find(m => m.tipo === 'foto' && m.sucursal_id === 1).piezas, 9007199254740993n);
 });

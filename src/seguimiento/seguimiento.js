@@ -150,5 +150,6 @@ const MOTIVOS = {
   recepcion_anterior_salida: "Recepción anterior a la salida",
   catalogo_incompleto: "Catálogo incompleto en una tienda",
   fuente_sin_fecha: "Datos sin fecha de actualización",
+  cuenta_interna: "Salida a cuenta interna (no cuenta como venta)",
 };
 export const textoMotivo = (motivo) => MOTIVOS[motivo] || motivo;
