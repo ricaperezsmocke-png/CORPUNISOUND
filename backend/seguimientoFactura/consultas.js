@@ -196,7 +196,9 @@ function estrategias(sqlite, renglon, factura, config, ahora) {
   const costo = comprado > 0n ? (valor * 10000n + comprado - 1n) / comprado : null;
   const margen = costo === null ? null
     : textoMargen({ costo_pieza_centavos: costo, ultimo_precio_centavos: ultimoPrecio(sqlite, clave), etapa: factura.etapa, config });
-  const recientes = filasResultado(sqlite).filter(f => f.clave === clave && f.com_id !== renglon.com_id
+  const mismaClave = sqlite.prepare('SELECT com_id, datos_json FROM seguimiento_resultado WHERE sucursal_id=? AND clave=?')
+    .all(CEDIS, clave).map(f => ({ com_id: f.com_id, clave, datos: JSON.parse(f.datos_json) }));
+  const recientes = mismaClave.filter(f => f.com_id !== renglon.com_id
     && f.datos.fecha_compra > datos.fecha_compra && BigInt(f.datos.queda) + BigInt(f.datos.transito) > 0n)
     .map(f => ({ piezas: BigInt(f.datos.queda) + BigInt(f.datos.transito), dias: diasDesde(f.datos.fecha_compra, ahora) }));
   return { traslados, margen, articulo_compartido: avisoArticuloCompartido(recientes) };

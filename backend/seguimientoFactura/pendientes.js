@@ -10,7 +10,7 @@ const DETALLES = [
 const hayTiendas = sqlite => !!sqlite.prepare('SELECT 1 FROM seguimiento_tiendas LIMIT 1').get();
 
 /**
- * art_id que un lote del agente puede afectar: los que trae (detalles, artículos, existencias) y los que ya
+ * art_id que un lote del agente puede afectar: los que trae (detalles y artículos) y los que ya
  * estaban guardados en los documentos que reemplaza (un renglón borrado también cambia el cálculo).
  */
 function artIdsDelLote(sqlite, sucursalId, lote) {
@@ -27,7 +27,7 @@ function artIdsDelLote(sqlite, sucursalId, lote) {
     }
   }
   for (const a of lote.articulos || []) ids.add(String(a.art_id));
-  for (const e of lote.existencias || []) ids.add(String(e.art_id));
+  // Las existencias NO: el cálculo usa solo la foto de arranque, y el agente manda todas cada noche (miles de claves).
   return [...ids];
 }
 

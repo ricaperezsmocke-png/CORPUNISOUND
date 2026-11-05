@@ -289,6 +289,11 @@ const ESQUEMA = `
   CREATE INDEX IF NOT EXISTS sicar_vinculos_cliente ON sicar_vinculos(cliente_id);
   CREATE INDEX IF NOT EXISTS sicar_decisiones_identidad ON sicar_decisiones(sucursal_id, cli_id, bloquear_union);
   CREATE INDEX IF NOT EXISTS sicar_intentos_hora ON sicar_intentos(hora);
+  -- Seguimiento por factura: buscar por clave y por artículo sin recorrer tablas completas (autorizado por Victor 2026-11-05).
+  CREATE INDEX IF NOT EXISTS sicar_articulos_clave ON sicar_articulos(clave, sucursal_id);
+  CREATE INDEX IF NOT EXISTS sicar_detalles_articulo ON sicar_detalles(sucursal_id, art_id);
+  CREATE INDEX IF NOT EXISTS sicar_detalles_mostrador_articulo ON sicar_detalles_mostrador(sucursal_id, art_id);
+  CREATE INDEX IF NOT EXISTS sicar_traspasos_detalle_articulo ON sicar_traspasos_detalle(sucursal_id, art_id);
   INSERT OR IGNORE INTO sicar_esquema(version, aplicada) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 `;
 

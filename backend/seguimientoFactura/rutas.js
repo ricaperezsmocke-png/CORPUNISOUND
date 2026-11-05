@@ -114,13 +114,32 @@ function registrarRutasSeguimiento(app, { sqlite, requiereLogin, requierePermiso
     ejecutar((db, req) => consultas.detalle(db, req.params.sucursal_id, req.params.com_id)));
 }
 
-/** Ciclos: pendientes cada 5 minutos y vuelta completa diaria. Un fallo se registra y no tumba el servidor. */
-function iniciarCiclosSeguimiento(sqlite) {
-  const seguro = fn => () => {
-    try { fn(sqlite()); } catch (e) { console.error('SEGUIMIENTO_FALLO', e.message); }
+/**
+ * Ciclos del servidor. El recálculo va en tramos de máximo 200 ms con pausa de 1 s entre tramos: el mismo
+ * servidor cobra en las tiendas y no se le puede trabar. La vuelta diaria se revisa cada hora y al arrancar
+ * (un despliegue reinicia los relojes; sin esto los avisos de 45/60/90/120 días dejarían de avanzar).
+ */
+function iniciarCiclosSeguimiento(sqlite, { tramoMs = 200, pausaMs = 1000 } = {}) {
+  let ocupado = false, ultimoDia = null;
+  const tramo = () => {
+    if (ocupado) return;
+    ocupado = true;
+    let quedan = 0;
+    try { quedan = procesarPendientes(sqlite(), { limite: 200, presupuestoMs: tramoMs }).quedan; }
+    catch (e) { console.error('SEGUIMIENTO_FALLO', e.message); }
+    finally { ocupado = false; }
+    if (quedan > 0) setTimeout(tramo, pausaMs).unref();
   };
-  setInterval(seguro(db => procesarPendientes(db, { limite: 200 })), 5 * 60000).unref();
-  setInterval(seguro(db => vueltaCompleta(db)), 86400000).unref();
+  const revisarDia = () => {
+    const hoy = fechaLocal();
+    if (hoy === ultimoDia) return;
+    try { vueltaCompleta(sqlite()); ultimoDia = hoy; } catch (e) { console.error('SEGUIMIENTO_FALLO', e.message); }
+    tramo();
+  };
+  setTimeout(revisarDia, 60000).unref();
+  setInterval(revisarDia, 3600000).unref();
+  setInterval(tramo, 5 * 60000).unref();
+  return { tramo, revisarDia };
 }
 
 module.exports = { registrarRutasSeguimiento, iniciarCiclosSeguimiento, gestionarAviso, cambiarConfig, RANGOS };

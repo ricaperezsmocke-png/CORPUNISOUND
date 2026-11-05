@@ -78,7 +78,7 @@ test('procesar calcula la factura, crea su aviso y vacía pendientes; dos veces 
   compra(db, 'C1');
   ventaCedis(db, 'v1', '4.0000');
   servicio().marcarPendientes(db, 6, ['art-6'], DIA_50);
-  assert.deepEqual(procesar(db), { procesadas: 1, errores: [] });
+  assert.deepEqual(procesar(db), { procesadas: 1, errores: [], quedan: 0 });
   const [fila] = resultado(db);
   assert.equal(fila.clave, 'A');
   assert.equal(fila.datos.vendido, '40000');
@@ -166,4 +166,40 @@ test('vuelta completa marca las claves de compras vigentes de CEDIS y las que ya
   db.prepare(`INSERT INTO seguimiento_resultado VALUES (6, 'VIEJA', 0, 'Z', '{}', 1, ?)`).run(RECIENTE);
   servicio().vueltaCompleta(db, DIA_50);
   assert.deepEqual(pendientes(db), ['A', 'Z']);
+});
+
+test('existencias solas no marcan pendientes: el cálculo no las usa y llegan todas cada noche', t => {
+  const { db, repo } = prepararDB(t);
+  repo.aplicarLote({ sucursalId: 1, lote: loteVenta('1', { mostrador: [], existencias: [{ art_id: 'art-1', existencia: '5.0000' }] }), hash: 'h1' });
+  assert.deepEqual(pendientes(db), []);
+});
+
+test('vuelta completa no marca claves de compras anteriores al corte de CEDIS', t => {
+  const { db } = prepararDB(t);
+  compra(db, 'VIEJA', { fecha: '2026-08-01T10:00:00' }); // antes del corte (2026-09-01)
+  servicio().vueltaCompleta(db, DIA_50);
+  assert.deepEqual(pendientes(db), []);
+  compra(db, 'NUEVA');
+  servicio().vueltaCompleta(db, DIA_50);
+  assert.deepEqual(pendientes(db), ['A']);
+});
+
+test('presupuesto de tiempo: procesa al menos una clave, se detiene y dice cuántas quedan', t => {
+  const { db } = prepararDB(t);
+  for (const clave of ['B', 'C', 'D']) db.prepare('INSERT INTO seguimiento_pendientes VALUES (?, ?)').run(clave, DIA_50);
+  const r = servicio().procesarPendientes(db, { limite: 50, ahora: DIA_50, presupuestoMs: 0 });
+  assert.deepEqual(r, { procesadas: 1, errores: [], quedan: 2 });
+  assert.deepEqual(procesar(db), { procesadas: 2, errores: [], quedan: 0 });
+});
+
+test('ciclos: la vuelta diaria corre una vez por día y deja todo procesado sin encimarse', t => {
+  const { db } = prepararDB(t);
+  compra(db, 'C1', { fecha: `${require('../fechas').fechaLocal()}T00:00:01` });
+  const ciclos = require('./rutas').iniciarCiclosSeguimiento(() => db, { tramoMs: 200, pausaMs: 10 });
+  ciclos.revisarDia();
+  assert.deepEqual(pendientes(db), []);
+  assert.equal(resultado(db).length, 1);
+  db.prepare("INSERT INTO seguimiento_pendientes VALUES ('Z', 'x')").run();
+  ciclos.revisarDia(); // mismo día: no repite la vuelta ni procesa
+  assert.deepEqual(pendientes(db), ['Z']);
 });

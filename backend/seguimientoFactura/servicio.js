@@ -83,8 +83,12 @@ function vencerPosposiciones(sqlite, ahora = new Date().toISOString()) {
   }).immediate();
 }
 
-/** Procesa hasta `limite` claves pendientes, la más vieja primero. Una clave que falla pasa al final de la fila. */
-function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOString() } = {}) {
+/**
+ * Procesa hasta `limite` claves pendientes, la más vieja primero. Una clave que falla pasa al final de la fila.
+ * Con `presupuestoMs` se detiene al agotarlo (siempre procesa al menos una) para no trabar el servidor de la caja.
+ */
+function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOString(), presupuestoMs = Infinity } = {}) {
+  const inicio = Date.now();
   vencerPosposiciones(sqlite, ahora);
   const config = leerConfig(sqlite);
   const claves = sqlite.prepare('SELECT clave FROM seguimiento_pendientes ORDER BY desde, clave LIMIT ?')
@@ -92,6 +96,7 @@ function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOStrin
   const errores = [];
   let procesadas = 0;
   for (const clave of claves) {
+    if (procesadas + errores.length > 0 && Date.now() - inicio >= presupuestoMs) break;
     try {
       sqlite.transaction(() => recalcularClave(sqlite, clave, config, ahora)).immediate();
       procesadas++;
@@ -100,20 +105,26 @@ function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOStrin
       sqlite.prepare('UPDATE seguimiento_pendientes SET desde=? WHERE clave=?').run(ahora, clave);
     }
   }
-  return { procesadas, errores };
+  const quedan = sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n;
+  return { procesadas, errores, quedan };
 }
 
-/** Vuelta diaria: marca toda clave de compras vigentes de CEDIS y toda clave con resultado guardado. */
+/**
+ * Vuelta diaria: marca las claves de compras vigentes de CEDIS desde el día de su corte (las anteriores son
+ * mercancía de la foto, no facturas seguidas) y toda clave con resultado guardado.
+ */
 function vueltaCompleta(sqlite, ahora = new Date().toISOString()) {
+  const cedis = sqlite.prepare('SELECT corte FROM seguimiento_tiendas WHERE sucursal_id=?').get(CEDIS);
+  const desdeDia = cedis ? fechaLocal(cedis.corte) : '9999-12-31';
   return sqlite.prepare(`INSERT INTO seguimiento_pendientes(clave, desde)
     SELECT DISTINCT clave, ? FROM (
       SELECT a.clave FROM sicar_compras c
         JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
         JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
-        WHERE c.sucursal_id=? AND c.estado='vigente'
+        WHERE c.sucursal_id=? AND c.estado='vigente' AND substr(c.fecha, 1, 10) >= ?
       UNION SELECT clave FROM seguimiento_resultado
     ) WHERE clave IS NOT NULL AND trim(clave) <> ''
-    ON CONFLICT(clave) DO NOTHING`).run(ahora, CEDIS).changes;
+    ON CONFLICT(clave) DO NOTHING`).run(ahora, CEDIS, desdeDia).changes;
 }
 
 module.exports = { VERSION, artIdsDelLote, marcarPendientes, procesarPendientes, vueltaCompleta, vencerPosposiciones };

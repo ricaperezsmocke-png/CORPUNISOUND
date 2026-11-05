@@ -86,7 +86,7 @@ const contenido = (sqlite, tabla) => sqlite.prepare(`SELECT * FROM ${tabla} ORDE
 test('flujo completo: empaque, recepción parcial, venta cancelada, recálculo, respaldo y restauración', async t => {
   const f = escenario(t);
   const ahora = new Date(AHORA + 50 * DIA).toISOString(); // 49 días después de la compra: etapa traslado
-  assert.deepEqual(servicio.procesarPendientes(f.sqlite, { limite: 50, ahora }), { procesadas: 1, errores: [] });
+  assert.deepEqual(servicio.procesarPendientes(f.sqlite, { limite: 50, ahora }), { procesadas: 1, errores: [], quedan: 0 });
   const [fila] = resultado(f.sqlite);
   const d = JSON.parse(fila.datos_json);
   assert.equal(fila.com_id, '5001');
@@ -113,7 +113,7 @@ test('flujo completo: empaque, recepción parcial, venta cancelada, recálculo, 
   p.liberar();
   for (const tabla of TABLAS) assert.deepEqual(contenido(g.sqlite, tabla), contenido(f.sqlite, tabla), tabla);
   servicio.vueltaCompleta(g.sqlite, ahora);
-  assert.deepEqual(servicio.procesarPendientes(g.sqlite, { limite: 50, ahora }), { procesadas: 1, errores: [] });
+  assert.deepEqual(servicio.procesarPendientes(g.sqlite, { limite: 50, ahora }), { procesadas: 1, errores: [], quedan: 0 });
   assert.deepEqual(resultado(g.sqlite), resultado(f.sqlite));
   assert.equal(g.sqlite.prepare('SELECT count(*) n FROM seguimiento_avisos').get().n, 1, 'recalcular no duplica avisos');
 });
@@ -135,7 +135,7 @@ test('rendimiento: 30,000 ventas de una tienda se procesan en menos de 1 s por b
   const r = servicio.procesarPendientes(f.sqlite, { limite: 50, ahora });
   const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
   t.diagnostic(`procesarPendientes con 30,000 ventas: ${ms.toFixed(0)} ms`);
-  assert.deepEqual(r, { procesadas: 1, errores: [] });
+  assert.deepEqual(r, { procesadas: 1, errores: [], quedan: 0 });
   const d = JSON.parse(resultado(f.sqlite)[0].datos_json);
   // Ocosingo recibió 18: 4 de la venta original + las 14 que quedaban. Lo demás no tiene factura que lo respalde.
   assert.equal(d.vendido, '180000');
