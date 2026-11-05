@@ -151,5 +151,7 @@ const MOTIVOS = {
   catalogo_incompleto: "Catálogo incompleto en una tienda",
   fuente_sin_fecha: "Datos sin fecha de actualización",
   cuenta_interna: "Salida a cuenta interna (no cuenta como venta)",
+  origen_no_incorporado: "Devolución desde una tienda sin agente (entra sin factura)",
+  sin_punta_origen: "Recepción sin registro de salida en el origen",
 };
 export const textoMotivo = (motivo) => MOTIVOS[motivo] || motivo;

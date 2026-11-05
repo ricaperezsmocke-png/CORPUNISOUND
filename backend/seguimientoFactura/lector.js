@@ -194,8 +194,9 @@ function problemaFechas(salida, entrada, alcance) {
   if (recibida && entrada.fecha_aplicado === corteDestino) return 'dia_del_corte';
   if (recibida && entrada.fecha_aplicado < fechaEnvio) return 'recepcion_anterior_salida';
   if (!usarEntrada) return;
-  if (!salida) return 'sin_punta_origen';
+  // Origen sin agente/no incorporado primero: su SICAR no manda la salida, así que tampoco hay punta de origen.
   if (!ti) return 'origen_no_incorporado';
+  if (!salida) return 'sin_punta_origen';
   if (!usarSalida) return 'salida_anterior_corte';
 }
 

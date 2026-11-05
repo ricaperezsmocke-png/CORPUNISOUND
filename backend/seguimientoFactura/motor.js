@@ -92,8 +92,15 @@ function salida(estado, m) {
 }
 
 function recepcion(estado, m) {
-  if (m.por_aclarar && m.por_aclarar !== 'recepcion_mayor') {
+  if (m.por_aclarar && !['recepcion_mayor', 'origen_no_incorporado'].includes(m.por_aclarar)) {
     anotarIncierto(estado, m.por_aclarar); // Su salida ya mandó las piezas a por aclarar.
+    return;
+  }
+  if (m.por_aclarar === 'origen_no_incorporado') {
+    // Devolución de una tienda sin agente: la mercancía sí llegó, pero no se sabe de qué factura era.
+    // Entra como anterior (sin factura) para que lo vendido después no se le cobre a otra factura.
+    anotarIncierto(estado, m.por_aclarar);
+    sumarEn(estado, m.sucursal_id, ANTERIOR, m.piezas);
     return;
   }
   const llave = llaveTraspaso(m.traspaso), enCamino = estado.transitos.get(llave);

@@ -329,3 +329,12 @@ test('traspaso cancelado sin recepción no mueve piezas: la mercancía sigue en 
   punta(db, 1, 'ambas', { folio: 'A', estado: 'cancelado', aplicada: null }); // las dos puntas canceladas
   assert.deepEqual(traspasos(leer(db)), []);
 });
+
+test('devolución desde una tienda sin agente: la recepción se reconoce como origen no incorporado', t => {
+  const db = prepararDB(t);
+  punta(db, 6, 'dev', { folio: 'D', origen: 's2', destino: 's6', estado: 'recibido' }); // Yajalón (sin agente) → CEDIS
+  const [m] = traspasos(leer(db));
+  assert.equal(m.tipo, 'recepcion');
+  assert.equal(m.sucursal_id, 6);
+  assert.equal(m.por_aclarar, 'origen_no_incorporado');
+});

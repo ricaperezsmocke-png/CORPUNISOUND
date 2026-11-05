@@ -179,3 +179,14 @@ test('la salida es JSON segura y no muta la entrada', () => {
   assert.doesNotThrow(() => JSON.stringify(r));
   assert.equal(JSON.stringify(entrada, (_k, v) => typeof v === 'bigint' ? v.toString() : v), copia);
 });
+
+test('devolución de tienda sin agente: vuelve como mercancía sin factura y no se cobra a otra factura', () => {
+  const r = conserva(calcular([compra('A', 5, 500), salida(6, 2, 5, { sin_agente: true, folio: 'ida' }),
+    compra('B', 5, 1000),
+    recepcion(2, 6, 5, { folio: 'vuelta', por_aclarar: 'origen_no_incorporado' }),
+    venta(6, 5)]));
+  assert.equal(lote(r, 'A').sin_agente, T(5), 'lo enviado a la tienda sin agente sigue sin comprobar');
+  assert.equal(lote(r, 'B').vendido, '0', 'la venta se toma de lo devuelto, no de la factura B');
+  assert.deepEqual(r.anterior, { 6: '0' });
+  assert.deepEqual(r.incierto, ['origen_no_incorporado']);
+});
