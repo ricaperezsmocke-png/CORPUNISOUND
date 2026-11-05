@@ -11,14 +11,14 @@ const ADMIN = {
              "editar_objetivos_venta", "ver_radar_demanda", "registrar_demanda",
              "ver_resumen_demanda", "ver_reportes", "editar_configuracion_pos",
              "cerrar_mes_objetivos", "ver_existencias_sicar", "ver_cortes_sicar",
-             "ver_traspasos_sicar", "ver_facturas_por_llegar"],
+             "ver_traspasos_sicar", "ver_facturas_por_llegar", "ver_seguimiento_facturas"],
 };
 
-test("el administrador ve las tres categorías y los 19 módulos", () => {
+test("el administrador ve las tres categorías y los 20 módulos", () => {
   const vistas = categoriasVisibles(ADMIN);
   assert.equal(vistas.length, 3);
   assert.deepEqual(vistas.map((c) => c.id), ["operacion", "comercial", "administracion"]);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 19);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 20);
 });
 
 test("una categoría sin módulos visibles no se dibuja", () => {
@@ -52,7 +52,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 20);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 21);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -109,6 +109,7 @@ const PARES_CONGELADOS = {
   existencias_sicar: { modulo: "inventario",  permiso: "ver_existencias_sicar" },
   traspasos_sicar: { modulo: "inventario",  permiso: "ver_traspasos_sicar" },
   facturas_por_llegar: { modulo: "inventario", permiso: "ver_facturas_por_llegar" },
+  seguimiento_facturas: { modulo: "inventario", permiso: "ver_seguimiento_facturas" },
   cortes_sicar:    { modulo: "admin",         permiso: "ver_cortes_sicar" },
   crm:             { modulo: "crm",           permiso: undefined },
   radar_demanda:   { modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },
@@ -204,7 +205,8 @@ test("Existencias SICAR solo aparece con el modulo inventario y el permiso ver_e
 
 test("Traspasos SICAR y Facturas por Llegar piden modulo inventario y su propio permiso", () => {
   const modulos = CATEGORIAS.flatMap((c) => c.modulos);
-  for (const [id, permiso] of [["traspasos_sicar", "ver_traspasos_sicar"], ["facturas_por_llegar", "ver_facturas_por_llegar"]]) {
+  for (const [id, permiso] of [["traspasos_sicar", "ver_traspasos_sicar"], ["facturas_por_llegar", "ver_facturas_por_llegar"],
+    ["seguimiento_facturas", "ver_seguimiento_facturas"]]) {
     const modulo = modulos.find((m) => m.id === id);
     assert.equal(moduloVisible(modulo, { modulos: ["inventario"], permisos: [permiso] }), true);
     assert.equal(moduloVisible(modulo, { modulos: ["inventario"], permisos: ["ver_existencias_sicar", "realizar_traspasos"] }), false);
