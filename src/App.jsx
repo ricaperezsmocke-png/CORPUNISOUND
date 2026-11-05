@@ -30,7 +30,7 @@ import { vistaApagada } from "./menuCategorias.js";
 const MODULOS = [
   "pos", "inventario", "roles", "crm", "corte", "ml", "traspasos", "garantias", "gastos", "reportes", "estado_cuenta",
   "respaldos", "gerencia_ventas", "radar_demanda", "configuracion", "supervision", "existencias_sicar", "cortes_sicar",
-  "traspasos_sicar", "facturas_por_llegar",
+  "traspasos_sicar", "facturas_por_llegar", "seguimiento_facturas",
 ];
 
 async function seleccionarCajaPredeterminada() {

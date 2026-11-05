@@ -3,7 +3,7 @@ import {
   ShoppingCart, Landmark, Wallet, Boxes, ArrowRightLeft,
   Users, RadioTower, Store, Target,
   FileBarChart, Scale, ShieldAlert, ShieldCheck, DatabaseBackup, Settings, ClipboardCheck,
-  PackageSearch, Calculator, Truck, FileClock, ChevronRight, ChevronsLeft, ChevronsRight, Home,
+  PackageSearch, Calculator, Truck, FileClock, FileSearch, ChevronRight, ChevronsLeft, ChevronsRight, Home,
 } from "lucide-react";
 import { categoriasVisibles } from "./menuCategorias.js";
 
@@ -29,6 +29,7 @@ const ICONOS = {
   existencias_sicar: PackageSearch,
   traspasos_sicar: Truck,
   facturas_por_llegar: FileClock,
+  seguimiento_facturas: FileSearch,
   cortes_sicar: Calculator,
   crm: Users,
   radar_demanda: RadioTower,
