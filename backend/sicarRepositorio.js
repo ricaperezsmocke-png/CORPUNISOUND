@@ -1,4 +1,5 @@
 const { esPublicoSicar } = require('./sicarVinculos');
+const { artIdsDelLote, marcarPendientes } = require('./seguimientoFactura/pendientes');
 const { aDiezmilesimas } = require('./cantidades');
 
 class ErrorSicar extends Error {
@@ -528,6 +529,9 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
       throw new ErrorSicar('SECUENCIA_INCORRECTA', 'La secuencia no es la siguiente esperada.', siguiente);
     }
     sentencias.tienda.run(sucursalId);
+    // Seguimiento por factura: claves afectadas antes (clave vieja, renglones que se reemplazan) y después de escribir.
+    const artsSeguimiento = artIdsDelLote(sqlite, sucursalId, lote);
+    marcarPendientes(sqlite, sucursalId, artsSeguimiento);
     const identidades = [];
     const descartados = { clientes: 0, ventas: 0, renglones: 0 };
     const publicos = new Set(sqlite.prepare('SELECT sucursal_id, cli_id, nombre FROM sicar_clientes WHERE sucursal_id=?')
@@ -638,6 +642,7 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
           precio_sin: centavos(d.precio_sin), precio_con: centavos(d.precio_con), importe_con: centavos(d.importe_con) });
       }
     }
+    marcarPendientes(sqlite, sucursalId, artsSeguimiento);
     const recibo = {
       schema_version: 1, batch_id: lote.batch_id, sequence: lote.sequence,
       aceptados: { ...(lote.compras !== undefined ? { compras: lote.compras.length } : {}),
