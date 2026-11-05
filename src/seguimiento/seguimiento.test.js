@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
-  parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS,
+  parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal,
 } from "./seguimiento.js";
 
 const factura = (extra = {}) => ({
@@ -111,4 +111,16 @@ test("motivos de incertidumbre en palabras, nunca como faltante", () => {
   assert.equal(textoMotivo("venta_sin_existencia"), "Venta sin existencia registrada");
   assert.equal(textoMotivo("algo_nuevo"), "algo_nuevo");
   for (const t of Object.values(TEXTOS)) assert.doesNotMatch(t, /faltante|robo|culpa/i);
+});
+
+test("fechas y horas en hora de Chiapas, no en UTC", () => {
+  assert.equal(fechaHoraLocal("2026-11-05T18:50:50.399Z"), "2026-11-05 12:50");
+  assert.equal(fechaHoraLocal("2026-11-06T03:10:00.000Z"), "2026-11-05 21:10"); // ya es otro día en UTC
+  assert.equal(fechaHoraLocal("2026-11-06T03:10:00.000Z", { soloFecha: true }), "2026-11-05");
+  assert.equal(fechaHoraLocal(null), "—");
+  assert.equal(fechaHoraLocal("no es fecha"), "—");
+});
+
+test("sin traslado sugerido se explica por qué, sin culpar a nadie", () => {
+  assert.match(TEXTOS.sin_traslado, /ninguna tienda/i);
 });

@@ -248,11 +248,12 @@ test('fuente sin fecha no se reemplaza por hoy y tienda sin recepción se report
   assert.ok(r.calidad.problemas.some(p => p.motivo === 'fuente_sin_fecha'));
 });
 
-test('sin foto para la clave el corte sigue siendo una fuente utilizada', t => {
+test('el corte (foto de arranque) no cuenta como fecha de los datos: datos_al es la fuente real más vieja', t => {
   const db = prepararDB(t);
-  db.exec('DELETE FROM seguimiento_foto');
   venta(db, '1');
-  assert.equal(leer(db).calidad.datos_al, CORTE);
+  assert.equal(leer(db).calidad.datos_al, ACTUALIZADO);
+  db.exec('DELETE FROM seguimiento_foto');
+  assert.equal(leer(db).calidad.datos_al, ACTUALIZADO);
 });
 
 test('leer no escribe y precisión de piezas y dinero supera Number', t => {

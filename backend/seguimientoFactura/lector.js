@@ -36,7 +36,7 @@ function contexto(sqlite, clave, ahora) {
   function agregar(m, fechaOrden = m.fecha) {
     if (!tiendasUsadas.has(m.sucursal_id)) {
       const t = tiendas.get(m.sucursal_id);
-      fuente(t.corte);
+      // El corte es un punto fijo del pasado (la foto de arranque): no mide qué tan frescos están los datos.
       fuente(t.ultima_recepcion);
       tiendasUsadas.add(m.sucursal_id);
     }
@@ -56,7 +56,6 @@ function leerFotos(ctx) {
   for (const f of sqlite.prepare(`SELECT f.* FROM seguimiento_foto f
     JOIN seguimiento_tiendas t USING (sucursal_id) WHERE f.clave=?`).all(clave)) {
     const t = tiendas.get(f.sucursal_id);
-    fuente(t.corte);
     agregar({ tipo: 'foto', fecha: t.local, sucursal_id: f.sucursal_id, piezas: BigInt(f.piezas_diezmilesimas) });
   }
 }

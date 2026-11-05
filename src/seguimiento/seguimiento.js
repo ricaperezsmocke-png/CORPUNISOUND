@@ -11,7 +11,21 @@ export const TEXTOS = {
   por_aclarar: "Movimientos por aclarar",
   insuficiente: "Información insuficiente",
   comentario: "El comentario de la compra se muestra como referencia, no como destino real.",
+  sin_traslado: "Sin traslado sugerido: ninguna tienda cumple las reglas (vender al menos el doble, en 2 semanas distintas "
+    + "y con menos de 4 semanas de mercancía).",
 };
+
+const FORMATO_LOCAL = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City", year: "numeric", month: "2-digit",
+  day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** Marca ISO (UTC) a fecha y hora de Chiapas: "AAAA-MM-DD HH:MM", o solo la fecha. */
+export function fechaHoraLocal(iso, { soloFecha = false } = {}) {
+  const d = new Date(iso ?? "");
+  if (!iso || !Number.isFinite(d.getTime())) return "—";
+  const p = Object.fromEntries(FORMATO_LOCAL.formatToParts(d).map((x) => [x.type, x.value]));
+  const fecha = `${p.year}-${p.month}-${p.day}`;
+  return soloFecha ? fecha : `${fecha} ${p.hour}:${p.minute}`;
+}
 
 export function piezasTexto(diezmilesimas) {
   if (!esEntero(diezmilesimas)) return "—";

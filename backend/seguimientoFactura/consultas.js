@@ -155,14 +155,20 @@ function existenciasDe(sqlite, clave, tiendas) {
   return salida;
 }
 
-/** Piezas de la clave enviadas (sin recibir aún) hacia cada tienda, según el SICAR de origen. */
+/**
+ * Piezas de la clave en camino hacia cada tienda: enviadas según el SICAR de ORIGEN y que el SICAR de destino
+ * todavía no marca recibidas ni canceladas (el origen sigue diciendo "enviado" aunque el destino ya las tenga).
+ */
 function transitoHacia(sqlite, clave) {
   const salida = {};
   for (const f of sqlite.prepare(`SELECT m.sucursal_id destino, d.cantidad FROM sicar_traspasos t
+    JOIN sicar_sucursales_mapa o ON o.sicar_sucursal=t.suc_origen AND o.sucursal_id=t.sucursal_id
     JOIN sicar_traspasos_detalle d ON d.sucursal_id=t.sucursal_id AND d.tra_id=t.tra_id
     JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
     JOIN sicar_sucursales_mapa m ON m.sicar_sucursal=t.suc_destino
-    WHERE t.estado='enviado' AND a.clave=?`).all(clave)) {
+    WHERE t.estado='enviado' AND a.clave=? AND NOT EXISTS (SELECT 1 FROM sicar_traspasos r
+      WHERE r.sucursal_id=m.sucursal_id AND r.folio=t.folio AND r.suc_origen=t.suc_origen AND r.suc_destino=t.suc_destino
+        AND r.estado IN ('recibido', 'cancelado'))`).all(clave)) {
     salida[f.destino] = (salida[f.destino] ?? 0n) + aDiezmilesimas(f.cantidad);
   }
   return salida;
@@ -229,4 +235,4 @@ function tiendas(sqlite, ahora = new Date().toISOString()) {
   return { incorporadas, pendientes };
 }
 
-module.exports = { listar, detalle, tiendas, ETAPAS };
+module.exports = { listar, detalle, tiendas, transitoHacia, ETAPAS };

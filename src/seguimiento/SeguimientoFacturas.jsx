@@ -4,7 +4,7 @@ import ModalConfirmar from "../ModalConfirmar.jsx";
 import { contadorDePeticiones, fechaRelativa } from "../sicar/cortesSicar.js";
 import {
   TEXTOS, piezasTexto, pesosTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
-  textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo,
+  textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -123,6 +123,7 @@ function Estrategias({ e, renglon, nombres }) {
   if (!e) return null;
   return (
     <div className="mt-2 space-y-1 text-sm">
+      {e.traslados.length === 0 && <p className="text-slate-600">{TEXTOS.sin_traslado}</p>}
       {e.traslados.map((s, i) => <p key={i}>{textoTraslado(s, nombres, renglon.clave, renglon.descripcion)}</p>)}
       {e.margen && <p>{e.margen.texto}</p>}
       {e.articulo_compartido && <p className="font-semibold text-amber-800">{e.articulo_compartido}</p>}
@@ -136,7 +137,7 @@ function Renglon({ r, nombres }) {
   return (
     <div className={CAJA}>
       <p className="font-semibold">{r.clave} {r.descripcion || ""}</p>
-      <p className={NOTA_GRIS}>Datos al {r.calidad?.datos_al || "—"}</p>
+      <p className={NOTA_GRIS}>Datos al {fechaHoraLocal(r.calidad?.datos_al)}</p>
       <table className="mt-2 text-sm">
         <tbody>
           <tr><td className="pr-4">Comprado</td><td className={DERECHA}>{piezasTexto(r.comprado)} pzas · {pesosTexto(r.valor_centavos)}</td></tr>
@@ -192,7 +193,7 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
           <p className="mb-1 font-semibold">Historial de avisos</p>
           {avisos.flatMap((a) => a.historial.map((h, i) => (
             <p key={`${a.id}-${i}`} className="text-sm">
-              {h.fecha?.slice(0, 16).replace("T", " ")} · {etiquetaEtapa(a.etapa)} · {h.estado}
+              {fechaHoraLocal(h.fecha)} · {etiquetaEtapa(a.etapa)} · {h.estado}
               {h.motivo ? ` · ${h.motivo}` : ""} · {h.actor === "sistema" ? "Sistema" : `Usuario #${h.actor}`}
             </p>
           )))}
@@ -273,7 +274,7 @@ function Facturas({ nombres, permisos }) {
                   <td className={`${CELDA} ${DERECHA}`}>{f.dias}</td>
                   <td className={CELDA}><Barra factura={f} /></td>
                   <td className={CELDA}>{siguienteAccion(f)}</td>
-                  <td className={CELDA}>{f.datos_al?.slice(0, 10) || TEXTOS.insuficiente}</td>
+                  <td className={CELDA}>{f.datos_al ? fechaHoraLocal(f.datos_al, { soloFecha: true }) : TEXTOS.insuficiente}</td>
                   <td className={CELDA}><button type="button" className={BTN} onClick={() => setAbierta(f.com_id)}>Ver</button></td>
                 </tr>
               ))}
@@ -316,7 +317,7 @@ function Tiendas({ nombres, permisos }) {
         {datos?.incorporadas.length === 0 && <p className="text-sm">Todavía no hay tiendas incorporadas.</p>}
         {datos?.incorporadas.map((t) => (
           <p key={t.sucursal_id} className="text-sm">
-            {nombre(t.sucursal_id)} · foto del {t.corte?.slice(0, 16).replace("T", " ")} · {t.claves} claves · {t.problemas} con problema
+            {nombre(t.sucursal_id)} · foto del {fechaHoraLocal(t.corte)} · {t.claves} claves · {t.problemas} con problema
           </p>
         ))}
       </div>
@@ -327,8 +328,8 @@ function Tiendas({ nombres, permisos }) {
           const problemas = Object.entries(t.problemas).map(([m, n]) => `${n} ${m.replaceAll("_", " ")}`).join(" · ");
           return (
             <div key={t.sucursal_id} className="mb-2 flex flex-wrap items-center gap-3 text-sm">
-              <span>{nombre(t.sucursal_id)} · foto {t.corte ? `del ${t.corte.slice(0, 16).replace("T", " ")}` : "sin datos"}
-                · {t.claves} claves{problemas ? ` · Problemas: ${problemas}` : ""}</span>
+              <span>{nombre(t.sucursal_id)} · foto {t.corte ? `del ${fechaHoraLocal(t.corte)}` : "sin datos"}
+                {` · ${t.claves} claves`}{problemas ? ` · Problemas: ${problemas}` : ""}</span>
               {boton.visible && (
                 <button type="button" className={BTN} disabled={boton.deshabilitado} title={boton.razon} onClick={() => setConfirmar(t)}>
                   Incorporar
@@ -386,7 +387,7 @@ function Configuracion() {
         <p className="mb-1 font-semibold">Historial de cambios</p>
         {datos.historial.length === 0 && <p className="text-sm">Sin cambios: se usan los valores iniciales.</p>}
         {datos.historial.map((h) => (
-          <p key={h.id} className="text-sm">{h.fecha?.slice(0, 16).replace("T", " ")} · {h.clave}: {h.anterior} → {h.nuevo} · Usuario #{h.actor}</p>
+          <p key={h.id} className="text-sm">{fechaHoraLocal(h.fecha)} · {h.clave}: {h.anterior} → {h.nuevo} · Usuario #{h.actor}</p>
         ))}
       </div>
     </div>
