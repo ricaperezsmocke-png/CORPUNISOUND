@@ -209,6 +209,8 @@ function procesarPuntas(ctx, salida, entrada, traspaso) {
   const alcance = alcancePuntas(tiendas, salida, entrada, traspaso);
   const { gris, usarSalida, usarEntrada, recibida, fechaEnvio } = alcance;
   if (!usarSalida && !usarEntrada) return;
+  // Cancelado en el origen y nadie lo recibió: la mercancía nunca salió. No va a tránsito ni a gris.
+  if (salida?.estado === 'cancelado' && !recibida) return;
   for (const p of [salida, entrada].filter(Boolean)) p.fuentes.forEach(fuente);
   const motivo = problemaEstado(salida, entrada, recibida) || problemaFechas(salida, entrada, alcance);
   const movimiento = (p, tipo, fecha) => ({ tipo, fecha, sucursal_id: p.sucursal_id, piezas: p.piezas,

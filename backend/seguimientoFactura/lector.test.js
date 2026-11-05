@@ -181,7 +181,7 @@ test('mapa ausente o contradictorio y varias coincidencias no se asignan como mo
   assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === 'mapa_contradictorio'));
 });
 
-test('envío sin recepción no inventa disponibilidad; cancelación consistente conserva el estado', t => {
+test('envío sin recepción no inventa disponibilidad; cancelación consistente no mueve nada', t => {
   const db = prepararDB(t);
   punta(db, 6, '1', { estado: 'recibido' });
   let ms = traspasos(leer(db));
@@ -191,10 +191,9 @@ test('envío sin recepción no inventa disponibilidad; cancelación consistente 
   assert.equal(ms[0].por_aclarar, undefined);
   db.exec("UPDATE sicar_traspasos SET estado='cancelado'");
   punta(db, 1, '2', { estado: 'cancelado' });
-  ms = traspasos(leer(db));
-  assert.equal(ms.length, 1);
-  assert.equal(ms[0].estado, 'cancelado');
-  assert.equal(ms[0].por_aclarar, undefined);
+  // Cancelación consistente: la mercancía nunca salió. Antes se emitía una salida que el motor mandaba a
+  // tránsito para siempre (hallazgo 2 de la auditoría 2026-11-05).
+  assert.deepEqual(traspasos(leer(db)), []);
 });
 
 test('sin catálogo en una punta no se supone recepción cero; origen ausente tampoco crea un lote', t => {
@@ -317,4 +316,13 @@ test('orden por día, foto antes de compras, compras antes de traspasos y ventas
   const json = JSON.parse(JSON.stringify(r));
   assert.equal(json.movimientos.find(m => m.tipo === 'compra').piezas, '360000');
   assert.equal(json.movimientos.find(m => m.tipo === 'compra').valor_centavos, '1234');
+});
+
+test('traspaso cancelado sin recepción no mueve piezas: la mercancía sigue en el origen', t => {
+  const db = prepararDB(t);
+  punta(db, 6, 'gris', { folio: 'G', destino: 's2', estado: 'cancelado', aplicada: null }); // a tienda sin agente
+  punta(db, 6, 'solo', { folio: 'S', estado: 'cancelado', aplicada: null }); // a Ocosingo, que no lo registró
+  punta(db, 6, 'ambas', { folio: 'A', estado: 'cancelado', aplicada: null });
+  punta(db, 1, 'ambas', { folio: 'A', estado: 'cancelado', aplicada: null }); // las dos puntas canceladas
+  assert.deepEqual(traspasos(leer(db)), []);
 });
