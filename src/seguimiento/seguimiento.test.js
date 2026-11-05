@@ -146,6 +146,8 @@ test("comparación contra SICAR: la diferencia es un movimiento por aclarar, no 
     "Ocosingo: existencia de SICAR atrasada, no se puede comparar · calculado 0");
   assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, motivo_sicar: "sin_existencia", diferencia: null }, n),
     "Ocosingo: SICAR no reporta existencia, no se puede comparar · calculado 0");
+  assert.equal(textoComparacion({ sucursal_id: 1, calculado: "0", sicar: null, motivo_sicar: "catalogo_incompleto", diferencia: null }, n),
+    "Ocosingo: catálogo de SICAR incompleto en esa tienda, no se puede comparar · calculado 0");
 });
 
 test("sugerencia por artículo con varias facturas: se avisa que no se suma", () => {

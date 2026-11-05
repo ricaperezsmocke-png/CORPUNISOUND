@@ -167,7 +167,7 @@ export const textoPorArticulo = (n) => (n > 1
 
 const SIN_SICAR = {
   clave_repetida: "clave repetida en SICAR", existencia_atrasada: "existencia de SICAR atrasada",
-  sin_existencia: "SICAR no reporta existencia",
+  sin_existencia: "SICAR no reporta existencia", catalogo_incompleto: "catálogo de SICAR incompleto en esa tienda",
 };
 
 /** Saldo calculado contra existencia SICAR de una tienda. Una diferencia nunca se presenta como faltante. */

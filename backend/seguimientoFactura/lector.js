@@ -195,7 +195,9 @@ function problemaFechas(salida, entrada, alcance) {
   if (recibida && entrada.fecha_aplicado < fechaEnvio) return 'recepcion_anterior_salida';
   if (!usarEntrada) return;
   // Origen sin agente/no incorporado primero: su SICAR no manda la salida, así que tampoco hay punta de origen.
-  if (!ti) return 'origen_no_incorporado';
+  // También si el envío es anterior al corte del origen: entonces el origen aún no estaba en el seguimiento
+  // (su foto ya no tenía esas piezas). Así incorporar el origen después no borra una devolución histórica.
+  if (!ti || fechaEnvio < corteOrigen) return 'origen_no_incorporado';
   if (!salida) return 'sin_punta_origen';
   if (!usarSalida) return 'salida_anterior_corte';
 }

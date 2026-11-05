@@ -68,7 +68,9 @@ function avisosActivos(sqlite) {
 }
 
 /** Suma los renglones de una factura. Si un renglón no tiene dinero calculable, la factura lo dice. */
-const atribucionInvalida = datos => (datos.motivos || []).includes('clave_con_problema');
+// Incertidumbre que invalida la atribución entera del lote (spec §11.1): clave con problema o unidad/cantidad dudosa.
+const INVALIDAN = ['clave_con_problema', 'cantidad_fraccionaria'];
+const atribucionInvalida = datos => (datos.motivos || []).some(m => INVALIDAN.includes(m));
 
 function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
   const piezas = Object.fromEntries(['comprado', 'vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].map(k => [k, 0n]));
@@ -186,7 +188,7 @@ function ventasPorSemana(sqlite, clave, tiendas, config, ahora) {
 /** Existencia SICAR de la clave por tienda; clave repetida en una tienda = desconocida (undefined). */
 /**
  * Existencia SICAR de la clave por tienda. Lo desconocido queda desconocido (sin valor, con motivo): clave repetida,
- * artículo sin fila de existencia, o existencia más vieja que dias_datos_atrasados. Sin artículo en el catálogo = 0.
+ * artículo sin fila de existencia, existencia más vieja que dias_datos_atrasados, o catálogo incompleto en la tienda.
  */
 function existenciasDe(sqlite, clave, tiendas, config, ahora) {
   const valores = {}, motivos = {};
@@ -195,7 +197,13 @@ function existenciasDe(sqlite, clave, tiendas, config, ahora) {
     const filas = sqlite.prepare(`SELECT CAST(e.existencia_diezmilesimas AS TEXT) piezas, e.actualizado_en FROM sicar_articulos a
       LEFT JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
       WHERE a.sucursal_id=? AND a.clave=?`).all(s, clave);
-    if (!filas.length) valores[s] = 0n;
+    // Sin artículo con esa clave: cero solo si el catálogo está completo (ninguna existencia sin su artículo).
+    if (!filas.length) {
+      const huerfana = sqlite.prepare(`SELECT 1 FROM sicar_existencias e LEFT JOIN sicar_articulos a
+        ON a.sucursal_id=e.sucursal_id AND a.art_id=e.art_id WHERE e.sucursal_id=? AND a.art_id IS NULL LIMIT 1`).get(s);
+      if (huerfana) motivos[s] = 'catalogo_incompleto';
+      else valores[s] = 0n;
+    }
     else if (filas.length > 1) motivos[s] = 'clave_repetida';
     else if (filas[0].piezas === null) motivos[s] = 'sin_existencia';
     else if (!(instante - Date.parse(filas[0].actualizado_en) <= limite)) motivos[s] = 'existencia_atrasada';

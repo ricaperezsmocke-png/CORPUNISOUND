@@ -186,3 +186,21 @@ test('liquidar respeta el porcentaje de ganancia configurado', t => {
   assert.match(m.texto, /25 %/);
   assert.equal(m.precio_referencia_centavos, '1500'); // costo $10 + ⌈25 % de ($30 − $10)⌉
 });
+
+test('cantidad fraccionaria invalida la atribución: sin dinero ni cantidades sugeridas', t => {
+  const db = escenarioTraslado(t);
+  db.exec("UPDATE sicar_compras_detalle SET cantidad='10.0001', factor_diezmilesimas=5000 WHERE com_id='1'");
+  const d = procesarYDetalle(db);
+  assert.ok(d.renglones[0].motivos.includes('cantidad_fraccionaria'));
+  assert.equal(d.factura.dinero, null);
+  assert.deepEqual(d.renglones[0].estrategias.traslados, INSUFICIENTE);
+});
+
+test('existencia sin artículo en catálogo: SICAR desconocido, nunca un falso cero que cuadra', t => {
+  const db = escenarioTraslado(t);
+  db.prepare('INSERT INTO sicar_existencias VALUES (1, ?, ?, ?)').run('huerfano', 50000, AL); // 5 piezas sin catálogo
+  db.exec("DELETE FROM sicar_articulos WHERE sucursal_id=1 AND art_id='art-1'");
+  const c = procesarYDetalle(db).renglones[0].comparacion.find(x => x.sucursal_id === 1);
+  assert.equal(c.sicar, null);
+  assert.equal(c.motivo_sicar, 'catalogo_incompleto');
+});

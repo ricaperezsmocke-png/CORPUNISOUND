@@ -338,3 +338,12 @@ test('devolución desde una tienda sin agente: la recepción se reconoce como or
   assert.equal(m.sucursal_id, 6);
   assert.equal(m.por_aclarar, 'origen_no_incorporado');
 });
+
+test('devolución histórica: el origen incorporado después no la borra (sigue como origen no incorporado)', t => {
+  const db = prepararDB(t);
+  punta(db, 6, 'dev', { folio: 'D', origen: 's2', destino: 's6', estado: 'recibido' }); // 2026-11-05 → 06
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (2, ?)').run('2026-11-07T18:00:00.000Z');
+  const [m] = traspasos(leer(db));
+  assert.equal(m.tipo, 'recepcion');
+  assert.equal(m.por_aclarar, 'origen_no_incorporado', 'ocurrió antes de que el origen entrara al seguimiento');
+});
