@@ -11,12 +11,13 @@
  * - el autorizador existe, está activo y la contraseña coincide;
  * - es una persona DISTINTA de quien pide, y no es una cuenta que dio de alta
  *   quien pide (`creado_por_id`), salvo que el rol del solicitante incluya
- *   explícitamente `ver_todas_las_sucursales`;
+ *   explícitamente `administrar_roles`;
  * - tiene el permiso pedido;
  * - es de la misma sucursal, salvo que tenga `ver_todas_las_sucursales`.
- * La excepción R1 es decisión de Victor (2026-11-06): el dueño da de alta a
- * los gerentes. El abuso venía de gerentes sin alcance global, que ya no pueden
- * conceder permisos autorizar_* al dar de alta (server.js, PERMISOS_SOLO_ALTA_GLOBAL).
+ * La excepción R1 es decisión de Victor (2026-11-06): solo quien administra
+ * roles queda exento, pues ya puede darse cualquier permiso.
+ * `ver_todas_las_sucursales` no basta: con alcance global y dar_alta_personal
+ * se puede crear un gerente títere con cualquier rol para autorizarse.
  *
  * Freno: cada intento de ADIVINAR (contraseña mala, usuario inexistente o
  * inactivo) cuenta contra el usuario autorizador tecleado Y contra quien pide.
@@ -79,11 +80,12 @@ function alcanzaSucursal(autorizador, permisos, sucursalId) {
 
 // Una cuenta que dio de alta quien pide no le autoriza nada: si no, con una
 // cuenta títere de su mismo rol se autorizaba a sí mismo (revisión 2026-10-27,
-// R1). Se exime solo al solicitante con alcance global explícito en su rol
-// (Victor, 2026-11-06): da de alta a los gerentes; el abuso venía de gerentes
-// sin alcance global, que ya no pueden conceder autorizar_* al dar de alta
-// (server.js, PERMISOS_SOLO_ALTA_GLOBAL). Las cuentas sin `creado_por_id` no se afectan: `Number(null)` es
-// 0 y ningún id válido es 0, por eso se exige un entero positivo.
+// R1). Se exime solo a quien tiene `administrar_roles` explícito en su rol
+// (Victor, 2026-11-06), pues ya puede darse cualquier permiso.
+// `ver_todas_las_sucursales` no basta: con dar_alta_personal permite crear
+// un gerente títere con cualquier rol para autorizarse.
+// Las cuentas sin `creado_por_id` no se afectan: `Number(null)` es 0 y ningún
+// id válido es 0, por eso se exige un entero positivo.
 function creadaPorQuienPide(autorizador, solicitante) {
   if (autorizador.creado_por_id == null || autorizador.creado_por_id === "") return false;
   const creador = Number(autorizador.creado_por_id);
@@ -136,8 +138,9 @@ async function verificarAutorizador(DB, credenciales, opciones) {
   // De aquí en adelante la contraseña es correcta: se rechaza sin contar.
   if (Number(autorizador.id) === Number(solicitante?.id)) throw rechazo();
   const permisosSolicitante = resolverPermisosDeRol(solicitante?.rol_id);
-  const solicitanteGlobal = Array.isArray(permisosSolicitante) && permisosSolicitante.includes("ver_todas_las_sucursales");
-  if (!solicitanteGlobal && creadaPorQuienPide(autorizador, solicitante)) throw rechazo();
+  const solicitanteAdministraRoles = Array.isArray(permisosSolicitante)
+    && permisosSolicitante.includes("administrar_roles");
+  if (!solicitanteAdministraRoles && creadaPorQuienPide(autorizador, solicitante)) throw rechazo();
   const permisos = resolverPermisosDeRol(autorizador.rol_id);
   if (!Array.isArray(permisos) || !permisos.includes(permiso)) throw rechazo();
   if (!alcanzaSucursal(autorizador, permisos, sucursalId)) throw rechazo();
