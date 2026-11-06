@@ -99,6 +99,48 @@ test("una cuenta creada por quien pide no le autoriza, y el rechazo no cuenta co
   assert.strictEqual((await verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, otro)).id, 4);
 });
 
+test("solicitante global acepta a un autorizador creado por él (excepción R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 1;
+  const extra = { solicitante: { id: 1, rol_id: 1 } };
+  const r = await verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra));
+  assert.deepStrictEqual(r, { id: 2, nombre: "Supervisora" });
+});
+
+test("solicitante con permisos vecinos sin alcance global rechaza a su cuenta creada (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.roles[2].permisos = ["cancelar_ventas", "aplicar_monedero", "dar_alta_personal"];
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const extra = { solicitante: { id: 3, rol_id: 3 } };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
+test("permisos del solicitante inválidos o sin la clave exacta mantienen R1", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const casos = [null, undefined, "ver_todas_las_sucursales", ["ver_todas_las_sucursales_extra"]];
+  for (const permisos of casos) {
+    const extra = {
+      solicitante: { id: 3, rol_id: 3 },
+      resolverPermisosDeRol: (rolId) => rolId === 3 ? permisos : ["autorizar_cancelaciones"],
+    };
+    await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+      opciones(DB, crearRegistroAutorizador(), extra)),
+    (e) => e.status === 403 && e.message === "La autorización no es válida");
+  }
+});
+
+test("solicitante global no puede autorizarse a sí mismo", async () => {
+  const DB = prepararDB();
+  const extra = { solicitante: { id: "1", rol_id: 1 } };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
 test("cuentas viejas sin creado_por_id (null o ausente) autorizan como siempre", async () => {
   const DB = prepararDB();
   DB.admin.usuarios[1].creado_por_id = null;
