@@ -11,11 +11,13 @@
  * - el autorizador existe, está activo y la contraseña coincide;
  * - es una persona DISTINTA de quien pide, y no es una cuenta que dio de alta
  *   quien pide (`creado_por_id`), salvo que el rol del solicitante incluya
- *   explícitamente `administrar_roles`;
+ *   explícitamente `administrar_roles` Y `ver_todas_las_sucursales`;
  * - tiene el permiso pedido;
  * - es de la misma sucursal, salvo que tenga `ver_todas_las_sucursales`.
- * La excepción R1 es decisión de Victor (2026-11-06): solo quien administra
- * roles queda exento, pues ya puede darse cualquier permiso.
+ * La excepción R1 es decisión de Victor (2026-11-06): solo quien puede de verdad
+ * administrar roles queda exento, pues ya puede darse cualquier permiso.
+ * Exige `administrar_roles` y el alcance global (`ver_todas_las_sucursales`) que
+ * comprueba `requiereAlcanceGlobal` en las rutas de roles y usuarios.
  * `ver_todas_las_sucursales` no basta: con alcance global y dar_alta_personal
  * se puede crear un gerente títere con cualquier rol para autorizarse.
  *
@@ -80,8 +82,10 @@ function alcanzaSucursal(autorizador, permisos, sucursalId) {
 
 // Una cuenta que dio de alta quien pide no le autoriza nada: si no, con una
 // cuenta títere de su mismo rol se autorizaba a sí mismo (revisión 2026-10-27,
-// R1). Se exime solo a quien tiene `administrar_roles` explícito en su rol
-// (Victor, 2026-11-06), pues ya puede darse cualquier permiso.
+// R1). Se exime solo a quien puede de verdad administrar roles (Victor, 2026-11-06):
+// tiene `administrar_roles` Y `ver_todas_las_sucursales` explícitos en su rol.
+// Son el permiso y el alcance global que comprueba `requiereAlcanceGlobal` en
+// las rutas de roles y usuarios: juntos permiten darse cualquier permiso.
 // `ver_todas_las_sucursales` no basta: con dar_alta_personal permite crear
 // un gerente títere con cualquier rol para autorizarse.
 // Las cuentas sin `creado_por_id` no se afectan: `Number(null)` es 0 y ningún
@@ -138,9 +142,10 @@ async function verificarAutorizador(DB, credenciales, opciones) {
   // De aquí en adelante la contraseña es correcta: se rechaza sin contar.
   if (Number(autorizador.id) === Number(solicitante?.id)) throw rechazo();
   const permisosSolicitante = resolverPermisosDeRol(solicitante?.rol_id);
-  const solicitanteAdministraRoles = Array.isArray(permisosSolicitante)
-    && permisosSolicitante.includes("administrar_roles");
-  if (!solicitanteAdministraRoles && creadaPorQuienPide(autorizador, solicitante)) throw rechazo();
+  const solicitanteAdministraTodo = Array.isArray(permisosSolicitante)
+    && permisosSolicitante.includes("administrar_roles")
+    && permisosSolicitante.includes("ver_todas_las_sucursales");
+  if (!solicitanteAdministraTodo && creadaPorQuienPide(autorizador, solicitante)) throw rechazo();
   const permisos = resolverPermisosDeRol(autorizador.rol_id);
   if (!Array.isArray(permisos) || !permisos.includes(permiso)) throw rechazo();
   if (!alcanzaSucursal(autorizador, permisos, sucursalId)) throw rechazo();

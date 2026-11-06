@@ -99,16 +99,29 @@ test("una cuenta creada por quien pide no le autoriza, y el rechazo no cuenta co
   assert.strictEqual((await verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, otro)).id, 4);
 });
 
-test("solicitante con administrar_roles acepta a un autorizador creado por él (excepción R1)", async () => {
+test("solicitante con administrar_roles y ver_todas_las_sucursales acepta a su cuenta creada (excepción R1)", async () => {
   const DB = prepararDB();
   DB.admin.usuarios[1].creado_por_id = 1;
   const extra = {
     solicitante: { id: 1, rol_id: 1 },
-    resolverPermisosDeRol: (rolId) => rolId === 1 ? ["administrar_roles"] : ["autorizar_cancelaciones"],
+    resolverPermisosDeRol: (rolId) => rolId === 1
+      ? ["administrar_roles", "ver_todas_las_sucursales"] : ["autorizar_cancelaciones"],
   };
   const r = await verificarAutorizador(DB, { usuario: "super", password: CLAVE },
     opciones(DB, crearRegistroAutorizador(), extra));
   assert.deepStrictEqual(r, { id: 2, nombre: "Supervisora" });
+});
+
+test("solicitante con administrar_roles sin ver_todas_las_sucursales rechaza a su cuenta creada (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const extra = {
+    solicitante: { id: 3, rol_id: 3 },
+    resolverPermisosDeRol: (rolId) => rolId === 3 ? ["administrar_roles"] : ["autorizar_cancelaciones"],
+  };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
 });
 
 test("solicitante global con dar_alta_personal sin administrar_roles rechaza a su cuenta creada (R1)", async () => {
@@ -134,10 +147,13 @@ test("solicitante con permisos vecinos sin administrar_roles rechaza a su cuenta
   (e) => e.status === 403 && e.message === "La autorización no es válida");
 });
 
-test("permisos del solicitante inválidos o sin administrar_roles exacto mantienen R1", async () => {
+test("permisos inválidos o sin administrar_roles y ver_todas_las_sucursales exactos mantienen R1", async () => {
   const DB = prepararDB();
   DB.admin.usuarios[1].creado_por_id = 3;
-  const casos = [null, undefined, "administrar_roles", ["administrar_roles_extra"], ["ver_todas_las_sucursales"]];
+  const casos = [
+    null, undefined, "administrar_roles", ["administrar_roles_extra"],
+    ["ver_todas_las_sucursales"], ["administrar_roles"],
+  ];
   for (const permisos of casos) {
     const extra = {
       solicitante: { id: 3, rol_id: 3 },
@@ -149,7 +165,7 @@ test("permisos del solicitante inválidos o sin administrar_roles exacto mantien
   }
 });
 
-test("solicitante con administrar_roles no puede autorizarse a sí mismo", async () => {
+test("solicitante con administrar_roles y ver_todas_las_sucursales no puede autorizarse a sí mismo", async () => {
   const DB = prepararDB();
   const extra = {
     solicitante: { id: "1", rol_id: 1 },
