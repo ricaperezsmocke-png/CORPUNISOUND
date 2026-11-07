@@ -24,6 +24,8 @@ Cada vez que corre hace una sola pasada y termina. El Programador de tareas de W
 2. Copia `config.ejemplo.json` a **`C:\UnisoundSICAR\config.json`** (afuera de la carpeta del agente) y llénalo:
    - `database`: nombre de la base de SICAR.
    - `password`: contraseña de `consultas`.
+   - `user`: opcional dentro de `mysql`; por defecto `consultas`. Solo se pone si la tienda no tiene `consultas`
+     (Palenque usa `admin`); nunca `root`.
    - `llave`: la llave de la tienda.
    - `estado`: déjalo como está. Ahí el agente apunta hasta dónde ya mandó.
    - `publicos`: **no viene en el ejemplo a propósito.** Son los números de cliente que representan público en general

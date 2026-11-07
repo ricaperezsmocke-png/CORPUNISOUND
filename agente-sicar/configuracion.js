@@ -26,6 +26,14 @@ async function leerConfiguracion(archivo) {
   if (!config.mysql || typeof config.mysql.password !== 'string' || !config.mysql.password
     || typeof config.mysql.database !== 'string' || !config.mysql.database
     || typeof config.llave !== 'string' || !config.llave.trim()) throw new Error('CONFIGURACION_INVALIDA');
+  if (Object.hasOwn(config.mysql, 'user')) {
+    if (typeof config.mysql.user !== 'string') throw new Error('CONFIGURACION_INVALIDA');
+    const user = config.mysql.user.trim();
+    if (!/^[A-Za-z0-9_.-]{1,32}$/.test(user) || user.toLowerCase() === 'root') {
+      throw new Error('CONFIGURACION_INVALIDA');
+    }
+    config.mysql.user = user;
+  }
   opcionesConexion(config.mysql);
   if (config.publicos !== undefined) {
     const lista = config.publicos;

@@ -20,7 +20,7 @@ function validarSQL(sql) {
 function opcionesConexion(config) {
   if (!['localhost', '127.0.0.1'].includes(config.host)) throw new Error('MYSQL_HOST_NO_LOCAL');
   return {
-    host: config.host, port: config.port || 3306, user: 'consultas', password: config.password,
+    host: config.host, port: config.port || 3306, user: config.user ?? 'consultas', password: config.password,
     database: config.database, charset: 'utf8mb4', multipleStatements: false,
     decimalNumbers: false, supportBigNumbers: true, bigNumberStrings: true, dateStrings: true,
     connectTimeout: 10000,
