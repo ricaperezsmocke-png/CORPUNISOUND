@@ -2,6 +2,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { validarSQL, opcionesConexion, crearLector } = require('./seguridad');
 
+test('sin user conserva consultas como usuario MySQL', () => {
+  assert.equal(opcionesConexion({ host: 'localhost' }).user, 'consultas');
+});
+
+test('con user admin usa ese usuario MySQL', () => {
+  assert.equal(opcionesConexion({ host: 'localhost', user: 'admin' }).user, 'admin');
+});
+
 for (const sql of [
   'UPDATE cliente SET nombre = 1', 'DELETE FROM venta', 'SELECT 1; SELECT 2',
   "SELECT nombre INTO OUTFILE '/tmp/x' FROM cliente", "SELECT 1 INTO DUMPFILE '/tmp/x'",

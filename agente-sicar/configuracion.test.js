@@ -14,6 +14,27 @@ async function preparar(t) {
   await fs.writeFile(archivo, JSON.stringify(config));
   return { archivo, config };
 }
+test('mysql.user ausente conserva la configuracion anterior', async t => {
+  const { archivo, config } = await preparar(t);
+  assert.deepEqual((await leerConfiguracion(archivo)).mysql, config.mysql);
+});
+
+test('mysql.user acepta nombres permitidos y recorta espacios', async t => {
+  const { archivo, config } = await preparar(t);
+  for (const user of ['admin', ' admin ', 'A_0.z-9', 'a'.repeat(32)]) {
+    await fs.writeFile(archivo, JSON.stringify({ ...config, mysql: { ...config.mysql, user } }));
+    assert.equal((await leerConfiguracion(archivo)).mysql.user, user.trim());
+  }
+});
+
+for (const user of ['', '  ', 'root', 'ROOT', 123, 'a b', 'x;y', 'a'.repeat(33), null, false, {}, [], ' Root ']) {
+  test(`mysql.user rechaza ${JSON.stringify(user)}`, async t => {
+    const { archivo, config } = await preparar(t);
+    await fs.writeFile(archivo, JSON.stringify({ ...config, mysql: { ...config.mysql, user } }));
+    await assert.rejects(leerConfiguracion(archivo), { message: 'CONFIGURACION_INVALIDA' });
+  });
+}
+
 test('publicos acepta ids numéricos o textos y rechaza vacíos, duplicados y tipos inválidos', async t => {
   const { archivo, config } = await preparar(t);
   for (const publicos of [[], ['abc'], '1', null, [1, '1'], [true], [1.5]]) {
