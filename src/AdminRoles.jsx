@@ -10,6 +10,14 @@ import ModalConfirmar from "./ModalConfirmar";
 import ModalPedirTexto from "./ModalPedirTexto";
 import { validarTienda, leerRespuestaAlta } from "./tiendasAlta.js";
 
+// El callback de OAuth rechazó el regreso: el `state` venció, ya se usó o no salió de este botón.
+// Lo mismo que PERMISOS_SOLO_ALTA_GLOBAL en backend/server.js: quien no tiene
+// alcance global no da de alta con un rol que traiga alguno de estos.
+const PERMISOS_SOLO_ALTA_GLOBAL = [
+  "ver_todas_las_sucursales", "administrar_roles", "autorizar_monedero", "autorizar_cancelaciones",
+];
+const MSG_ESTADO_OAUTH_INVALIDO = "la conexión venció o no se inició desde aquí. Vuelve a apretar Conectar.";
+
 function BotonBarra({ icono: Icono, etiqueta, atajo, onClick, tono = "slate" }) {
   const tonos = { slate: "text-[#1a7fe8]", verde: "text-emerald-600", rojo: "text-red-500" };
   return (
@@ -407,13 +415,22 @@ export default function AdminRoles({ onVolver, permisos, usuario }) {
       window.history.replaceState({}, "", window.location.pathname);
       cargarTodo();
     } else if (params.get("drive") === "error") {
-      mostrarAviso("❌ Error al conectar Google Drive: " + (params.get("msg") || "desconocido"));
+      const msg = params.get("msg") === "estado_invalido" ? MSG_ESTADO_OAUTH_INVALIDO : (params.get("msg") || "desconocido");
+      mostrarAviso("❌ Error al conectar Google Drive: " + msg);
       window.history.replaceState({}, "", window.location.pathname);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const rolActivo = roles.find((r) => r.id === rolActivoId) || null;
+  // El alta de personal sin alcance global: el servidor solo acepta SU sucursal y
+  // roles que no den más de lo que tiene quien da de alta (ni alcance global, ni
+  // administrar roles, ni autorizar monedero o cancelaciones). La pantalla deja
+  // de ofrecer lo que se rechazaría.
+  const altaGlobal = !permisos || !!usuario?.ver_todas;
+  const rolesAlta = altaGlobal ? roles : roles.filter((r) => (r.permisos || []).every((p) =>
+    !PERMISOS_SOLO_ALTA_GLOBAL.includes(p) && permisos.includes(p)));
+  const sucursalesAlta = altaGlobal ? sucursales : sucursales.filter((s) => Number(s.id) === Number(usuario?.sucursal_id));
 
   const permisosFiltrados = useMemo(() => {
     const t = busquedaPermiso.trim().toLowerCase();
@@ -931,7 +948,7 @@ Esta acción no se puede deshacer.`,
                 <label className="text-xs text-slate-500 block mb-1">Rol</label>
                 <select className="w-full neu-campo rounded-lg px-2.5 py-1.5 text-sm" value={formPersonal.rol_id} onChange={(e) => setFormPersonal({ ...formPersonal, rol_id: e.target.value })}>
                   <option value="">Selecciona un rol</option>
-                  {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                  {rolesAlta.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
               </div>
               <div>
@@ -941,7 +958,7 @@ Esta acción no se puede deshacer.`,
                   value={formPersonal.sucursal_id}
                   onChange={(e) => setFormPersonal({ ...formPersonal, sucursal_id: e.target.value })}>
                   <option value="">Selecciona una sucursal</option>
-                  {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  {sucursalesAlta.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
               <div>

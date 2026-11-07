@@ -83,6 +83,9 @@ function sembrarRolesIniciales(DB) {
       c !== "cerrar_mes_objetivos" &&
       // Las metas personalizadas las crea y sella solo el Administrador (decision de Victor, 2026-10-08).
       c !== "administrar_metas_personalizadas" &&
+      // Gastar monedero ajeno se concede a mano, nunca por el patrón "todos menos" (2026-10-27).
+      c !== "aplicar_monedero" &&
+      c !== "autorizar_monedero" &&
       !["ver_radar_demanda", "registrar_demanda", "dar_seguimiento_demanda", "cerrar_demanda", "ver_resumen_demanda"].includes(c)
     ),
     modulos: ["pos", "corte", "inventario", "crm"],

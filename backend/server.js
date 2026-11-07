@@ -69,7 +69,6 @@ const {
 } = require("./objetivosActividades");
 const { listarVendedores, crearVendedor, actualizarVendedor, desactivarVendedor, estaActivo } = require("./vendedores");
 const { validarSistemaDePermisos } = require("./validarPermisos");
-const { verificarPassword } = require("./auth");
 const { requiereLogin, requierePermiso, requiereAlcanceGlobal, firmarToken, verificarToken, alcanceSucursal, dentroDeAlcance, sucursalDeEscritura, sucursalDelFormulario, validarUbicacionLogin, mensajePorMotivoUbicacion, invalidarSesionesAnterioresA, configurarRevisionDeCuenta } = require("./auth");
 const { consultarModulo, tablasConsultables } = require("./consultarModulo");
 const { listarRoles, obtenerRol, permisosDeRol, crearRol, actualizarRol, eliminarRol, clonarRol, sembrarRolesIniciales, reconciliarRoles } = require("./roles");
@@ -99,6 +98,12 @@ const {
   listarOrdenes, importarOrdenComoVenta, resolverPendienteVinculo,
 } = require("./mercadolibre");
 const drive = require("./drive");
+const { crearRegistroEstados } = require("./oauthEstado");
+const { verificarAutorizador, crearRegistroAutorizador } = require("./autorizador");
+// Freno de contraseñas del autorizador (cancelaciones y monedero), en memoria.
+const registroAutorizador = crearRegistroAutorizador();
+// `state` de OAuth pendientes de Drive y MercadoLibre, solo en memoria.
+const estadosOAuth = crearRegistroEstados();
 const { subirDocumento, listarDocumentos, eliminarDocumento } = require("./documentosPersonal");
 const { reporteVentas, reporteUtilidad, reporteCompras, reporteCortesCaja, reporteExistencias, reporteEstadoCuentaClientes, reporteMovimientosCaja, reporteGastosGarantias, reporteGastos, reporteCancelaciones } = require("./reportes");
 const crypto = require("crypto");
@@ -1494,9 +1499,12 @@ app.get("/api/permisos-catalogo", requiereLogin, requierePermiso("administrar_ro
 // donde entrar. Solo la consume la pantalla de Roles y Personal, que ya exige
 // sesion; el login NO la usa, asi que cerrarla no rompe la entrada al sistema.
 app.get("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarRoles(DB)));
-app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => {
-  try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// Crear un rol es tan de sistema como editarlo: sin alcance global, un gerente
+// amarrado se armaba un rol con `ver_todas_las_sucursales` (auditoría 2026-10, A1).
+app.post("/api/roles", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try { res.json(crearRol(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 // Los roles son configuración del sistema entero, no de una tienda: quien
 // edita un rol cambia lo que pueden hacer usuarios de todas las sucursales.
 app.put("/api/roles/:id", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
@@ -1513,8 +1521,40 @@ app.post("/api/roles/:id/clonar", requiereLogin, requierePermiso("administrar_ro
 app.get("/api/usuarios", requiereLogin, requierePermiso("administrar_roles", resolverPermisosDeRol), (req, res) => res.json(listarUsuarios(DB)));
 // El botón "Dar de alta personal" está gateado con dar_alta_personal en el
 // frontend (AdminRoles.jsx); la ruta debe exigir la MISMA clave que el botón.
+// Permisos que nunca da quien no tiene alcance global, aunque los tenga él.
+// Los de autorizar tampoco: con ellos se armaba una cuenta títere que le
+// autorizaba a quien la creó (revisión 2026-10-27, R1).
+const PERMISOS_SOLO_ALTA_GLOBAL = [
+  "ver_todas_las_sucursales", "administrar_roles", "autorizar_monedero", "autorizar_cancelaciones",
+];
+
+// Alta de personal sin escalada (auditoría de permisos 2026-10, A1). Con alcance
+// global, como siempre. Sin él: solo en SU sucursal (la del token) y solo con un
+// rol cuyos permisos sean un subconjunto de los suyos y que no dé alcance global
+// ni administre roles ni autorice monedero o cancelaciones. Antes se creaba un
+// Administrador con solo `dar_alta_personal`. Lista de lo permitido: un rol que no existe se rechaza.
 app.post("/api/usuarios", requiereLogin, requierePermiso("dar_alta_personal", resolverPermisosDeRol), async (req, res) => {
-  try { res.json(await crearUsuario(DB, req.body)); } catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
+    let datos = req.body || {};
+    if (!permisos.includes("ver_todas_las_sucursales")) {
+      const suya = Number(req.usuarioToken.sucursal_id);
+      const pedida = datos.sucursal_id;
+      const otraSucursal = pedida !== undefined && pedida !== null && pedida !== "" && Number(pedida) !== suya;
+      if (!Number.isInteger(suya) || suya <= 0 || otraSucursal) {
+        return res.status(403).json({ error: "Solo puedes dar de alta personal en tu sucursal" });
+      }
+      const rolId = Number(datos.rol_id);
+      const rol = Number.isInteger(rolId) && rolId > 0 ? DB.admin.roles.find((r) => Number(r.id) === rolId) : null;
+      const permisosRol = rol ? resolverPermisosDeRol(rol.id) : null;
+      const daDeMas = !Array.isArray(permisosRol)
+        || permisosRol.some((p) => PERMISOS_SOLO_ALTA_GLOBAL.includes(p) || !permisos.includes(p));
+      if (daDeMas) return res.status(403).json({ error: "No puedes dar de alta con ese rol" });
+      datos = { ...datos, rol_id: rolId, sucursal_id: suya };
+    }
+    const autor = { id: req.usuarioToken.id, nombre: req.usuarioToken.nombre };
+    res.json(await crearUsuario(DB, datos, autor));
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 // Administrar personal es configuración del sistema, no de una tienda: aquí se
 // asigna el rol y la sucursal de cada cuenta. Mismo criterio que /roles/:id.
@@ -1587,22 +1627,33 @@ app.get("/api/drive/estado", requiereLogin, async (req, res) => {
   }
 });
 
-app.get("/api/drive/auth-url", requiereLogin, requierePermiso("conectar_cuenta_drive", resolverPermisosDeRol), (req, res) => {
-  try {
-    const redirect = process.env.GOOGLE_REDIRECT_URI ||
-      `${req.protocol}://${req.get("host")}/api/drive/callback`;
-    res.json({ url: drive.urlAutorizacion(redirect) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// Conectar Drive cambia a dónde van los respaldos y expedientes de TODAS las
+// tiendas: exige alcance global. La URL lleva un `state` de un solo uso ligado
+// a quien apretó el botón; el callback rechaza lo que no lo traiga (ver
+// oauthEstado.js).
+app.get("/api/drive/auth-url", requiereLogin, requierePermiso("conectar_cuenta_drive", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try {
+      const redirect = process.env.GOOGLE_REDIRECT_URI ||
+        `${req.protocol}://${req.get("host")}/api/drive/callback`;
+      const url = drive.urlAutorizacion(redirect, estadosOAuth.emitir("drive", req.usuarioToken));
+      res.json({ url });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
 app.get("/api/drive/callback", async (req, res) => {
   const { code } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  // El state se consume ANTES que nada: sirva o no, queda quemado.
+  const quien = estadosOAuth.consumir("drive", req.query.state);
+  if (!quien) return res.redirect(`${frontendUrl}?drive=error&msg=estado_invalido`);
   if (!code) return res.redirect(`${frontendUrl}?drive=error&msg=sin_codigo`);
   const redirect = process.env.GOOGLE_REDIRECT_URI ||
     `${req.protocol}://${req.get("host")}/api/drive/callback`;
   try {
-    await drive.intercambiarCodigo(DB, code, redirect);
+    const cuenta = await drive.intercambiarCodigo(DB, code, redirect);
+    cuenta.conectado_por_id = quien.usuario_id;
+    cuenta.conectado_por_nombre = quien.usuario_nombre;
     guardar(DB);
     res.redirect(`${frontendUrl}?drive=conectado`);
   } catch (e) {
@@ -2022,7 +2073,7 @@ app.get("/api/ventas/:id", requiereLogin, requierePermiso("mostrar_detalle_venta
     res.json(venta);
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
-app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso("cerrar_venta", resolverPermisosDeRol), (req, res) => {
+app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso("cerrar_venta", resolverPermisosDeRol), async (req, res) => {
   try {
     const alcance = alcanceSucursal(req, resolverPermisosDeRol(req.usuarioToken.rol_id));
     // Amarrado: su sucursal del token, sin importar el body. Global: la del encabezado.
@@ -2035,7 +2086,37 @@ app.post("/api/ventas", requiereLogin, pantalla("punto_venta"), requierePermiso(
     // solo pedia `cerrar_venta`, asi que un descuento del 99.99% entraba por
     // peticion directa sin dejar ninguna senal.
     const permisos = resolverPermisosDeRol(req.usuarioToken.rol_id);
-    res.json(crearVenta(DB, { ...req.body, sucursal_id }, { permisos, usuario: req.usuarioToken }));
+    const { autorizador: credencialesMonedero, ...datosVenta } = req.body;
+    // Monedero: todo se verifica ANTES de crearVenta, que es quien baja el
+    // saldo. Cualquier valor distinto de cero (también basura) pasa por aquí:
+    // falla cerrando. Sin esto una cajera con `cerrar_venta` gastaba el saldo
+    // de cualquier cliente de la cadena (auditoría de permisos 2026-10, C1).
+    let monederoAutorizadoPor = null;
+    if (Number(datosVenta.monedero_aplicado ?? 0) !== 0) {
+      if (!permisos.includes("aplicar_monedero")) {
+        return res.status(403).json({ error: "No tienes permiso para aplicar monedero" });
+      }
+      const clienteId = Number(datosVenta.cliente_id) || 0;
+      if (clienteId) {
+        // Alcance del TOKEN, nunca del selector (regla 5). Un cliente sin
+        // sucursal solo lo usa quien tiene alcance global.
+        const alcanceToken = resolverAlcanceAutorizado(req);
+        const cliente = DB.crm.clientes.find((c) => Number(c.id) === clienteId);
+        const sucursalCliente = cliente?.sucursal_id == null ? null : Number(cliente.sucursal_id);
+        if (!cliente || (!alcanceToken.verTodas && sucursalCliente !== alcanceToken.sucursalId)) {
+          return res.status(404).json({ error: "Cliente no encontrado" });
+        }
+      }
+      try {
+        monederoAutorizadoPor = await verificarAutorizador(DB, credencialesMonedero, {
+          solicitante: req.usuarioToken, permiso: "autorizar_monedero", sucursalId: sucursal_id,
+          resolverPermisosDeRol, registro: registroAutorizador,
+        });
+      } catch (e) {
+        return res.status(e.status === 403 ? 403 : 400).json({ error: e.message });
+      }
+    }
+    res.json(crearVenta(DB, { ...datosVenta, sucursal_id }, { permisos, usuario: req.usuarioToken, monederoAutorizadoPor }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/cancelar", requiereLogin, pantallasCaja.requierePuntoVentaSalvoML(DB), requierePermiso("cancelar_ventas", resolverPermisosDeRol), async (req, res) => {
@@ -2054,25 +2135,16 @@ app.put("/api/ventas/:id/cancelar", requiereLogin, pantallasCaja.requierePuntoVe
     if (typeof req.body.motivo !== "string" || !req.body.motivo.trim()) {
       return res.status(400).json({ error: "Escribe el motivo de la cancelación" });
     }
-    const denegar = () => res.status(403).json({ error: "La autorización no es válida" });
-    const credenciales = req.body.autorizador;
-    if (typeof credenciales?.usuario !== "string" || !credenciales.usuario.trim()
-      || typeof credenciales?.password !== "string" || !credenciales.password) return denegar();
-    const clave = credenciales.usuario.trim().toLowerCase();
-    const autorizador = DB.admin.usuarios.find((u) => String(u.usuario).trim().toLowerCase() === clave);
-    if (!autorizador?.activo) return denegar();
-    let coincide = false;
-    try { coincide = await verificarPassword(credenciales.password, autorizador.password_hash); }
-    catch { return denegar(); }
-    if (!coincide || Number(autorizador.id) === Number(req.usuarioToken.id)) return denegar();
-    const permisos = resolverPermisosDeRol(autorizador.rol_id);
-    if (!permisos.includes("autorizar_cancelaciones")) return denegar();
-    const sucursalId = Number(autorizador.sucursal_id);
-    if (!permisos.includes("ver_todas_las_sucursales")
-      && (!Number.isInteger(sucursalId) || sucursalId <= 0 || sucursalId !== Number(venta?.sucursal_id))) return denegar();
-    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken, {
-      id: autorizador.id, nombre: autorizador.nombre,
-    }));
+    let autorizador = null;
+    try {
+      autorizador = await verificarAutorizador(DB, req.body.autorizador, {
+        solicitante: req.usuarioToken, permiso: "autorizar_cancelaciones", sucursalId: venta?.sucursal_id,
+        resolverPermisosDeRol, registro: registroAutorizador,
+      });
+    } catch (e) {
+      return res.status(e.status === 403 ? 403 : 400).json({ error: e.message });
+    }
+    res.json(cancelarVenta(DB, req.params.id, req.body.motivo, req.usuarioToken, autorizador));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.put("/api/ventas/:id/caja", requiereLogin, pantalla("punto_venta"), requierePermiso("cambiar_caja_venta", resolverPermisosDeRol), (req, res) => {
@@ -3492,22 +3564,29 @@ app.get("/api/ml/estado", requiereLogin, (req, res) => {
   });
 });
 
-app.get("/api/ml/auth-url", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol), (req, res) => {
-  try {
-    const redirect = process.env.ML_REDIRECT_URI ||
-      `${req.protocol}://${req.get("host")}/api/ml/callback`;
-    res.json({ url: urlAutorizacion(redirect) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
+// Igual que Drive: alcance global y `state` de un solo uso ligado a quien conecta.
+app.get("/api/ml/auth-url", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    try {
+      const redirect = process.env.ML_REDIRECT_URI ||
+        `${req.protocol}://${req.get("host")}/api/ml/callback`;
+      const url = urlAutorizacion(redirect, estadosOAuth.emitir("ml", req.usuarioToken));
+      res.json({ url });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
 app.get("/api/ml/callback", async (req, res) => {
   const { code } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const quien = estadosOAuth.consumir("ml", req.query.state);
+  if (!quien) return res.redirect(`${frontendUrl}?ml=error&msg=estado_invalido`);
   if (!code) return res.redirect(`${frontendUrl}?ml=error&msg=sin_codigo`);
   const redirect = process.env.ML_REDIRECT_URI ||
     `${req.protocol}://${req.get("host")}/api/ml/callback`;
   try {
-    await intercambiarCodigo(DB, code, redirect);
+    const cuenta = await intercambiarCodigo(DB, code, redirect);
+    cuenta.conectado_por_id = quien.usuario_id;
+    cuenta.conectado_por_nombre = quien.usuario_nombre;
     guardar(DB);
     res.redirect(`${frontendUrl}?ml=conectado`);
   } catch (e) {
@@ -3515,11 +3594,17 @@ app.get("/api/ml/callback", async (req, res) => {
   }
 });
 
-app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol), (req, res) => {
-  DB.ml.cuenta = null;
-  guardar(DB);
-  res.json({ ok: true });
-});
+app.delete("/api/ml/desconectar", requiereLogin, requierePermiso("conectar_cuenta_ml", resolverPermisosDeRol),
+  requiereAlcanceGlobal(resolverPermisosDeRol), (req, res) => {
+    DB.ml.cuenta = null;
+    DB.ml.ultima_desconexion = {
+      por_id: req.usuarioToken.id,
+      por_nombre: req.usuarioToken.nombre || null,
+      en: new Date().toISOString(),
+    };
+    guardar(DB);
+    res.json({ ok: true });
+  });
 
 app.get("/api/ml/publicaciones", requiereLogin, async (req, res) => {
   try { res.json(await listarPublicaciones(DB)); }
@@ -3551,7 +3636,7 @@ app.get("/api/ml/ordenes", requiereLogin, async (req, res) => {
 });
 
 app.post("/api/ml/ordenes/:ordenId/importar", requiereLogin, requierePermiso("importar_ordenes_ml", resolverPermisosDeRol), async (req, res) => {
-  try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId)); }
+  try { res.json(await importarOrdenComoVenta(DB, req.params.ordenId, req.usuarioToken)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

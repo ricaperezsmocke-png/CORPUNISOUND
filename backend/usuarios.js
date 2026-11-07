@@ -108,7 +108,9 @@ function validarVendedorId(DB, valor, sucursalDeLaCuenta, idCuentaQueSeEdita = n
   return id;
 }
 
-async function crearUsuario(DB, datos) {
+// `autor` ({ id, nombre }) es quien da de alta, del token de la ruta. Es
+// opcional para no romper las llamadas internas: sin él, queda en null.
+async function crearUsuario(DB, datos, autor = null) {
   if (!datos.nombre || !datos.nombre.trim()) throw new Error("El nombre es obligatorio");
   if (!datos.usuario || !datos.usuario.trim()) throw new Error("El usuario (para iniciar sesión) es obligatorio");
   if (!datos.password || datos.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres");
@@ -156,6 +158,9 @@ async function crearUsuario(DB, datos) {
     // personal, nunca la propia persona.
     vendedor_id: validarVendedorId(DB, datos.vendedor_id, Number(datos.sucursal_id) || 1),
     activo: true,
+    creado_por_id: autor?.id ?? null,
+    creado_por_nombre: autor?.nombre ?? null,
+    creado_en: new Date().toISOString(),
   };
   DB.admin.usuarios.push(nuevo);
   const { password_hash, ...sinPassword } = nuevo;

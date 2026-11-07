@@ -18,6 +18,10 @@ const PERMISOS = [
   { clave: "resolver_vinculos_sicar", etiqueta: "Resolver vínculos SICAR", modulo: "sicar", implementado: true },
   { clave: "ver_clientes_sicar", etiqueta: "Ver clientes SICAR", modulo: "sicar", implementado: true },
   { clave: "autorizar_cancelaciones", etiqueta: "Autorizar cancelaciones de venta", modulo: "pos", implementado: true },
+  // Gastar el saldo de monedero de un cliente: quien cobra necesita el primero
+  // y OTRA persona teclea su contraseña con el segundo (decisión de Victor, 2026-10-27).
+  { clave: "aplicar_monedero", etiqueta: "Aplicar monedero de un cliente", modulo: "pos", implementado: true },
+  { clave: "autorizar_monedero", etiqueta: "Autorizar uso de monedero", modulo: "pos", implementado: true },
   // ---- Punto de Venta ----
   { clave: "abrir_cajon_dinero", etiqueta: "Abrir Cajón de Dinero", modulo: "pos", implementado: true },
   { clave: "agregar_articulo_rapido", etiqueta: "Agregar Artículo Rápido", modulo: "pos", implementado: true },

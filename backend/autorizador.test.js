@@ -1,0 +1,309 @@
+/**
+ * autorizador.test.js — La verificación única del autorizador y su freno
+ * (auditoría de permisos 2026-10, M1).
+ *
+ * La reproducción H4 mostraba 8 contraseñas malas seguidas desde el campo del
+ * autorizador de la cancelación, sin freno, y una novena que acertaba con una
+ * respuesta distinta (oráculo). Aquí se exige lo contrario.
+ */
+
+const { test, before } = require("node:test");
+const assert = require("node:assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+process.env.DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "autorizador-")), "datos.sqlite");
+process.env.JWT_SECRET = process.env.JWT_SECRET || "secreto-de-pruebas";
+
+const app = require("./server");
+const { construirDBPrueba } = require("./testHelpers");
+const { firmarToken, hashearPassword } = require("./auth");
+const { verificarAutorizador, crearRegistroAutorizador } = require("./autorizador");
+
+const CLAVE = "ClaveReal2026";
+let HASH = "";
+
+before(async () => { HASH = await hashearPassword(CLAVE); });
+
+function prepararDB() {
+  const DB = construirDBPrueba();
+  DB.admin.roles = [
+    { id: 1, permisos: ["autorizar_cancelaciones", "ver_todas_las_sucursales"] },
+    { id: 2, permisos: ["autorizar_cancelaciones", "cancelar_ventas"] },
+    { id: 3, permisos: ["cancelar_ventas", "cerrar_venta"] },
+  ];
+  DB.admin.usuarios = [
+    { id: 1, nombre: "Victor", usuario: "victor", rol_id: 1, sucursal_id: 1, activo: true, password_hash: HASH },
+    { id: 2, nombre: "Supervisora", usuario: "super", rol_id: 2, sucursal_id: 1, activo: true, password_hash: HASH },
+    { id: 3, nombre: "Gerente", usuario: "gerente", rol_id: 3, sucursal_id: 1, activo: true, password_hash: HASH },
+  ];
+  return DB;
+}
+
+function opciones(DB, registro, extra = {}) {
+  return {
+    solicitante: { id: 3 }, permiso: "autorizar_cancelaciones", sucursalId: 1, registro,
+    resolverPermisosDeRol: (rolId) => DB.admin.roles.find((r) => r.id === Number(rolId))?.permisos || [],
+    ...extra,
+  };
+}
+
+test("credenciales correctas devuelven solo id y nombre", async () => {
+  const DB = prepararDB();
+  const r = await verificarAutorizador(DB, { usuario: " Super ", password: CLAVE }, opciones(DB, crearRegistroAutorizador()));
+  assert.deepStrictEqual(r, { id: 2, nombre: "Supervisora" });
+});
+
+test("las reglas de siempre rechazan con el 403 genérico", async () => {
+  const DB = prepararDB();
+  const casos = [
+    [{ usuario: "super", password: "mala" }, {}],
+    [{ usuario: "nadie", password: CLAVE }, {}],
+    [{ usuario: "gerente", password: CLAVE }, {}],                       // sin el permiso
+    [{ usuario: "super", password: CLAVE }, { solicitante: { id: "2" } }], // ella misma, id de texto
+    [{ usuario: "super", password: CLAVE }, { sucursalId: 2 }],           // otra sucursal
+    [{ usuario: "super", password: CLAVE }, { sucursalId: null }],
+    [{ usuario: {}, password: [] }, {}],
+    [undefined, {}],
+  ];
+  for (const [cred, extra] of casos) {
+    await assert.rejects(verificarAutorizador(DB, cred, opciones(DB, crearRegistroAutorizador(), extra)),
+      (e) => e.status === 403 && e.message === "La autorización no es válida", JSON.stringify(cred));
+  }
+});
+
+test("un autorizador global sirve para cualquier sucursal", async () => {
+  const DB = prepararDB();
+  const r = await verificarAutorizador(DB, { usuario: "victor", password: CLAVE }, opciones(DB, crearRegistroAutorizador(), { sucursalId: 4 }));
+  assert.strictEqual(r.id, 1);
+});
+
+test("una cuenta creada por quien pide no le autoriza, y el rechazo no cuenta como adivinanza (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios.push({ id: 4, nombre: "Títere", usuario: "titere", rol_id: 2, sucursal_id: 1, activo: true,
+    password_hash: HASH, creado_por_id: 3 });
+  const reg = crearRegistroAutorizador();
+  // Id de quien pide como texto y creado_por_id como texto: igual se rechaza.
+  for (const solicitante of [{ id: 3 }, { id: "3" }]) {
+    for (let i = 0; i < 6; i++) {
+      await assert.rejects(verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, opciones(DB, reg, { solicitante })),
+        (e) => e.status === 403 && e.message === "La autorización no es válida");
+    }
+  }
+  DB.admin.usuarios[3].creado_por_id = "3";
+  await assert.rejects(verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, opciones(DB, reg)));
+  // 13 rechazos sin contar: ni quien pide ni la títere quedaron bloqueados.
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg))).id, 2);
+  const otro = opciones(DB, reg, { solicitante: { id: 1 } });
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "titere", password: CLAVE }, otro)).id, 4);
+});
+
+test("solicitante con administrar_roles y ver_todas_las_sucursales acepta a su cuenta creada (excepción R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 1;
+  const extra = {
+    solicitante: { id: 1, rol_id: 1 },
+    resolverPermisosDeRol: (rolId) => rolId === 1
+      ? ["administrar_roles", "ver_todas_las_sucursales"] : ["autorizar_cancelaciones"],
+  };
+  const r = await verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra));
+  assert.deepStrictEqual(r, { id: 2, nombre: "Supervisora" });
+});
+
+test("solicitante con administrar_roles sin ver_todas_las_sucursales rechaza a su cuenta creada (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const extra = {
+    solicitante: { id: 3, rol_id: 3 },
+    resolverPermisosDeRol: (rolId) => rolId === 3 ? ["administrar_roles"] : ["autorizar_cancelaciones"],
+  };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
+test("solicitante global con dar_alta_personal sin administrar_roles rechaza a su cuenta creada (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const extra = {
+    solicitante: { id: 3, rol_id: 3 },
+    resolverPermisosDeRol: (rolId) => rolId === 3
+      ? ["ver_todas_las_sucursales", "dar_alta_personal"] : ["autorizar_cancelaciones"],
+  };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
+test("solicitante con permisos vecinos sin administrar_roles rechaza a su cuenta creada (R1)", async () => {
+  const DB = prepararDB();
+  DB.admin.roles[2].permisos = ["cancelar_ventas", "aplicar_monedero", "dar_alta_personal"];
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const extra = { solicitante: { id: 3, rol_id: 3 } };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
+test("permisos inválidos o sin administrar_roles y ver_todas_las_sucursales exactos mantienen R1", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = 3;
+  const casos = [
+    null, undefined, "administrar_roles", ["administrar_roles_extra"],
+    ["ver_todas_las_sucursales"], ["administrar_roles"],
+  ];
+  for (const permisos of casos) {
+    const extra = {
+      solicitante: { id: 3, rol_id: 3 },
+      resolverPermisosDeRol: (rolId) => rolId === 3 ? permisos : ["autorizar_cancelaciones"],
+    };
+    await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE },
+      opciones(DB, crearRegistroAutorizador(), extra)),
+    (e) => e.status === 403 && e.message === "La autorización no es válida");
+  }
+});
+
+test("solicitante con administrar_roles y ver_todas_las_sucursales no puede autorizarse a sí mismo", async () => {
+  const DB = prepararDB();
+  const extra = {
+    solicitante: { id: "1", rol_id: 1 },
+    resolverPermisosDeRol: () => ["administrar_roles", "autorizar_cancelaciones", "ver_todas_las_sucursales"],
+  };
+  await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: CLAVE },
+    opciones(DB, crearRegistroAutorizador(), extra)),
+  (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
+test("cuentas viejas sin creado_por_id (null o ausente) autorizan como siempre", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios[1].creado_por_id = null;
+  const reg = crearRegistroAutorizador();
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg))).id, 2);
+  // Number(null) es 0: un solicitante con id 0 o ausente tampoco debe "coincidir".
+  const sinId = opciones(DB, reg, { solicitante: { id: 0 } });
+  assert.strictEqual((await verificarAutorizador(DB, { usuario: "super", password: CLAVE }, sinId)).id, 2);
+});
+
+// Revisión 2026-10-27, R2 y R3: sin bcrypt en estos casos la respuesta era más
+// rápida y el tiempo decía si la cuenta existía o si la adivinanza anterior
+// había acertado. No se mide tiempo (inestable): se exige que la comparación
+// corra igual, contando llamadas a un verificador falso.
+function verificadorQueCuenta(respuesta) {
+  const v = async (password, hash) => { v.llamadas.push(hash); return v.respuesta; };
+  v.llamadas = [];
+  v.respuesta = respuesta;
+  return v;
+}
+
+test("usuario inexistente o inactivo: la contraseña se compara igual, contra un hash ficticio, y se rechaza", async () => {
+  const DB = prepararDB();
+  DB.admin.usuarios.push({ id: 5, nombre: "Baja", usuario: "baja", rol_id: 2, sucursal_id: 1, activo: false, password_hash: HASH });
+  for (const usuario of ["nadie", "baja"]) {
+    // Aunque el verificador diga que sí: sin cuenta activa no hay autorización.
+    const v = verificadorQueCuenta(true);
+    await assert.rejects(verificarAutorizador(DB, { usuario, password: CLAVE },
+      opciones(DB, crearRegistroAutorizador(), { verificarPassword: v })),
+    (e) => e.status === 403 && e.message === "La autorización no es válida", usuario);
+    assert.strictEqual(v.llamadas.length, 1, usuario);
+    assert.notStrictEqual(v.llamadas[0], HASH, `${usuario}: compara contra el ficticio, no contra el de la cuenta`);
+    assert.match(String(v.llamadas[0]), /^\$2[aby]\$10\$/, `${usuario}: el ficticio es un bcrypt del mismo costo`);
+  }
+});
+
+test("bloqueado (por autorizador o por quien pide): la contraseña se compara igual y se rechaza", async () => {
+  for (const bloquear of ["autorizador", "solicitante"]) {
+    const DB = prepararDB();
+    const reg = crearRegistroAutorizador();
+    const v = verificadorQueCuenta(false);
+    for (let i = 0; i < 5; i++) {
+      const cred = bloquear === "autorizador" ? { usuario: "super", password: "x" } : { usuario: `nadie${i}`, password: "x" };
+      const extra = bloquear === "autorizador" ? { solicitante: { id: 100 + i } } : {};
+      await assert.rejects(verificarAutorizador(DB, cred, opciones(DB, reg, { verificarPassword: v, ...extra })));
+    }
+    v.llamadas = [];
+    v.respuesta = true;
+    await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg, { verificarPassword: v })),
+      (e) => e.status === 403 && e.message === "La autorización no es válida", bloquear);
+    assert.strictEqual(v.llamadas.length, 1, bloquear);
+    assert.notStrictEqual(v.llamadas[0], HASH, `${bloquear}: el bloqueo no revisa la contraseña real`);
+  }
+});
+
+test("con el verificador inyectado, el camino normal compara contra el hash de la cuenta", async () => {
+  const DB = prepararDB();
+  const v = verificadorQueCuenta(true);
+  const r = await verificarAutorizador(DB, { usuario: "super", password: "lo-que-sea" },
+    opciones(DB, crearRegistroAutorizador(), { verificarPassword: v }));
+  assert.strictEqual(r.id, 2);
+  assert.deepStrictEqual(v.llamadas, [HASH]);
+});
+
+test("5 contraseñas malas bloquean: la sexta, aun buena, se rechaza", async () => {
+  const DB = prepararDB();
+  const reg = crearRegistroAutorizador();
+  for (let i = 0; i < 5; i++) {
+    await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: `mala${i}` }, opciones(DB, reg)));
+  }
+  await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: CLAVE }, opciones(DB, reg)),
+    (e) => e.status === 403 && e.message === "La autorización no es válida");
+});
+
+test("el bloqueo sigue al autorizador aunque lo intente otra persona", async () => {
+  const DB = prepararDB();
+  const reg = crearRegistroAutorizador();
+  for (let i = 0; i < 5; i++) {
+    await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: "x" }, opciones(DB, reg, { solicitante: { id: 100 + i } })));
+  }
+  await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: CLAVE }, opciones(DB, reg)));
+});
+
+test("el bloqueo sigue a quien pide aunque cambie de autorizador", async () => {
+  const DB = prepararDB();
+  const reg = crearRegistroAutorizador();
+  for (let i = 0; i < 5; i++) {
+    await assert.rejects(verificarAutorizador(DB, { usuario: `inventado${i}`, password: "x" }, opciones(DB, reg)));
+  }
+  await assert.rejects(verificarAutorizador(DB, { usuario: "super", password: CLAVE }, opciones(DB, reg)));
+});
+
+test("el bloqueo vence a los 15 minutos", async (t) => {
+  const DB = prepararDB();
+  const reg = crearRegistroAutorizador();
+  for (let i = 0; i < 5; i++) {
+    await assert.rejects(verificarAutorizador(DB, { usuario: "victor", password: "x" }, opciones(DB, reg)));
+  }
+  const ahoraReal = Date.now;
+  t.after(() => { Date.now = ahoraReal; });
+  Date.now = () => ahoraReal() + 15 * 60 * 1000 + 1;
+  const r = await verificarAutorizador(DB, { usuario: "victor", password: CLAVE }, opciones(DB, reg));
+  assert.strictEqual(r.id, 1);
+});
+
+test("por la ruta de cancelación: 6 malas seguidas y la séptima, buena, también se rechaza (H4 invertida)", async () => {
+  Object.assign(app.DB, construirDBPrueba());
+  app.DB.admin.roles.push({ id: 95, nombre: "Cancela", permisos: ["cancelar_ventas", "cerrar_venta"], modulos: ["pos"] });
+  app.DB.admin.usuarios.push(
+    { id: 60, nombre: "Victor", usuario: "victor-ruta", rol_id: 1, sucursal_id: 1, activo: true, password_hash: HASH },
+    { id: 61, nombre: "Gerente", usuario: "gerente-ruta", rol_id: 95, sucursal_id: 1, activo: true, password_hash: HASH },
+  );
+  const tk = firmarToken({ id: 61, nombre: "Gerente", rol_id: 95, sucursal_id: 1 });
+  let servidor = null;
+  await new Promise((listo) => { servidor = app.listen(0, listo); });
+  try {
+    const base = `http://127.0.0.1:${servidor.address().port}`;
+    const cancelar = async (password) => {
+      const r = await fetch(`${base}/api/ventas/999999/cancelar`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tk}` },
+        body: JSON.stringify({ motivo: "x", autorizador: { usuario: "victor-ruta", password } }),
+      });
+      return { status: r.status, body: await r.json() };
+    };
+    for (let i = 0; i < 6; i++) assert.strictEqual((await cancelar(`mala${i}`)).status, 403);
+    assert.deepStrictEqual(await cancelar(CLAVE), { status: 403, body: { error: "La autorización no es válida" } });
+  } finally {
+    await new Promise((listo) => servidor.close(listo));
+  }
+});

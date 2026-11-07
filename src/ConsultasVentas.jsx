@@ -439,6 +439,8 @@ export default function ConsultasVentas({ onVolverAVenta, onVolverInicio, permis
                 <div><span className="text-slate-400">Documento:</span> {detalle.tipo_documento}</div>
                 <div><span className="text-slate-400">Cliente:</span> {detalle.cliente_nombre}</div>
                 <div><span className="text-slate-400">Vendedor:</span> {detalle.vendedor_nombre}</div>
+                {/* Las ventas anteriores a 2026-10 no guardaban quién cobró. */}
+                <div><span className="text-slate-400">Cobró:</span> {detalle.cobrada_por_nombre || "Sin dato"}</div>
                 <div><span className="text-slate-400">Sucursal:</span> {detalle.sucursal_nombre}</div>
                 <div><span className="text-slate-400">Forma de pago:</span> {detalle.metodo_pago}</div>
               </div>

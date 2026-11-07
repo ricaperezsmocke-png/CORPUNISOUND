@@ -77,9 +77,11 @@ async function tokenActivo(DB) {
   return DB.ml.cuenta.access_token;
 }
 
-function urlAutorizacion(redirectUri) {
+// `state` liga el regreso con quien apretó "Conectar" (ver oauthEstado.js).
+function urlAutorizacion(redirectUri, state) {
   if (!process.env.ML_CLIENT_ID) throw new Error("ML_CLIENT_ID no configurado en variables de entorno");
-  return `${ML_AUTH}?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  const conState = state ? `&state=${encodeURIComponent(state)}` : "";
+  return `${ML_AUTH}?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}${conState}`;
 }
 
 // ── Publicaciones ──────────────────────────────────────────────────────────────
@@ -421,7 +423,15 @@ function resolverPendienteVinculo(DB, pendienteId, productoId, usuario) {
   return pendiente;
 }
 
-async function importarOrdenComoVenta(DB, ordenId) {
+// Quién "cobró" una venta de ML: quien apretó Importar, o la importación automática.
+function firmaDeCobro(usuario) {
+  if (!usuario) return { cobrada_por_id: null, cobrada_por_nombre: "MercadoLibre (automático)" };
+  return { cobrada_por_id: usuario.id ?? null, cobrada_por_nombre: usuario.nombre ?? null };
+}
+
+// `usuario` es quien apretó "Importar" (del token de la ruta). Sin usuario es
+// una importación automática y la venta se firma como tal.
+async function importarOrdenComoVenta(DB, ordenId, usuario = null) {
   const token = await tokenActivo(DB);
   const r = await fetch(`${ML_API}/orders/${ordenId}`, { headers: mlHeaders(token) });
   if (!r.ok) throw new Error("Error al obtener orden de ML");
@@ -522,6 +532,7 @@ async function importarOrdenComoVenta(DB, ordenId) {
     tipo_documento: "Ticket",
     estatus:     "cerrada",
     referencia:  `ML-${orden.id}`,
+    ...firmaDeCobro(usuario),
   };
   DB.pos.ventas.push(venta);
 
