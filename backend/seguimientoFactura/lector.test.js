@@ -153,7 +153,7 @@ test('traspaso el mismo día del corte de cualquiera de las puntas es incierto; 
   assert.equal(traspasos(leer(db)).length, 2);
   assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === 'dia_del_corte'));
   db.exec("UPDATE sicar_traspasos SET fecha='2026-11-05' WHERE folio='F'");
-  db.prepare('UPDATE seguimiento_tiendas SET corte=? WHERE sucursal_id=1').run('2026-11-05T06:00:00.000Z');
+  db.prepare('UPDATE seguimiento_tiendas SET corte=? WHERE sucursal_id=1').run('2026-11-05T18:00:00.000Z'); // 12:00 local: la duda es real
   assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === 'dia_del_corte'));
 });
 
@@ -346,4 +346,75 @@ test('devolución histórica: el origen incorporado después no la borra (sigue 
   const [m] = traspasos(leer(db));
   assert.equal(m.tipo, 'recepcion');
   assert.equal(m.por_aclarar, 'origen_no_incorporado', 'ocurrió antes de que el origen entrara al seguimiento');
+});
+
+// Foto de madrugada (tienda cerrada): todo lo fechado ese día en SICAR ocurrió después de la foto.
+const MADRUGADA = '2026-11-06T06:05:08.000Z'; // 2026-11-06 00:05 hora de México
+const MEDIODIA = '2026-11-06T18:40:00.000Z'; // 2026-11-06 12:40 hora de México
+const corte = (db, suc, iso) => db.prepare('UPDATE seguimiento_tiendas SET corte=? WHERE sucursal_id=?').run(iso, suc);
+
+test('corte de origen de madrugada: el traspaso de ese día es posterior a la foto y mueve las piezas', t => {
+  const db = prepararDB(t);
+  corte(db, 6, MADRUGADA);
+  db.exec("UPDATE seguimiento_foto SET piezas_diezmilesimas='0' WHERE sucursal_id=6");
+  compra(db, 'C32194', { fecha: '2026-11-06T16:16:00' });
+  punta(db, 6, '1', { fecha: '2026-11-06', aplicada: '2026-11-07' });
+  punta(db, 1, '2', { fecha: '2026-11-06', aplicada: '2026-11-07' });
+  const r = leer(db), ms = traspasos(r);
+  assert.deepEqual(ms.map(m => [m.tipo, m.sucursal_id, m.piezas, m.por_aclarar, m.sin_agente]), [
+    ['salida', 6, 100000n, undefined, false], ['recepcion', 1, 100000n, undefined, undefined],
+  ]);
+  const lote = require('./motor').calcular(r.movimientos).lotes.find(l => l.lote.com_id === 'C32194');
+  assert.equal(lote.por_aclarar, '0');
+  assert.equal(lote.por_sucursal[1].queda, '100000');
+  assert.equal(lote.por_sucursal[6].queda, '260000');
+});
+
+test('corte de origen a mediodía: el traspaso de ese día sigue siendo dudoso; de madrugada ya no', t => {
+  const db = prepararDB(t);
+  corte(db, 6, MEDIODIA);
+  punta(db, 6, '1', { fecha: '2026-11-06', aplicada: '2026-11-07' });
+  punta(db, 1, '2', { fecha: '2026-11-06', aplicada: '2026-11-07' });
+  assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === 'dia_del_corte'));
+  corte(db, 6, MADRUGADA);
+  assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === undefined));
+});
+
+test('corte de destino de madrugada: la recepción aplicada ese día no es dudosa', t => {
+  const db = prepararDB(t);
+  corte(db, 1, MADRUGADA);
+  punta(db, 6, '1', { fecha: '2026-11-06', aplicada: '2026-11-06' });
+  punta(db, 1, '2', { fecha: '2026-11-06', aplicada: '2026-11-06' });
+  let ms = traspasos(leer(db));
+  assert.equal(ms.length, 2);
+  assert.ok(ms.every(m => m.por_aclarar === undefined && !m.sin_agente));
+  corte(db, 1, MEDIODIA);
+  ms = traspasos(leer(db));
+  assert.ok(ms.every(m => m.por_aclarar === 'dia_del_corte'));
+});
+
+test('el límite de madrugada es estricto: 06:59:59 local no es dudoso, 07:00 local sí', t => {
+  const db = prepararDB(t);
+  punta(db, 6, '1', { fecha: '2026-11-06', aplicada: '2026-11-07' });
+  punta(db, 1, '2', { fecha: '2026-11-06', aplicada: '2026-11-07' });
+  corte(db, 6, '2026-11-06T12:59:59.999Z');
+  assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === undefined));
+  corte(db, 6, '2026-11-06T13:00:00.000Z');
+  assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === 'dia_del_corte'));
+});
+
+test('el corte se juzga en fecha y hora de México: 05:30 UTC es 23:30 del día anterior', t => {
+  const db = prepararDB(t);
+  corte(db, 6, '2026-11-06T05:30:00.000Z'); // 2026-11-05 23:30 local: no es madrugada
+  punta(db, 6, '1', { folio: 'A', fecha: '2026-11-05', aplicada: '2026-11-07' });
+  punta(db, 1, '2', { folio: 'A', fecha: '2026-11-05', aplicada: '2026-11-07' });
+  punta(db, 6, '3', { folio: 'B', fecha: '2026-11-06', aplicada: '2026-11-07' });
+  punta(db, 1, '4', { folio: 'B', fecha: '2026-11-06', aplicada: '2026-11-07' });
+  const porFolio = folio => traspasos(leer(db)).filter(m => m.traspaso.folio === folio).map(m => m.por_aclarar);
+  assert.deepEqual(porFolio('A'), ['dia_del_corte', 'dia_del_corte']);
+  assert.deepEqual(porFolio('B'), [undefined, undefined]);
+  corte(db, 6, '2026-11-06T06:30:00.000Z'); // 2026-11-06 00:30 local: madrugada
+  assert.deepEqual(porFolio('B'), [undefined, undefined]);
+  corte(db, 6, '2026-11-06T05:59:59.000Z'); // 2026-11-05 23:59:59 local
+  assert.deepEqual(porFolio('A'), ['dia_del_corte', 'dia_del_corte']);
 });
