@@ -40,7 +40,11 @@ Este receptor solo **recibe y guarda tal cual**. No crea conversaciones, no toca
 ## Diseño (decisiones tomadas)
 
 **Ruta.** `POST /api/integraciones/gupshup/:token` montada **antes** de `express.json` (molde
-`registrarAgenteSicar`, `backend/sicarRutas.js`), cuerpo crudo con tope de **5 MB** (el historial puede venir grande).
+`registrarAgenteSicar`, `backend/sicarRutas.js`), cuerpo crudo con tope de **1.5 MB**. Razón: el respaldo del negocio falla si una sola fila pasa de 2 MiB − 64 KiB
+(`MAX_FILAS_BYTES`, `backend/sicarRespaldo.js:54-56` y el `throw` de la línea ~253); un evento más grande que eso
+detendría los respaldos de todo el sistema. Meta parte el historial en varios envíos; si alguno pasara de 1.5 MB, se
+responde 413, se cuenta en memoria y se avisa por consola **sin contenido** (falla visible en la prueba, no silenciosa).
+Agregar una prueba que guarde un evento de 1.5 MB y compruebe que el respaldo completo termina.
 `GET` a la misma ruta con token válido responde 200 vacío (Gupshup puede probar la URL al guardarla).
 
 **Autenticación.** No encontramos en la documentación de Gupshup una firma de sus llamadas. Se usa un **token secreto en
@@ -89,7 +93,7 @@ emergencia, no un estado esperado.
 ## Verificación
 
 - Pruebas: token correcto guarda una fila y responde 200 vacío; token incorrecto 401 sin fila; sin variable 404;
-  cuerpo idéntico dos veces = una fila y dos 200; cuerpo de 5 MB + 1 rechazado (413) sin fila; JSON inválido se guarda
+  cuerpo idéntico dos veces = una fila y dos 200; cuerpo de 1.5 MB + 1 rechazado (413) sin fila; JSON inválido se guarda
   como `no_json`; `tipo` correcto para un evento Meta con `messages` + `smb_message_echoes` y para uno v2; mantenimiento
   503 sin fila; tope de 200 MB responde 503; el resumen no contiene texto de mensajes ni teléfonos; el resumen exige el
   permiso (probar con permisos vecinos del módulo, no con `permisos: []`); la ruta no rompe el parser global (una ruta
@@ -109,3 +113,13 @@ del freno por minuto.
 2. Conectar el número de Ocosingo **compartiendo los chats**; disparar historial y `smb_app_state_sync` dentro de 24 h.
 3. Prueba de echoes: el vendedor contesta desde el celular y se revisa en el resumen que llegó `smb_message_echoes`.
 4. Con lo aprendido, spec de F4b (procesar a la bandeja y enviar).
+
+## Decisiones del diseñador (revisión de constructor, Codex 2026-11-11)
+
+- **Tope de 1.5 MB por evento** en vez de 5 MB: el respaldo no admite filas de más de 2 MiB − 64 KiB (verificado por
+  Claude en `backend/sicarRespaldo.js:54-56` y ~253).
+- **Tope de 200 MB sin procesar:** la recuperación es operativa, no automática. El volumen esperado de Ocosingo (texto,
+  los medios llegan como id) es de pocos MB; si el resumen se acerca al tope, se prioriza F4b o se amplía el tope con
+  decisión de Victor. No se documentó cuánto tiempo reintenta Gupshup: por eso el tope es un freno de emergencia.
+- **Restaurar un respaldo anterior** borra los eventos recibidos después, igual que pasa hoy con ventas y todo lo demás
+  del sistema. Se acepta: restaurar es una operación de emergencia. No se agrega reconciliación en F4a.
