@@ -53,6 +53,52 @@ async function pedir(metodo, ruta, id, cuerpo) {
 const simular = (numero, texto = "Hola", sucursal_id = 1, canal = "whatsapp") =>
   pedir("POST", "simulado/entrante", 983, { sucursal_id, canal, remitente: { id_externo: numero, nombre: "Prueba" }, texto });
 
+test('resumen cuenta por tipo y no trae contenido ni eventos antiguos o de otro proveedor', async () => {
+  const ahora = Date.now();
+  const texto = 'MARCADOR_PRIVADO 9191234567';
+  const insertar = sqlite.prepare(`INSERT INTO lead_eventos_externos
+    (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json, procesado_en) VALUES (?, ?, ?, ?, ?, ?)`);
+  const fechas = [3, 2, 1, 8, 0].map(d => new Date(ahora - d * 86400000).toISOString());
+  for (let i = 0; i < 5; i++) {
+    insertar.run(i === 4 ? 'otro' : 'gupshup', String(i), i === 2 ? 'history' : 'messages', fechas[i], texto, i === 1 ? fechas[i] : null);
+  }
+  const r = await pedir('GET', 'gupshup/resumen', 983);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.datos.por_tipo, [{ tipo: 'history', eventos: 1 }, { tipo: 'messages', eventos: 2 }]);
+  assert.equal(r.datos.primera, fechas[0]);
+  assert.equal(r.datos.ultima, fechas[2]);
+  assert.equal(r.datos.sin_procesar, 2);
+  assert.equal(r.datos.bytes, texto.length * 3);
+  assert.ok(Math.abs(Date.parse(r.datos.desde) - (ahora - 7 * 86400000)) < 5000);
+  assert.deepEqual(Object.keys(r.datos).sort(), ['bytes', 'desde', 'por_tipo', 'primera', 'sin_procesar', 'ultima']);
+  assert.ok(!JSON.stringify(r.datos).includes('MARCADOR_PRIVADO'));
+  assert.ok(!JSON.stringify(r.datos).includes('9191234567'));
+});
+
+test('resumen exige conectar_canales_mensajes y sin sesion devuelve 401', async () => {
+  assert.equal((await pedir('GET', 'gupshup/resumen', 981)).status, 403);
+  assert.equal((await pedir('GET', 'gupshup/resumen', null)).status, 401);
+  const r = await pedir('GET', 'gupshup/resumen', 983);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.datos.por_tipo, []);
+  assert.equal(r.datos.primera, null);
+  assert.equal(r.datos.ultima, null);
+  assert.equal(r.datos.sin_procesar, 0);
+  assert.equal(r.datos.bytes, 0);
+});
+
+test('resumen con bandeja no disponible responde 503', async t => {
+  const express = require('express');
+  const { registrarRutasBandeja } = require('./bandejaRutas');
+  const local = express();
+  registrarRutasBandeja(local, { DB: {}, bandeja: null, disponible: () => false,
+    requiereLogin: (_req, _res, next) => next(), requierePermiso: () => (_req, _res, next) => next() });
+  const s = await new Promise(resolve => { const server = local.listen(0, '127.0.0.1', () => resolve(server)); });
+  t.after(async () => { s.closeAllConnections(); await new Promise(resolve => s.close(resolve)); });
+  const r = await fetch(`http://127.0.0.1:${s.address().port}/api/mensajes/gupshup/resumen`);
+  assert.equal(r.status, 503);
+});
+
 test("permisos propios: vecinos del CRM reciben 403 y sin sesión 401", async () => {
   assert.equal((await pedir("GET", "conversaciones", 984)).status, 403);
   assert.equal((await pedir("GET", "conversaciones", null)).status, 401);
