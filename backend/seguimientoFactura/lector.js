@@ -6,6 +6,8 @@ const { leerConfig } = require('./config');
 const comparar = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const mitadArriba = numerador => (numerador + 5000n) / 10000n;
 const prioridad = { foto: 0, compra: 1, salida: 2, recepcion: 2, venta: 3 };
+// Foto tomada antes de esta hora local (tienda cerrada): todo lo que SICAR fecha ese día es posterior a la foto.
+const HORA_LIMITE_MADRUGADA = '07:00';
 
 function corteLocal(iso) {
   const d = new Date(iso);
@@ -173,6 +175,12 @@ function agregarObservaciones(ctx, grupo, traspaso, motivo) {
   }
 }
 
+// SICAR fecha los traspasos sin hora: el día del corte solo es dudoso si la foto no fue de madrugada.
+function diaDudoso(t) {
+  if (!t?.local || t.local.slice(11, 16) < HORA_LIMITE_MADRUGADA) return null;
+  return t.local.slice(0, 10);
+}
+
 function alcancePuntas(tiendas, salida, entrada, traspaso) {
   const ti = tiendas.get(traspaso.origen), td = tiendas.get(traspaso.destino);
   const corteOrigen = ti?.local.slice(0, 10), corteDestino = td?.local.slice(0, 10);
@@ -181,7 +189,8 @@ function alcancePuntas(tiendas, salida, entrada, traspaso) {
   const gris = !!salida && (!td || salida.fecha < corteDestino);
   const usarSalida = !!salida && !!ti && salida.fecha >= corteOrigen;
   const usarEntrada = recibida && !!td && !gris && (!entrada.fecha_aplicado || entrada.fecha_aplicado >= corteDestino);
-  return { ti, corteOrigen, corteDestino, fechaEnvio, recibida, gris, usarSalida, usarEntrada };
+  const dudosoOrigen = diaDudoso(ti), dudosoDestino = diaDudoso(td);
+  return { ti, corteOrigen, corteDestino, dudosoOrigen, dudosoDestino, fechaEnvio, recibida, gris, usarSalida, usarEntrada };
 }
 
 function problemaEstado(salida, entrada, recibida) {
@@ -191,10 +200,11 @@ function problemaEstado(salida, entrada, recibida) {
 }
 
 function problemaFechas(salida, entrada, alcance) {
-  const { ti, corteOrigen, corteDestino, fechaEnvio, recibida, usarSalida, usarEntrada } = alcance;
+  const { ti, corteOrigen, dudosoOrigen, dudosoDestino, fechaEnvio, recibida, usarSalida, usarEntrada } = alcance;
   if (recibida && !entrada.fecha_aplicado) return 'sin_fecha_aplicado';
-  if (fechaEnvio === corteOrigen || fechaEnvio === corteDestino) return 'dia_del_corte';
-  if (recibida && entrada.fecha_aplicado === corteDestino) return 'dia_del_corte';
+  const esDudoso = (fecha, dudoso) => dudoso !== null && fecha === dudoso;
+  if (esDudoso(fechaEnvio, dudosoOrigen) || esDudoso(fechaEnvio, dudosoDestino)) return 'dia_del_corte';
+  if (recibida && esDudoso(entrada.fecha_aplicado, dudosoDestino)) return 'dia_del_corte';
   if (recibida && entrada.fecha_aplicado < fechaEnvio) return 'recepcion_anterior_salida';
   if (!usarEntrada) return;
   // Origen sin agente/no incorporado primero: su SICAR no manda la salida, así que tampoco hay punta de origen.
