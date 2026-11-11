@@ -96,3 +96,35 @@ No se modifica nada guardado: la foto real y el corte real de T se conservan. El
 ## Lo que queda al implementador
 
 Dónde vive el cálculo (probable `backend/seguimientoFactura/lector.js` + `motor.js`), nombres, estructura de pruebas.
+
+## Decisiones del diseñador tras la revisión de constructor (2026-11-11)
+
+La revisión encontró que "reproducir con las reglas de siempre" no basta. Decisiones de Claude (técnicas, sin cambiar lo
+que Victor pidió):
+
+1. **Corte efectivo en todos lados.** Para una tienda rescatada, TODAS las comparaciones contra su corte en `lector.js`
+   (ventas `:107`, observaciones `:171`, `gris`/`usarEntrada` `:189-191`, `origen_no_incorporado`/`salida_anterior_corte`
+   `:213-215`, `diaDudoso`) usan el inicio del sistema como corte efectivo; la foto efectiva es la reconstruida.
+2. **La fórmula usa exactamente los movimientos que el motor aplicará**, no los crudos de SICAR. Si en la ventana una
+   clave tiene en T cualquier movimiento marcado por aclarar (`recepcion_mayor`, `recepcion_sin_salida`,
+   `recepcion_menor`, `dia_del_corte`, `sin_mapa`, `mapa_contradictorio`, `folio_ambiguo`, `estados_contradictorios`,
+   etc.), esa clave no se rescata en ninguna tienda (`rescate_inconsistente`).
+3. **Mercancía enviada antes del inicio del sistema y recibida en la ventana** entra a T como "anterior" (igual que hoy
+   `origen_no_incorporado`): no es de ninguna factura seguida. La fórmula la trata como recepción de anterior.
+4. **Ventas a cuenta interna** de T en la ventana sí entran a la fórmula (sacan mercancía), y en el motor siguen como hoy
+   (por aclarar, no vendidas).
+5. **Todo o nada por clave.** Si una clave falla el rescate en cualquier tienda (foto negativa, comprobación, motivo del
+   punto 2), esa clave no se rescata en NINGUNA tienda y queda exactamente como hoy. Evita traspasos entre dos tiendas
+   rescatadas a medias.
+6. **Comprobaciones:** (a) total de T al corte = foto real; (b) por factura, piezas de la factura en T al corte ≤ piezas
+   de esa factura que T recibió en la ventana; (c) suma de todas las tiendas + CEDIS + tránsito por factura = comprado
+   menos vendido. Si cualquiera falla, la clave sin rescate.
+7. **Fechas con hora.** Para los movimientos de T en la ventana se usa la fecha y hora completas cuando existen
+   (recepción `fecha_aplicado`, ventas); solo un movimiento con fecha sin hora el mismo día del corte de T (tienda
+   abierta) es dudoso → la clave sin rescate.
+8. **Qué cambia y qué no (reemplaza la tercera anti-meta):** cambian solo las claves rescatadas: lo que CEDIS mandó a T en
+   la ventana deja de ser gris y pasa a tránsito/queda/vendido en T; una devolución de T a CEDIS en la ventana devuelve
+   piezas de factura en vez de "anterior". Las claves sin rescate, y todo lo que no toca una ventana, dan resultados
+   idénticos a hoy (las pruebas existentes no cambian).
+9. **Datos completos:** basta el criterio de mostrador (ventas de mostrador de T con fecha posterior a su corte). Las
+   ventas a clientes y los traspasos se cargaron completos con el histórico antes de incorporar cada tienda.
