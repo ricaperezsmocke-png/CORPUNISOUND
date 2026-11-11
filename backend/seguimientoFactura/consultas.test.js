@@ -268,6 +268,10 @@ test('con IVA: sin precio con IVA la factura lo dice (null) y lo sin IVA sigue c
   assert.equal(f.total_sin_iva_centavos, '10000');
   assert.equal(f.dinero_con_iva, null);
   assert.equal(f.total_con_iva_centavos, null);
+  // El renglón tampoco presume un valor con IVA de $0.00.
+  const [r] = require('./consultas').detalle(db, 6, '2', AL).renglones;
+  assert.equal(r.valor_con_iva_centavos, null);
+  assert.equal(r.dinero_con_iva, null);
 });
 
 test('con IVA: un resultado guardado antes del cambio (sin el dato) da null hasta recalcular', t => {

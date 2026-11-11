@@ -164,11 +164,11 @@ function resultadoLote(estado, indice) {
     queda: String(quedaPorSucursal.get(s) ?? 0n), vendido: String(l.vendidoPorSucursal.get(s) ?? 0n) }]));
   const queda = [...quedaPorSucursal.values()].reduce((a, v) => a + v, 0n);
   const piezas = { vendido: l.vendido, queda, transito: l.transito, gris: l.sin_agente, por_aclarar: l.por_aclarar };
-  const dinero = repartir(l.valor_centavos, l.comprado, piezas), con = l.valor_con_iva_centavos;
+  const dinero = repartir(l.valor_centavos, l.comprado, piezas), con = l.valor_con_iva_centavos > 0n ? l.valor_con_iva_centavos : null;
   return { lote: l.lote, comprado: String(l.comprado), valor_centavos: String(l.valor_centavos), vendido: String(l.vendido),
     queda: String(queda), por_sucursal, transito: String(l.transito), sin_agente: String(l.sin_agente),
     por_aclarar: String(l.por_aclarar), motivos: [...l.motivos], dinero,
-    // Mismo reparto sobre el valor con IVA. Sin dinero sin IVA (o sin precio con IVA) no hay con IVA.
+    // Mismo reparto sobre el valor con IVA. Sin dinero sin IVA, o con IVA en cero o ausente, no hay con IVA.
     valor_con_iva_centavos: con === null ? null : String(con), dinero_con_iva: dinero && con !== null ? repartir(con, l.comprado, piezas) : null };
 }
 
