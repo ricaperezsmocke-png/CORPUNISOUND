@@ -6,7 +6,9 @@ const ANTERIOR = -1;
 const TRAMOS = ['vendido', 'queda', 'transito', 'gris', 'por_aclarar'];
 
 function crearEstado() {
-  return { lotes: [], existencias: new Map(), transitos: new Map(), incierto: [], huboAnterior: new Set() };
+  // anomalias: tiendas donde algo no entró o no salió completo (faltante, recepción incompleta); controles: rescate.
+  return { lotes: [], existencias: new Map(), transitos: new Map(), incierto: [], huboAnterior: new Set(),
+    anomalias: new Set(), controles: 0, fallas: [] };
 }
 
 function anotarIncierto(estado, motivo) {
@@ -67,14 +69,18 @@ function compra(estado, m) {
   const indice = estado.lotes.length;
   estado.lotes.push({ lote: m.lote, comprado: m.piezas, valor_centavos: m.valor_centavos,
     valor_con_iva_centavos: m.valor_con_iva_centavos ?? null, vendido: 0n, transito: 0n,
-    sin_agente: 0n, por_aclarar: 0n, motivos: m.por_aclarar ? [m.por_aclarar] : [], vendidoPorSucursal: new Map() });
+    sin_agente: 0n, por_aclarar: 0n, motivos: m.por_aclarar ? [m.por_aclarar] : [], vendidoPorSucursal: new Map(),
+    recibidoPorSucursal: new Map() });
   sumar(existencia(estado, m.sucursal_id), indice, m.piezas);
   anotarIncierto(estado, m.por_aclarar);
 }
 
 function salida(estado, m) {
   const { partes, faltante } = consumir(estado, m.sucursal_id, m.piezas);
-  if (faltante > 0n) anotarIncierto(estado, 'salida_sin_existencia');
+  if (faltante > 0n) {
+    anotarIncierto(estado, 'salida_sin_existencia');
+    estado.anomalias.add(m.sucursal_id);
+  }
   // recepcion_menor marca la salida pero el envío es real: va a tránsito y la diferencia se resuelve al recibir.
   const dudosa = m.por_aclarar && m.por_aclarar !== 'recepcion_menor';
   if (dudosa) {
@@ -93,8 +99,14 @@ function salida(estado, m) {
 }
 
 function recepcion(estado, m) {
-  if (m.por_aclarar && !['recepcion_mayor', 'origen_no_incorporado'].includes(m.por_aclarar)) {
+  if (m.anterior && !m.por_aclarar) {
+    // Rescate: salió antes del inicio del sistema y llegó en la ventana. Es mercancía cierta, sin factura seguida.
+    sumarEn(estado, m.sucursal_id, ANTERIOR, m.piezas);
+    return;
+  }
+  if (m.anterior || (m.por_aclarar && !['recepcion_mayor', 'origen_no_incorporado'].includes(m.por_aclarar))) {
     anotarIncierto(estado, m.por_aclarar); // Su salida ya mandó las piezas a por aclarar.
+    estado.anomalias.add(m.sucursal_id);
     return;
   }
   if (m.por_aclarar === 'origen_no_incorporado') {
@@ -107,6 +119,7 @@ function recepcion(estado, m) {
   const llave = llaveTraspaso(m.traspaso), enCamino = estado.transitos.get(llave);
   if (!enCamino) {
     anotarIncierto(estado, m.por_aclarar || 'recepcion_sin_salida');
+    estado.anomalias.add(m.sucursal_id);
     return;
   }
   estado.transitos.delete(llave);
@@ -116,7 +129,11 @@ function recepcion(estado, m) {
   for (const parte of [...enCamino.partes].sort((a, b) => a.indice - b.indice)) {
     const llega = parte.piezas < resta ? parte.piezas : resta;
     resta -= llega;
-    if (parte.indice !== ANTERIOR) estado.lotes[parte.indice].transito -= parte.piezas;
+    if (parte.indice !== ANTERIOR) {
+      const lote = estado.lotes[parte.indice];
+      lote.transito -= parte.piezas;
+      lote.recibidoPorSucursal.set(m.sucursal_id, (lote.recibidoPorSucursal.get(m.sucursal_id) ?? 0n) + llega);
+    }
     sumarEn(estado, m.sucursal_id, parte.indice, llega);
     if (parte.piezas > llega) sobrantes.push({ indice: parte.indice, piezas: parte.piezas - llega });
   }
@@ -125,12 +142,18 @@ function recepcion(estado, m) {
     marcarLotes(estado, sobrantes, 'recepcion_menor');
     aTramo(estado, sobrantes, 'por_aclarar');
   }
-  if (resta > 0n) anotarIncierto(estado, 'recepcion_mayor');
+  if (resta > 0n) {
+    anotarIncierto(estado, 'recepcion_mayor');
+    estado.anomalias.add(m.sucursal_id);
+  }
 }
 
 function venta(estado, m) {
   const { partes, faltante } = consumir(estado, m.sucursal_id, m.piezas);
-  if (faltante > 0n) anotarIncierto(estado, 'venta_sin_existencia');
+  if (faltante > 0n) {
+    anotarIncierto(estado, 'venta_sin_existencia');
+    estado.anomalias.add(m.sucursal_id);
+  }
   if (m.por_aclarar) {
     anotarIncierto(estado, m.por_aclarar);
     marcarLotes(estado, partes, m.por_aclarar);
@@ -172,7 +195,37 @@ function resultadoLote(estado, indice) {
     valor_con_iva_centavos: con === null ? null : String(con), dinero_con_iva: dinero && con !== null ? repartir(con, l.comprado, piezas) : null };
 }
 
-const ACCIONES = { compra, salida, recepcion, venta };
+function fallar(estado, sucursal_id, motivo) {
+  if (!estado.fallas.some(f => f.sucursal_id === sucursal_id && f.motivo === motivo)) estado.fallas.push({ sucursal_id, motivo });
+}
+
+/**
+ * Control del rescate al corte real de la tienda: no mueve piezas. Lo calculado en la tienda debe ser exactamente su foto
+ * real, sin faltantes ni recepciones incompletas en el camino, y ninguna factura puede tener ahí más de lo que recibió.
+ */
+function control(estado, m) {
+  estado.controles++;
+  const mapa = existencia(estado, m.sucursal_id);
+  const total = [...mapa.values()].reduce((a, v) => a + v, 0n);
+  if (total !== m.piezas || estado.anomalias.has(m.sucursal_id)) fallar(estado, m.sucursal_id, 'control_no_cuadra');
+  for (const [indice, piezas] of mapa) {
+    if (indice === ANTERIOR) continue;
+    if (piezas > (estado.lotes[indice].recibidoPorSucursal.get(m.sucursal_id) ?? 0n)) {
+      fallar(estado, m.sucursal_id, 'factura_excede_recibido');
+    }
+  }
+}
+
+/** Con rescate, cada lote debe repartir exactamente lo comprado entre tiendas, tránsito, vendido, gris y por aclarar. */
+function revisarSumas(estado, lotes) {
+  if (!estado.controles) return;
+  for (const l of lotes) {
+    const suma = [l.vendido, l.queda, l.transito, l.sin_agente, l.por_aclarar].reduce((a, v) => a + BigInt(v), 0n);
+    if (suma !== BigInt(l.comprado)) fallar(estado, null, 'suma_no_cuadra');
+  }
+}
+
+const ACCIONES = { compra, salida, recepcion, venta, control };
 
 /** Recorre los movimientos en el orden recibido. Piezas y centavos de la salida van como texto decimal. */
 function calcular(movimientos) {
@@ -195,7 +248,9 @@ function calcular(movimientos) {
   for (const sucursal of [...estado.huboAnterior].sort((a, b) => a - b)) {
     anterior[sucursal] = String(existencia(estado, sucursal).get(ANTERIOR) ?? 0n);
   }
-  return { lotes: estado.lotes.map((_l, i) => resultadoLote(estado, i)), anterior, incierto: [...estado.incierto] };
+  const lotes = estado.lotes.map((_l, i) => resultadoLote(estado, i));
+  revisarSumas(estado, lotes);
+  return { lotes, anterior, incierto: [...estado.incierto], rescate_ok: estado.fallas.length === 0, rescate_fallas: estado.fallas };
 }
 
 module.exports = { calcular };
