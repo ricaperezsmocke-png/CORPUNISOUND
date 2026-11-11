@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
   parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion, textoPorArticulo,
+  totalFacturaTexto, valorConIvaTexto,
 } from "./seguimiento.js";
 
 const factura = (extra = {}) => ({
@@ -161,4 +162,42 @@ test("todo enviado a tienda sin agente: pendiente de comprobación aunque no sea
   assert.equal(siguienteAccion(factura({ etapa: null, aviso: null, agotada: false, piezas: gris })), "Pendiente de comprobación");
   const aclarar = { comprado: "100000", vendido: "90000", queda: "0", transito: "0", sin_agente: "0", por_aclarar: "10000" };
   assert.equal(siguienteAccion(factura({ etapa: null, aviso: null, agotada: false, piezas: aclarar })), "Movimientos por aclarar");
+});
+
+// ---- Con IVA y sin IVA (decisión de Victor 2026-11-11) ----
+const conIva = (extra = {}) => factura({
+  dinero_con_iva: { vendido: "3222", queda: "5155", transito: "1611", gris: "1289", por_aclarar: "323" },
+  total_sin_iva_centavos: "10000", total_con_iva_centavos: "11600", ...extra,
+});
+
+test("total de la factura: con IVA y sin IVA, dicho con todas sus letras", () => {
+  assert.equal(totalFacturaTexto(conIva({ total_con_iva_centavos: "8349225", total_sin_iva_centavos: "7197610" })),
+    "Total factura: $83,492.25 con IVA · $71,976.10 sin IVA");
+  assert.equal(totalFacturaTexto(conIva({ dinero_con_iva: null, total_con_iva_centavos: null })), "Total factura: $100.00 sin IVA");
+  assert.equal(totalFacturaTexto(conIva({ dinero: null, dinero_con_iva: null, total_con_iva_centavos: null, total_sin_iva_centavos: null })),
+    "Total factura: No calculable");
+});
+
+test("tramos: con IVA de principal, sin IVA de secundario; los porcentajes no cambian", () => {
+  const t = tramosDeFactura(conIva());
+  const queda = t.find((x) => x.id === "queda");
+  assert.equal(queda.principal, "$51.55");
+  assert.equal(queda.secundario, "$44.44 sin IVA");
+  assert.equal(t.find((x) => x.id === "vendido").porcentaje, 27.8);
+  assert.deepEqual(t.map((x) => x.porcentaje), tramosDeFactura(factura()).map((x) => x.porcentaje));
+});
+
+test("tramos sin dato con IVA: solo sin IVA y lo dice", () => {
+  const queda = tramosDeFactura(factura()).find((x) => x.id === "queda");
+  assert.equal(queda.principal, "$44.44 sin IVA");
+  assert.equal(queda.secundario, null);
+  const nada = tramosDeFactura(factura({ dinero: null }))[0];
+  assert.equal(nada.principal, "No calculable");
+  assert.equal(nada.secundario, null);
+});
+
+test("valor de un renglón: con IVA y sin IVA, o solo sin IVA", () => {
+  assert.equal(valorConIvaTexto("31035", "36000"), "$360.00 con IVA · $310.35 sin IVA");
+  assert.equal(valorConIvaTexto("31035", null), "$310.35 sin IVA");
+  assert.equal(valorConIvaTexto("31035", undefined), "$310.35 sin IVA");
 });

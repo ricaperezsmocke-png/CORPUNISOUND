@@ -55,13 +55,35 @@ const TRAMOS = [
   { id: "por_aclarar", etiqueta: TEXTOS.por_aclarar, pieza: "por_aclarar", color: "bg-amber-400" },
 ];
 
-/** Los cinco tramos de la barra. El ancho sale del dinero; si no es calculable, de las piezas. */
+/** Valor con IVA y sin IVA. Sin dato con IVA se muestra solo el sin IVA, siempre con su leyenda. */
+export function valorConIvaTexto(sinIva, conIva) {
+  const sin = `${pesosTexto(sinIva)} sin IVA`;
+  return esEntero(conIva) ? `${pesosTexto(conIva)} con IVA · ${sin}` : sin;
+}
+
+export function totalFacturaTexto(f) {
+  if (!f.dinero || !esEntero(f.total_sin_iva_centavos)) return "Total factura: No calculable";
+  return `Total factura: ${valorConIvaTexto(f.total_sin_iva_centavos, f.dinero_con_iva ? f.total_con_iva_centavos : null)}`;
+}
+
+/** Montos de un tramo: con IVA de principal y sin IVA de secundario; sin dato con IVA, solo sin IVA con su leyenda. */
+function montosTramo(f, id) {
+  if (!f.dinero) return { principal: "No calculable", secundario: null };
+  const sin = `${pesosTexto(f.dinero[id])} sin IVA`;
+  return f.dinero_con_iva ? { principal: pesosTexto(f.dinero_con_iva[id]), secundario: sin } : { principal: sin, secundario: null };
+}
+
+/**
+ * Los cinco tramos de la barra. El ancho sale del dinero sin IVA (el mismo reparto que con IVA); si no es calculable,
+ * de las piezas. `dinero` es el sin IVA; `principal`/`secundario` son lo que se muestra.
+ */
 export function tramosDeFactura(f) {
   const totalDinero = f.dinero ? TRAMOS.reduce((a, t) => a + BigInt(f.dinero[t.id]), 0n) : 0n;
   return TRAMOS.map((t) => ({
     id: t.id, etiqueta: t.etiqueta, color: t.color,
     piezas: piezasTexto(f.piezas[t.pieza]),
     dinero: f.dinero ? pesosTexto(f.dinero[t.id]) : "No calculable",
+    ...montosTramo(f, t.id),
     porcentaje: (f.dinero ? porcentaje(f.dinero[t.id], totalDinero) : porcentaje(f.piezas[t.pieza], f.piezas.comprado)) ?? 0,
   }));
 }
