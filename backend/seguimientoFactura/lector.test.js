@@ -418,3 +418,148 @@ test('el corte se juzga en fecha y hora de México: 05:30 UTC es 23:30 del día 
   corte(db, 6, '2026-11-06T05:59:59.000Z'); // 2026-11-05 23:59:59 local
   assert.deepEqual(porFolio('A'), ['dia_del_corte', 'dia_del_corte']);
 });
+
+// Rescate de la ventana de incorporación: CEDIS arranca el sistema a las 00:05; Ocosingo (1) entra a las 10:53 del mismo
+// día y Yajalón (2) el 2026-11-11 a las 12:40 (hora de México).
+const INICIO = '2026-11-06T06:05:00.000Z', CORTE_T = '2026-11-06T16:53:00.000Z', CORTE_Y = '2026-11-11T18:40:00.000Z';
+const DESDE = '2026-11-06T00:05:00.000';
+const leerCon = (db, opciones) => require('./lector').movimientosPorClave(db, 'A', { ahora: AHORA, ...opciones });
+const P = n => BigInt(Math.round(n * 10000));
+const fotoDe = (r, suc) => r.movimientos.find(m => m.tipo === 'foto' && m.sucursal_id === suc);
+
+function prepararRescate(t, { fotoY = 9, fotoT = 0, mostradorY = true, mostradorT = false } = {}) {
+  const db = prepararDB(t);
+  corte(db, 6, INICIO);
+  corte(db, 1, CORTE_T);
+  db.exec("UPDATE seguimiento_foto SET piezas_diezmilesimas='0' WHERE sucursal_id=6");
+  db.prepare('UPDATE seguimiento_foto SET piezas_diezmilesimas=? WHERE sucursal_id=1').run(String(P(fotoT)));
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (2, ?)').run(CORTE_Y);
+  db.prepare('INSERT INTO seguimiento_foto VALUES (2, ?, ?)').run('A', String(P(fotoY)));
+  // Venta de mostrador de OTRA clave posterior al corte: la carga de mostrador ya cubrió la ventana.
+  for (const [suc, fecha, si] of [[2, '2026-11-12T10:00:00', mostradorY], [1, '2026-11-07T10:00:00', mostradorT]]) {
+    if (!si) continue;
+    db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+      VALUES (?, ?, 'OTRA', 'Otra', ?)`).run(suc, `otra-${suc}`, ACTUALIZADO);
+    db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (?, ?, ?, ?, 100, ?)').run(suc, `cubre-${suc}`, fecha, 'vigente', ACTUALIZADO);
+    db.prepare('INSERT INTO sicar_detalles_mostrador VALUES (?, ?, 0, ?, ?, 100, 0)').run(suc, `cubre-${suc}`, `otra-${suc}`, '1.0000');
+  }
+  return db;
+}
+
+function ventaPiezas(db, suc, id, fecha, piezas) {
+  db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (?, ?, ?, ?, 100, ?)').run(suc, id, fecha, 'vigente', ACTUALIZADO);
+  db.prepare('INSERT INTO sicar_detalles_mostrador VALUES (?, ?, 0, ?, ?, 100, 0)').run(suc, id, `art-${suc}`, `${piezas}.0000`);
+}
+
+// Compra CEDIS de 10 piezas el día del inicio, enviada a Yajalón y recibida ese mismo día; Yajalón vende 3 en su ventana.
+function casoYajalon(db, { recibidas = '10.0000', fechaEnvio = '2026-11-06', aplicada = '2026-11-06T13:00:00' } = {}) {
+  compra(db, 'C1', { fecha: '2026-11-06T12:00:00', cantidad: '10.0000', factor: 10000n });
+  punta(db, 6, 'e1', { folio: 'FY', destino: 's2', fecha: fechaEnvio, estado: 'enviado', aplicada: null });
+  punta(db, 2, 'r1', { folio: 'FY', destino: 's2', fecha: fechaEnvio, aplicada, cantidad: recibidas });
+  ventaPiezas(db, 2, 'vy1', '2026-11-08T11:00:00', 3);
+}
+
+test('rescate: sin rescate pedido los movimientos son idénticos a hoy y rescate es null', t => {
+  const db = prepararRescate(t);
+  casoYajalon(db);
+  const hoy = leerCon(db, {}), sin = leerCon(db, { rescate: false });
+  assert.deepEqual(sin, hoy);
+  assert.equal(hoy.rescate, null);
+  assert.equal(sin.rescate, null);
+});
+
+test('rescate reconstruye la foto de la tienda al inicio y agrega el control al corte real', t => {
+  const db = prepararRescate(t);
+  casoYajalon(db);
+  const r = leerCon(db, { rescate: true });
+  assert.deepEqual(r.rescate, { desde: DESDE, tiendas: [2] });
+  assert.deepEqual(fotoDe(r, 2), { tipo: 'foto', fecha: DESDE, sucursal_id: 2, piezas: P(2), reconstruida: true });
+  const control = r.movimientos.find(m => m.tipo === 'control');
+  assert.deepEqual(control, { tipo: 'control', fecha: '2026-11-11T12:40:00.000', sucursal_id: 2, piezas: P(9) });
+  // La recepción y la venta de la ventana entran (no se descartan por el corte real) y el control va después de todo.
+  assert.deepEqual(r.movimientos.filter(m => m.sucursal_id === 2).map(m => m.tipo), ['foto', 'recepcion', 'venta', 'control']);
+  assert.equal(r.movimientos.find(m => m.tipo === 'salida').sin_agente, false, 'ya no es gris');
+  assert.ok(r.movimientos.every(m => !m.por_aclarar));
+});
+
+test('rescate: foto reconstruida negativa no rescata y deja los movimientos de hoy', t => {
+  const db = prepararRescate(t, { fotoY: 5 });
+  casoYajalon(db);
+  const r = leerCon(db, { rescate: true });
+  assert.equal(r.rescate.imposible, 'foto_negativa');
+  assert.deepEqual(r.movimientos, leerCon(db, {}).movimientos);
+});
+
+test('rescate: un movimiento por aclarar en la ventana no rescata', t => {
+  const db = prepararRescate(t);
+  casoYajalon(db, { recibidas: '12.0000' }); // llegaron más de las enviadas: recepcion_mayor
+  const r = leerCon(db, { rescate: true });
+  assert.equal(r.rescate.imposible, 'movimiento_por_aclarar_en_ventana');
+  assert.deepEqual(r.movimientos, leerCon(db, {}).movimientos);
+});
+
+test('rescate: traspaso con fecha sin hora el día del corte de la tienda no rescata', t => {
+  const db = prepararRescate(t);
+  casoYajalon(db, { fechaEnvio: '2026-11-11', aplicada: '2026-11-11T15:00:00' });
+  const r = leerCon(db, { rescate: true });
+  assert.equal(r.rescate.imposible, 'fecha_dudosa_en_ventana');
+  assert.deepEqual(r.movimientos, leerCon(db, {}).movimientos);
+});
+
+test('rescate: tienda sin mostrador después de su corte no es elegible', t => {
+  const db = prepararRescate(t, { mostradorY: false });
+  casoYajalon(db);
+  const r = leerCon(db, { rescate: true });
+  assert.equal(r.rescate, null);
+  assert.deepEqual(r.movimientos, leerCon(db, {}).movimientos);
+});
+
+test('rescate: envío de CEDIS antes del inicio recibido en la ventana entra como anterior', t => {
+  const db = prepararRescate(t, { fotoT: 10, mostradorT: true });
+  punta(db, 6, 'e1', { folio: 'FT', fecha: '2026-11-05', estado: 'enviado', aplicada: null });
+  punta(db, 1, 'r1', { folio: 'FT', fecha: '2026-11-05', aplicada: '2026-11-06T09:00:00' });
+  const r = leerCon(db, { rescate: true });
+  assert.deepEqual(r.rescate, { desde: DESDE, tiendas: [1] });
+  const rec = r.movimientos.find(m => m.tipo === 'recepcion');
+  assert.equal(rec.sucursal_id, 1);
+  assert.equal(rec.anterior, true);
+  assert.equal(rec.por_aclarar, undefined);
+  assert.equal(fotoDe(r, 1).piezas, 0n);
+  assert.ok(!r.movimientos.some(m => m.tipo === 'compra' || m.tipo === 'salida'));
+});
+
+test('rescate: venta a cuenta interna en la ventana entra a la reconstrucción y sigue por aclarar', t => {
+  const db = prepararRescate(t);
+  venta(db, 'interna-y', { suc: 2, fecha: '2026-11-08T10:00:00', interna: true }); // 1.25 piezas
+  const r = leerCon(db, { rescate: true });
+  assert.deepEqual(r.rescate, { desde: DESDE, tiendas: [2] });
+  assert.equal(fotoDe(r, 2).piezas, P(9) + 12500n);
+  assert.equal(r.movimientos.find(m => m.tipo === 'venta' && m.sucursal_id === 2).por_aclarar, 'cuenta_interna');
+});
+
+test('rescate: traspaso de una tienda ya incorporada a una rescatada usa las dos puntas', t => {
+  // Ocosingo es elegible pero no tiene movimientos en su ventana: se calcula como hoy. Yajalón sí se rescata.
+  const db = prepararRescate(t, { fotoY: 4, mostradorT: true });
+  const oy = { folio: 'OY', origen: 's1', destino: 's2', fecha: '2026-11-08', cantidad: '4.0000' };
+  punta(db, 1, 'e1', { ...oy, estado: 'enviado', aplicada: null });
+  punta(db, 2, 'r1', { ...oy, aplicada: '2026-11-09T10:00:00' });
+  const r = leerCon(db, { rescate: true });
+  assert.deepEqual(r.rescate, { desde: DESDE, tiendas: [2] });
+  assert.deepEqual(traspasos(r).map(m => [m.tipo, m.sucursal_id, m.sin_agente, m.por_aclarar]),
+    [['salida', 1, false, undefined], ['recepcion', 2, undefined, undefined]]);
+  assert.equal(fotoDe(r, 2).piezas, 0n);
+  assert.equal(fotoDe(r, 1).reconstruida, undefined);
+});
+
+test('rescate: devolución de la tienda a CEDIS en la ventana sale de la tienda, no como origen no incorporado', t => {
+  const db = prepararRescate(t);
+  casoYajalon(db);
+  const dv = { folio: 'DV', origen: 's2', destino: 's6', fecha: '2026-11-09', cantidad: '2.0000' };
+  punta(db, 2, 'd1', { ...dv, estado: 'enviado', aplicada: null });
+  punta(db, 6, 'd2', { ...dv, estado: 'recibido', aplicada: '2026-11-10T09:00:00' });
+  assert.equal(leerCon(db, {}).movimientos.find(m => m.traspaso?.folio === 'DV').por_aclarar, 'origen_no_incorporado');
+  const r = leerCon(db, { rescate: true });
+  const mov = r.movimientos.filter(m => m.traspaso?.folio === 'DV');
+  assert.deepEqual(mov.map(m => [m.tipo, m.sucursal_id, m.por_aclarar]), [['salida', 2, undefined], ['recepcion', 6, undefined]]);
+  assert.equal(fotoDe(r, 2).piezas, P(9 - 10 + 3 + 2));
+});
