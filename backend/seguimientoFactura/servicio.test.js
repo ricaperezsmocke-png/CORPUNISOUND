@@ -203,3 +203,90 @@ test('ciclos: la vuelta diaria corre una vez por día y deja todo procesado sin 
   ciclos.revisarDia(); // mismo día: no repite la vuelta ni procesa
   assert.deepEqual(pendientes(db), ['Z']);
 });
+
+// Rescate: CEDIS arranca 2026-11-06 00:05 y Yajalón (2) entra 2026-11-11 12:40 (hora de México).
+const RESCATE_AHORA = '2026-11-12T18:00:00.000Z';
+
+function prepararRescate(t, fotoY) {
+  const db = new Database(':memory:');
+  crearRepositorioSicar(db);
+  t.after(() => db.close());
+  for (const suc of [2, 6]) {
+    db.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (?, ?)').run(suc, RESCATE_AHORA);
+    db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+      VALUES (?, ?, 'A', 'Artículo', ?)`).run(suc, `art-${suc}`, RECIENTE);
+    db.prepare('INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES (?, ?)').run(`s${suc}`, suc);
+  }
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (6, ?), (2, ?)').run('2026-11-06T06:05:00.000Z', '2026-11-11T18:40:00.000Z');
+  db.prepare("INSERT INTO seguimiento_foto VALUES (6, 'A', '0'), (2, 'A', ?)").run(String(fotoY * 10000));
+  // Mostrador de otra clave después del corte de Yajalón: su carga ya cubre la ventana.
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (2, 'otra', 'OTRA', 'Otra', ?)`).run(RECIENTE);
+  ventaY(db, 'cubre', '2026-11-12T10:00:00', 1, 'otra');
+  db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+    primera_vez, actualizado_en) VALUES (6, 'C1', '2026-11-06T12:00:00', '1', 'C1', '', 'vigente', 0, ?, ?)`).run(RECIENTE, RECIENTE);
+  db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, 'C1', 0, 'art-6', '10.0000', 10000, 1000, 0, 0)").run();
+  return db;
+}
+
+function ventaY(db, id, fecha, piezas, art = 'art-2') {
+  db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (2, ?, ?, ?, 100, ?)').run(id, fecha, 'vigente', RECIENTE);
+  db.prepare('INSERT INTO sicar_detalles_mostrador VALUES (2, ?, 0, ?, ?, 100, 0)').run(id, art, `${piezas}.0000`);
+}
+
+function envioY(db, fecha, aplicada) {
+  for (const [suc, estado, apl] of [[6, 'enviado', null], [2, 'recibido', aplicada]]) {
+    db.prepare("INSERT INTO sicar_traspasos VALUES (?, ?, 'FY', 's6', 's2', ?, ?, ?, NULL, 0, ?)").run(suc, `t${suc}`, fecha, estado, apl, RECIENTE);
+    db.prepare("INSERT INTO sicar_traspasos_detalle VALUES (?, ?, ?, '10.0000', 0, 0)").run(suc, `t${suc}`, `art-${suc}`);
+  }
+}
+
+function procesarRescate(db) {
+  db.prepare("INSERT INTO seguimiento_pendientes VALUES ('A', ?)").run(RESCATE_AHORA);
+  return servicio().procesarPendientes(db, { limite: 50, ahora: RESCATE_AHORA });
+}
+
+test('rescate: la clave rescatable guarda el resultado reconstruido con su marca y versión 2', t => {
+  const db = prepararRescate(t, 9);
+  envioY(db, '2026-11-06', '2026-11-06T13:00:00');
+  ventaY(db, 'v1', '2026-11-08T11:00:00', 3);
+  assert.deepEqual(procesarRescate(db), { procesadas: 1, errores: [], quedan: 0 });
+  const [fila] = resultado(db);
+  // Foto reconstruida 2 = 9 − 10 + 3: la venta se lleva primero esas 2 anteriores y 1 de la factura.
+  assert.deepEqual(fila.datos.por_sucursal, { 2: { queda: '90000', vendido: '10000' } });
+  assert.equal(fila.datos.sin_agente, '0');
+  assert.deepEqual(fila.datos.rescate, { desde: '2026-11-06T00:05:00.000', tiendas: [2] });
+  assert.ok(!fila.datos.calidad.problemas.some(p => p.motivo === 'rescate_inconsistente'));
+  assert.equal(servicio().VERSION, 2);
+  assert.equal(db.prepare('SELECT version FROM seguimiento_resultado').get().version, 2);
+});
+
+test('rescate: si el control no cuadra se guarda el resultado de hoy y el problema rescate_inconsistente', t => {
+  const db = prepararRescate(t, 9);
+  ventaY(db, 'v1', '2026-11-07T11:00:00', 3); // vende 3 con solo 2 en existencia: la historia de la ventana no cierra
+  envioY(db, '2026-11-08', '2026-11-08T13:00:00');
+  const { movimientosPorClave } = require('./lector');
+  const hoy = require('./motor').calcular(movimientosPorClave(db, 'A', { ahora: RESCATE_AHORA }).movimientos);
+  procesarRescate(db);
+  const [fila] = resultado(db);
+  assert.equal(fila.datos.rescate, undefined);
+  const [lote] = hoy.lotes;
+  for (const campo of ['vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar']) assert.equal(fila.datos[campo], lote[campo], campo);
+  assert.deepEqual(fila.datos.por_sucursal, lote.por_sucursal);
+  assert.deepEqual(fila.datos.dinero, lote.dinero);
+  assert.equal(fila.datos.sin_agente, '100000', 'como hoy: lo enviado a Yajalón antes de su foto sigue gris');
+  assert.deepEqual(fila.datos.calidad.problemas.filter(p => p.motivo === 'rescate_inconsistente'),
+    [{ clave: 'A', motivo: 'rescate_inconsistente', detalle: [{ sucursal_id: 2, motivo: 'control_no_cuadra' }] }]);
+});
+
+test('rescate: si el lector no puede rescatar se guarda el resultado de hoy con el motivo', t => {
+  const db = prepararRescate(t, 5); // 5 − 10 + 3 < 0: la foto reconstruida sería negativa
+  envioY(db, '2026-11-06', '2026-11-06T13:00:00');
+  ventaY(db, 'v1', '2026-11-08T11:00:00', 3);
+  procesarRescate(db);
+  const [fila] = resultado(db);
+  assert.equal(fila.datos.rescate, undefined);
+  assert.equal(fila.datos.sin_agente, '100000');
+  assert.deepEqual(fila.datos.calidad.problemas.filter(p => p.motivo === 'rescate_inconsistente'),
+    [{ clave: 'A', motivo: 'rescate_inconsistente', detalle: [{ sucursal_id: 2, motivo: 'foto_negativa' }] }]);
+});

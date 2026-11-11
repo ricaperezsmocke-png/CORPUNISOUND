@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
   parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion, textoPorArticulo,
-  totalFacturaTexto, valorConIvaTexto,
+  totalFacturaTexto, valorConIvaTexto, notaRescate,
 } from "./seguimiento.js";
 
 const factura = (extra = {}) => ({
@@ -200,4 +200,14 @@ test("valor de un renglón: con IVA y sin IVA, o solo sin IVA", () => {
   assert.equal(valorConIvaTexto("31035", "36000"), "$360.00 con IVA · $310.35 sin IVA");
   assert.equal(valorConIvaTexto("31035", null), "$310.35 sin IVA");
   assert.equal(valorConIvaTexto("31035", undefined), "$310.35 sin IVA");
+});
+
+test("nota del rescate: fecha local del inicio y nombres de las tiendas reconstruidas, sin repetir", () => {
+  const nombres = { 1: "Ocosingo", 2: "Yajalón" };
+  const desde = "2026-11-06T00:05:08.000";
+  const renglones = [{ rescate: { desde, tiendas: [2] } }, { rescate: null }, { rescate: { desde, tiendas: [1, 2, 4] } }];
+  assert.equal(notaRescate(renglones, nombres),
+    "Reconstruido desde el 2026-11-06 con las ventas de SICAR en: Ocosingo, Yajalón, Tienda 4");
+  assert.equal(notaRescate([{ rescate: null }, {}], nombres), null);
+  assert.equal(notaRescate([], nombres), null);
 });

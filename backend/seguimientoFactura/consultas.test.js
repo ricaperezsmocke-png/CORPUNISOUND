@@ -302,3 +302,17 @@ test('con IVA: factura sin dinero calculable tampoco tiene con IVA ni totales', 
   assert.equal(f.total_con_iva_centavos, null);
   assert.equal(f.total_sin_iva_centavos, null);
 });
+
+test('el detalle dice por renglón si la clave se reconstruyó con el rescate (null si no)', t => {
+  const { detalle } = require('./consultas');
+  const db = prepararDB(t);
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (6, ?)').run('2026-09-01T18:00:00.000Z');
+  const rescate = { desde: '2026-11-06T00:05:00.000', tiendas: [2] };
+  const datos = extra => JSON.stringify({ comprado: '10000', vendido: '0', queda: '10000', transito: '0', sin_agente: '0',
+    por_aclarar: '0', por_sucursal: { 6: { queda: '10000', vendido: '0' } }, dinero: null, fecha_compra: '2026-11-04',
+    valor_centavos: '0', calidad: { datos_al: AL }, ...extra });
+  const guardar = db.prepare("INSERT INTO seguimiento_resultado VALUES (6, '77', ?, 'A', ?, 2, ?)");
+  guardar.run(0, datos({ rescate }), AL);
+  guardar.run(1, datos({}), AL);
+  assert.deepEqual(detalle(db, 6, '77', AL).renglones.map(r => r.rescate), [rescate, null]);
+});

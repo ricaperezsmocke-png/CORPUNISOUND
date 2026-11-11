@@ -130,6 +130,18 @@ export function parametrosLista(filtros) {
 
 const nombre = (nombres, id) => nombres[id] || `Tienda ${id}`;
 
+/**
+ * Nota del detalle cuando alguna clave se reconstruyó con el rescate: es un cálculo con las ventas de SICAR desde el inicio
+ * del sistema, no una foto tomada ese día. Sin rescate en ningún renglón, null.
+ */
+export function notaRescate(renglones, nombres) {
+  const conRescate = (renglones || []).map((r) => r?.rescate).filter((x) => x && Array.isArray(x.tiendas));
+  if (!conRescate.length) return null;
+  const tiendas = [...new Set(conRescate.flatMap((x) => x.tiendas.map(Number)))].sort((a, b) => a - b);
+  const desde = String(conRescate[0].desde || "").slice(0, 10);
+  return `Reconstruido desde el ${desde} con las ventas de SICAR en: ${tiendas.map((id) => nombre(nombres, id)).join(", ")}`;
+}
+
 export function textoTraslado(s, nombres, clave, descripcion) {
   if (s.razon === "informacion_insuficiente") {
     return `${TEXTOS.insuficiente} para sugerir cantidad desde ${nombre(nombres, s.de)}: revisar.`;

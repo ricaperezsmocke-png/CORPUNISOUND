@@ -5,7 +5,7 @@ import { contadorDePeticiones, fechaRelativa } from "../sicar/cortesSicar.js";
 import {
   TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
-  totalFacturaTexto, valorConIvaTexto,
+  totalFacturaTexto, valorConIvaTexto, notaRescate,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -188,6 +188,7 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
   if (!datos) return <p className="text-sm text-slate-500">Cargando…</p>;
   const { factura, renglones, avisos } = datos;
   const activo = avisos.find((a) => a.estado !== "retirado");
+  const rescate = notaRescate(renglones, nombres);
   return (
     <div className="mb-6 space-y-3 rounded-lg border-2 border-blue-300 bg-blue-50/40 p-4">
       <div className="flex items-start justify-between gap-4">
@@ -200,6 +201,7 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
       </div>
       <p className="text-base font-semibold">{totalFacturaTexto(factura)}</p>
       <p className="text-sm font-semibold text-slate-700">{TEXTOS.fifo}</p>
+      {rescate && <p className={NOTA_AMBAR}>{rescate}</p>}
       <Leyenda factura={factura} />
       {activo && (
         <div className={CAJA}>

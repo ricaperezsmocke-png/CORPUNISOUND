@@ -434,7 +434,10 @@ function conRescate(datos) {
   const [falla] = [...revision.fallas].sort((a, b) => a[0] - b[0]);
   if (falla) return normal({ imposible: falla[1], sucursal_id: falla[0] });
   aplicarRescate(ctx, revision);
-  return terminar(ctx, { desde: inicio, tiendas: [...ctx.rescate.rebajadas].sort((a, b) => a - b) });
+  const resultado = terminar(ctx, { desde: inicio, tiendas: [...ctx.rescate.rebajadas].sort((a, b) => a - b) });
+  // Si el motor rechaza el rescate, los movimientos de hoy salen de los mismos datos ya leídos (misma instantánea, sin SQL).
+  Object.defineProperty(resultado, 'sinRescate', { value: () => normal(null) });
+  return resultado;
 }
 
 /**
