@@ -38,6 +38,16 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
     }
   };
 
+  app.get("/api/mensajes/gupshup/resumen", requiereLogin, permiso("conectar_canales_mensajes"), ruta(() => {
+    const desde = new Date(Date.now() - 7 * 86400000).toISOString();
+    const filtro = "FROM lead_eventos_externos WHERE proveedor = 'gupshup' AND recibido_en >= ?";
+    const por_tipo = bandeja.sqlite.prepare(`SELECT tipo, count(*) AS eventos ${filtro} GROUP BY tipo ORDER BY tipo`).all(desde);
+    const totales = bandeja.sqlite.prepare(`SELECT min(recibido_en) AS primera, max(recibido_en) AS ultima,
+      coalesce(sum(CASE WHEN procesado_en IS NULL THEN 1 ELSE 0 END), 0) AS sin_procesar,
+      coalesce(sum(length(payload_json)), 0) AS bytes ${filtro}`).get(desde);
+    return { desde, por_tipo, ...totales };
+  }));
+
   app.get("/api/mensajes/conversaciones", requiereLogin, permiso("ver_bandeja"),
     ruta(req => consultas.listar(quien(req), String(req.query.filtro || "mias"))));
   app.get("/api/mensajes/conversaciones/:id", requiereLogin, permiso("ver_bandeja"),

@@ -179,6 +179,9 @@ app.use(cors({
 // base64 dentro del body JSON — misma filosofía que Migración de Datos.
 if (repoSicar) registrarAgenteSicar(app, { repo: repoSicar, mantenimiento });
 else app.use(["/api/integraciones/sicar", "/api/sicar"], (req, res) => res.status(503).json({ codigo: "SIN_PERSISTENCIA" }));
+const { registrarReceptorGupshup } = require("./bandeja/gupshupReceptor");
+registrarReceptorGupshup(app, { sqlite: conexionSqlite, disponible: () => bandejaDisponible(),
+  mantenimiento, token: process.env.GUPSHUP_WEBHOOK_TOKEN });
 app.use(express.json({ limit: "50mb" }));
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
