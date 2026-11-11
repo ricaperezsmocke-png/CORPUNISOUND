@@ -219,3 +219,82 @@ test('existencia de un artículo sin clave (NULL, vacía o espacios): SICAR desc
     assert.equal(c.sicar, null);
   }
 });
+
+// ---- Dinero con IVA (decisión de Victor 2026-11-11: mostrar con y sin IVA) ----
+function escenarioIva(t) {
+  const db = prepararDB(t);
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (6, ?)').run('2026-09-01T18:00:00.000Z');
+  const compra = (com_id, renglones) => {
+    db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+      primera_vez, actualizado_en) VALUES (6, ?, '2026-09-20T10:00:00', '1', ?, '', 'vigente', 0, ?, ?)`).run(com_id, `F${com_id}`, AL, AL);
+    renglones.forEach(([cantidad, sin, con], i) => db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, ?, ?, 'art-6', ?, 10000, ?, ?, 0)")
+      .run(com_id, i, cantidad, sin, con));
+  };
+  // Factura 1: 3 piezas a $103.45 ($120.00 con IVA) + 2 piezas a $86.21 ($100.01 con IVA).
+  compra('1', [['3.0000', 10345, 12000], ['2.0000', 8621, 10001]]);
+  // Factura 2: un renglón sin precio con IVA (cero): no se inventa el 16 %.
+  compra('2', [['1.0000', 10000, 0]]);
+  // Se vende 1 pieza en CEDIS: sale del renglón más viejo (FIFO).
+  db.prepare("INSERT INTO sicar_ventas_mostrador VALUES (6, 'v1', '2026-10-01T10:00:00', 'vigente', 100, ?)").run(AL);
+  db.prepare("INSERT INTO sicar_detalles_mostrador VALUES (6, 'v1', 0, 'art-6', '1.0000', 100, 0)").run();
+  const servicio = require('./servicio');
+  servicio.marcarPendientes(db, 6, ['art-6'], AL);
+  servicio.procesarPendientes(db, { ahora: AL });
+  return db;
+}
+
+test('con IVA: cada factura trae el reparto y el total con IVA exactos, y lo sin IVA no cambia', t => {
+  const { listar, detalle } = require('./consultas');
+  const db = escenarioIva(t);
+  const f = listar(db, {}, AL).facturas.find(x => x.com_id === '1');
+  // Sin IVA: 3 × 103.45 = 310.35 (vendido 1/3 = 103.45) + 2 × 86.21 = 172.42.
+  assert.deepEqual(f.dinero, { vendido: '10345', queda: '37932', transito: '0', gris: '0', por_aclarar: '0' });
+  assert.equal(f.total_sin_iva_centavos, '48277');
+  // Con IVA: 3 × 120.00 = 360.00 (vendido 120.00) + 2 × 100.01 = 200.02.
+  assert.deepEqual(f.dinero_con_iva, { vendido: '12000', queda: '44002', transito: '0', gris: '0', por_aclarar: '0' });
+  assert.equal(f.total_con_iva_centavos, '56002');
+  const d = detalle(db, 6, '1', AL);
+  assert.deepEqual(d.factura.dinero_con_iva, f.dinero_con_iva);
+  assert.equal(d.factura.total_con_iva_centavos, '56002');
+  assert.deepEqual(d.renglones.map(r => r.valor_con_iva_centavos), ['36000', '20002']);
+  assert.deepEqual(d.renglones.map(r => r.valor_centavos), ['31035', '17242']);
+});
+
+test('con IVA: sin precio con IVA la factura lo dice (null) y lo sin IVA sigue completo', t => {
+  const { listar } = require('./consultas');
+  const db = escenarioIva(t);
+  const f = listar(db, {}, AL).facturas.find(x => x.com_id === '2');
+  assert.deepEqual(f.dinero, { vendido: '0', queda: '10000', transito: '0', gris: '0', por_aclarar: '0' });
+  assert.equal(f.total_sin_iva_centavos, '10000');
+  assert.equal(f.dinero_con_iva, null);
+  assert.equal(f.total_con_iva_centavos, null);
+});
+
+test('con IVA: un resultado guardado antes del cambio (sin el dato) da null hasta recalcular', t => {
+  const { listar } = require('./consultas');
+  const db = escenarioIva(t);
+  const fila = db.prepare("SELECT rowid, datos_json FROM seguimiento_resultado WHERE com_id='1' AND renglon=1").get();
+  const viejo = JSON.parse(fila.datos_json);
+  delete viejo.dinero_con_iva;
+  delete viejo.valor_con_iva_centavos;
+  db.prepare('UPDATE seguimiento_resultado SET datos_json=? WHERE rowid=?').run(JSON.stringify(viejo), fila.rowid);
+  const f = listar(db, {}, AL).facturas.find(x => x.com_id === '1');
+  assert.equal(f.dinero_con_iva, null);
+  assert.equal(f.total_con_iva_centavos, null);
+  assert.equal(f.total_sin_iva_centavos, '48277');
+});
+
+test('con IVA: factura sin dinero calculable tampoco tiene con IVA ni totales', t => {
+  const { listar } = require('./consultas');
+  const db = escenarioIva(t);
+  db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+    primera_vez, actualizado_en) VALUES (6, '9', '2026-09-20T10:00:00', '1', 'F9', '', 'vigente', 0, ?, ?)`).run(AL, AL);
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (6, 'sin-clave', NULL, 'Amplificador', ?)`).run(AL);
+  db.prepare("INSERT INTO sicar_compras_detalle VALUES (6, '9', 0, 'sin-clave', '1.0000', 10000, 50000, 58000, 0)").run();
+  const f = listar(db, {}, AL).facturas.find(x => x.com_id === '9');
+  assert.equal(f.dinero, null);
+  assert.equal(f.dinero_con_iva, null);
+  assert.equal(f.total_con_iva_centavos, null);
+  assert.equal(f.total_sin_iva_centavos, null);
+});

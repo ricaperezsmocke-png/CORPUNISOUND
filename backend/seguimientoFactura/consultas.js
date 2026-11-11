@@ -45,20 +45,22 @@ function renglonesEsperados(sqlite) {
     .map(f => [f.com_id, f]));
 }
 
+const SIN_DINERO = { dinero: null, dinero_con_iva: null, total_sin_iva_centavos: null, total_con_iva_centavos: null };
+
 /** Factura sin ningún renglón calculable: aparece con ceros y "información insuficiente", nunca desaparece. */
 function sinDatos(com_id, esperada, encabezado, aviso, ahora) {
   const fecha = esperada.fecha.slice(0, 10);
   return { sucursal_id: CEDIS, com_id, folio: encabezado?.folio ?? null, proveedor: encabezado?.proveedor ?? null,
     comentario: encabezado?.comentario ?? null, fecha_compra: fecha, dias: diasDesde(fecha, ahora), etapa: null, agotada: false,
     piezas: Object.fromEntries(['comprado', 'vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].map(k => [k, '0'])),
-    dinero: null, pendiente_centavos: '0', claves: [], tiendas: [], datos_al: null, renglones_sin_seguimiento: esperada.n,
+    ...SIN_DINERO, pendiente_centavos: '0', claves: [], tiendas: [], datos_al: null, renglones_sin_seguimiento: esperada.n,
     aviso: aviso ? { id: aviso.id, etapa: aviso.etapa, estado: aviso.estado, pospuesto_hasta: aviso.pospuesto_hasta } : null };
 }
 
 /** Marca la factura si SICAR tiene más renglones de los que se pudieron seguir; sin dinero parcial. */
 function completar(factura, esperada, calculados) {
   const faltan = esperada ? Math.max(0, esperada.n - calculados) : 0;
-  return faltan ? { ...factura, renglones_sin_seguimiento: faltan, dinero: null, agotada: false }
+  return faltan ? { ...factura, renglones_sin_seguimiento: faltan, ...SIN_DINERO, agotada: false }
     : { ...factura, renglones_sin_seguimiento: 0 };
 }
 
@@ -72,15 +74,28 @@ function avisosActivos(sqlite) {
 const INVALIDAN = ['clave_con_problema', 'cantidad_fraccionaria'];
 const atribucionInvalida = datos => (datos.motivos || []).some(m => INVALIDAN.includes(m));
 
+const totalTramos = d => String(TRAMOS.reduce((a, k) => a + d[k], 0n));
+const textoTramos = d => Object.fromEntries(TRAMOS.map(k => [k, String(d[k])]));
+
+/** Dinero de la factura sin IVA (base de costos y avisos) y con IVA (lo que dice la factura), con sus totales. */
+function dineroFactura(calculable, sinIva, calculableConIva, conIva) {
+  return { dinero: calculable ? textoTramos(sinIva) : null, total_sin_iva_centavos: calculable ? totalTramos(sinIva) : null,
+    dinero_con_iva: calculableConIva ? textoTramos(conIva) : null,
+    total_con_iva_centavos: calculableConIva ? totalTramos(conIva) : null };
+}
+
 function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
   const piezas = Object.fromEntries(['comprado', 'vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].map(k => [k, 0n]));
-  const dinero = Object.fromEntries(TRAMOS.map(k => [k, 0n]));
-  let calculable = true, datos_al = null;
+  const dinero = Object.fromEntries(TRAMOS.map(k => [k, 0n])), conIva = Object.fromEntries(TRAMOS.map(k => [k, 0n]));
+  let calculable = true, calculableConIva = true, datos_al = null;
   const tiendas = new Set();
   for (const { datos } of renglones) {
     for (const k of Object.keys(piezas)) piezas[k] += BigInt(datos[k]);
     if (datos.dinero) for (const k of TRAMOS) dinero[k] += BigInt(datos.dinero[k]);
     else calculable = false;
+    // Un solo renglón sin precio con IVA (o guardado antes de este dato) deja la factura sin total con IVA.
+    if (datos.dinero_con_iva) for (const k of TRAMOS) conIva[k] += BigInt(datos.dinero_con_iva[k]);
+    else calculableConIva = false;
     // Atribución inválida (clave con problema en la foto): no se presenta un reparto en dinero como si fuera cierto.
     if (atribucionInvalida(datos)) calculable = false;
     for (const s of Object.keys(datos.por_sucursal)) tiendas.add(Number(s));
@@ -98,7 +113,7 @@ function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
     etapa: saldo > 0n ? etapaDe(dias, config) : null,
     agotada: saldo === 0n && piezas.sin_agente === 0n && piezas.por_aclarar === 0n,
     piezas: Object.fromEntries(Object.entries(piezas).map(([k, v]) => [k, String(v)])),
-    dinero: calculable ? Object.fromEntries(TRAMOS.map(k => [k, String(dinero[k])])) : null,
+    ...dineroFactura(calculable, dinero, calculable && calculableConIva, conIva),
     pendiente_centavos: String(dinero.queda + dinero.transito), claves: [...new Set(renglones.map(r => r.clave))],
     tiendas: [...tiendas].sort((a, b) => a - b), datos_al,
     aviso: aviso ? { id: aviso.id, etapa: aviso.etapa, estado: aviso.estado, pospuesto_hasta: aviso.pospuesto_hasta } : null,
