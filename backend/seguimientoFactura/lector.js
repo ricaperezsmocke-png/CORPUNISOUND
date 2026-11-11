@@ -66,7 +66,7 @@ function leerCompras(ctx) {
   if (!cedis) return;
   const filas = sqlite.prepare(`SELECT c.com_id, c.fecha, c.actualizado_en, d.renglon, d.cantidad,
     CAST(d.factor_diezmilesimas AS TEXT) factor, CAST(d.precio_sin_centavos AS TEXT) precio,
-    a.actualizado_en catalogo_al FROM sicar_compras c
+    CAST(d.precio_con_centavos AS TEXT) precio_con, a.actualizado_en catalogo_al FROM sicar_compras c
     JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
     JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
     WHERE c.sucursal_id=6 AND c.estado='vigente' AND c.fecha > ? AND a.clave=?`).all(cedis.local, clave);
@@ -75,7 +75,10 @@ function leerCompras(ctx) {
     fuente(f.catalogo_al);
     const cantidad = aDiezmilesimas(f.cantidad), producto = cantidad * BigInt(f.factor);
     const m = { tipo: 'compra', fecha: f.fecha, sucursal_id: 6, piezas: mitadArriba(producto),
-      valor_centavos: mitadArriba(BigInt(f.precio) * cantidad), lote: { sucursal_id: 6, com_id: f.com_id, renglon: f.renglon } };
+      valor_centavos: mitadArriba(BigInt(f.precio) * cantidad),
+      // Con IVA solo si SICAR lo trae: nunca se inventa multiplicando por 1.16.
+      valor_con_iva_centavos: f.precio_con === null ? null : mitadArriba(BigInt(f.precio_con) * cantidad),
+      lote: { sucursal_id: 6, com_id: f.com_id, renglon: f.renglon } };
     if (producto % 10000n !== 0n) m.por_aclarar = 'cantidad_fraccionaria';
     agregar(m);
   }

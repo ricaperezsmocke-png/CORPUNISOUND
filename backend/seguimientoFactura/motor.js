@@ -65,7 +65,8 @@ const llaveTraspaso = t => JSON.stringify([t.folio, t.suc_origen, t.suc_destino]
 
 function compra(estado, m) {
   const indice = estado.lotes.length;
-  estado.lotes.push({ lote: m.lote, comprado: m.piezas, valor_centavos: m.valor_centavos, vendido: 0n, transito: 0n,
+  estado.lotes.push({ lote: m.lote, comprado: m.piezas, valor_centavos: m.valor_centavos,
+    valor_con_iva_centavos: m.valor_con_iva_centavos ?? null, vendido: 0n, transito: 0n,
     sin_agente: 0n, por_aclarar: 0n, motivos: m.por_aclarar ? [m.por_aclarar] : [], vendidoPorSucursal: new Map() });
   sumar(existencia(estado, m.sucursal_id), indice, m.piezas);
   anotarIncierto(estado, m.por_aclarar);
@@ -163,9 +164,12 @@ function resultadoLote(estado, indice) {
     queda: String(quedaPorSucursal.get(s) ?? 0n), vendido: String(l.vendidoPorSucursal.get(s) ?? 0n) }]));
   const queda = [...quedaPorSucursal.values()].reduce((a, v) => a + v, 0n);
   const piezas = { vendido: l.vendido, queda, transito: l.transito, gris: l.sin_agente, por_aclarar: l.por_aclarar };
+  const dinero = repartir(l.valor_centavos, l.comprado, piezas), con = l.valor_con_iva_centavos > 0n ? l.valor_con_iva_centavos : null;
   return { lote: l.lote, comprado: String(l.comprado), valor_centavos: String(l.valor_centavos), vendido: String(l.vendido),
     queda: String(queda), por_sucursal, transito: String(l.transito), sin_agente: String(l.sin_agente),
-    por_aclarar: String(l.por_aclarar), motivos: [...l.motivos], dinero: repartir(l.valor_centavos, l.comprado, piezas) };
+    por_aclarar: String(l.por_aclarar), motivos: [...l.motivos], dinero,
+    // Mismo reparto sobre el valor con IVA. Sin dinero sin IVA, o con IVA en cero o ausente, no hay con IVA.
+    valor_con_iva_centavos: con === null ? null : String(con), dinero_con_iva: dinero && con !== null ? repartir(con, l.comprado, piezas) : null };
 }
 
 const ACCIONES = { compra, salida, recepcion, venta };

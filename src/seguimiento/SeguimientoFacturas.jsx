@@ -3,8 +3,9 @@ import { apiFetch } from "../api";
 import ModalConfirmar from "../ModalConfirmar.jsx";
 import { contadorDePeticiones, fechaRelativa } from "../sicar/cortesSicar.js";
 import {
-  TEXTOS, piezasTexto, pesosTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
+  TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
+  totalFacturaTexto, valorConIvaTexto,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -16,6 +17,7 @@ const DERECHA = "text-right tabular-nums";
 const NOTA_ROJA = "mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800";
 const NOTA_AMBAR = "mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900";
 const NOTA_GRIS = "text-xs text-slate-600";
+const SECUNDARIO = "text-[11px] text-slate-500";
 const PESTANA = "rounded-md border px-3 py-2 text-sm";
 const PESTANA_ON = "border-blue-700 bg-blue-700 text-white";
 const PESTANA_OFF = "border-slate-400 bg-white text-slate-700";
@@ -42,15 +44,21 @@ async function pedir(ruta, opciones) {
   return cuerpo;
 }
 
+const montoTexto = (t) => (t.secundario ? `${t.principal} con IVA (${t.secundario})` : t.principal);
+
 function Barra({ factura }) {
   const tramos = tramosDeFactura(factura);
-  const titulo = tramos.map((t) => `${t.etiqueta}: ${t.dinero} · ${t.piezas} pzas`).join("\n");
+  const titulo = tramos.map((t) => `${t.etiqueta}: ${montoTexto(t)} · ${t.piezas} pzas`).join("\n");
   return (
     <div title={titulo}>
+      <p className="text-xs font-semibold text-slate-800">{totalFacturaTexto(factura)}</p>
       <div className={BARRA} role="img" aria-label={titulo}>
         {tramos.map((t) => t.porcentaje > 0 && <div key={t.id} className={t.color} style={{ width: `${t.porcentaje}%` }} />)}
       </div>
-      <p className={NOTA_GRIS}>Queda {tramos[1].dinero} · {tramos[1].piezas} pzas</p>
+      <p className={NOTA_GRIS}>
+        Queda {tramos[1].principal}
+        {tramos[1].secundario && <span className={SECUNDARIO}> ({tramos[1].secundario})</span>} · {tramos[1].piezas} pzas
+      </p>
     </div>
   );
 }
@@ -63,7 +71,10 @@ function Leyenda({ factura }) {
           <tr key={t.id}>
             <td className="pr-2"><span className={`inline-block h-3 w-3 rounded ${t.color}`} /></td>
             <td className="pr-4">{t.etiqueta}</td>
-            <td className={`pr-4 ${DERECHA}`}>{t.dinero}</td>
+            <td className={`pr-4 ${DERECHA}`}>
+              {t.principal}
+              {t.secundario && <span className={`block ${SECUNDARIO}`}>{t.secundario}</span>}
+            </td>
             <td className={`pr-4 ${DERECHA}`}>{t.piezas} pzas</td>
             <td className={DERECHA}>{t.porcentaje} %</td>
           </tr>
@@ -141,7 +152,7 @@ function Renglon({ r, nombres }) {
       <p className={NOTA_GRIS}>Datos al {fechaHoraLocal(r.calidad?.datos_al)}</p>
       <table className="mt-2 text-sm">
         <tbody>
-          <tr><td className="pr-4">Comprado</td><td className={DERECHA}>{piezasTexto(r.comprado)} pzas · {pesosTexto(r.valor_centavos)}</td></tr>
+          <tr><td className="pr-4">Comprado</td><td className={DERECHA}>{piezasTexto(r.comprado)} pzas · {valorConIvaTexto(r.valor_centavos, r.valor_con_iva_centavos)}</td></tr>
           <tr><td className="pr-4">Vendido</td><td className={DERECHA}>{piezasTexto(r.vendido)}</td></tr>
           {tiendas.map(([s, v]) => (
             <tr key={s}><td className="pr-4">Queda en {nombres[s] || `Tienda ${s}`}</td><td className={DERECHA}>{piezasTexto(v.queda)}</td></tr>
@@ -187,6 +198,7 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
         </div>
         <button type="button" className={BTN} onClick={onCerrar}>Cerrar</button>
       </div>
+      <p className="text-base font-semibold">{totalFacturaTexto(factura)}</p>
       <p className="text-sm font-semibold text-slate-700">{TEXTOS.fifo}</p>
       <Leyenda factura={factura} />
       {activo && (
