@@ -387,10 +387,31 @@ function compararOrden(a, b) {
   return 0;
 }
 
+/**
+ * El orden de siempre va por día y luego por tipo, no por hora. El control del rescate necesita la hora exacta: lo de la
+ * tienda posterior a su foto en el mismo día (recepciones con hora, ventas) se mueve detrás del control, sin cambiar su
+ * orden entre sí ni el de nada más. Lo sin hora de ese día ya hizo la clave dudosa, así que no llega aquí.
+ */
+function colocarControles(lista, ctx) {
+  const { inicio } = ctx.rescate;
+  for (const control of lista.filter(o => o.m.tipo === 'control')) {
+    const s = control.m.sucursal_id, t = ctx.tiendas.get(s), dia = control.orden[0];
+    const posterior = o => o !== control && o.orden[0] === dia && o.m.sucursal_id === s
+      && lugarEnVentana(inicio, t, o.m.fecha) === 'despues';
+    const tras = lista.filter(posterior), resto = lista.filter(o => o !== control && !posterior(o));
+    const i = resto.findIndex(o => o.orden[0] > dia);
+    resto.splice(i < 0 ? resto.length : i, 0, control, ...tras);
+    lista = resto;
+  }
+  return lista;
+}
+
 function terminar(ctx, rescate = null) {
-  const { ordenados, fuentes, problemas, atrasadas } = ctx;
+  const { fuentes, problemas, atrasadas } = ctx;
+  let { ordenados } = ctx;
   for (const o of ordenados) o.orden = camposOrden(o);
   ordenados.sort(compararOrden);
+  if (rescate?.tiendas) ordenados = colocarControles(ordenados, ctx);
   const validas = fuentes.filter(f => Number.isFinite(Date.parse(f)));
   if (validas.length !== fuentes.length) problemas.push({ motivo: 'fuente_sin_fecha', clave: ctx.clave });
   const datos_al = validas.length && validas.length === fuentes.length

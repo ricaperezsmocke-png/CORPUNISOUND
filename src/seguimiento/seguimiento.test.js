@@ -211,3 +211,15 @@ test("nota del rescate: fecha local del inicio y nombres de las tiendas reconstr
   assert.equal(notaRescate([{ rescate: null }, {}], nombres), null);
   assert.equal(notaRescate([], nombres), null);
 });
+
+test("nota del rescate: solo nombra las tiendas rescatadas donde esta factura tiene piezas", () => {
+  const nombres = { 1: "Ocosingo", 2: "Yajalón", 3: "San Cristóbal" };
+  const rescate = { desde: "2026-11-06T00:05:08.000", tiendas: [1, 2, 3] };
+  const renglones = [
+    { rescate, por_sucursal: { 2: { queda: "10000", vendido: "0" }, 1: { queda: "0", vendido: "0" }, 6: { queda: "5", vendido: "0" } } },
+    { rescate, por_sucursal: { 3: { queda: "0", vendido: "20000" } } },
+  ];
+  assert.equal(notaRescate(renglones, nombres), "Reconstruido desde el 2026-11-06 con las ventas de SICAR en: Yajalón, San Cristóbal");
+  const sinPiezas = [{ rescate, por_sucursal: { 6: { queda: "10000", vendido: "0" } } }];
+  assert.equal(notaRescate(sinPiezas, nombres), null, "la factura no fue a ninguna tienda rescatada");
+});

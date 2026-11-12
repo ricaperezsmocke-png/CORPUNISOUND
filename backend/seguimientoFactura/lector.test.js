@@ -563,3 +563,32 @@ test('rescate: devolución de la tienda a CEDIS en la ventana sale de la tienda,
   assert.deepEqual(mov.map(m => [m.tipo, m.sucursal_id, m.por_aclarar]), [['salida', 2, undefined], ['recepcion', 6, undefined]]);
   assert.equal(fotoDe(r, 2).piezas, P(9 - 10 + 3 + 2));
 });
+
+// El día del corte de Yajalón (11-11 12:40): CEDIS mandó 5 el 11-09 y Yajalón vende 2 a las 11:00, antes de su foto.
+function casoDiaDelCorte(db, aplicada) {
+  compra(db, 'C1', { fecha: '2026-11-06T12:00:00', cantidad: '10.0000', factor: 10000n });
+  punta(db, 6, 'e1', { folio: 'FY', destino: 's2', fecha: '2026-11-09', estado: 'enviado', aplicada: null, cantidad: '5.0000' });
+  punta(db, 2, 'r1', { folio: 'FY', destino: 's2', fecha: '2026-11-09', aplicada, cantidad: '5.0000' });
+  ventaPiezas(db, 2, 'vy1', '2026-11-11T11:00:00', 2);
+}
+
+test('rescate: la recepción del día del corte DESPUÉS de la hora de la foto va después del control y cuadra', t => {
+  const db = prepararRescate(t);
+  casoDiaDelCorte(db, '2026-11-11T15:00:00');
+  const r = leerCon(db, { rescate: true });
+  assert.deepEqual(r.rescate, { desde: DESDE, tiendas: [2] });
+  assert.equal(fotoDe(r, 2).piezas, P(9 + 2), 'la recepción posterior a la foto no entra a la reconstrucción');
+  assert.deepEqual(r.movimientos.filter(m => m.sucursal_id === 2).map(m => m.tipo), ['foto', 'venta', 'control', 'recepcion']);
+  const calculo = require('./motor').calcular(r.movimientos);
+  assert.deepEqual(calculo.rescate_fallas, []);
+  assert.equal(calculo.rescate_ok, true);
+});
+
+test('rescate: la recepción del día del corte ANTES de la hora de la foto queda antes del control', t => {
+  const db = prepararRescate(t);
+  casoDiaDelCorte(db, '2026-11-11T11:30:00');
+  const r = leerCon(db, { rescate: true });
+  assert.equal(fotoDe(r, 2).piezas, P(9 - 5 + 2));
+  assert.deepEqual(r.movimientos.filter(m => m.sucursal_id === 2).map(m => m.tipo), ['foto', 'recepcion', 'venta', 'control']);
+  assert.equal(require('./motor').calcular(r.movimientos).rescate_ok, true);
+});

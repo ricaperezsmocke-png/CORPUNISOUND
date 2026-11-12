@@ -135,10 +135,17 @@ const nombre = (nombres, id) => nombres[id] || `Tienda ${id}`;
  * del sistema, no una foto tomada ese día. Sin rescate en ningún renglón, null.
  */
 export function notaRescate(renglones, nombres) {
-  const conRescate = (renglones || []).map((r) => r?.rescate).filter((x) => x && Array.isArray(x.tiendas));
-  if (!conRescate.length) return null;
-  const tiendas = [...new Set(conRescate.flatMap((x) => x.tiendas.map(Number)))].sort((a, b) => a - b);
-  const desde = String(conRescate[0].desde || "").slice(0, 10);
+  const conRescate = (renglones || []).filter((r) => r?.rescate && Array.isArray(r.rescate.tiendas));
+  // Solo las tiendas rescatadas donde este renglón tiene piezas (queda o vendido); sin desglose, todas las del rescate.
+  const conPiezas = (r, id) => {
+    if (!r.por_sucursal) return true;
+    const s = r.por_sucursal[id];
+    return !!s && (BigInt(s.queda ?? "0") > 0n || BigInt(s.vendido ?? "0") > 0n);
+  };
+  const ids = conRescate.flatMap((r) => r.rescate.tiendas.map(Number).filter((id) => conPiezas(r, id)));
+  const tiendas = [...new Set(ids)].sort((a, b) => a - b);
+  if (!tiendas.length) return null;
+  const desde = String(conRescate[0].rescate.desde || "").slice(0, 10);
   return `Reconstruido desde el ${desde} con las ventas de SICAR en: ${tiendas.map((id) => nombre(nombres, id)).join(", ")}`;
 }
 
