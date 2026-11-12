@@ -318,7 +318,8 @@ function detalle(sqlite, sucursal_id, com_id, ahora = new Date().toISOString()) 
       : sinDatos(com_id, esperada, cabeza, aviso, ahora);
     const descripcion = sqlite.prepare('SELECT descripcion FROM sicar_articulos WHERE sucursal_id=? AND clave=? LIMIT 1');
     const renglones = filas.map(r => ({ renglon: r.renglon, clave: r.clave, descripcion: descripcion.get(CEDIS, r.clave)?.descripcion ?? null,
-      ...r.datos, estrategias: estrategias(sqlite, r, factura, config, ahora), comparacion: comparar(sqlite, r, config, ahora) }));
+      ...r.datos, rescate: r.datos.rescate ?? null, // { desde, tiendas } si la clave se reconstruyó con el rescate
+      estrategias: estrategias(sqlite, r, factura, config, ahora), comparacion: comparar(sqlite, r, config, ahora) }));
     const avisos = sqlite.prepare('SELECT * FROM seguimiento_avisos WHERE sucursal_id=? AND com_id=? ORDER BY id').all(CEDIS, com_id)
       .map(a => ({ ...a, historial: sqlite.prepare(`SELECT estado, motivo, actor, fecha FROM seguimiento_avisos_historial
         WHERE aviso_id=? ORDER BY id`).all(a.id) }));

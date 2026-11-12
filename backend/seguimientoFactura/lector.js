@@ -5,9 +5,13 @@ const { leerConfig } = require('./config');
 
 const comparar = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const mitadArriba = numerador => (numerador + 5000n) / 10000n;
-const prioridad = { foto: 0, compra: 1, salida: 2, recepcion: 2, venta: 3 };
+// El control del rescate se ordena con las ventas por su hora exacta: después de lo de su instante y antes de lo posterior.
+const prioridad = { foto: 0, compra: 1, salida: 2, recepcion: 2, venta: 3, control: 3 };
 // Foto tomada antes de esta hora local (tienda cerrada): todo lo que SICAR fecha ese día es posterior a la foto.
 const HORA_LIMITE_MADRUGADA = '07:00';
+const CEDIS = 6;
+// Por aclarar que el rescate sí admite en la ventana: salen o entran piezas ciertas, solo sin factura o sin venta.
+const ADMITIDOS_EN_VENTANA = ['cuenta_interna', 'origen_no_incorporado'];
 
 function corteLocal(iso) {
   const d = new Date(iso);
@@ -17,7 +21,8 @@ function corteLocal(iso) {
   return `${fecha}T${hhmm}:${String(d.getUTCSeconds()).padStart(2, '0')}.${String(d.getUTCMilliseconds()).padStart(3, '0')}`;
 }
 
-function contexto(sqlite, clave, ahora) {
+/** Lo que no depende del corte efectivo; las consultas de cada lector se guardan en `cache` para no repetirlas. */
+function leerDatos(sqlite, clave, ahora) {
   const instante = new Date(ahora).getTime();
   if (!Number.isFinite(instante)) throw new Error('Ahora debe ser una fecha válida.');
   const tiendas = new Map(sqlite.prepare(`SELECT t.sucursal_id, t.corte, s.ultima_recepcion
@@ -28,10 +33,21 @@ function contexto(sqlite, clave, ahora) {
   const repetidas = sqlite.prepare(`SELECT a.sucursal_id FROM sicar_articulos a
     JOIN seguimiento_tiendas t USING (sucursal_id) WHERE a.clave=? GROUP BY a.sucursal_id HAVING count(*)>1`).all(clave);
   for (const { sucursal_id } of repetidas) problemas.push({ sucursal_id, clave, motivo: 'clave_repetida' });
-  const claveConProblema = problemas.length > 0;
   const limite = leerConfig(sqlite).dias_datos_atrasados * 86400000;
   const atrasadas = [...tiendas.values()].filter(t => !Number.isFinite(Date.parse(t.ultima_recepcion))
     || instante - Date.parse(t.ultima_recepcion) > limite).map(t => t.sucursal_id);
+  return { sqlite, clave, tiendas, problemas, atrasadas, cache: {} };
+}
+
+/**
+ * Una pasada de lectura. `rebajadas` son las tiendas cuyo corte efectivo es el inicio del sistema (rescate); las demás
+ * usan su corte real. Sin rebajadas el resultado es exactamente el de siempre.
+ */
+function contexto(datos, rebajadas = new Set(), inicio = null) {
+  const { sqlite, clave, atrasadas, cache } = datos;
+  const tiendas = new Map([...datos.tiendas].map(([id, t]) => [id, { ...t, efectivo: rebajadas.has(id) ? inicio : t.local }]));
+  const problemas = [...datos.problemas];
+  const claveConProblema = problemas.length > 0;
   const fuentes = [], ordenados = [];
   const tiendasUsadas = new Set();
   function fuente(fecha) { fuentes.push(fecha); }
@@ -50,29 +66,36 @@ function contexto(sqlite, clave, ahora) {
     if (m.por_aclarar) problemas.push({ sucursal_id: m.sucursal_id, clave, motivo: m.por_aclarar });
     ordenados.push({ m, fechaOrden });
   }
-  return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados };
+  // envios: fecha de envío (sin hora) de cada movimiento de traspaso, para juzgar la ventana sin cambiar su salida.
+  return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados, cache,
+    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set() };
+}
+
+function fotosDe(ctx) {
+  ctx.cache.fotos ??= ctx.sqlite.prepare(`SELECT f.* FROM seguimiento_foto f
+    JOIN seguimiento_tiendas t USING (sucursal_id) WHERE f.clave=?`).all(ctx.clave);
+  return ctx.cache.fotos;
 }
 
 function leerFotos(ctx) {
-  const { sqlite, clave, tiendas, fuente, agregar } = ctx;
-  for (const f of sqlite.prepare(`SELECT f.* FROM seguimiento_foto f
-    JOIN seguimiento_tiendas t USING (sucursal_id) WHERE f.clave=?`).all(clave)) {
+  const { tiendas, agregar } = ctx;
+  for (const f of fotosDe(ctx)) {
     const t = tiendas.get(f.sucursal_id);
-    agregar({ tipo: 'foto', fecha: t.local, sucursal_id: f.sucursal_id, piezas: BigInt(f.piezas_diezmilesimas) });
+    agregar({ tipo: 'foto', fecha: t.efectivo, sucursal_id: f.sucursal_id, piezas: BigInt(f.piezas_diezmilesimas) });
   }
 }
 
 function leerCompras(ctx) {
   const { sqlite, clave, tiendas, fuente, agregar } = ctx;
-  const cedis = tiendas.get(6);
+  const cedis = tiendas.get(CEDIS);
   if (!cedis) return;
-  const filas = sqlite.prepare(`SELECT c.com_id, c.fecha, c.actualizado_en, d.renglon, d.cantidad,
+  ctx.cache.compras ??= sqlite.prepare(`SELECT c.com_id, c.fecha, c.actualizado_en, d.renglon, d.cantidad,
     CAST(d.factor_diezmilesimas AS TEXT) factor, CAST(d.precio_sin_centavos AS TEXT) precio,
     CAST(d.precio_con_centavos AS TEXT) precio_con, a.actualizado_en catalogo_al FROM sicar_compras c
     JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
     JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
     WHERE c.sucursal_id=6 AND c.estado='vigente' AND c.fecha > ? AND a.clave=?`).all(cedis.local, clave);
-  for (const f of filas) {
+  for (const f of ctx.cache.compras) {
     fuente(f.actualizado_en);
     fuente(f.catalogo_al);
     const cantidad = aDiezmilesimas(f.cantidad), producto = cantidad * BigInt(f.factor);
@@ -97,14 +120,15 @@ function leerVentas(ctx) {
       ON e.sucursal_id=v.sucursal_id AND e.secuencia=v.revision AND e.hash=v.hash`;
     // Las ventas a cuentas internas sí sacan mercancía de la tienda: se leen, pero quedan por aclarar (no vendidas).
     const interna = mostrador ? '0' : `NOT (${NO_INTERNA('v')})`;
-    const filas = sqlite.prepare(`SELECT v.sucursal_id, v.ven_id, v.fecha_local, d.renglon, d.cantidad, ${interna} interna,
+    const llave = mostrador ? 'mostrador' : 'cliente';
+    ctx.cache[llave] ??= sqlite.prepare(`SELECT v.sucursal_id, v.ven_id, v.fecha_local, d.renglon, d.cantidad, ${interna} interna,
       a.actualizado_en catalogo_al, ${actualizacion} actualizado_en FROM ${ventas} v
       JOIN seguimiento_tiendas t ON t.sucursal_id=v.sucursal_id
       JOIN ${detalles} d ON d.sucursal_id=v.sucursal_id AND d.ven_id=v.ven_id
       JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
       ${envio} WHERE v.estado='vigente' AND a.clave=?`).all(clave);
-    for (const f of filas) {
-      if (f.fecha_local <= tiendas.get(f.sucursal_id).local) continue;
+    for (const f of ctx.cache[llave]) {
+      if (f.fecha_local <= tiendas.get(f.sucursal_id).efectivo) continue;
       fuente(f.actualizado_en);
       fuente(f.catalogo_al);
       agregar({ tipo: 'venta', fecha: f.fecha_local, sucursal_id: f.sucursal_id, piezas: aDiezmilesimas(f.cantidad),
@@ -140,11 +164,13 @@ function gruposTraspasos({ sqlite, clave }) {
 }
 
 function leerTraspasos(ctx) {
-  const { sqlite } = ctx;
-  const mapa = new Map(sqlite.prepare('SELECT sicar_sucursal, sucursal_id FROM sicar_sucursales_mapa').all()
+  const { sqlite, cache } = ctx;
+  cache.mapa ??= new Map(sqlite.prepare('SELECT sicar_sucursal, sucursal_id FROM sicar_sucursales_mapa').all()
     .map(f => [f.sicar_sucursal, f.sucursal_id]));
+  cache.grupos ??= gruposTraspasos(ctx);
+  const mapa = cache.mapa;
   const repetidos = new Set([...mapa.values()].filter((id, i, ids) => id != null && ids.indexOf(id) !== i));
-  for (const grupo of gruposTraspasos(ctx)) {
+  for (const grupo of cache.grupos) {
     const f = grupo[0], origen = mapa.get(f.suc_origen) ?? null, destino = mapa.get(f.suc_destino) ?? null;
     const traspaso = { origen, destino, folio: f.folio, suc_origen: f.suc_origen, suc_destino: f.suc_destino };
     const salidas = grupo.filter(p => p.sucursal_id === origen), entradas = grupo.filter(p => p.sucursal_id === destino);
@@ -168,29 +194,32 @@ function agregarObservaciones(ctx, grupo, traspaso, motivo) {
     const t = tiendas.get(p.sucursal_id);
     const tipo = p.sucursal_id === traspaso.destino && traspaso.destino !== traspaso.origen ? 'recepcion' : 'salida';
     const fecha = tipo === 'recepcion' ? p.fecha_aplicado : p.fecha;
-    if (!t || (fecha && fecha < t.local.slice(0, 10))) continue;
+    if (!t || (fecha && fecha < t.efectivo.slice(0, 10))) continue;
     p.fuentes.forEach(fuente);
-    agregar({ tipo, fecha, sucursal_id: p.sucursal_id, piezas: p.piezas, estado: p.estado,
-      tra_id: p.tra_id, traspaso, por_aclarar: motivo, solo_observacion: true }, fecha || p.fecha);
+    const m = { tipo, fecha, sucursal_id: p.sucursal_id, piezas: p.piezas, estado: p.estado,
+      tra_id: p.tra_id, traspaso, por_aclarar: motivo, solo_observacion: true };
+    ctx.envios.set(m, p.fecha);
+    agregar(m, fecha || p.fecha);
   }
 }
 
 // SICAR fecha los traspasos sin hora: el día del corte solo es dudoso si la foto no fue de madrugada.
-function diaDudoso(t) {
-  if (!t?.local || t.local.slice(11, 16) < HORA_LIMITE_MADRUGADA) return null;
-  return t.local.slice(0, 10);
+function diaDudosoDe(local) {
+  if (!local || local.slice(11, 16) < HORA_LIMITE_MADRUGADA) return null;
+  return local.slice(0, 10);
 }
+const diaDudoso = t => diaDudosoDe(t?.efectivo);
 
 function alcancePuntas(tiendas, salida, entrada, traspaso) {
   const ti = tiendas.get(traspaso.origen), td = tiendas.get(traspaso.destino);
-  const corteOrigen = ti?.local.slice(0, 10), corteDestino = td?.local.slice(0, 10);
+  const corteOrigen = ti?.efectivo.slice(0, 10), corteDestino = td?.efectivo.slice(0, 10);
   const fechaEnvio = salida?.fecha ?? entrada.fecha;
   const recibida = entrada?.estado === 'recibido';
   const gris = !!salida && (!td || salida.fecha < corteDestino);
   const usarSalida = !!salida && !!ti && salida.fecha >= corteOrigen;
   const usarEntrada = recibida && !!td && !gris && (!entrada.fecha_aplicado || entrada.fecha_aplicado >= corteDestino);
   const dudosoOrigen = diaDudoso(ti), dudosoDestino = diaDudoso(td);
-  return { ti, corteOrigen, corteDestino, dudosoOrigen, dudosoDestino, fechaEnvio, recibida, gris, usarSalida, usarEntrada };
+  return { ti, td, corteOrigen, corteDestino, dudosoOrigen, dudosoDestino, fechaEnvio, recibida, gris, usarSalida, usarEntrada };
 }
 
 function problemaEstado(salida, entrada, recibida) {
@@ -227,7 +256,10 @@ function procesarPuntas(ctx, salida, entrada, traspaso) {
   const { tiendas, fuente, agregar } = ctx;
   const alcance = alcancePuntas(tiendas, salida, entrada, traspaso);
   const { gris, usarSalida, usarEntrada, recibida, fechaEnvio } = alcance;
-  if (!usarSalida && !usarEntrada) return;
+  if (!usarSalida && !usarEntrada) {
+    recepcionAnterior(ctx, salida, entrada, traspaso, alcance);
+    return;
+  }
   // Cancelado en el origen y nadie lo recibió: la mercancía nunca salió. No va a tránsito ni a gris.
   if (salida?.estado === 'cancelado' && !recibida) return;
   for (const p of [salida, entrada].filter(Boolean)) p.fuentes.forEach(fuente);
@@ -238,8 +270,108 @@ function procesarPuntas(ctx, salida, entrada, traspaso) {
   const me = usarEntrada ? movimiento(entrada, 'recepcion', entrada.fecha_aplicado) : null;
   if (ms) ms.sin_agente = gris;
   if (!motivo && !gris && ms && me) marcarDiferencia(ms, me);
+  for (const m of [ms, me]) if (m) ctx.envios.set(m, fechaEnvio);
   if (ms) agregar(ms);
   if (me) agregar(me, me.fecha || fechaEnvio);
+}
+
+/**
+ * Solo con rescate: mercancía que salió ANTES del inicio del sistema (su salida no se sigue) y que la tienda rescatada
+ * recibió dentro de su ventana. No es de ninguna factura seguida: entra como anterior, y la foto reconstruida la descuenta.
+ */
+function recepcionAnterior(ctx, salida, entrada, traspaso, alcance) {
+  const { td, gris, recibida, fechaEnvio } = alcance;
+  if (!ctx.rescate?.rebajadas.has(traspaso.destino) || !gris || !recibida || !entrada.fecha_aplicado) return;
+  if (salida?.estado === 'cancelado' && !recibida) return;
+  const lugar = lugarEnVentana(ctx.rescate.inicio, td, entrada.fecha_aplicado);
+  if (lugar === 'dudosa') ctx.dudosas.add(td.sucursal_id);
+  if (lugar !== 'dentro') return;
+  for (const p of [salida, entrada].filter(Boolean)) p.fuentes.forEach(ctx.fuente);
+  const motivo = problemaEstado(salida, entrada, recibida);
+  const m = { tipo: 'recepcion', fecha: entrada.fecha_aplicado, sucursal_id: entrada.sucursal_id, piezas: entrada.piezas,
+    estado: entrada.estado, tra_id: entrada.tra_id, traspaso, anterior: true, ...(motivo ? { por_aclarar: motivo } : {}) };
+  ctx.envios.set(m, fechaEnvio);
+  ctx.agregar(m);
+}
+
+/**
+ * Dónde cae una fecha respecto a la ventana (inicio del sistema, corte real de la tienda]. Con hora se compara exacta;
+ * sin hora, el día del corte (o del inicio) solo es seguro si esa foto fue de madrugada; si no, es 'dudosa'.
+ */
+function lugarEnVentana(inicio, t, fecha) {
+  if (!fecha) return null;
+  if (fecha.length > 10) return fecha <= inicio ? 'antes' : fecha <= t.local ? 'dentro' : 'despues';
+  const diaInicio = inicio.slice(0, 10), diaCorte = t.local.slice(0, 10);
+  if (fecha < diaInicio) return 'antes';
+  if (fecha === diaInicio && diaDudosoDe(inicio)) return 'dudosa';
+  if (fecha < diaCorte) return 'dentro';
+  if (fecha === diaCorte) return diaDudosoDe(t.local) ? 'dudosa' : 'despues';
+  return 'despues';
+}
+
+/** Tiendas que pueden rescatarse: incorporadas después del inicio y con mostrador cargado más allá de su corte. */
+function tiendasElegibles(datos, inicio) {
+  const mostrador = datos.sqlite.prepare(`SELECT 1 FROM sicar_ventas_mostrador
+    WHERE sucursal_id=? AND estado IN ('vigente', 'cancelada') AND fecha_local > ? LIMIT 1`);
+  return [...datos.tiendas.values()].filter(t => t.sucursal_id !== CEDIS && t.local > inicio
+    && mostrador.get(t.sucursal_id, t.local)).map(t => t.sucursal_id);
+}
+
+/**
+ * Un movimiento frente a la ventana de la tienda s: null si no la toca; si la toca, si falla el rescate y si el motor lo
+ * aplica en s antes del control (entonces entra a la foto reconstruida).
+ */
+function juzgar(ctx, inicio, m, s) {
+  const propio = m.sucursal_id === s;
+  if (!propio && m.traspaso?.origen !== s && m.traspaso?.destino !== s) return null;
+  const t = ctx.tiendas.get(s), lugar = lugarEnVentana(inicio, t, m.fecha);
+  const lugares = [lugar, lugarEnVentana(inicio, t, ctx.envios.get(m))];
+  if (lugares.includes('dudosa')) return { falla: 'fecha_dudosa_en_ventana', aplica: false };
+  const aplica = propio && (lugar === 'dentro' || lugar === 'antes');
+  if (!aplica && !lugares.includes('dentro')) return null;
+  const falla = m.por_aclarar && !ADMITIDOS_EN_VENTANA.includes(m.por_aclarar) ? 'movimiento_por_aclarar_en_ventana' : null;
+  return { falla, aplica: aplica && !m.solo_observacion };
+}
+
+/**
+ * Revisa cada tienda rebajada: qué movimientos le tocan en su ventana, si alguno es dudoso o por aclarar, y la foto
+ * reconstruida = foto real − recepciones + salidas + ventas que el motor aplicará antes del control.
+ */
+function evaluarRescate(ctx) {
+  const { inicio, rebajadas } = ctx.rescate;
+  const relevantes = new Set(), fallas = new Map(), ajuste = new Map([...rebajadas].map(s => [s, 0n]));
+  const fallar = (s, motivo) => { if (!fallas.has(s)) fallas.set(s, motivo); };
+  for (const s of ctx.dudosas) { relevantes.add(s); fallar(s, 'fecha_dudosa_en_ventana'); }
+  for (const { m } of ctx.ordenados) {
+    if (m.tipo === 'foto') continue;
+    for (const s of rebajadas) {
+      const juicio = juzgar(ctx, inicio, m, s);
+      if (!juicio) continue;
+      relevantes.add(s);
+      if (juicio.falla) fallar(s, juicio.falla);
+      if (juicio.aplica) ajuste.set(s, ajuste.get(s) + (m.tipo === 'recepcion' ? -m.piezas : m.piezas));
+    }
+  }
+  const fotos = new Map(fotosDe(ctx).map(f => [f.sucursal_id, BigInt(f.piezas_diezmilesimas)]));
+  const reconstruida = new Map();
+  for (const s of rebajadas) {
+    const piezas = (fotos.get(s) ?? 0n) + ajuste.get(s);
+    if (piezas < 0n) fallar(s, 'foto_negativa');
+    reconstruida.set(s, { real: fotos.get(s) ?? 0n, piezas });
+  }
+  return { relevantes, fallas, reconstruida };
+}
+
+/** Cambia la foto de cada tienda rescatada por la reconstruida y agrega su control al corte real. */
+function aplicarRescate(ctx, { reconstruida }) {
+  const { inicio } = ctx.rescate;
+  for (const [s, { real, piezas }] of reconstruida) {
+    const foto = ctx.ordenados.find(o => o.m.tipo === 'foto' && o.m.sucursal_id === s);
+    if (foto) Object.assign(foto.m, { piezas, reconstruida: true });
+    else if (piezas > 0n) ctx.ordenados.push({ m: { tipo: 'foto', fecha: inicio, sucursal_id: s, piezas, reconstruida: true }, fechaOrden: inicio });
+    const local = ctx.tiendas.get(s).local;
+    ctx.ordenados.push({ m: { tipo: 'control', fecha: local, sucursal_id: s, piezas: real }, fechaOrden: local });
+  }
 }
 
 function camposOrden({ m, fechaOrden }) {
@@ -255,34 +387,88 @@ function compararOrden(a, b) {
   return 0;
 }
 
-function terminar(ctx) {
-  const { ordenados, fuentes, problemas, atrasadas } = ctx;
+/**
+ * El orden de siempre va por día y luego por tipo, no por hora. El control del rescate necesita la hora exacta: lo de la
+ * tienda posterior a su foto en el mismo día (recepciones con hora, ventas) se mueve detrás del control, sin cambiar su
+ * orden entre sí ni el de nada más. Lo sin hora de ese día ya hizo la clave dudosa, así que no llega aquí.
+ */
+function colocarControles(lista, ctx) {
+  const { inicio } = ctx.rescate;
+  for (const control of lista.filter(o => o.m.tipo === 'control')) {
+    const s = control.m.sucursal_id, t = ctx.tiendas.get(s), dia = control.orden[0];
+    const posterior = o => o !== control && o.orden[0] === dia && o.m.sucursal_id === s
+      && lugarEnVentana(inicio, t, o.m.fecha) === 'despues';
+    const tras = lista.filter(posterior), resto = lista.filter(o => o !== control && !posterior(o));
+    const i = resto.findIndex(o => o.orden[0] > dia);
+    resto.splice(i < 0 ? resto.length : i, 0, control, ...tras);
+    lista = resto;
+  }
+  return lista;
+}
+
+function terminar(ctx, rescate = null) {
+  const { fuentes, problemas, atrasadas } = ctx;
+  let { ordenados } = ctx;
   for (const o of ordenados) o.orden = camposOrden(o);
   ordenados.sort(compararOrden);
+  if (rescate?.tiendas) ordenados = colocarControles(ordenados, ctx);
   const validas = fuentes.filter(f => Number.isFinite(Date.parse(f)));
   if (validas.length !== fuentes.length) problemas.push({ motivo: 'fuente_sin_fecha', clave: ctx.clave });
   const datos_al = validas.length && validas.length === fuentes.length
     ? validas.reduce((a, b) => Date.parse(a) <= Date.parse(b) ? a : b) : null;
   const resultado = { movimientos: ordenados.map(o => o.m), calidad: {
     datos_al, atrasadas, problemas: [...new Map(problemas.map(p => [JSON.stringify(p), p])).values()],
-  } };
+  }, rescate };
   // BigInt en memoria; JSON.stringify(resultado) convierte piezas y centavos a texto, sin tocar BigInt.prototype.
   Object.defineProperty(resultado, 'toJSON', { value() {
-    return JSON.parse(JSON.stringify({ movimientos: this.movimientos, calidad: this.calidad },
+    return JSON.parse(JSON.stringify({ movimientos: this.movimientos, calidad: this.calidad, rescate: this.rescate },
       (_clave, valor) => typeof valor === 'bigint' ? valor.toString() : valor));
   } });
   return resultado;
 }
 
-/** Solo lectura y una instantánea consistente. Piezas y valor_centavos son BigInt; en JSON son strings. */
-function movimientosPorClave(sqlite, clave, { ahora = new Date().toISOString() } = {}) {
+function pasada(datos, rebajadas, inicio) {
+  const ctx = contexto(datos, rebajadas, inicio);
+  leerFotos(ctx);
+  leerCompras(ctx);
+  leerTraspasos(ctx);
+  leerVentas(ctx);
+  return ctx;
+}
+
+/**
+ * Rescate de la ventana de incorporación, todo o nada por clave. Primero rebaja el corte de todas las elegibles para ver
+ * cuáles tienen algo en su ventana; luego lee de nuevo rebajando solo esas. Ante cualquier duda: los movimientos de hoy.
+ */
+function conRescate(datos) {
+  const normal = rescate => terminar(pasada(datos), rescate);
+  const inicio = datos.tiendas.get(CEDIS)?.local;
+  const elegibles = inicio ? tiendasElegibles(datos, inicio) : [];
+  if (!elegibles.length) return normal(null);
+  let ctx = pasada(datos, new Set(elegibles), inicio);
+  let revision = evaluarRescate(ctx);
+  if (!revision.relevantes.size) return normal(null);
+  if (revision.relevantes.size !== elegibles.length) {
+    ctx = pasada(datos, revision.relevantes, inicio);
+    revision = evaluarRescate(ctx);
+  }
+  const [falla] = [...revision.fallas].sort((a, b) => a[0] - b[0]);
+  if (falla) return normal({ imposible: falla[1], sucursal_id: falla[0] });
+  aplicarRescate(ctx, revision);
+  const resultado = terminar(ctx, { desde: inicio, tiendas: [...ctx.rescate.rebajadas].sort((a, b) => a - b) });
+  // Si el motor rechaza el rescate, los movimientos de hoy salen de los mismos datos ya leídos (misma instantánea, sin SQL).
+  Object.defineProperty(resultado, 'sinRescate', { value: () => normal(null) });
+  return resultado;
+}
+
+/**
+ * Solo lectura y una instantánea consistente. Piezas y valor_centavos son BigInt; en JSON son strings.
+ * Con `rescate: true` intenta el rescate de la ventana (ver conRescate); `rescate` del resultado dice qué pasó.
+ */
+function movimientosPorClave(sqlite, clave, { ahora = new Date().toISOString(), rescate = false } = {}) {
   return sqlite.transaction(() => {
-    const ctx = contexto(sqlite, clave, ahora);
-    leerFotos(ctx);
-    leerCompras(ctx);
-    leerTraspasos(ctx);
-    leerVentas(ctx);
-    return terminar(ctx);
+    const datos = leerDatos(sqlite, clave, ahora);
+    return rescate ? conRescate(datos) : terminar(pasada(datos), null);
   })();
 }
 

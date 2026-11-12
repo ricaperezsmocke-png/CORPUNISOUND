@@ -144,3 +144,44 @@ test('rendimiento: 30,000 ventas de una tienda se procesan en menos de 1 s por b
   assert.ok(d.incierto.includes('venta_sin_existencia'));
   assert.ok(ms < 1000, `tardó ${ms.toFixed(0)} ms`);
 });
+
+test('rescate C 32194: lo que CEDIS mandó a Yajalón antes de su foto se sigue como de la factura, no como gris', t => {
+  for (const k of Object.keys(secuencias)) delete secuencias[k];
+  const f = prepararDB(t);
+  f.sqlite.prepare("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES ('2', 2)").run();
+  // Foto de Yajalón (2026-11-11): 43 de la factura que le quedaban + 2 de antes = 45. CEDIS no tenía la clave.
+  for (const [suc, art, existencia] of [[6, '601', '0.0000'], [2, '602', '45.0000']]) {
+    lote(f.repo, suc, { articulos: [{ art_id: art, clave: '52BPAQ', descripcion: 'Cuerdas' }], existencias: [{ art_id: art, existencia }] });
+  }
+  for (const suc of [6, 2]) incorporar(f.sqlite, { sucursal_id: suc, actor: '1', ahora: new Date().toISOString() });
+  // Los cortes reales de producción: CEDIS 2026-11-06 00:05 y Yajalón 2026-11-11 12:40 (hora de México).
+  const corte = f.sqlite.prepare('UPDATE seguimiento_tiendas SET corte=? WHERE sucursal_id=?');
+  corte.run('2026-11-06T06:05:08.000Z', 6);
+  corte.run('2026-11-11T18:40:00.000Z', 2);
+  lote(f.repo, 6, { compras: [{ com_id: '32194', fecha: '2026-11-06T16:16:00', pro_id: '10', folio: 'C 32194', comentario: '',
+    estado: 'vigente', cancelada_en: null, total_con: '5568.00',
+    detalle: [{ art_id: '601', cantidad: '48.0000', factor: '1', precio_sin: '100.00', precio_con: '116.00', importe_con: '5568.00' }] }] });
+  const envio = (suc, tra_id, art, estado, aplicado) => lote(f.repo, suc, { traspasos: [{ tra_id, folio: 'T-32194', suc_origen: '6',
+    suc_destino: '2', fecha: '2026-11-06', estado, fecha_aplicado: aplicado, fecha_cancelado: null, total: '0.00',
+    detalle: [{ art_id: art, cantidad: '48.0000', precio_sin: '0.00', precio_con: '0.00' }] }] });
+  envio(6, '7101', '601', 'enviado', null);
+  envio(2, '8101', '602', 'recibido', '2026-11-06T18:00:00');
+  const ventaY = (ven_id, fecha_local, cantidad) => ({ ven_id, fecha_local, estado: 'vigente', total: '10.00',
+    detalle: [{ art_id: '602', cantidad, importe_con: '10.00', descuento_total: '0.00' }] });
+  // En la ventana vende 2 y 3; después de su foto, 1 más (esa venta prueba que el mostrador ya cubre la ventana).
+  lote(f.repo, 2, { mostrador: [ventaY('1', '2026-11-08T10:00:00', '2.0000'), ventaY('2', '2026-11-10T10:00:00', '3.0000'),
+    ventaY('3', '2026-11-12T10:00:00', '1.0000')] });
+  const ahora = '2026-11-13T18:00:00.000Z';
+  servicio.vueltaCompleta(f.sqlite, ahora);
+  assert.deepEqual(servicio.procesarPendientes(f.sqlite, { limite: 50, ahora }), { procesadas: 1, errores: [], quedan: 0 });
+  const d = JSON.parse(resultado(f.sqlite)[0].datos_json);
+  // Foto reconstruida al inicio: 45 − 48 + 5 = 2 anteriores. Esas se venden primero; luego 3 + 1 de la factura.
+  assert.deepEqual(d.rescate, { desde: '2026-11-06T00:05:08.000', tiendas: [2] });
+  assert.deepEqual(d.por_sucursal, { 2: { queda: '440000', vendido: '40000' } });
+  assert.equal(d.sin_agente, '0', 'ya no queda en gris');
+  assert.equal(d.transito, '0');
+  assert.equal(d.por_aclarar, '0');
+  const suma = ['vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].reduce((a, k) => a + BigInt(d[k]), 0n);
+  assert.equal(suma, BigInt(d.comprado), 'la suma por lote cuadra con lo comprado');
+  assert.deepEqual(d.saldo_clave, { 2: '440000', 6: '0' }, 'lo calculado en Yajalón es su existencia sin la factura vendida');
+});

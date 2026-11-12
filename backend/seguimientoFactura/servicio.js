@@ -9,7 +9,8 @@ const { calcular } = require('./motor');
 const { etapa: etapaDe } = require('./estrategias');
 const { artIdsDelLote, marcarPendientes } = require('./pendientes');
 
-const VERSION = 1;
+// Versión 2: resultados con rescate de la ventana de incorporación (datos.rescate) y controles del motor.
+const VERSION = 2;
 const CEDIS = 6;
 const DIA_MS = 86400000;
 
@@ -52,9 +53,25 @@ function revisarAvisos(sqlite, com_id, config, ahora) {
   }
 }
 
+/**
+ * Calcula la clave con el rescate de la ventana de incorporación. Todo o nada: si el lector no puede rescatarla o el motor
+ * no cuadra sus controles, la clave se calcula exactamente como sin rescate y el intento queda anotado en calidad.
+ */
+function calcularConRescate(sqlite, clave, ahora) {
+  const lectura = movimientosPorClave(sqlite, clave, { ahora, rescate: true });
+  const calculo = calcular(lectura.movimientos);
+  const { rescate } = lectura;
+  if (rescate && !rescate.imposible && calculo.rescate_ok) return { lectura, calculo, rescate };
+  if (!rescate) return { lectura, calculo, rescate: null };
+  const detalle = rescate.imposible ? [{ sucursal_id: rescate.sucursal_id, motivo: rescate.imposible }] : calculo.rescate_fallas;
+  const hoy = rescate.imposible ? lectura : lectura.sinRescate();
+  hoy.calidad.problemas.push({ clave, motivo: 'rescate_inconsistente', detalle });
+  return { lectura: hoy, calculo: rescate.imposible ? calculo : calcular(hoy.movimientos), rescate: null };
+}
+
 function recalcularClave(sqlite, clave, config, ahora) {
-  const { movimientos, calidad } = movimientosPorClave(sqlite, clave, { ahora });
-  const { lotes, incierto, anterior } = calcular(movimientos);
+  const { lectura: { movimientos, calidad }, calculo, rescate } = calcularConRescate(sqlite, clave, ahora);
+  const { lotes, incierto, anterior } = calculo;
   // Saldo calculado de la clave por tienda (sin factura + todas sus facturas): se compara contra la existencia SICAR.
   const saldo = new Map(Object.entries(anterior).map(([s, v]) => [s, BigInt(v)]));
   for (const l of lotes) {
@@ -70,7 +87,8 @@ function recalcularClave(sqlite, clave, config, ahora) {
     (sucursal_id, com_id, renglon, clave, datos_json, version, calculado_en) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   for (const l of lotes) {
     const { sucursal_id, com_id, renglon } = l.lote;
-    const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([com_id, renglon])), calidad, incierto, saldo_clave };
+    const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([com_id, renglon])), calidad, incierto, saldo_clave,
+      ...(rescate ? { rescate } : {}) };
     guardar.run(sucursal_id, com_id, renglon, clave, JSON.stringify(datos), VERSION, ahora);
     facturas.add(com_id);
   }

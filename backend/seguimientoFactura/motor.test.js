@@ -190,3 +190,55 @@ test('devolución de tienda sin agente: vuelve como mercancía sin factura y no 
   assert.deepEqual(r.anterior, { 6: '0' });
   assert.deepEqual(r.incierto, ['origen_no_incorporado']);
 });
+
+// Rescate: foto reconstruida de Yajalón (2) al inicio, la factura llega y se vende en la ventana, y el control al corte real.
+const control = (suc, n) => ({ tipo: 'control', fecha: f(), sucursal_id: suc, piezas: P(n) });
+const ventana = () => [foto(6, 0), foto(2, 2), compra('A', 10, 10000), salida(6, 2, 10), recepcion(6, 2, 10), venta(2, 3)];
+
+test('rescate: control que cuadra no mueve piezas y deja rescate_ok', () => {
+  const r = conserva(calcular([...ventana(), control(2, 9), venta(2, 1)]));
+  assert.equal(r.rescate_ok, true);
+  assert.deepEqual(r.rescate_fallas, []);
+  // Primero sale lo anterior (2), luego la factura: 3 + 1 vendidas, 2 de ellas de la factura.
+  assert.deepEqual(lote(r, 'A').por_sucursal, { 2: { queda: T(8), vendido: T(2) } });
+  const sinControl = calcular([...ventana(), venta(2, 1)]);
+  assert.deepEqual(r.lotes, sinControl.lotes);
+  assert.deepEqual(r.anterior, sinControl.anterior);
+  assert.deepEqual(r.incierto, sinControl.incierto);
+});
+
+test('rescate: control con una pieza de diferencia no cuadra', () => {
+  const r = calcular([...ventana(), control(2, 8)]);
+  assert.equal(r.rescate_ok, false);
+  assert.deepEqual(r.rescate_fallas, [{ sucursal_id: 2, motivo: 'control_no_cuadra' }]);
+});
+
+test('rescate: una venta sin existencia antes del control no cuadra aunque el total coincida', () => {
+  // Foto 2, vende 3: falta 1 y la tienda queda en 0; el control en 0 coincide, pero el faltante dice que la historia falla.
+  const r = calcular([foto(6, 0), foto(2, 2), venta(2, 3), control(2, 0)]);
+  assert.equal(r.rescate_ok, false);
+  assert.deepEqual(r.rescate_fallas, [{ sucursal_id: 2, motivo: 'control_no_cuadra' }]);
+});
+
+test('rescate: un lote con más piezas en la tienda que las que recibió no cuadra', () => {
+  const r = calcular([foto(2, 0), { ...compra('A', 5, 500), sucursal_id: 2 }, control(2, 5)]);
+  assert.equal(r.rescate_ok, false);
+  assert.deepEqual(r.rescate_fallas, [{ sucursal_id: 2, motivo: 'factura_excede_recibido' }]);
+});
+
+test('rescate: sin controles rescate_ok y resultados de siempre', () => {
+  const r = conserva(calcular([foto(6, 5), compra('A', 10, 10000), venta(6, 7)]));
+  assert.equal(r.rescate_ok, true);
+  assert.deepEqual(r.rescate_fallas, []);
+  assert.deepEqual(lote(r, 'A').por_sucursal, { 6: { queda: T(8), vendido: T(2) } });
+  assert.deepEqual(r.anterior, { 6: '0' });
+  assert.deepEqual(r.incierto, []);
+});
+
+test('rescate: recepción de mercancía anterior al inicio entra como anterior, sin factura y sin incierto', () => {
+  const r = conserva(calcular([foto(2, 0), compra('A', 10, 10000), recepcion(6, 2, 4, { anterior: true }), venta(2, 3), control(2, 1)]));
+  assert.equal(r.rescate_ok, true);
+  assert.deepEqual(r.anterior, { 2: T(1) });
+  assert.equal(lote(r, 'A').vendido, '0');
+  assert.deepEqual(r.incierto, []);
+});
