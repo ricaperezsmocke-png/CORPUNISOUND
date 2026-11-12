@@ -60,6 +60,65 @@ function punta(db, suc, id, { folio = 'F', origen = 's6', destino = 's1', fecha 
 
 const traspasos = resultado => resultado.movimientos.filter(m => ['salida', 'recepcion'].includes(m.tipo));
 
+function prepararACR(t, incorporarYajalon = false) {
+  const db = prepararDB(t);
+  const corte = '2026-11-06T06:05:00.000Z';
+  db.prepare('UPDATE seguimiento_tiendas SET corte=?').run(corte);
+  db.exec("UPDATE seguimiento_foto SET piezas_diezmilesimas=CASE WHEN sucursal_id=6 THEN '150000' ELSE '0' END");
+  if (incorporarYajalon) {
+    db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (2, ?)').run(corte);
+    db.exec("INSERT INTO seguimiento_foto VALUES (2, 'A', '0')");
+  }
+  compra(db, '1413', { fecha: '2026-11-10T12:17:00', cantidad: '15.0000', factor: 10000n });
+  return db;
+}
+
+function envioACR(db, destino, folio, aplicada) {
+  const datos = { folio, destino: `s${destino}`, fecha: '2026-11-10', cantidad: '15.0000' };
+  punta(db, 6, `e-${folio}`, { ...datos, aplicada: null });
+  if (aplicada) punta(db, destino, `r-${folio}`, { ...datos, aplicada });
+}
+
+for (const incorporada of [false, true]) {
+  test(`ACR 7264: salida recibida antes de la compra consume anterior; Yajalón incorporada=${incorporada}`, t => {
+    const db = prepararACR(t, incorporada);
+    envioACR(db, 2, '2185', '2026-11-10T10:16:54');
+    envioACR(db, 1, '2187', '2026-11-10T12:52:00');
+    const movimientos = leer(db).movimientos;
+    const indice = (tipo, folio) => movimientos.findIndex(m => m.tipo === tipo && (!folio || m.traspaso?.folio === folio));
+    assert.ok(indice('salida', '2185') < indice('compra'), 'la salida recibida a las 10:16 precede a la compra de las 12:17');
+    assert.ok(indice('compra') < indice('salida', '2187'));
+    assert.ok(indice('salida', '2187') < indice('recepcion', '2187'));
+    if (incorporada) assert.ok(indice('salida', '2185') < indice('recepcion', '2185'));
+    assert.equal(movimientos[indice('salida', '2185')].fecha, '2026-11-10', 'la fecha de SICAR se conserva');
+    const calculo = require('./motor').calcular(movimientos);
+    const [lote] = calculo.lotes;
+    assert.equal(lote.lote.com_id, '1413');
+    assert.equal(lote.por_sucursal[1].queda, '150000');
+    assert.equal(lote.por_sucursal[2]?.queda ?? '0', '0');
+    assert.equal(lote.sin_agente, '0');
+    assert.equal(lote.transito, '0');
+    assert.equal(lote.por_aclarar, '0');
+    assert.equal(calculo.anterior[6], '0');
+    if (incorporada) assert.equal(calculo.anterior[2], '150000');
+    assert.deepEqual(calculo.incierto, []);
+  });
+}
+
+for (const [caso, aplicada] of [
+  ['recepción posterior a la compra el mismo día', '2026-11-10T12:52:00'],
+  ['recepción en otro día', '2026-11-11T10:16:54'],
+  ['sin recepción', null],
+]) {
+  test(`orden conservado: ${caso}`, t => {
+    const db = prepararACR(t);
+    envioACR(db, 1, '2187', aplicada);
+    const movimientos = leer(db).movimientos.filter(m => m.tipo !== 'foto');
+    assert.deepEqual(movimientos.map(m => m.tipo), aplicada ? ['compra', 'salida', 'recepcion'] : ['compra', 'salida']);
+    assert.equal(movimientos[1].fecha, '2026-11-10');
+  });
+}
+
 test('corte local exacto por tienda, vigencia, internas y catálogo propio; foto conserva BigInt', t => {
   const db = prepararDB(t);
   for (const [id, fecha] of [['antes', '2026-11-04T12:30:24'], ['igual', '2026-11-04T12:30:25'], ['despues', '2026-11-04T12:30:26']]) {

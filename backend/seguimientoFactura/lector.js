@@ -68,7 +68,7 @@ function contexto(datos, rebajadas = new Set(), inicio = null) {
   }
   // envios: fecha de envío (sin hora) de cada movimiento de traspaso, para juzgar la ventana sin cambiar su salida.
   return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados, cache,
-    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set() };
+    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set(), horasRecepcion: new Map() };
 }
 
 function fotosDe(ctx) {
@@ -274,6 +274,11 @@ function procesarPuntas(ctx, salida, entrada, traspaso) {
   if (ms) ms.sin_agente = gris;
   if (!motivo && !gris && ms && me) marcarDiferencia(ms, me);
   for (const m of [ms, me]) if (m) ctx.envios.set(m, fechaEnvio);
+  // La punta destino prueba que el envío ya había ocurrido, incluso si esa tienda aún no estaba incorporada.
+  if (ms && recibida && salida.fecha.length === 10 && entrada.fecha_aplicado?.length > 10
+    && entrada.fecha_aplicado.slice(0, 10) === salida.fecha) {
+    ctx.horasRecepcion.set(ms, entrada.fecha_aplicado);
+  }
   if (ms) agregar(ms);
   if (me) agregar(me, me.fecha || fechaEnvio);
 }
@@ -390,6 +395,23 @@ function compararOrden(a, b) {
   return 0;
 }
 
+/** Adelantar solo las salidas recibidas antes de una compra del mismo día; conservar las fechas y el resto del orden. */
+function adelantarSalidas(lista, ctx) {
+  const compras = lista.filter(o => o.m.tipo === 'compra');
+  const antes = new Map(), movidas = new Set();
+  for (const o of lista) {
+    const hora = ctx.horasRecepcion.get(o.m);
+    if (!hora) continue;
+    const compra = compras.find(c => c.m.fecha.slice(0, 10) === o.m.fecha && c.m.fecha > hora);
+    if (!compra) continue;
+    if (!antes.has(compra)) antes.set(compra, []);
+    antes.get(compra).push(o);
+    movidas.add(o);
+  }
+  // La recepción conserva su lugar: adelantar la salida nunca la pone después de su propia recepción.
+  return lista.flatMap(o => movidas.has(o) ? [] : [...(antes.get(o) ?? []), o]);
+}
+
 /**
  * El orden de siempre va por día y luego por tipo, no por hora. El control del rescate necesita la hora exacta: lo de la
  * tienda posterior a su foto en el mismo día (recepciones con hora, ventas) se mueve detrás del control, sin cambiar su
@@ -414,6 +436,7 @@ function terminar(ctx, rescate = null) {
   let { ordenados } = ctx;
   for (const o of ordenados) o.orden = camposOrden(o);
   ordenados.sort(compararOrden);
+  ordenados = adelantarSalidas(ordenados, ctx);
   if (rescate?.tiendas) ordenados = colocarControles(ordenados, ctx);
   const validas = fuentes.filter(f => Number.isFinite(Date.parse(f)));
   if (validas.length !== fuentes.length) problemas.push({ motivo: 'fuente_sin_fecha', clave: ctx.clave });
