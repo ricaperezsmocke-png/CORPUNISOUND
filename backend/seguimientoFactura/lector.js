@@ -68,7 +68,7 @@ function contexto(datos, rebajadas = new Set(), inicio = null) {
   }
   // envios: fecha de envío (sin hora) de cada movimiento de traspaso, para juzgar la ventana sin cambiar su salida.
   return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados, cache,
-    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set() };
+    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set(), horasRecepcion: new Map() };
 }
 
 function fotosDe(ctx) {
@@ -91,7 +91,8 @@ function leerCompras(ctx) {
   if (!cedis) return;
   ctx.cache.compras ??= sqlite.prepare(`SELECT c.com_id, c.fecha, c.actualizado_en, d.renglon, d.cantidad,
     CAST(d.factor_diezmilesimas AS TEXT) factor, CAST(d.precio_sin_centavos AS TEXT) precio,
-    CAST(d.precio_con_centavos AS TEXT) precio_con, a.actualizado_en catalogo_al FROM sicar_compras c
+    CAST(d.precio_con_centavos AS TEXT) precio_con, CAST(d.importe_con_centavos AS TEXT) importe_con,
+    a.actualizado_en catalogo_al FROM sicar_compras c
     JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
     JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
     WHERE c.sucursal_id=6 AND c.estado='vigente' AND c.fecha > ? AND a.clave=?`).all(cedis.local, clave);
@@ -99,10 +100,12 @@ function leerCompras(ctx) {
     fuente(f.actualizado_en);
     fuente(f.catalogo_al);
     const cantidad = aDiezmilesimas(f.cantidad), producto = cantidad * BigInt(f.factor);
+    const importeCon = f.importe_con == null ? null : BigInt(f.importe_con);
     const m = { tipo: 'compra', fecha: f.fecha, sucursal_id: 6, piezas: mitadArriba(producto),
       valor_centavos: mitadArriba(BigInt(f.precio) * cantidad),
-      // Con IVA solo si SICAR lo trae: nunca se inventa multiplicando por 1.16.
-      valor_con_iva_centavos: f.precio_con === null ? null : mitadArriba(BigInt(f.precio_con) * cantidad),
+      // Preferir el importe exacto de SICAR; sin él, conservar el cálculo por precio y cantidad.
+      valor_con_iva_centavos: importeCon > 0n ? importeCon
+        : f.precio_con === null ? null : mitadArriba(BigInt(f.precio_con) * cantidad),
       lote: { sucursal_id: 6, com_id: f.com_id, renglon: f.renglon } };
     if (producto % 10000n !== 0n) m.por_aclarar = 'cantidad_fraccionaria';
     agregar(m);
@@ -271,6 +274,11 @@ function procesarPuntas(ctx, salida, entrada, traspaso) {
   if (ms) ms.sin_agente = gris;
   if (!motivo && !gris && ms && me) marcarDiferencia(ms, me);
   for (const m of [ms, me]) if (m) ctx.envios.set(m, fechaEnvio);
+  // La punta destino prueba que el envío ya había ocurrido, incluso si esa tienda aún no estaba incorporada.
+  if (ms && recibida && salida.fecha.length === 10 && entrada.fecha_aplicado?.length > 10
+    && entrada.fecha_aplicado.slice(0, 10) === salida.fecha) {
+    ctx.horasRecepcion.set(ms, entrada.fecha_aplicado);
+  }
   if (ms) agregar(ms);
   if (me) agregar(me, me.fecha || fechaEnvio);
 }
@@ -387,6 +395,23 @@ function compararOrden(a, b) {
   return 0;
 }
 
+/** Adelantar solo las salidas recibidas antes de una compra del mismo día; conservar las fechas y el resto del orden. */
+function adelantarSalidas(lista, ctx) {
+  const compras = lista.filter(o => o.m.tipo === 'compra');
+  const antes = new Map(), movidas = new Set();
+  for (const o of lista) {
+    const hora = ctx.horasRecepcion.get(o.m);
+    if (!hora) continue;
+    const compra = compras.find(c => c.m.fecha.slice(0, 10) === o.m.fecha && c.m.fecha > hora);
+    if (!compra) continue;
+    if (!antes.has(compra)) antes.set(compra, []);
+    antes.get(compra).push(o);
+    movidas.add(o);
+  }
+  // La recepción conserva su lugar: adelantar la salida nunca la pone después de su propia recepción.
+  return lista.flatMap(o => movidas.has(o) ? [] : [...(antes.get(o) ?? []), o]);
+}
+
 /**
  * El orden de siempre va por día y luego por tipo, no por hora. El control del rescate necesita la hora exacta: lo de la
  * tienda posterior a su foto en el mismo día (recepciones con hora, ventas) se mueve detrás del control, sin cambiar su
@@ -411,6 +436,7 @@ function terminar(ctx, rescate = null) {
   let { ordenados } = ctx;
   for (const o of ordenados) o.orden = camposOrden(o);
   ordenados.sort(compararOrden);
+  ordenados = adelantarSalidas(ordenados, ctx);
   if (rescate?.tiendas) ordenados = colocarControles(ordenados, ctx);
   const validas = fuentes.filter(f => Number.isFinite(Date.parse(f)));
   if (validas.length !== fuentes.length) problemas.push({ motivo: 'fuente_sin_fecha', clave: ctx.clave });

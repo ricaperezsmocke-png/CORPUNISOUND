@@ -316,3 +316,41 @@ test('el detalle dice por renglón si la clave se reconstruyó con el rescate (n
   guardar.run(1, datos({}), AL);
   assert.deepEqual(detalle(db, 6, '77', AL).renglones.map(r => r.rescate), [rescate, null]);
 });
+
+test('importe SICAR: consultas suma exactamente los dos renglones aunque difieran de precio por cantidad', t => {
+  const db = escenarioIva(t);
+  db.exec(`UPDATE sicar_compras_detalle SET importe_con_centavos = CASE renglon WHEN 0 THEN 35999 ELSE 20001 END
+    WHERE com_id='1'`);
+  const d = procesarYDetalle(db);
+  const f = require('./consultas').listar(db, {}, AL).facturas.find(x => x.com_id === '1');
+  assert.equal(f.total_con_iva_centavos, '56000');
+  assert.equal(d.factura.total_con_iva_centavos, '56000');
+  assert.deepEqual(d.renglones.map(r => r.valor_con_iva_centavos), ['35999', '20001']);
+});
+
+test('importe SICAR: con importe cero conserva precio por cantidad y sin precio conserva null', t => {
+  const db = escenarioIva(t);
+  const d = require('./consultas').detalle(db, 6, '1', AL);
+  assert.deepEqual(d.renglones.map(r => r.valor_con_iva_centavos), ['36000', '20002']);
+  assert.equal(d.factura.total_con_iva_centavos, '56002');
+  const sinPrecio = require('./consultas').detalle(db, 6, '2', AL);
+  assert.equal(sinPrecio.renglones[0].valor_con_iva_centavos, null);
+  assert.equal(sinPrecio.factura.total_con_iva_centavos, null);
+});
+
+test('importe SICAR: cambiar importes con IVA conserva dinero y total sin IVA', t => {
+  const db = escenarioIva(t);
+  const antes = require('./consultas').detalle(db, 6, '1', AL);
+  db.exec(`UPDATE sicar_compras_detalle SET importe_con_centavos = CASE renglon WHEN 0 THEN 35999 ELSE 20001 END
+    WHERE com_id='1'`);
+  const despues = procesarYDetalle(db);
+  const dinero = { vendido: '10345', queda: '37932', transito: '0', gris: '0', por_aclarar: '0' };
+  for (const d of [antes, despues]) {
+    assert.deepEqual(d.factura.dinero, dinero);
+    assert.equal(d.factura.total_sin_iva_centavos, '48277');
+    assert.deepEqual(d.renglones.map(r => r.valor_centavos), ['31035', '17242']);
+  }
+  const f = require('./consultas').listar(db, {}, AL).facturas.find(x => x.com_id === '1');
+  assert.deepEqual(f.dinero, dinero);
+  assert.equal(f.total_sin_iva_centavos, '48277');
+});
