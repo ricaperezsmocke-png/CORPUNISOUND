@@ -53,6 +53,22 @@ async function pedir(metodo, ruta, id, cuerpo) {
 const simular = (numero, texto = "Hola", sucursal_id = 1, canal = "whatsapp") =>
   pedir("POST", "simulado/entrante", 983, { sucursal_id, canal, remitente: { id_externo: numero, nombre: "Prueba" }, texto });
 
+test('envio simulado sigue habilitado y gupshup devuelve 409; listado expone proveedor y origen', async () => {
+  const { conversacion_id: id } = (await simular('529191112233')).datos;
+  assert.equal((await pedir('POST', `conversaciones/${id}/mensajes`, 981, { texto: 'Hola' })).status, 200);
+  sqlite.prepare("UPDATE lead_fuentes SET proveedor = 'gupshup'").run();
+  sqlite.prepare("UPDATE lead_interacciones SET tipo = 'mensaje_telefono' WHERE direccion = 'saliente'").run();
+  const r = await pedir('POST', `conversaciones/${id}/mensajes`, 981, { texto: 'Otra' });
+  assert.equal(r.status, 409);
+  assert.equal(r.datos.error, 'Por ahora contesta desde el teléfono de la tienda.');
+  const lista = (await pedir('GET', 'conversaciones?filtro=todas', 983)).datos;
+  assert.equal(lista[0].proveedor, 'gupshup');
+  assert.equal(lista[0].ultimo_tipo, 'mensaje_telefono');
+  const hilo = (await pedir('GET', `conversaciones/${id}`, 981)).datos;
+  assert.equal(hilo.proveedor, 'gupshup');
+  assert.equal(hilo.mensajes.at(-1).tipo, 'mensaje_telefono');
+});
+
 test('resumen cuenta por tipo y no trae contenido ni eventos antiguos o de otro proveedor', async () => {
   const ahora = Date.now();
   const texto = 'MARCADOR_PRIVADO 9191234567';
@@ -60,7 +76,7 @@ test('resumen cuenta por tipo y no trae contenido ni eventos antiguos o de otro 
     (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json, procesado_en) VALUES (?, ?, ?, ?, ?, ?)`);
   const fechas = [3, 2, 1, 8, 0].map(d => new Date(ahora - d * 86400000).toISOString());
   for (let i = 0; i < 5; i++) {
-    insertar.run(i === 4 ? 'otro' : 'gupshup', String(i), i === 2 ? 'history' : 'messages', fechas[i], texto, i === 1 ? fechas[i] : null);
+    insertar.run(i === 4 ? 'otro' : 'gupshup', `sha256:${i}`, i === 2 ? 'history' : 'messages', fechas[i], texto, i === 1 ? fechas[i] : null);
   }
   const r = await pedir('GET', 'gupshup/resumen', 983);
   assert.equal(r.status, 200);
@@ -70,9 +86,75 @@ test('resumen cuenta por tipo y no trae contenido ni eventos antiguos o de otro 
   assert.equal(r.datos.sin_procesar, 2);
   assert.equal(r.datos.bytes, texto.length * 3);
   assert.ok(Math.abs(Date.parse(r.datos.desde) - (ahora - 7 * 86400000)) < 5000);
-  assert.deepEqual(Object.keys(r.datos).sort(), ['bytes', 'desde', 'por_tipo', 'primera', 'sin_procesar', 'ultima']);
+  assert.equal(r.datos.procesados, 1);
+  assert.equal(r.datos.con_error, 0);
+  assert.deepEqual(r.datos.errores_recientes, []);
   assert.ok(!JSON.stringify(r.datos).includes('MARCADOR_PRIVADO'));
   assert.ok(!JSON.stringify(r.datos).includes('9191234567'));
+});
+
+const datosCanal = (sucursal_id = 1, identificador_externo = '1345802228620291') =>
+  ({ proveedor: 'gupshup', identificador_externo, nombre: 'Tienda', sucursal_id });
+
+test('canales exigen permiso propio y alcance del token; 400, 403, 409, 201 y 200', async () => {
+  assert.equal((await pedir('GET', 'canales', 981)).status, 403);
+  assert.equal((await pedir('POST', 'canales', 981, datosCanal())).status, 403);
+  assert.equal((await pedir('GET', 'canales', null)).status, 401);
+  assert.equal((await pedir('POST', 'canales', 983, datosCanal(999999))).status, 400);
+  assert.equal((await pedir('POST', 'canales?sucursal_id=2', 983, datosCanal('2'))).status, 403);
+  const nuevo = await pedir('POST', 'canales?sucursal_id=2', 983, datosCanal('1'));
+  assert.equal(nuevo.status, 201);
+  assert.equal(nuevo.datos.sucursal_id, 1);
+  assert.equal(nuevo.datos.proveedor, 'gupshup');
+  const repetido = await pedir('POST', 'canales', 983, datosCanal(1));
+  assert.equal(repetido.status, 200);
+  assert.equal(repetido.datos.id, nuevo.datos.id);
+  assert.equal((await pedir('POST', 'canales', 986, datosCanal(2))).status, 409);
+  assert.equal((await pedir('POST', 'canales', 986, datosCanal(2, 'otro'))).status, 201);
+  assert.equal((await pedir('GET', 'canales?sucursal_id=2', 983)).datos.length, 1);
+  assert.equal((await pedir('GET', 'canales?sucursal_id=2', 986)).datos.length, 2);
+  for (const invalido of [{ ...datosCanal(), proveedor: 'simulado' }, { ...datosCanal(), identificador_externo: '' },
+    { ...datosCanal(), sucursal_id: null }, { ...datosCanal(), nombre: '' }]) {
+    assert.equal((await pedir('POST', 'canales', 983, invalido)).status, 400);
+  }
+});
+
+test('resumen cuenta crudos, errores seguros, sin canal, origen y claves de medios sin valores', async () => {
+  const { crearContextoBandeja } = require('./bandeja/mensajes');
+  const { crearProcesadorGupshup } = require('./bandeja/gupshupProcesador');
+  const ctx = crearContextoBandeja({ sqlite, DB: app.DB });
+  const procesador = crearProcesadorGupshup({ sqlite, DB: app.DB, ctx, guardar: () => {}, mantenimiento: { estaActivo: () => false } });
+  await pedir('POST', 'canales', 983, datosCanal());
+  const insertar = sqlite.prepare(`INSERT INTO lead_eventos_externos
+    (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json, error_procesamiento) VALUES ('gupshup', ?, ?, ?, ?, ?)`);
+  const fecha = new Date().toISOString();
+  const medio = { id: 'ARCHIVO_PRIVADO', url: 'https://externo?key=SECRETO', mime_type: 'image/jpeg', caption: 'TEXTO_PRIVADO' };
+  const mensaje = { id: 'foto', from: '529191112233', timestamp: '1775627842', type: 'image', image: medio };
+  const cuerpo = (field, value, numero = datosCanal().identificador_externo) => JSON.stringify({ entry: [{ changes: [
+    { field, value: { metadata: { phone_number_id: numero }, ...value } },
+  ] }] });
+  insertar.run('sha256:foto', 'messages', fecha, cuerpo('messages', { messages: [mensaje] }), null);
+  insertar.run('sha256:eco', 'smb_message_echoes', fecha,
+    cuerpo('smb_message_echoes', { message_echoes: [{ ...mensaje, id: 'eco', from: 'tienda', to: '529191112233', image: { id: 'otro' } }] }), null);
+  insertar.run('sha256:historia', 'history', fecha,
+    cuerpo('history', { history: [{ threads: [{ id: '529191112233', messages: [{ ...mensaje, id: 'historia' }] }] }] }), null);
+  insertar.run('sha256:sin-canal', 'messages', fecha, cuerpo('messages', { messages: [mensaje] }, 'ausente'), null);
+  insertar.run('sha256:rechazado', 'history', fecha, cuerpo('history', { history: [{ errors: [{ code: 2593109 }] }] }), null);
+  for (let n = 0; n < 6; n++) insertar.run(`sha256:error${n}`, 'no_json', fecha, '{', n === 5 ? 'https://x?key=SECRETO' : 'json_invalido');
+  await procesador.procesarPendientes();
+  const r = (await pedir('GET', 'gupshup/resumen', 983)).datos;
+  assert.equal(r.procesados, 4);
+  assert.equal(r.con_error, 6);
+  assert.equal(r.errores_recientes.length, 5);
+  assert.equal(r.errores_recientes[0].motivo, 'error_interno');
+  assert.equal(r.pendientes_sin_canal, 1);
+  assert.equal(r.historial_rechazado, 1);
+  assert.deepEqual(r.interacciones_por_tipo, [
+    { tipo: 'mensaje', mensajes: 1 }, { tipo: 'mensaje_historial', mensajes: 1 }, { tipo: 'mensaje_telefono', mensajes: 1 },
+  ]);
+  assert.equal(r.por_tipo.reduce((n, fila) => n + fila.eventos, 0), 11, 'no cuenta hijos wamid');
+  assert.deepEqual(r.medios, { total: 4, con_url: 3, claves: ['caption', 'id', 'mime_type', 'url'] });
+  for (const privado of ['SECRETO', 'https:', 'ARCHIVO_PRIVADO', 'TEXTO_PRIVADO']) assert.ok(!JSON.stringify(r).includes(privado));
 });
 
 test('resumen exige conectar_canales_mensajes y sin sesion devuelve 401', async () => {

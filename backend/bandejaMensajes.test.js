@@ -4,6 +4,33 @@ const { prepararBandeja, canalWhatsApp, entrante } = require("./bandejaTestHelpe
 
 const ana = { id: 5, nombre: "Ana", celular: "9191112233", sucursal_id: 1, vendedor_asignado_id: 1, estado: "contactado" };
 
+test('origen visible y ultima actividad nunca retrocede ni cuenta historial', t => {
+  const { ctx, sqlite } = prepararBandeja(t, { clientes: [{ ...ana }] });
+  const canal = canalWhatsApp(ctx);
+  const r = ctx.recibirEntrante(entrante(canal, { id_externo: '529191112233' }));
+  const conv = ctx.conversacion(r.conversacion_id);
+  const lead = sqlite.prepare('SELECT * FROM leads WHERE cliente_id = 5').get();
+  for (const [tipo, ocurrido] of [['mensaje_historial', '2027-01-01T00:00:00.000Z'], ['mensaje', '2025-01-01T00:00:00.000Z']]) {
+    ctx.registrarInteraccion({ conversacionId: conv.id, identidadId: conv.identidad_id, leadId: lead.id,
+      direccion: 'entrante', texto: 'anterior', ocurrido, tipo });
+    assert.equal(sqlite.prepare('SELECT ultima_interaccion_en FROM leads WHERE id = ?').get(lead.id).ultima_interaccion_en,
+      lead.ultima_interaccion_en);
+  }
+  assert.deepEqual(ctx.hilo(conv.id).map(m => m.tipo), ['mensaje', 'mensaje', 'mensaje_historial']);
+  assert.equal(conv.proveedor, 'simulado');
+});
+
+test('envio real falla en dominio sin guardar contacto o mensaje', t => {
+  const { ctx, sqlite, DB } = prepararBandeja(t);
+  const canal = ctx.registrarCanal({ canal: 'whatsapp', proveedor: 'gupshup', identificador_externo: 'tienda', nombre: 'Tienda', sucursal_id: 1 });
+  const r = ctx.recibirEntrante(entrante(canal, { id_externo: '529191112233' }));
+  const previo = structuredClone(DB.crm);
+  assert.throws(() => ctx.enviarSaliente(r.conversacion_id, 'Hola', { usuario_id: 1 }),
+    { status: 409, message: 'Por ahora contesta desde el teléfono de la tienda.' });
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM lead_interacciones').get().n, 1);
+  assert.deepEqual(DB.crm, previo);
+});
+
 test("WhatsApp de un cliente conocido se pega a su ficha, cambia su estado y deja contacto", t => {
   const { ctx, DB } = prepararBandeja(t, { clientes: [ana] });
   const canal = canalWhatsApp(ctx);

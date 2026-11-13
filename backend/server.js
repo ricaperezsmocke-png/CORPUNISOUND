@@ -181,7 +181,7 @@ if (repoSicar) registrarAgenteSicar(app, { repo: repoSicar, mantenimiento });
 else app.use(["/api/integraciones/sicar", "/api/sicar"], (req, res) => res.status(503).json({ codigo: "SIN_PERSISTENCIA" }));
 const { registrarReceptorGupshup } = require("./bandeja/gupshupReceptor");
 registrarReceptorGupshup(app, { sqlite: conexionSqlite, disponible: () => bandejaDisponible(),
-  mantenimiento, token: process.env.GUPSHUP_WEBHOOK_TOKEN });
+  mantenimiento, token: process.env.GUPSHUP_WEBHOOK_TOKEN, pendientes: () => procesadorGupshup?.pendientes() ?? 0 });
 app.use(express.json({ limit: "50mb" }));
 
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY de .env
@@ -2013,9 +2013,20 @@ require('./crmComprasPerfilRutas').registrarRutasCRMPerfil(app,
 
 // ---------- Bandeja de clientes (spec 2026-10-18): mensajes ligados al cliente y estados automáticos ----------
 const { crearContextoBandeja } = require('./bandeja/mensajes');
-const { revisarEstadosAutomaticos, anotarEstado } = require('./bandeja/estados');
+const { revisarEstadosAutomaticos, anotarEstado, ultimasEntradas } = require('./bandeja/estados');
 const bandejaDisponible = () => !!(conexionSqlite && estadoCentroLeads.disponible);
 const bandeja = bandejaDisponible() ? crearContextoBandeja({ sqlite: conexionSqlite, DB, repo: repoSicar, guardar }) : null;
+const { crearProcesadorGupshup } = require('./bandeja/gupshupProcesador');
+const procesadorGupshup = bandeja ? crearProcesadorGupshup({ sqlite: conexionSqlite, DB, repo: repoSicar,
+  guardar, ctx: bandeja, mantenimiento }) : null;
+let corriendoGupshup = false;
+async function cicloGupshup() {
+  if (!procesadorGupshup || !bandejaDisponible() || mantenimiento.estaActivo() || corriendoGupshup) return;
+  corriendoGupshup = true;
+  try { await procesadorGupshup.procesarPendientes(); }
+  catch { console.error('Gupshup: no se pudo completar el ciclo de procesamiento.'); }
+  finally { corriendoGupshup = false; }
+}
 // Las metas que se cuentan solas leen la bandeja y el historial SICAR de la misma conexión (spec 2026-10-22 §4.2).
 require("./metasFuentes").configurarFuentes({ sqlite: conexionSqlite });
 const responsablesBandeja = bandeja ? require('./bandeja/responsable').crearResponsables(bandeja) : null;
@@ -2039,9 +2050,7 @@ function cicloEstadosCRM() {
   try {
     // Dos consultas agrupadas, no una por cliente: better-sqlite3 es síncrono y aquí no se puede frenar la caja.
     const mapa = sql => new Map(conexionSqlite.prepare(sql).all().map(f => [Number(f.id), f.m]));
-    const entradas = mapa(`SELECT i.cliente_id AS id, max(x.ocurrida_en) AS m FROM lead_interacciones x
-      JOIN lead_identidades_externas i ON i.id = x.identidad_externa_id
-      WHERE x.direccion = 'entrante' AND i.cliente_id IS NOT NULL GROUP BY i.cliente_id`);
+    const entradas = ultimasEntradas(conexionSqlite);
     const comprasSicar = mapa(`SELECT l.cliente_id AS id, max(v.fecha_local) AS m FROM sicar_ventas v JOIN sicar_vinculos l
       ON l.sucursal_id = v.sucursal_id AND l.cli_id = v.cli_id
       WHERE l.cliente_id IS NOT NULL AND l.estado IN ('pendiente', 'confirmado') AND v.estado = 'vigente' GROUP BY l.cliente_id`);
@@ -2054,6 +2063,8 @@ function cicloEstadosCRM() {
   }
 }
 if (require.main === module) {
+  setInterval(cicloGupshup, 60000).unref();
+  setTimeout(cicloGupshup, 30000).unref();
   setInterval(cicloEstadosCRM, 3600000).unref();
   setTimeout(cicloEstadosCRM, 30_000).unref();
 }

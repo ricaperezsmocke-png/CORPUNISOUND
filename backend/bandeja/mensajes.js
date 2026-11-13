@@ -120,14 +120,16 @@ function crearContextoBandeja({ sqlite, DB, repo = null, guardar = () => {} }) {
       VALUES (?, ?, ?, ?, ?, ?)`).run(canal.id, canal.canal, identidad.identificador_externo, ocurrido, ocurrido, identidad.id).lastInsertRowid);
   }
 
-  function registrarInteraccion({ conversacionId, leadId, eventoId = null, identidadId, direccion, texto, ocurrido, usuarioId = null }) {
+  function registrarInteraccion({ conversacionId, leadId, eventoId = null, identidadId, direccion, texto, ocurrido,
+    usuarioId = null, tipo = 'mensaje' }) {
     const id = Number(sqlite.prepare(`INSERT INTO lead_interacciones
       (conversacion_id, lead_id, evento_externo_id, identidad_externa_id, tipo, direccion, texto, ocurrida_en, usuario_id)
-      VALUES (?, ?, ?, ?, 'mensaje', ?, ?, ?, ?)`).run(conversacionId, leadId, eventoId, identidadId, direccion, texto, ocurrido, usuarioId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(conversacionId, leadId, eventoId, identidadId, tipo, direccion, texto, ocurrido, usuarioId)
       .lastInsertRowid);
     sqlite.prepare("UPDATE lead_conversaciones SET ultima_interaccion_en = ? WHERE id = ? AND ultima_interaccion_en < ?")
       .run(ocurrido, conversacionId, ocurrido);
-    if (leadId) sqlite.prepare("UPDATE leads SET ultima_interaccion_en = ? WHERE id = ?").run(ocurrido, leadId);
+    if (leadId && tipo !== 'mensaje_historial') sqlite.prepare(`UPDATE leads SET ultima_interaccion_en = ?
+      WHERE id = ? AND (ultima_interaccion_en IS NULL OR ultima_interaccion_en < ?)`).run(ocurrido, leadId, ocurrido);
     return id;
   }
 
@@ -167,7 +169,7 @@ function crearContextoBandeja({ sqlite, DB, repo = null, guardar = () => {} }) {
   function conversacion(conversacionId) {
     const fila = sqlite.prepare(`SELECT c.id, c.canal, c.fuente_id, f.sucursal_responsable_id AS sucursal_id, f.nombre AS canal_nombre,
         c.identidad_externa_id AS identidad_id, i.cliente_id, i.nombre_mostrado, i.telefono_normalizado AS telefono,
-        c.iniciada_en, c.ultima_interaccion_en
+        c.iniciada_en, c.ultima_interaccion_en, f.proveedor
       FROM lead_conversaciones c JOIN lead_fuentes f ON f.id = c.fuente_id
       LEFT JOIN lead_identidades_externas i ON i.id = c.identidad_externa_id WHERE c.id = ?`).get(Number(conversacionId));
     if (!fila) throw error(404, "Conversación no encontrada.");
@@ -175,14 +177,15 @@ function crearContextoBandeja({ sqlite, DB, repo = null, guardar = () => {} }) {
   }
 
   function hilo(conversacionId) {
-    return sqlite.prepare(`SELECT id, direccion, texto, ocurrida_en, usuario_id FROM lead_interacciones
+    return sqlite.prepare(`SELECT id, direccion, texto, ocurrida_en, usuario_id, tipo FROM lead_interacciones
       WHERE conversacion_id = ? ORDER BY ocurrida_en, id`).all(Number(conversacionId));
   }
 
   // El proveedor real entrega en F4; aquí se guarda lo que salió y quién lo mandó.
   function enviarSaliente(conversacionId, valor, { usuario_id }) {
-    const texto = textoMensaje(valor);
     const conv = conversacion(conversacionId);
+    if (conv.proveedor === 'gupshup') throw error(409, 'Por ahora contesta desde el teléfono de la tienda.');
+    const texto = textoMensaje(valor);
     const ocurrido = ahora();
     return operacion(() => {
       const cliente = conv.cliente_id ? clienteActivo(conv.cliente_id) : null;
@@ -222,7 +225,7 @@ function crearContextoBandeja({ sqlite, DB, repo = null, guardar = () => {} }) {
   }
 
   return { registrarCanal, recibirEntrante, enviarSaliente, conversacion, hilo, porIdentificar, ligarIdentidad, expediente,
-    operacion, clienteActivo, sqlite, DB };
+    operacion, clienteActivo, registrarInteraccion, sqlite, DB };
 }
 
 module.exports = { crearContextoBandeja, telefonoWhatsApp, textoMensaje, CANALES };

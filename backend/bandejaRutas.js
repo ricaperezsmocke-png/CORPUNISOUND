@@ -1,6 +1,7 @@
 const { crearResponsables } = require("./bandeja/responsable");
 const { crearConsultasBandeja } = require("./bandeja/consultas");
 const { CANALES } = require("./bandeja/mensajes");
+const { resumenGupshup } = require('./bandeja/gupshupResumen');
 
 /**
  * Rutas de la bandeja de clientes (spec 2026-10-18). Alcance de tienda siempre del token; fuera de alcance → 404.
@@ -31,21 +32,53 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
   }
   const ruta = fn => (req, res) => {
     if (!bandeja || !disponible()) return res.status(503).json({ error: "La bandeja no está disponible." });
-    try { res.type("json").send(JSON.stringify(fn(req))); }
+    try { res.type("json").send(JSON.stringify(fn(req, res))); }
     catch (e) {
-      if (!e.status) console.error("⚠️  Bandeja:", e.message);
+      if (!e.status) console.error('Bandeja: no se pudo completar la operacion.');
       res.status(e.status || 503).json({ error: e.status ? e.message : "No se pudo completar la operación de la bandeja." });
     }
   };
 
-  app.get("/api/mensajes/gupshup/resumen", requiereLogin, permiso("conectar_canales_mensajes"), ruta(() => {
-    const desde = new Date(Date.now() - 7 * 86400000).toISOString();
-    const filtro = "FROM lead_eventos_externos WHERE proveedor = 'gupshup' AND recibido_en >= ?";
-    const por_tipo = bandeja.sqlite.prepare(`SELECT tipo, count(*) AS eventos ${filtro} GROUP BY tipo ORDER BY tipo`).all(desde);
-    const totales = bandeja.sqlite.prepare(`SELECT min(recibido_en) AS primera, max(recibido_en) AS ultima,
-      coalesce(sum(CASE WHEN procesado_en IS NULL THEN 1 ELSE 0 END), 0) AS sin_procesar,
-      coalesce(sum(length(payload_json)), 0) AS bytes ${filtro}`).get(desde);
-    return { desde, por_tipo, ...totales };
+  app.get('/api/mensajes/gupshup/resumen', requiereLogin, permiso('conectar_canales_mensajes'),
+    ruta(() => resumenGupshup(bandeja.sqlite)));
+
+  function canales() {
+    return bandeja.sqlite.prepare(`SELECT id, canal, proveedor, identificador_externo, nombre,
+      sucursal_responsable_id AS sucursal_id, activa FROM lead_fuentes ORDER BY id`).all();
+  }
+  app.get('/api/mensajes/canales', requiereLogin, permiso('conectar_canales_mensajes'), ruta(req => {
+    const { alcance } = quien(req);
+    return canales().filter(c => alcance.verTodas || Number(c.sucursal_id) === Number(alcance.sucursalId));
+  }));
+  app.post('/api/mensajes/canales', requiereLogin, permiso('conectar_canales_mensajes'), ruta((req, res) => {
+    const datos = req.body || {};
+    const sucursal = Number(datos.sucursal_id);
+    const invalido = () => Object.assign(new Error('Datos de canal no válidos.'), { status: 400 });
+    const textoValido = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 200;
+    if (datos.proveedor !== 'gupshup' || !textoValido(datos.identificador_externo) || !textoValido(datos.nombre)) throw invalido();
+    if (!Number.isSafeInteger(sucursal) || sucursal <= 0 || !(DB.pos.sucursales || []).some(s => Number(s.id) === sucursal)) throw invalido();
+    const { alcance } = quien(req);
+    if (!alcance.verTodas && sucursal !== Number(alcance.sucursalId)) {
+      throw Object.assign(new Error('Sin permiso para conectar canales de esa sucursal.'), { status: 403 });
+    }
+    const identificador = datos.identificador_externo.trim();
+    const previo = canales().find(c => c.proveedor === 'gupshup' && c.identificador_externo === identificador);
+    if (previo) {
+      if (Number(previo.sucursal_id) !== sucursal) {
+        throw Object.assign(new Error('El número ya está ligado a otra sucursal.'), { status: 409 });
+      }
+      return previo;
+    }
+    let nuevo;
+    try {
+      nuevo = bandeja.registrarCanal({ canal: 'whatsapp', proveedor: 'gupshup', identificador_externo: identificador,
+        nombre: datos.nombre.trim(), sucursal_id: sucursal });
+    } catch (e) {
+      if (e.name === 'ErrorDominioCentroLeads') throw invalido();
+      throw e;
+    }
+    res.status(201);
+    return canales().find(c => c.id === nuevo.id);
   }));
 
   app.get("/api/mensajes/conversaciones", requiereLogin, permiso("ver_bandeja"),
