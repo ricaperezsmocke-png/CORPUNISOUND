@@ -341,3 +341,16 @@ test('perfil y contacto limitan nombres a 120 caracteres antes de crear cliente 
   assert.ok(f.sqlite.prepare('SELECT nombre_mostrado FROM lead_identidades_externas').all()
     .every(c => c.nombre_mostrado === 'A'.repeat(120)));
 });
+
+test('historial con un mensaje roto guarda los sanos; todo roto queda con error y no se marca procesado', async t => {
+  const f = preparar(t);
+  f.canal();
+  const mixto = f.crudo(historia([msg('sano'), msg('roto', { timestamp: 1775627842 }), msg('otro')]));
+  const todoRoto = f.crudo(historia([msg('malo', { id: 7 })]));
+  assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 1, errores: 1, sin_canal: 0 });
+  assert.equal(f.fila(mixto).procesado_en, FECHA);
+  assert.equal(f.fila(mixto).error_procesamiento, null);
+  assert.deepEqual(f.mensajes().map(m => f.fila(m.evento_externo_id).identificador_evento_externo), ['wamid:sano', 'wamid:otro']);
+  assert.equal(f.fila(todoRoto).procesado_en, null);
+  assert.equal(f.fila(todoRoto).error_procesamiento, 'forma_desconocida');
+});

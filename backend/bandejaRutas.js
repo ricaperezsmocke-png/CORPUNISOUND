@@ -2,6 +2,16 @@ const { crearResponsables } = require("./bandeja/responsable");
 const { crearConsultasBandeja } = require("./bandeja/consultas");
 const { CANALES } = require("./bandeja/mensajes");
 const { resumenGupshup } = require('./bandeja/gupshupResumen');
+const { FILTRO_CRUDOS } = require('./bandeja/gupshupProcesador');
+
+// Reprocesar es seguro: la escritura es idempotente por wamid. json_invalido no se reintenta: el texto no va a cambiar.
+function reintentarGupshup(sqlite) {
+  const { changes } = sqlite.prepare(`UPDATE lead_eventos_externos SET error_procesamiento = NULL
+    WHERE ${FILTRO_CRUDOS} AND procesado_en IS NULL
+      AND error_procesamiento IN ('forma_desconocida', 'fecha_invalida', 'error_interno')`).run();
+  return { reintentados: changes };
+}
+const prohibido = mensaje => Object.assign(new Error(mensaje), { status: 403 });
 
 /**
  * Rutas de la bandeja de clientes (spec 2026-10-18). Alcance de tienda siempre del token; fuera de alcance → 404.
@@ -42,6 +52,15 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
   app.get('/api/mensajes/gupshup/resumen', requiereLogin, permiso('conectar_canales_mensajes'),
     ruta(() => resumenGupshup(bandeja.sqlite)));
 
+  // Conectar, apagar y reintentar canales es de alcance global (del token, nunca del encabezado), aunque sea la tienda
+  // propia: un gerente podría ligar primero a su sucursal un número ajeno.
+  const exigirGlobal = (req, mensaje) => { if (!quien(req).alcance.verTodas) throw prohibido(mensaje); };
+
+  app.post('/api/mensajes/gupshup/reintentar', requiereLogin, permiso('conectar_canales_mensajes'), ruta(req => {
+    exigirGlobal(req, 'Solo quien ve todas las sucursales puede reintentar.');
+    return reintentarGupshup(bandeja.sqlite);
+  }));
+
   function canales() {
     return bandeja.sqlite.prepare(`SELECT id, canal, proveedor, identificador_externo, nombre,
       sucursal_responsable_id AS sucursal_id, activa FROM lead_fuentes ORDER BY id`).all();
@@ -57,10 +76,7 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
     const textoValido = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 200;
     if (datos.proveedor !== 'gupshup' || !textoValido(datos.identificador_externo) || !textoValido(datos.nombre)) throw invalido();
     if (!Number.isSafeInteger(sucursal) || sucursal <= 0 || !(DB.pos.sucursales || []).some(s => Number(s.id) === sucursal)) throw invalido();
-    const { alcance } = quien(req);
-    if (!alcance.verTodas && sucursal !== Number(alcance.sucursalId)) {
-      throw Object.assign(new Error('Sin permiso para conectar canales de esa sucursal.'), { status: 403 });
-    }
+    exigirGlobal(req, 'Solo quien ve todas las sucursales puede conectar canales.');
     const identificador = datos.identificador_externo.trim();
     const previo = canales().find(c => c.proveedor === 'gupshup' && c.identificador_externo === identificador);
     if (previo) {
@@ -79,6 +95,15 @@ function registrarRutasBandeja(app, { DB, bandeja, disponible, requiereLogin, re
     }
     res.status(201);
     return canales().find(c => c.id === nuevo.id);
+  }));
+  // Solo apaga. Ligar el número a otra sucursal no existe a propósito.
+  app.post('/api/mensajes/canales/:id/desactivar', requiereLogin, permiso('conectar_canales_mensajes'), ruta(req => {
+    exigirGlobal(req, 'Solo quien ve todas las sucursales puede desactivar canales.');
+    const id = Number(req.params.id);
+    const canal = Number.isSafeInteger(id) && id > 0 ? canales().find(c => Number(c.id) === id) : null;
+    if (!canal) throw noEncontrado('Canal no encontrado.');
+    bandeja.sqlite.prepare('UPDATE lead_fuentes SET activa = 0 WHERE id = ?').run(id);
+    return canales().find(c => Number(c.id) === id);
   }));
 
   app.get("/api/mensajes/conversaciones", requiereLogin, permiso("ver_bandeja"),
