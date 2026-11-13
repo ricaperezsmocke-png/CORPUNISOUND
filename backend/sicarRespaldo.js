@@ -335,6 +335,11 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
       const sentencia = sqlite.prepare(`INSERT INTO ${PREFIJO}${c.tabla} (${campos.join(',')}) VALUES (${campos.map(() => '?').join(',')})`);
       sqlite.transaction(() => {
         for (const fila of filas) {
+          if (c.tabla === 'seguimiento_avisos' && fila) {
+            for (const campo of ['saldo_revision', 'fecha_revision']) {
+              if (!Object.hasOwn(fila, campo)) fila[campo] = null;
+            }
+          }
           if (c.tabla === 'sicar_compras_detalle' && fila && !Object.hasOwn(fila, 'factor_diezmilesimas')) {
             fila.factor_diezmilesimas = 10000;
           }

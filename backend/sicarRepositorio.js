@@ -479,6 +479,11 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    for (const columna of ['saldo_revision', 'fecha_revision']) {
+      if (!sqlite.pragma('table_info(seguimiento_avisos)').some(c => c.name === columna)) {
+        sqlite.exec(`ALTER TABLE seguimiento_avisos ADD COLUMN ${columna} TEXT`);
+      }
+    }
     if (!sqlite.pragma('table_info(sicar_compras_detalle)').some(c => c.name === 'factor_diezmilesimas')) {
       sqlite.exec('ALTER TABLE sicar_compras_detalle ADD COLUMN factor_diezmilesimas INTEGER NOT NULL DEFAULT 10000');
     }

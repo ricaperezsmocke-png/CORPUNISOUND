@@ -164,10 +164,15 @@ export function validarMotivo(motivo) {
   return limpio.length < 3 || limpio.length > 200 ? "El motivo debe tener de 3 a 200 caracteres." : null;
 }
 
-export function validarPosponer({ motivo, fecha }, hoy) {
+export function limitePosponer(hoy, dias) {
+  return new Date(Date.parse(`${hoy}T00:00:00Z`) + dias * 86400000).toISOString().slice(0, 10);
+}
+
+export function validarPosponer({ motivo, fecha }, hoy, dias = 30) {
   const malMotivo = validarMotivo(motivo);
   if (malMotivo) return malMotivo;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || "") || fecha <= hoy) return "Elige una fecha futura para posponer.";
+  if (fecha > limitePosponer(hoy, dias)) return `No se puede posponer más de ${dias} días.`;
   return null;
 }
 
@@ -180,6 +185,7 @@ export function botonIncorporar(tienda, permisos) {
 }
 
 const MOTIVOS = {
+  sin_movimiento_desde_revision: "Volvió solo: sin movimiento desde la revisión",
   recepcion_menor: "Llegaron menos piezas de las enviadas",
   recepcion_mayor: "Llegaron más piezas de las enviadas",
   venta_sin_existencia: "Venta sin existencia registrada",

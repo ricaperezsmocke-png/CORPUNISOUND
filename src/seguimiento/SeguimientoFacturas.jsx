@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import ModalConfirmar from "../ModalConfirmar.jsx";
-import { contadorDePeticiones, fechaRelativa } from "../sicar/cortesSicar.js";
+import { contadorDePeticiones } from "../sicar/cortesSicar.js";
 import {
   TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
-  totalFacturaTexto, valorConIvaTexto, notaRescate,
+  totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -27,6 +27,7 @@ const CAJA = "rounded-lg border border-slate-300 bg-white p-3";
 const BARRA = "flex h-3 w-48 overflow-hidden rounded bg-slate-100";
 const ETAPAS = [["", "Todas"], ["traslado", "Traslado"], ["margen_75", "Margen 75 %"], ["margen_50", "Margen 50 %"], ["liquidar", "Liquidar"]];
 const CONFIG = [
+  ["dias_revisado_caduca", "Días sin movimiento para volver a avisar"], ["dias_posponer_maximo", "Días máximos para posponer"],
   ["dias_traslado", "Días para aviso de traslado"], ["dias_margen_75", "Días para bajar precio (75 %)"],
   ["dias_margen_50", "Días para bajar precio (50 %)"], ["dias_liquidacion", "Días para liquidar a costo"],
   ["ganancia_75_porcentaje", "Ganancia conservada 1 (%)"], ["ganancia_50_porcentaje", "Ganancia conservada 2 (%)"],
@@ -84,14 +85,15 @@ function Leyenda({ factura }) {
   );
 }
 
-function GestionAviso({ aviso, onHecho }) {
+function GestionAviso({ aviso, diasPosponer, onHecho }) {
   const [modo, setModo] = useState(null);
   const [motivo, setMotivo] = useState("");
   const [fecha, setFecha] = useState("");
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const hoy = fechaHoraLocal(new Date().toISOString(), { soloFecha: true });
   const enviar = async () => {
-    const mal = modo === "pospuesto" ? validarPosponer({ motivo, fecha }, fechaRelativa(0)) : validarMotivo(motivo);
+    const mal = modo === "pospuesto" ? validarPosponer({ motivo, fecha }, hoy, diasPosponer) : validarMotivo(motivo);
     if (mal) { setError(mal); return; }
     setEnviando(true);
     try {
@@ -116,7 +118,8 @@ function GestionAviso({ aviso, onHecho }) {
       </label>
       {modo === "pospuesto" && (
         <label className={ETIQUETA}>Posponer hasta
-          <input type="date" className={CAMPO} value={fecha} min={fechaRelativa(-1)} onChange={(e) => setFecha(e.target.value)} />
+          <input type="date" className={CAMPO} value={fecha} min={limitePosponer(hoy, 1)}
+            max={limitePosponer(hoy, diasPosponer)} onChange={(e) => setFecha(e.target.value)} />
         </label>
       )}
       {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
@@ -180,9 +183,15 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const cargar = useCallback(async () => {
-    try { setDatos(await pedir(`/seguimiento-facturas/6/${comId}`)); setError(""); }
+    try {
+      const [detalle, config] = await Promise.all([
+        pedir(`/seguimiento-facturas/6/${comId}`),
+        puedeGestionar(permisos) ? pedir("/seguimiento-facturas/config") : Promise.resolve(null),
+      ]);
+      setDatos({ ...detalle, config: config?.valores }); setError("");
+    }
     catch (e) { setError(e.message); }
-  }, [comId]);
+  }, [comId, permisos]);
   useEffect(() => { cargar(); }, [cargar]);
   if (error) return <p role="alert" className={NOTA_ROJA}>{error}</p>;
   if (!datos) return <p className="text-sm text-slate-500">Cargando…</p>;
@@ -207,7 +216,8 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
         <div className={CAJA}>
           <p className="font-semibold">Aviso: {etiquetaEtapa(activo.etapa)} ({activo.estado}
             {activo.pospuesto_hasta ? ` hasta ${activo.pospuesto_hasta}` : ""})</p>
-          {puedeGestionar(permisos) && <GestionAviso aviso={activo} onHecho={() => { cargar(); onCambio(); }} />}
+          {puedeGestionar(permisos) && <GestionAviso aviso={activo} diasPosponer={datos.config.dias_posponer_maximo}
+            onHecho={() => { cargar(); onCambio(); }} />}
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">{renglones.map((r) => <Renglon key={r.renglon} r={r} nombres={nombres} />)}</div>
@@ -217,7 +227,7 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
           {avisos.flatMap((a) => a.historial.map((h, i) => (
             <p key={`${a.id}-${i}`} className="text-sm">
               {fechaHoraLocal(h.fecha)} · {etiquetaEtapa(a.etapa)} · {h.estado}
-              {h.motivo ? ` · ${h.motivo}` : ""} · {h.actor === "sistema" ? "Sistema" : `Usuario #${h.actor}`}
+              {h.motivo ? ` · ${textoMotivo(h.motivo)}` : ""} · {h.actor === "sistema" ? "Sistema" : `Usuario #${h.actor}`}
             </p>
           )))}
         </div>
@@ -399,6 +409,8 @@ function Configuracion() {
         {CONFIG.map(([clave, texto]) => (
           <label key={clave} className={ETIQUETA}>{texto} <span className="font-normal">(inicial {datos.iniciales[clave]})</span>
             <input type="number" step="1" className={CAMPO} value={valores[clave] ?? ""}
+              min={clave === "dias_revisado_caduca" || clave === "dias_posponer_maximo" ? 1 : undefined}
+              max={clave === "dias_revisado_caduca" || clave === "dias_posponer_maximo" ? 365 : undefined}
               onChange={(e) => setValores((v) => ({ ...v, [clave]: e.target.value }))} />
           </label>
         ))}

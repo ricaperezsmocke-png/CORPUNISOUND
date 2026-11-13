@@ -59,6 +59,40 @@ async function pedir(ruta, id = 983, { metodo = 'GET', cuerpo } = {}) {
   return { status: res.status, datos: texto.startsWith('{') || texto.startsWith('[') ? JSON.parse(texto) : texto };
 }
 
+test('posponer por HTTP: máximo 30 días; configurar 10 limita a 10', async () => {
+  const id = facturaEnAviso();
+  const posponer = dias => pedir(`/avisos/${id}`, 983, { metodo: 'POST', cuerpo: {
+    estado: 'pospuesto', motivo: 'Esperar venta', pospuesto_hasta: fechaLocal(Date.now() + dias * DIA),
+  } });
+  const rechazo = await posponer(31);
+  assert.equal(rechazo.status, 400);
+  assert.equal(rechazo.datos.error, 'No se puede posponer más de 30 días.');
+  assert.equal(sqlite.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'nuevo');
+  assert.equal((await posponer(30)).status, 200);
+  assert.equal((await pedir('/config', 983, { metodo: 'PUT', cuerpo: { dias_posponer_maximo: 10 } })).status, 200);
+  const configurable = await posponer(11);
+  assert.equal(configurable.status, 400);
+  assert.equal(configurable.datos.error, 'No se puede posponer más de 10 días.');
+  assert.equal((await posponer(10)).status, 200);
+});
+
+test('config de caducidad y posponer: iniciales, enteros 1–365 e historial', async () => {
+  const inicial = await pedir('/config');
+  assert.equal(inicial.datos.valores.dias_revisado_caduca, 15);
+  assert.equal(inicial.datos.valores.dias_posponer_maximo, 30);
+  for (const clave of ['dias_revisado_caduca', 'dias_posponer_maximo']) {
+    for (const valor of [0, 366, 1.5, '10', null]) {
+      assert.equal((await pedir('/config', 983, { metodo: 'PUT', cuerpo: { [clave]: valor } })).status, 400);
+    }
+    for (const valor of [1, 365]) {
+      const r = await pedir('/config', 983, { metodo: 'PUT', cuerpo: { [clave]: valor } });
+      assert.equal(r.status, 200);
+      assert.equal(r.datos.valores[clave], valor);
+      assert.equal(r.datos.historial[0].actor, '983');
+    }
+  }
+});
+
 /** CEDIS incorporada hace 60 días, compra de hace 50 días con 10 piezas a $10: queda en etapa de traslado. */
 function facturaEnAviso() {
   const corte = new Date(Date.now() - 60 * DIA).toISOString();
