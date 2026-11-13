@@ -88,11 +88,12 @@ function hilosDeHistorial(h) {
   const descartados = [];
   const base = 'history[].threads[]';
   const opciones = { base: `${base}.messages[]`, rutaCliente: `${base}.id` };
-  const mensajes = lista(h?.threads, 'history[].threads').flatMap(t => aislar(t, () => {
+  const mensaje = cliente => m => aislar(m, () => [normalizar(m, 'historial', cliente, opciones)], descartados);
+  const hilo = t => {
     const cliente = cadena(t?.id, `${base}.id`);
-    return lista(t.messages, `${base}.messages`)
-      .flatMap(m => aislar(m, () => [normalizar(m, 'historial', cliente, opciones)], descartados)).filter(Boolean);
-  }, descartados));
+    return lista(t.messages, `${base}.messages`).flatMap(mensaje(cliente)).filter(Boolean);
+  };
+  const mensajes = lista(h?.threads, 'history[].threads').flatMap(t => aislar(t, () => hilo(t), descartados));
   return { mensajes, descartados };
 }
 

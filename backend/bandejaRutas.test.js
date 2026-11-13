@@ -17,7 +17,8 @@ before(async () => {
   for (const [id, permisos, sucursal, vendedor] of [
     [981, ["ver_bandeja", "responder_mensajes"], 1, 1], [982, ["ver_bandeja", "responder_mensajes"], 1, 2],
     [983, TODOS, 1, null], [984, ["cambiar_estado_cliente", "marcar_cuenta_interna", "registrar_contacto_cliente"], 1, 1],
-    [985, ["ver_bandeja", "responder_mensajes"], 2, 3], [986, [...TODOS, "ver_todas_las_sucursales"], 1, null]]) {
+    [985, ["ver_bandeja", "responder_mensajes"], 2, 3], [986, [...TODOS, "ver_todas_las_sucursales"], 1, null],
+    [987, [...TODOS.filter(p => p !== "conectar_canales_mensajes"), "ver_todas_las_sucursales"], 1, null]]) {
     app.DB.admin.roles.push({ id, nombre: `Prueba ${id}`, permisos, modulos: ["crm"] });
     app.DB.admin.usuarios.push({ id, usuario: `bandeja${id}`, nombre: `Actor ${id}`, rol_id: id, sucursal_id: sucursal, activo: true,
       vendedor_id: vendedor });
@@ -102,11 +103,13 @@ test('canales exigen permiso propio y alcance del token; 400, 403, 409, 201 y 20
   assert.equal((await pedir('GET', 'canales', null)).status, 401);
   assert.equal((await pedir('POST', 'canales', 983, datosCanal(999999))).status, 400);
   assert.equal((await pedir('POST', 'canales?sucursal_id=2', 983, datosCanal('2'))).status, 403);
-  const nuevo = await pedir('POST', 'canales?sucursal_id=2', 983, datosCanal('1'));
+  // Alta solo con alcance global: un gerente no liga a su tienda un número ajeno, ni siquiera a la propia.
+  assert.equal((await pedir('POST', 'canales', 983, datosCanal('1'))).status, 403);
+  const nuevo = await pedir('POST', 'canales?sucursal_id=2', 986, datosCanal('1'));
   assert.equal(nuevo.status, 201);
   assert.equal(nuevo.datos.sucursal_id, 1);
   assert.equal(nuevo.datos.proveedor, 'gupshup');
-  const repetido = await pedir('POST', 'canales', 983, datosCanal(1));
+  const repetido = await pedir('POST', 'canales', 986, datosCanal(1));
   assert.equal(repetido.status, 200);
   assert.equal(repetido.datos.id, nuevo.datos.id);
   assert.equal((await pedir('POST', 'canales', 986, datosCanal(2))).status, 409);
@@ -124,7 +127,7 @@ test('resumen cuenta crudos, errores seguros, sin canal, origen y claves de medi
   const { crearProcesadorGupshup } = require('./bandeja/gupshupProcesador');
   const ctx = crearContextoBandeja({ sqlite, DB: app.DB });
   const procesador = crearProcesadorGupshup({ sqlite, DB: app.DB, ctx, guardar: () => {}, mantenimiento: { estaActivo: () => false } });
-  await pedir('POST', 'canales', 983, datosCanal());
+  await pedir('POST', 'canales', 986, datosCanal());
   const insertar = sqlite.prepare(`INSERT INTO lead_eventos_externos
     (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json, error_procesamiento) VALUES ('gupshup', ?, ?, ?, ?, ?)`);
   const fecha = new Date().toISOString();
@@ -269,4 +272,39 @@ test("la pantalla Clientes deja rastro: estado viejo y edición de responsable",
   const historial = (await pedir("GET", "clientes/11/historial", 983)).datos;
   assert.equal(historial.responsables[0].vendedor_nombre, "Luis");
   assert.equal(historial.responsables[0].motivo, "Cambio en la ficha del cliente");
+});
+
+test('reintentar y desactivar exigen permiso propio y alcance global; reintento solo limpia errores de formato', async () => {
+  for (const id of [981, 987, 983]) {
+    assert.equal((await pedir('POST', 'gupshup/reintentar', id)).status, 403, `reintentar ${id}`);
+    assert.equal((await pedir('POST', 'canales/1/desactivar', id)).status, 403, `desactivar ${id}`);
+  }
+  assert.equal((await pedir('POST', 'canales', 987, datosCanal())).status, 403);
+  assert.equal((await pedir('POST', 'gupshup/reintentar', null)).status, 401);
+  assert.equal((await pedir('POST', 'canales/1/desactivar', null)).status, 401);
+  const insertar = sqlite.prepare(`INSERT INTO lead_eventos_externos
+    (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json, procesado_en, error_procesamiento) VALUES (?, ?, 'history', ?, '{}', ?, ?)`);
+  const fecha = new Date().toISOString();
+  const filas = [['gupshup', 'sha256:f', null, 'forma_desconocida'], ['gupshup', 'sha256:t', null, 'fecha_invalida'],
+    ['gupshup', 'sha256:i', null, 'error_interno'], ['gupshup', 'sha256:j', null, 'json_invalido'],
+    ['gupshup', 'sha256:p', fecha, 'forma_desconocida'], ['otro', 'sha256:o', null, 'forma_desconocida'],
+    ['gupshup', 'wamid:w', null, 'forma_desconocida']];
+  for (const [proveedor, clave, procesado, error] of filas) insertar.run(proveedor, clave, fecha, procesado, error);
+  const r = await pedir('POST', 'gupshup/reintentar', 986);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.datos, { reintentados: 3 });
+  const errores = Object.fromEntries(sqlite.prepare('SELECT identificador_evento_externo k, error_procesamiento e FROM lead_eventos_externos')
+    .all().map(f => [f.k, f.e]));
+  assert.deepEqual(errores, { 'sha256:f': null, 'sha256:t': null, 'sha256:i': null, 'sha256:j': 'json_invalido',
+    'sha256:p': 'forma_desconocida', 'sha256:o': 'forma_desconocida', 'wamid:w': 'forma_desconocida' });
+  const canal = (await pedir('POST', 'canales', 986, datosCanal())).datos;
+  assert.equal(canal.activa, 1);
+  assert.equal((await pedir('POST', `canales/${canal.id}/desactivar`, 983)).status, 403);
+  for (const ruta of ['canales/999999/desactivar', 'canales/abc/desactivar', 'canales/0/desactivar']) {
+    assert.equal((await pedir('POST', ruta, 986)).status, 404, ruta);
+  }
+  const apagado = await pedir('POST', `canales/${canal.id}/desactivar`, 986);
+  assert.equal(apagado.status, 200);
+  assert.equal(apagado.datos.activa, 0);
+  assert.equal(sqlite.prepare('SELECT activa FROM lead_fuentes WHERE id = ?').get(canal.id).activa, 0);
 });
