@@ -25,6 +25,12 @@ function fecha(timestamp) {
 }
 
 function texto(m) {
+  if (m.type === 'revoke') return '[Mensaje eliminado]';
+  if (m.type === 'edit') {
+    const nuevo = m.edit?.message;
+    const contenido = nuevo?.type === 'text' ? nuevo.text?.body : nuevo?.[nuevo?.type]?.caption;
+    return limpiarTexto('[Mensaje editado]' + (typeof contenido === 'string' ? ` ${contenido}` : ''));
+  }
   if (m.type === 'text') {
     if (typeof m.text?.body !== 'string') fallo();
     return limpiarTexto(m.text.body);
@@ -90,8 +96,12 @@ function traducir(field, v) {
 function extraerDeCrudo(payloadTexto) {
   let payload;
   try { payload = JSON.parse(payloadTexto); } catch { fallo('json_invalido'); }
+  return extraerDePayload(payload);
+}
+
+function extraerDePayload(payload) {
   const avisos = lista(payload?.entry).flatMap(e => lista(e?.changes).flatMap(c => traducir(cadena(c?.field), c.value)));
   return { avisos };
 }
 
-module.exports = { extraerDeCrudo, limpiarTexto };
+module.exports = { extraerDeCrudo, extraerDePayload, limpiarTexto };

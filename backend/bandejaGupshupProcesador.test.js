@@ -132,7 +132,7 @@ test('errores seguros no detienen el siguiente crudo ni se reintentan solos', as
   assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 0, errores: 0, sin_canal: 0 });
 });
 
-test('fallo interno revierte trozo, no filtra secretos y sigue con el siguiente crudo', async t => {
+test('fallo interno revierte trozo y no filtra secretos ni procesa el siguiente crudo', async t => {
   const f = preparar(t);
   f.canal();
   const original = f.ctx.registrarInteraccion;
@@ -142,11 +142,13 @@ test('fallo interno revierte trozo, no filtra secretos y sigue con el siguiente 
   };
   const id = f.crudo(vivo([msg('roto', { text: { body: 'romper' } })]));
   f.crudo(vivo([msg('sano')]));
+  const log = t.mock.method(console, 'error', () => {});
   assert.equal((await f.procesador.procesarPendientes()).errores, 1);
-  assert.equal(f.fila(id).error_procesamiento, 'error_interno');
-  assert.equal(f.mensajes().length, 1);
-  assert.equal(f.DB.crm.clientes.length, 2);
-  assert.equal(f.DB.crm.contactos_cliente.length, 1);
+  assert.equal(f.fila(id).error_procesamiento, null);
+  assert.deepEqual(log.mock.calls.map(c => c.arguments), [['Error desconocido']]);
+  assert.equal(f.mensajes().length, 0);
+  assert.equal(f.DB.crm.clientes.length, 1);
+  assert.equal(f.DB.crm.contactos_cliente.length, 0);
   assert.equal(f.sqlite.prepare("SELECT count(*) n FROM lead_eventos_externos WHERE identificador_evento_externo = 'wamid:roto'").get().n, 0);
 });
 
@@ -203,8 +205,10 @@ test('mantenimiento, limite de tiempo y concurrencia permiten reanudar sin dupli
   assert.equal(f.fila(id).procesado_en, FECHA);
 });
 
-test('5000 mensajes / 300 clientes: trozos menores a 200 ms y guardado en lote', async t => {
-  const f = preparar(t);
+test('5000 mensajes / 300 nuevos con 5000 clientes existentes: trozos menores a 200 ms', async t => {
+  const clientes = Array.from({ length: 5000 }, (_, n) => ({ id: n + 1, nombre: `Cliente ${n}`,
+    celular: `918${String(n).padStart(7, '0')}`, sucursal_id: 2 }));
+  const f = preparar(t, { clientes });
   f.canal();
   const threads = Array.from({ length: 300 }, (_, n) => ({ id: `52919${String(n).padStart(7, '0')}`, messages: [] }));
   for (let n = 0; n < 5000; n++) {
@@ -225,10 +229,115 @@ test('5000 mensajes / 300 clientes: trozos menores a 200 ms y guardado en lote',
   muestras.push(performance.now() - inicio);
   assert.equal(r.procesados, 1);
   assert.equal(f.mensajes().length, 5000);
-  assert.equal(f.DB.crm.clientes.length, 301);
+  assert.equal(f.DB.crm.clientes.length, 5301);
   assert.ok(guardadosPorTrozo.every(n => n <= 1));
   assert.equal(f.guardados.length, 25);
   const maximo = Math.max(...muestras);
   t.diagnostic(`Tramo sincronico maximo: ${maximo.toFixed(3)} ms (${muestras.length} tramos)`);
   assert.ok(maximo <= 200, `Tramo ${maximo.toFixed(3)} ms excede 200 ms`);
+});
+
+test('historial conocido, duplicados y contactos sin cambios no clonan la memoria', async t => {
+  const f = preparar(t);
+  f.canal();
+  f.crudo(historia([msg()]));
+  await f.procesador.procesarPendientes();
+  f.crudo(historia([msg('dos')]));
+  f.crudo(vivo());
+  f.crudo(contacto(null));
+  const clonar = t.mock.method(global, 'structuredClone');
+  assert.equal((await f.procesador.procesarPendientes()).procesados, 3);
+  assert.equal(clonar.mock.callCount(), 0);
+});
+
+test('fallo operativo revierte memoria, queda pendiente, detiene ciclo y registra solo nombre y codigo', async t => {
+  let fallar = true;
+  const f = preparar(t, { guardar: () => {
+    if (fallar) throw Object.assign(new Error('https://privado/SECRETO'), { code: 'EIO' });
+  } });
+  f.canal();
+  const previo = structuredClone(f.DB);
+  const id = f.crudo(vivo()), siguiente = f.crudo(vivo([msg('dos')]));
+  const log = t.mock.method(console, 'error', () => {});
+  assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 0, errores: 1, sin_canal: 0 });
+  assert.deepEqual(f.DB, previo);
+  assert.equal(f.mensajes().length, 0);
+  for (const n of [id, siguiente]) {
+    assert.equal(f.fila(n).procesado_en, null);
+    assert.equal(f.fila(n).error_procesamiento, null);
+  }
+  assert.deepEqual(log.mock.calls.map(c => c.arguments), [['Error EIO']]);
+  fallar = false;
+  assert.equal((await f.procesador.procesarPendientes()).procesados, 2);
+  assert.equal(f.mensajes().length, 2);
+});
+
+test('TypeError persistente se descarta al tercer ciclo y permite procesar el siguiente crudo', async t => {
+  const f = preparar(t);
+  f.canal();
+  const original = f.ctx.registrarInteraccion;
+  f.ctx.registrarInteraccion = datos => {
+    if (datos.texto === 'romper') throw new TypeError('Campo inesperado');
+    return original(datos);
+  };
+  const id = f.crudo(vivo([msg('roto', { text: { body: 'romper' } })]));
+  const siguiente = f.crudo(vivo([msg('sano')]));
+  const log = t.mock.method(console, 'error', () => {});
+  for (let ciclo = 1; ciclo <= 2; ciclo++) {
+    assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 0, errores: 1, sin_canal: 0 });
+    for (const n of [id, siguiente]) {
+      assert.equal(f.fila(n).procesado_en, null);
+      assert.equal(f.fila(n).error_procesamiento, null);
+    }
+    assert.equal(f.mensajes().length, 0);
+  }
+  assert.deepEqual(log.mock.calls.map(c => c.arguments), [['TypeError desconocido'], ['TypeError desconocido']]);
+  assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 1, errores: 1, sin_canal: 0 });
+  assert.equal(f.fila(id).error_procesamiento, 'error_interno');
+  assert.equal(f.fila(siguiente).procesado_en, FECHA);
+  assert.equal(f.fila(siguiente).error_procesamiento, null);
+  assert.equal(f.mensajes().length, 1);
+  assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 0, errores: 0, sin_canal: 0 });
+});
+
+test('TypeError transitorio permite completar el crudo sin error en el siguiente ciclo', async t => {
+  const f = preparar(t);
+  f.canal();
+  const original = f.ctx.registrarInteraccion;
+  let intentos = 0;
+  f.ctx.registrarInteraccion = datos => {
+    if (++intentos === 1) throw new TypeError('Campo inesperado');
+    return original(datos);
+  };
+  t.mock.method(console, 'error', () => {});
+  const id = f.crudo(vivo());
+  assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 0, errores: 1, sin_canal: 0 });
+  assert.equal(f.fila(id).procesado_en, null);
+  assert.equal(f.fila(id).error_procesamiento, null);
+  assert.deepEqual(await f.procesador.procesarPendientes(), { procesados: 1, errores: 0, sin_canal: 0 });
+  assert.equal(f.fila(id).procesado_en, FECHA);
+  assert.equal(f.fila(id).error_procesamiento, null);
+  assert.equal(f.mensajes().length, 1);
+});
+
+test('state_sync add sin nombre conserva el nombre mostrado', async t => {
+  const f = preparar(t);
+  f.canal();
+  f.crudo(contacto('Ana'));
+  f.crudo(contacto(null));
+  await f.procesador.procesarPendientes();
+  assert.equal(f.sqlite.prepare('SELECT nombre_mostrado FROM lead_identidades_externas').get().nombre_mostrado, 'Ana');
+});
+
+test('perfil y contacto limitan nombres a 120 caracteres antes de crear cliente e identidad', async t => {
+  const f = preparar(t);
+  f.canal();
+  const nombre = `  ${'A'.repeat(200)}  `;
+  f.crudo(aviso('messages', { messages: [msg()], contacts: [{ wa_id: NUMERO, profile: { name: nombre } }] }));
+  f.crudo(contacto(nombre, 'add', '529190000002'));
+  f.crudo(vivo([msg('dos', { from: '529190000002' })]));
+  await f.procesador.procesarPendientes();
+  assert.ok(f.DB.crm.clientes.slice(1).every(c => c.nombre === 'A'.repeat(120)));
+  assert.ok(f.sqlite.prepare('SELECT nombre_mostrado FROM lead_identidades_externas').all()
+    .every(c => c.nombre_mostrado === 'A'.repeat(120)));
 });

@@ -16,13 +16,31 @@ const claveIdentidad = numero => {
   return nacional ? `52${nacional}` : numero;
 };
 
-function buscarCliente(DB, telefono) {
+function indexarClientes(clientes) {
+  const porTelefono = new Map(), ambiguos = new Set(), porId = new Map();
+  for (const c of clientes || []) {
+    porId.set(Number(c.id), c);
+    if (!(Number(c.id) > 0)) continue;
+    const { numeros, ambiguo } = telefonos(c);
+    for (const numero of numeros) {
+      if (!porTelefono.has(numero)) porTelefono.set(numero, []);
+      porTelefono.get(numero).push(c);
+    }
+    if (!ambiguo) continue;
+    // telefonoWhatsApp produce diez dígitos: todas las ventanas preservan includes(), incluso entre campos mal capturados.
+    for (const valor of [c.telefono, c.celular]) {
+      const digitos = String(valor ?? '').replace(/\D/g, '');
+      for (let i = 0; i + 10 <= digitos.length; i++) ambiguos.add(digitos.slice(i, i + 10));
+    }
+  }
+  return { porTelefono, ambiguos, porId };
+}
+
+function buscarCliente(indice, telefono) {
   if (!telefono) return { cliente: null, crear: false };
-  const clientes = (DB.crm.clientes || []).filter(c => Number(c.id) > 0);
-  const encontrados = clientes.filter(c => telefonos(c).numeros.has(telefono));
+  const encontrados = indice.porTelefono.get(telefono) || [];
   if (encontrados.length === 1) return { cliente: encontrados[0], crear: false };
-  const posibles = clientes.some(c => telefonos(c).ambiguo
-    && [c.telefono, c.celular].some(v => String(v ?? '').replace(/\D/g, '').includes(telefono)));
+  const posibles = indice.ambiguos.has(telefono);
   return { cliente: null, crear: encontrados.length === 0 && !posibles };
 }
 
@@ -33,21 +51,23 @@ function crearEscritura({ sqlite, DB, repo, guardar, ctx, ahora }) {
   const hijoDe = sqlite.prepare(`SELECT e.id, e.tipo FROM lead_eventos_externos e
     WHERE e.proveedor = 'gupshup' AND e.identificador_evento_externo = ?`);
 
-  function prepararIdentidades(canal, mensajes) {
+  function prepararIdentidades(canal, mensajes, respaldar) {
     const identidades = new Map(), nuevos = [];
+    const indice = indexarClientes(DB.crm.clientes);
     for (const m of mensajes) {
       const clave = claveIdentidad(m.wa_id);
       if (identidades.has(clave) || hijoDe.get(`wamid:${m.wamid}`)) continue;
       const fila = identidadDe.get(clave);
       const telefono = telefonoWhatsApp(m.wa_id);
-      const cliente = fila?.cliente_id ? DB.crm.clientes.find(c => Number(c.id) === Number(fila.cliente_id)) : null;
-      const item = { clave, fila, telefono, cliente, nombre: m.nombre || fila?.nombre_mostrado || null };
+      const cliente = fila?.cliente_id ? indice.porId.get(Number(fila.cliente_id)) : null;
+      const nombre = String(m.nombre || fila?.nombre_mostrado || '').trim().slice(0, 120) || null;
+      const item = { clave, fila, telefono, cliente, nombre };
       identidades.set(clave, item);
       // Una identidad sin cliente pero con conversación ya quedó Por identificar: nunca se liga a escondidas.
       if (cliente || (fila && (fila.cliente_id || sqlite.prepare('SELECT id FROM lead_conversaciones WHERE identidad_externa_id = ?').get(fila.id)))) {
         continue;
       }
-      const resuelto = buscarCliente(DB, telefono);
+      const resuelto = buscarCliente(indice, telefono);
       item.cliente = resuelto.cliente;
       if (resuelto.crear) nuevos.push(item);
     }
@@ -57,7 +77,10 @@ function crearEscritura({ sqlite, DB, repo, guardar, ctx, ahora }) {
         celular: item.telefono, sucursal_id: canal.sucursal_responsable_id, origen: 'whatsapp' });
       return item.cliente;
     });
-    if (nuevos.length) crearNativoConVinculos(repo, DB, () => {}, crear);
+    if (nuevos.length) {
+      respaldar();
+      crearNativoConVinculos(repo, DB, () => {}, crear);
+    }
     return { identidades, nuevos: nuevos.length };
   }
 
@@ -86,7 +109,7 @@ function crearEscritura({ sqlite, DB, repo, guardar, ctx, ahora }) {
     return id;
   }
 
-  function insertar(canal, m, item, fecha) {
+  function insertar(canal, m, item, fecha, respaldar) {
     const previo = hijoDe.get(`wamid:${m.wamid}`);
     if (previo) {
       if (previo.tipo === 'media_placeholder' && !m.placeholder) {
@@ -108,32 +131,37 @@ function crearEscritura({ sqlite, DB, repo, guardar, ctx, ahora }) {
     ctx.registrarInteraccion({ conversacionId, leadId, eventoId, identidadId, direccion: m.direccion, texto: limpiarTexto(m.texto),
       ocurrido: m.ocurrido_en, tipo: TIPOS[m.origen] });
     if (m.origen === 'historial' || !item.cliente) return false;
+    respaldar();
     registrarContacto(DB, item.cliente.id, { tipo: 'whatsapp', resultado: `mensaje_${m.direccion}` });
     aplicarHechoNativo(DB, item.cliente.id, m.direccion, m.ocurrido_en);
     return true;
   }
 
   function mensajes(canal, lote) {
-    const previo = structuredClone(DB.crm);
-    const radarPrevio = structuredClone(DB.radar_demanda);
+    let respaldo;
+    const respaldar = () => {
+      if (!respaldo) respaldo = { crm: structuredClone(DB.crm), radar: structuredClone(DB.radar_demanda) };
+    };
     try {
       sqlite.transaction(() => {
         const fecha = ahora().toISOString();
-        const { identidades, nuevos } = prepararIdentidades(canal, lote);
+        const { identidades, nuevos } = prepararIdentidades(canal, lote, respaldar);
         let cambiado = nuevos > 0;
-        for (const m of lote) cambiado = insertar(canal, m, identidades.get(claveIdentidad(m.wa_id)), fecha) || cambiado;
+        for (const m of lote) cambiado = insertar(canal, m, identidades.get(claveIdentidad(m.wa_id)), fecha, respaldar) || cambiado;
         if (cambiado) guardar(DB);
       }).immediate();
     } catch (e) {
-      DB.crm = previo;
-      if (radarPrevio === undefined) delete DB.radar_demanda;
-      else DB.radar_demanda = radarPrevio;
+      if (respaldo) {
+        DB.crm = respaldo.crm;
+        if (respaldo.radar === undefined) delete DB.radar_demanda;
+        else DB.radar_demanda = respaldo.radar;
+      }
       throw e;
     }
   }
 
   function contactos(canal, lote) {
-    const previo = structuredClone(DB.crm);
+    let previo;
     try {
       sqlite.transaction(() => {
         let cambiado = false;
@@ -147,17 +175,21 @@ function crearEscritura({ sqlite, DB, repo, guardar, ctx, ahora }) {
             identidad({ clave, telefono, nombre, cliente: null }, canal, fecha);
             continue;
           }
-          sqlite.prepare('UPDATE lead_identidades_externas SET nombre_mostrado = ?, actualizada_en = ? WHERE id = ?')
+          sqlite.prepare('UPDATE lead_identidades_externas SET nombre_mostrado = coalesce(?, nombre_mostrado), actualizada_en = ? WHERE id = ?')
             .run(nombre, fecha, fila.id);
           const cliente = DB.crm.clientes.find(x => Number(x.id) > 0 && Number(x.id) === fila.cliente_id);
           if (nombre && telefono && cliente?.origen === 'whatsapp' && cliente.nombre === `WhatsApp ${telefono.slice(-4)}`) {
+            previo ??= structuredClone(DB.crm);
             cliente.nombre = nombre;
             cambiado = true;
           }
         }
         if (cambiado) guardar(DB);
       }).immediate();
-    } catch (e) { DB.crm = previo; throw e; }
+    } catch (e) {
+      if (previo) DB.crm = previo;
+      throw e;
+    }
   }
   return { mensajes, contactos };
 }
@@ -167,6 +199,7 @@ function crearProcesadorGupshup({ sqlite, DB, repo = null, guardar, ctx, manteni
   const escritura = crearEscritura({ sqlite, DB, repo, guardar, ctx, ahora });
   const contador = contadorPendientes(sqlite);
   let corriendo = false;
+  const fallasOperativas = new Map();
   const canalDe = numero => sqlite.prepare(`SELECT * FROM lead_fuentes
     WHERE proveedor = 'gupshup' AND canal = 'whatsapp' AND identificador_externo = ? AND activa = 1`).get(numero);
   function recalcularPendientes() {
@@ -207,12 +240,25 @@ function crearProcesadorGupshup({ sqlite, DB, repo = null, guardar, ctx, manteni
             }
             if (parar()) return resumen;
             sqlite.prepare('UPDATE lead_eventos_externos SET procesado_en = ? WHERE id = ?').run(ahora().toISOString(), crudo.id);
+            fallasOperativas.delete(crudo.id);
             resumen.procesados++;
           }
         } catch (e) {
-          sqlite.prepare('UPDATE lead_eventos_externos SET error_procesamiento = ? WHERE id = ?')
-            .run(CODIGOS.has(e.codigo) ? e.codigo : 'error_interno', crudo.id);
           resumen.errores++;
+          if (!CODIGOS.has(e.codigo)) {
+            const seguro = valor => typeof valor === 'string' && /^[A-Za-z0-9_]{1,80}$/.test(valor) ? valor : 'desconocido';
+            console.error(`${seguro(e.name)} ${seguro(e.code)}`);
+            const fallas = (fallasOperativas.get(crudo.id) || 0) + 1;
+            if (fallas < 3) {
+              fallasOperativas.set(crudo.id, fallas);
+              return resumen;
+            }
+            fallasOperativas.delete(crudo.id);
+            sqlite.prepare('UPDATE lead_eventos_externos SET error_procesamiento = ? WHERE id = ?').run('error_interno', crudo.id);
+            await new Promise(setImmediate);
+            continue;
+          }
+          sqlite.prepare('UPDATE lead_eventos_externos SET error_procesamiento = ? WHERE id = ?').run(e.codigo, crudo.id);
         }
         await new Promise(setImmediate);
       }

@@ -1,4 +1,4 @@
-const { extraerDeCrudo } = require('./gupshupFormato');
+const { extraerDePayload } = require('./gupshupFormato');
 const { FILTRO_CRUDOS } = require('./gupshupProcesador');
 
 const MEDIOS = new Set(['image', 'video', 'audio', 'document', 'sticker']);
@@ -43,11 +43,16 @@ function resumenGupshup(sqlite, ahora = new Date()) {
   const canales = new Set(sqlite.prepare(`SELECT identificador_externo FROM lead_fuentes
     WHERE proveedor = 'gupshup' AND canal = 'whatsapp' AND activa = 1`).all().map(f => f.identificador_externo));
   const medios = { total: 0, con_url: 0, claves: [] }, claves = new Set();
+  const muestra = new Set(sqlite.prepare(`SELECT id ${filtro}
+    AND (instr(',' || tipo || ',', ',messages,') > 0 OR instr(',' || tipo || ',', ',smb_message_echoes,') > 0
+      OR instr(',' || tipo || ',', ',history,') > 0)
+    ORDER BY recibido_en DESC, id DESC LIMIT 200`).all(desde).map(f => f.id));
   let pendientes_sin_canal = 0, historial_rechazado = 0;
-  for (const fila of sqlite.prepare(`SELECT payload_json, procesado_en, error_procesamiento ${filtro}`).iterate(desde)) {
-    try { diagnosticarMedios(JSON.parse(fila.payload_json), medios, claves); } catch { /* El crudo se conserva para diagnóstico. */ }
+  for (const fila of sqlite.prepare(`SELECT id, payload_json, procesado_en, error_procesamiento ${filtro}`).iterate(desde)) {
     try {
-      const { avisos } = extraerDeCrudo(fila.payload_json);
+      const payload = JSON.parse(fila.payload_json);
+      if (muestra.has(fila.id)) diagnosticarMedios(payload, medios, claves);
+      const { avisos } = extraerDePayload(payload);
       if (avisos.some(a => a.motivo === 'historial_rechazado')) historial_rechazado++;
       if (!fila.procesado_en && !fila.error_procesamiento && avisos.some(a => a.phoneNumberId && !canales.has(a.phoneNumberId))) {
         pendientes_sin_canal++;

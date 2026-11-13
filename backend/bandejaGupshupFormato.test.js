@@ -8,6 +8,18 @@ const crudo = (field, value) => JSON.stringify({ entry: [{ changes: [{ field,
   value: { metadata: { phone_number_id: 'tienda' }, ...value } }] }] });
 const extraer = (field, value) => extraerDeCrudo(crudo(field, value)).avisos;
 
+test('edit y revoke usan los campos documentados de coexistencia', () => {
+  const casos = [
+    ['edit', { message: { type: 'text', text: { body: 'Nuevo texto' } } }, '[Mensaje editado] Nuevo texto'],
+    ['edit', { message: { type: 'image', image: { caption: 'Nuevo pie' } } }, '[Mensaje editado] Nuevo pie'],
+    ['edit', { message: { type: 'image', image: {} } }, '[Mensaje editado]'],
+    ['revoke', { original_message_id: 'original' }, '[Mensaje eliminado]'],
+  ];
+  for (const [type, contenido, esperado] of casos) {
+    assert.equal(extraer('messages', { messages: [mensaje({ type, [type]: contenido })] })[0].mensajes[0].texto, esperado);
+  }
+});
+
 test('texto vivo conserva identidad, perfil y segundos Unix', () => {
   assert.deepEqual(extraer('messages', { messages: [mensaje()], contacts: [{ wa_id: cliente, profile: { name: 'Ana' } }] }), [{
     clase: 'mensajes', phoneNumberId: 'tienda', mensajes: [{ wamid: 'uno', wa_id: cliente, direccion: 'entrante', origen: 'vivo',

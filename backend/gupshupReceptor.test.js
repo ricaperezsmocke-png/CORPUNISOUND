@@ -10,6 +10,21 @@ const { registrarReceptorGupshup, tipoDeEvento, MAX_CUERPO, MAX_SERIALIZADO, MAX
 const TOKEN = 't'.repeat(40);
 const FECHA = '2026-11-11T12:00:00.000Z';
 const hash = cuerpo => 'sha256:' + createHash('sha256').update(cuerpo).digest('hex');
+
+test('contador conserva puntos Unicode y NUL sin materializar Array.from del cuerpo', async t => {
+  const { contadorPendientes } = require('./bandeja/gupshupPendientes');
+  const f = await preparar(t, { pendientes: () => 0 });
+  const original = Array.from;
+  t.mock.method(Array, 'from', function(valor, ...args) {
+    assert.notEqual(typeof valor, 'string', 'no materializar el cuerpo en un arreglo');
+    return original.call(this, valor, ...args);
+  });
+  for (const cuerpo of ['abc', 'México 🎸', 'antes\0despues']) {
+    assert.equal((await f.pedir(cuerpo)).status, 200);
+  }
+  const esperado = f.sqlite.prepare('SELECT sum(length(payload_json)) n FROM lead_eventos_externos').get().n;
+  assert.equal(contadorPendientes(f.sqlite).adicionales, esperado);
+});
 async function preparar(t, opciones = {}) {
   const sqlite = opciones.sqlite || new Database(':memory:');
   inicializarPersistenciaCentroLeads(sqlite);

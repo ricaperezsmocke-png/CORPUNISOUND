@@ -6,6 +6,21 @@ const MAX_SERIALIZADO = 1900000;
 const MAX_PENDIENTES = 209715200;
 const sha256 = valor => createHash('sha256').update(valor).digest();
 
+function longitudSqlite(texto) {
+  const nul = texto.indexOf('\0');
+  const fin = nul < 0 ? texto.length : nul;
+  let longitud = fin;
+  // Sin arreglo auxiliar; cada par sustituto representa un solo punto de código para SQLite.
+  for (let i = 0; i < fin; i++) {
+    const codigo = texto.charCodeAt(i);
+    if (codigo >= 0xd800 && codigo <= 0xdbff && i + 1 < fin) {
+      const siguiente = texto.charCodeAt(i + 1);
+      if (siguiente >= 0xdc00 && siguiente <= 0xdfff) { longitud--; i++; }
+    }
+  }
+  return longitud;
+}
+
 function tipoDeEvento(texto) {
   let evento;
   try { evento = JSON.parse(texto); } catch { return 'no_json'; }
@@ -91,7 +106,7 @@ function registrarReceptorGupshup(app, {
             ON CONFLICT(proveedor, identificador_evento_externo) DO NOTHING`)
             .run('sha256:' + sha256(cuerpo).toString('hex'), tipoDeEvento(texto), ahora().toISOString(), texto);
           // SQLite length(TEXT) cuenta puntos de código, no unidades UTF-16 ni bytes UTF-8.
-          if (contador && resultado.changes) contador.adicionales += Array.from(texto.split('\0')[0]).length;
+          if (contador && resultado.changes) contador.adicionales += longitudSqlite(texto);
           responder(200);
         } catch { fallo(); }
       });
