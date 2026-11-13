@@ -1,4 +1,4 @@
-const { extraerDeCrudo, extraerDePayload } = require('./gupshupFormato');
+const { extraerDeCrudo, extraerDePayload, esqueleto } = require('./gupshupFormato');
 const { FILTRO_CRUDOS } = require('./gupshupProcesador');
 
 const MEDIOS = new Set(['image', 'video', 'audio', 'document', 'sticker']);
@@ -27,9 +27,14 @@ function diagnosticarMedios(payload, medios, claves) {
 }
 
 // La ruta la arma gupshupFormato solo con nombres de campos fijos: nunca trae valores del crudo.
-function rutaDelFallo(payloadTexto) {
-  try { extraerDeCrudo(payloadTexto); } catch (e) { return typeof e.ruta === 'string' ? e.ruta : null; }
-  return null;
+function diagnosticoDelFallo(payloadTexto) {
+  try { extraerDeCrudo(payloadTexto); } catch (e) {
+    let forma = null;
+    // Forma del primer value del crudo: solo claves seguras y tipos, nunca valores.
+    try { forma = esqueleto(JSON.parse(payloadTexto)?.entry?.[0]?.changes?.[0]?.value); } catch { /* json roto: sin forma */ }
+    return { ruta: typeof e.ruta === 'string' ? e.ruta : null, forma };
+  }
+  return { ruta: null, forma: null };
 }
 
 function agruparDescartados(avisos, grupos) {
@@ -50,7 +55,7 @@ function resumenGupshup(sqlite, ahora = new Date()) {
     ${filtro}`).get(desde);
   const errores_recientes = sqlite.prepare(`SELECT id, error_procesamiento, recibido_en, payload_json ${filtro}
     AND error_procesamiento IS NOT NULL ORDER BY id DESC LIMIT 5`).all(desde).map(f => ({ id: f.id, recibido_en: f.recibido_en,
-    motivo: ERRORES.has(f.error_procesamiento) ? f.error_procesamiento : 'error_interno', ruta: rutaDelFallo(f.payload_json) }));
+    motivo: ERRORES.has(f.error_procesamiento) ? f.error_procesamiento : 'error_interno', ...diagnosticoDelFallo(f.payload_json) }));
   const interacciones_por_tipo = sqlite.prepare(`SELECT i.tipo, count(*) AS mensajes FROM lead_interacciones i
     JOIN lead_conversaciones c ON c.id = i.conversacion_id JOIN lead_fuentes f ON f.id = c.fuente_id
     WHERE f.proveedor = 'gupshup' GROUP BY i.tipo ORDER BY i.tipo`).all();

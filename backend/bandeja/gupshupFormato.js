@@ -152,4 +152,4 @@ function extraerDePayload(payload) {
   return { avisos };
 }
 
-module.exports = { extraerDeCrudo, extraerDePayload, limpiarTexto };
+module.exports = { extraerDeCrudo, extraerDePayload, limpiarTexto, esqueleto };
