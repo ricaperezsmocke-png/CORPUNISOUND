@@ -33,9 +33,10 @@ saldo completo parado. "Posponer" solo exige fecha futura, sin máximo (`servici
    que usa `servicio.js` para decidir avisos: `queda + transito`, en las unidades BigInt/texto que ya usa el módulo;
    no conviertas a float) y la fecha. Columna(s) nueva(s) en `seguimiento_avisos` (`backend/sicarRepositorio.js`),
    con migración idempotente al estilo de las que ya hay en ese archivo (revisa cómo agregan columnas las demás).
-   Avisos `revisado` anteriores a este cambio (sin saldo guardado): tratar la fecha de la revisión del historial
-   como inicio y el saldo actual como referencia en la primera vuelta — es decir, empiezan a contar desde el
-   despliegue, no reaparecen todos de golpe.
+   Avisos `revisado` anteriores a este cambio (sin saldo guardado): en la primera evaluación tras desplegar se les
+   guarda el saldo actual y la fecha de ESA evaluación como referencia. Los 15 días cuentan desde ahí, NO desde la
+   fecha de revisión del historial: aunque se haya revisado hace 60 días, no reaparece hasta 15 días después de
+   la primera evaluación (y solo si el saldo no bajó). Así no reaparecen todos de golpe.
 3. **Caducidad:** en el punto donde hoy se reevalúan los avisos (el que despierta posposiciones vencidas), un aviso
    `revisado` con `dias_revisado_caduca` días cumplidos y saldo actual **>=** saldo guardado vuelve a `nuevo`, con
    renglón en `seguimiento_avisos_historial` y motivo fijo `sin_movimiento_desde_revision` (sin usuario: lo hizo el
