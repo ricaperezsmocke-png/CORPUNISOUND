@@ -13,6 +13,18 @@ const factura = (extra = {}) => ({
   ...extra,
 });
 
+test('posponer limita 30 días y respeta el máximo configurado', () => {
+  const datos = fecha => ({ motivo: 'Esperando venta', fecha });
+  assert.equal(validarPosponer(datos('2027-01-30'), '2026-12-30'), 'No se puede posponer más de 30 días.');
+  assert.equal(validarPosponer(datos('2027-01-29'), '2026-12-30'), null);
+  assert.equal(validarPosponer(datos('2027-01-10'), '2026-12-30', 10), 'No se puede posponer más de 10 días.');
+  assert.equal(validarPosponer(datos('2027-01-09'), '2026-12-30', 10), null);
+});
+
+test('historial traduce la reapertura automática por falta de movimiento', () => {
+  assert.equal(textoMotivo('sin_movimiento_desde_revision'), 'Volvió solo: sin movimiento desde la revisión');
+});
+
 test("piezas y pesos se escriben sin perder precisión", () => {
   assert.equal(piezasTexto("360000"), "36");
   assert.equal(piezasTexto("15000"), "1.5");

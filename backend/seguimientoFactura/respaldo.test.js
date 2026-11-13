@@ -45,7 +45,8 @@ function sembrar(sqlite) {
     INSERT INTO seguimiento_foto_problemas VALUES (6, 'B', 'clave_repetida');
     INSERT INTO seguimiento_pendientes VALUES ('A', 'hoy');
     INSERT INTO seguimiento_resultado VALUES (6, '123456789012345678901234567890', 0, 'A', '{}', 1, 'hoy');
-    INSERT INTO seguimiento_avisos VALUES (1, 6, '123456789012345678901234567890', 'traslado', 'nuevo', NULL);
+    INSERT INTO seguimiento_avisos(id, sucursal_id, com_id, etapa, estado, pospuesto_hasta)
+      VALUES (1, 6, '123456789012345678901234567890', 'traslado', 'nuevo', NULL);
     INSERT INTO seguimiento_avisos_historial(aviso_id, estado, motivo, actor, fecha)
       VALUES (1, 'nuevo', 'Etapa', '9', 'hoy');
   `);
@@ -92,6 +93,44 @@ test('avisos rechaza estados ajenos al contrato y duplicados por factura y etapa
   const f = prepararDB(t);
   sembrar(f.sqlite);
   assert.throws(() => f.sqlite.exec("UPDATE seguimiento_avisos SET estado='vendido'"), /CHECK/);
-  assert.throws(() => f.sqlite.exec(`INSERT INTO seguimiento_avisos
+  assert.throws(() => f.sqlite.exec(`INSERT INTO seguimiento_avisos(id, sucursal_id, com_id, etapa, estado, pospuesto_hasta)
     VALUES (2, 6, '123456789012345678901234567890', 'traslado', 'nuevo', NULL)`), /UNIQUE/);
+});
+
+test('respaldo conserva saldo exacto y fecha de revisión sin cambiar versión', async t => {
+  const f = prepararDB(t), g = prepararDB(t);
+  sembrar(f.sqlite);
+  f.sqlite.prepare(`UPDATE seguimiento_avisos SET estado='revisado', saldo_revision=?, fecha_revision=?`)
+    .run('90071992547409930007', '2026-11-13T18:00:00.000Z');
+  const m = await respaldo.crearSnapshotSicar(f.repo, f.drive, { DB: {}, llave: LLAVE });
+  assert.equal(m.version, 1);
+  assert.equal(m.version_esquema, 2);
+  const p = await respaldo.prepararRestauracionSicar(g.repo, f.drive, m);
+  try {
+    p.aplicar();
+    assert.deepEqual(g.sqlite.prepare('SELECT * FROM seguimiento_avisos').all(), f.sqlite.prepare('SELECT * FROM seguimiento_avisos').all());
+  } finally { p.liberar(); }
+});
+
+test('restaurar copia anterior completa las referencias ausentes con null', async t => {
+  const f = prepararDB(t), g = prepararDB(t);
+  for (const campo of ['saldo_revision', 'fecha_revision']) {
+    if (f.sqlite.pragma('table_info(seguimiento_avisos)').some(c => c.name === campo)) {
+      f.sqlite.exec(`ALTER TABLE seguimiento_avisos DROP COLUMN ${campo}`);
+    }
+    if (!g.sqlite.pragma('table_info(seguimiento_avisos)').some(c => c.name === campo)) {
+      g.sqlite.exec(`ALTER TABLE seguimiento_avisos ADD COLUMN ${campo} TEXT`);
+    }
+  }
+  sembrar(f.sqlite);
+  f.sqlite.exec("UPDATE seguimiento_avisos SET estado='revisado'");
+  const m = await respaldo.crearSnapshotSicar(f.repo, f.drive, { DB: {}, llave: LLAVE });
+  const p = await respaldo.prepararRestauracionSicar(g.repo, f.drive, m);
+  try {
+    p.aplicar();
+    const aviso = g.sqlite.prepare('SELECT * FROM seguimiento_avisos').get();
+    assert.equal(aviso.estado, 'revisado');
+    assert.equal(aviso.saldo_revision, null);
+    assert.equal(aviso.fecha_revision, null);
+  } finally { p.liberar(); }
 });

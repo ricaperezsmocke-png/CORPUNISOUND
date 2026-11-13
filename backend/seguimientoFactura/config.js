@@ -1,5 +1,7 @@
 // La base guarda solo sobrescrituras; los valores iniciales no activan una generación nueva de respaldo.
 const VALORES_INICIALES = Object.freeze({
+  dias_revisado_caduca: 15,
+  dias_posponer_maximo: 30,
   dias_traslado: 45,
   dias_margen_75: 60,
   dias_margen_50: 90,

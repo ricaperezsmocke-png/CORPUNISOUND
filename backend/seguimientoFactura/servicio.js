@@ -28,6 +28,19 @@ function diasDesde(fechaCompra, ahora) {
   return Math.floor((Date.parse(`${fechaLocal(ahora)}T00:00:00Z`) - Date.parse(`${fechaCompra}T00:00:00Z`)) / DIA_MS);
 }
 
+function saldoFactura(sqlite, sucursalId, comId) {
+  return sqlite.prepare('SELECT datos_json FROM seguimiento_resultado WHERE sucursal_id=? AND com_id=?')
+    .all(sucursalId, comId).reduce((saldo, fila) => {
+      const datos = JSON.parse(fila.datos_json);
+      return saldo + BigInt(datos.queda) + BigInt(datos.transito);
+    }, 0n);
+}
+
+function guardarRevision(sqlite, aviso, saldo, ahora) {
+  sqlite.prepare('UPDATE seguimiento_avisos SET saldo_revision=?, fecha_revision=? WHERE id=?')
+    .run(String(saldo), ahora, aviso.id);
+}
+
 /**
  * Avisos de una factura según sus renglones guardados. Saldo = queda + tránsito (lo gris no genera avisos, §11.4).
  * Un aviso por etapa; al cambiar de etapa se retira el anterior. Sin resultados o sin saldo: se retiran todos.
@@ -96,13 +109,27 @@ function recalcularClave(sqlite, clave, config, ahora) {
   sqlite.prepare('DELETE FROM seguimiento_pendientes WHERE clave=?').run(clave);
 }
 
-/** Avisos pospuestos cuya fecha ya llegó (día local) vuelven a 'nuevo' con historial. */
+/** Reevalúa posposiciones y revisiones por día local, con historial de las reaperturas automáticas. */
 function vencerPosposiciones(sqlite, ahora = new Date().toISOString()) {
   const hoy = fechaLocal(ahora);
   return sqlite.transaction(() => {
     const vencidos = sqlite.prepare(`SELECT * FROM seguimiento_avisos WHERE estado='pospuesto'
       AND (pospuesto_hasta IS NULL OR pospuesto_hasta <= ?)`).all(hoy);
     for (const aviso of vencidos) cambiarEstado(sqlite, aviso, 'nuevo', 'posposicion_vencida', ahora);
+    const config = leerConfig(sqlite);
+    for (const aviso of sqlite.prepare("SELECT * FROM seguimiento_avisos WHERE estado='revisado'").all()) {
+      // Si el tramo quedó incompleto o falló, todavía no hay saldo actualizado para comparar esta factura.
+      const pendiente = sqlite.prepare(`SELECT 1 FROM seguimiento_resultado r
+        JOIN seguimiento_pendientes p ON p.clave=r.clave WHERE r.sucursal_id=? AND r.com_id=? LIMIT 1`)
+        .get(aviso.sucursal_id, aviso.com_id);
+      if (pendiente) continue;
+      const saldo = saldoFactura(sqlite, aviso.sucursal_id, aviso.com_id);
+      if (aviso.saldo_revision === null || aviso.fecha_revision === null || saldo < BigInt(aviso.saldo_revision)) {
+        guardarRevision(sqlite, aviso, saldo, ahora);
+      } else if (diasDesde(fechaLocal(aviso.fecha_revision), ahora) >= config.dias_revisado_caduca) {
+        cambiarEstado(sqlite, aviso, 'nuevo', 'sin_movimiento_desde_revision', ahora);
+      }
+    }
     return vencidos.length;
   }).immediate();
 }
@@ -113,7 +140,6 @@ function vencerPosposiciones(sqlite, ahora = new Date().toISOString()) {
  */
 function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOString(), presupuestoMs = Infinity } = {}) {
   const inicio = Date.now();
-  vencerPosposiciones(sqlite, ahora);
   const config = leerConfig(sqlite);
   const claves = sqlite.prepare('SELECT clave FROM seguimiento_pendientes ORDER BY desde, clave LIMIT ?')
     .all(limite).map(f => f.clave);
@@ -129,6 +155,7 @@ function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOStrin
       sqlite.prepare('UPDATE seguimiento_pendientes SET desde=? WHERE clave=?').run(ahora, clave);
     }
   }
+  vencerPosposiciones(sqlite, ahora);
   const quedan = sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n;
   return { procesadas, errores, quedan };
 }
@@ -151,4 +178,5 @@ function vueltaCompleta(sqlite, ahora = new Date().toISOString()) {
     ON CONFLICT(clave) DO NOTHING`).run(ahora, CEDIS, desdeDia).changes;
 }
 
-module.exports = { VERSION, artIdsDelLote, marcarPendientes, procesarPendientes, vueltaCompleta, vencerPosposiciones };
+module.exports = { VERSION, artIdsDelLote, marcarPendientes, procesarPendientes, vueltaCompleta, vencerPosposiciones,
+  saldoFactura, guardarRevision };

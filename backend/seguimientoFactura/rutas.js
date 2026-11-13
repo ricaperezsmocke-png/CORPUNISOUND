@@ -4,13 +4,14 @@
 const { fechaLocal } = require('../fechas');
 const { VALORES_INICIALES, leerConfig } = require('./config');
 const { incorporar } = require('./incorporar');
-const { vueltaCompleta, procesarPendientes } = require('./servicio');
+const { vueltaCompleta, procesarPendientes, saldoFactura, guardarRevision } = require('./servicio');
 const consultas = require('./consultas');
 
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
 // Rango permitido de cada valor configurable (enteros).
 const RANGOS = {
+  dias_revisado_caduca: [1, 365], dias_posponer_maximo: [1, 365],
   dias_traslado: [1, 3650], dias_margen_75: [1, 3650], dias_margen_50: [1, 3650], dias_liquidacion: [1, 3650],
   ganancia_75_porcentaje: [0, 100], ganancia_50_porcentaje: [0, 100], ganancia_liquidacion_porcentaje: [0, 100],
   semanas_ventas: [1, 52], semanas_informativas: [1, 52], multiplicador_destino: [1, 10], semanas_con_ventas: [1, 52],
@@ -36,6 +37,9 @@ function gestionarAviso(sqlite, id, cuerpo, actor, ahora = new Date().toISOStrin
     const valido = typeof pospuesto_hasta === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(pospuesto_hasta)
       && new Date(`${pospuesto_hasta}T00:00:00Z`).toISOString().slice(0, 10) === pospuesto_hasta;
     if (!valido || pospuesto_hasta <= hoy) throw error(400, 'Posponer requiere una fecha futura (AAAA-MM-DD).');
+    const maximo = leerConfig(sqlite).dias_posponer_maximo;
+    const limite = new Date(Date.parse(`${hoy}T00:00:00Z`) + maximo * 86400000).toISOString().slice(0, 10);
+    if (pospuesto_hasta > limite) throw error(400, `No se puede posponer más de ${maximo} días.`);
     hasta = pospuesto_hasta;
   }
   return sqlite.transaction(() => {
@@ -43,6 +47,7 @@ function gestionarAviso(sqlite, id, cuerpo, actor, ahora = new Date().toISOStrin
     if (!aviso) throw error(404, 'Aviso no encontrado.');
     if (aviso.estado === 'retirado') throw error(409, 'El aviso ya fue retirado por el sistema.');
     sqlite.prepare('UPDATE seguimiento_avisos SET estado=?, pospuesto_hasta=? WHERE id=?').run(estado, hasta, avisoId);
+    if (estado === 'revisado') guardarRevision(sqlite, aviso, saldoFactura(sqlite, aviso.sucursal_id, aviso.com_id), ahora);
     sqlite.prepare(`INSERT INTO seguimiento_avisos_historial(aviso_id, estado, motivo, actor, fecha) VALUES (?, ?, ?, ?, ?)`)
       .run(avisoId, estado, motivo, actor, ahora);
     return sqlite.prepare('SELECT * FROM seguimiento_avisos WHERE id=?').get(avisoId);

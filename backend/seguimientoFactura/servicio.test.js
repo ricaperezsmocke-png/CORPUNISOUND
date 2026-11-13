@@ -36,6 +36,105 @@ function ventaCedis(db, id, cantidad) {
 }
 
 const servicio = () => require('./servicio');
+
+const fechaRevision = '2026-11-13T18:00:00.000Z';
+const despues = dias => new Date(Date.parse(fechaRevision) + dias * 86400000).toISOString();
+
+function avisoRevisable(db, etapa = 'liquidar', queda = '90071992547409930000', transito = '7') {
+  db.prepare(`INSERT INTO seguimiento_resultado VALUES (6, 'REV', 0, 'REV', ?, 2, ?)`)
+    .run(JSON.stringify({ queda, transito, fecha_compra: '2026-01-01' }), fechaRevision);
+  return db.prepare(`INSERT INTO seguimiento_avisos(sucursal_id, com_id, etapa, estado)
+    VALUES (6, 'REV', ?, 'nuevo')`).run(etapa).lastInsertRowid;
+}
+
+function revisar(db, id) {
+  return require('./rutas').gestionarAviso(db, String(id), { estado: 'revisado', motivo: 'Verificado' }, '9', fechaRevision);
+}
+
+test('revisar guarda queda más tránsito exactos y fecha; migración de avisos es idempotente', t => {
+  const { db } = prepararDB(t);
+  const id = avisoRevisable(db);
+  const aviso = revisar(db, id);
+  assert.equal(aviso.saldo_revision, '90071992547409930007');
+  assert.equal(aviso.fecha_revision, fechaRevision);
+  crearRepositorioSicar(db);
+  assert.deepEqual(db.prepare('SELECT * FROM seguimiento_avisos WHERE id=?').get(id), aviso);
+});
+
+for (const etapa of ['traslado', 'margen_75', 'margen_50', 'liquidar']) {
+  test(`revisado en ${etapa}: día 14 sigue; día 15 vuelve con motivo y actor sistema`, t => {
+    const { db } = prepararDB(t);
+    const id = avisoRevisable(db, etapa);
+    revisar(db, id);
+    servicio().vencerPosposiciones(db, despues(14));
+    assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'revisado');
+    servicio().vencerPosposiciones(db, despues(15));
+    assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'nuevo');
+    const h = db.prepare('SELECT estado, motivo, actor, fecha FROM seguimiento_avisos_historial ORDER BY id DESC').get();
+    assert.deepEqual({ ...h }, { estado: 'nuevo', motivo: 'sin_movimiento_desde_revision', actor: 'sistema', fecha: despues(15) });
+    servicio().vencerPosposiciones(db, despues(16));
+    assert.equal(db.prepare('SELECT count(*) n FROM seguimiento_avisos_historial').get().n, 2);
+  });
+}
+
+test('saldo menor renueva referencia y plazo; 15 días después sin movimiento vuelve', t => {
+  const { db } = prepararDB(t);
+  revisar(db, avisoRevisable(db));
+  db.prepare('UPDATE seguimiento_resultado SET datos_json=?')
+    .run(JSON.stringify({ queda: '90071992547409930000', transito: '6' }));
+  servicio().vencerPosposiciones(db, despues(15));
+  const aviso = db.prepare('SELECT * FROM seguimiento_avisos').get();
+  assert.equal(aviso.estado, 'revisado');
+  assert.equal(aviso.saldo_revision, '90071992547409930006');
+  assert.equal(aviso.fecha_revision, despues(15));
+  servicio().vencerPosposiciones(db, despues(29));
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'revisado');
+  servicio().vencerPosposiciones(db, despues(30));
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'nuevo');
+});
+
+test('revisado antiguo inicia en primera evaluación, sin usar los 60 días del historial', t => {
+  const { db } = prepararDB(t);
+  const id = avisoRevisable(db);
+  db.exec("UPDATE seguimiento_avisos SET estado='revisado'");
+  db.prepare(`INSERT INTO seguimiento_avisos_historial(aviso_id, estado, motivo, actor, fecha)
+    VALUES (?, 'revisado', 'Visto', '9', ?)`).run(id, despues(-60));
+  servicio().vencerPosposiciones(db, fechaRevision);
+  const aviso = db.prepare('SELECT * FROM seguimiento_avisos').get();
+  assert.equal(aviso.estado, 'revisado');
+  assert.equal(aviso.fecha_revision, fechaRevision);
+  assert.equal(aviso.saldo_revision, '90071992547409930007');
+  servicio().vencerPosposiciones(db, despues(1));
+  servicio().vencerPosposiciones(db, despues(14));
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'revisado');
+  servicio().vencerPosposiciones(db, despues(15));
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'nuevo');
+});
+
+test('caducidad configurable y saldo mayor también reabre', t => {
+  const { db } = prepararDB(t);
+  revisar(db, avisoRevisable(db));
+  db.exec("INSERT INTO seguimiento_config(clave, valor) VALUES ('dias_revisado_caduca', '10')");
+  db.prepare('UPDATE seguimiento_resultado SET datos_json=?').run(JSON.stringify({ queda: '90071992547409930008', transito: '0' }));
+  servicio().vencerPosposiciones(db, despues(9));
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'revisado');
+  servicio().vencerPosposiciones(db, despues(10));
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'nuevo');
+});
+
+test('migración agrega columnas a una tabla de avisos anterior sin perder filas', t => {
+  const db = new Database(':memory:');
+  t.after(() => db.close());
+  db.exec(`CREATE TABLE seguimiento_avisos (id INTEGER PRIMARY KEY, sucursal_id INTEGER, com_id TEXT,
+    etapa TEXT, estado TEXT, pospuesto_hasta TEXT, UNIQUE(sucursal_id, com_id, etapa));
+    INSERT INTO seguimiento_avisos VALUES (1, 6, 'ANT', 'liquidar', 'revisado', NULL)`);
+  crearRepositorioSicar(db);
+  crearRepositorioSicar(db);
+  const aviso = db.prepare('SELECT * FROM seguimiento_avisos').get();
+  assert.equal(aviso.saldo_revision, null);
+  assert.equal(aviso.fecha_revision, null);
+  assert.equal(aviso.estado, 'revisado');
+});
 const pendientes = db => db.prepare('SELECT clave FROM seguimiento_pendientes ORDER BY clave').all().map(f => f.clave);
 const avisos = db => db.prepare('SELECT com_id, etapa, estado FROM seguimiento_avisos ORDER BY id').all()
   .map(a => ({ ...a }));
@@ -47,6 +146,46 @@ const resultado = db => db.prepare('SELECT com_id, renglon, clave, datos_json FR
 function procesar(db, ahora = DIA_50) {
   return servicio().procesarPendientes(db, { limite: 50, ahora });
 }
+
+test('al vencer, procesar usa la venta pendiente antes de comparar el saldo revisado', t => {
+  const { db } = prepararDB(t);
+  compra(db, 'C1');
+  const inicio = '2027-01-20T18:00:00.000Z', fin = '2027-02-04T18:00:00.000Z';
+  servicio().marcarPendientes(db, 6, ['art-6'], inicio);
+  procesar(db, inicio);
+  const id = db.prepare('SELECT id FROM seguimiento_avisos').get().id;
+  require('./rutas').gestionarAviso(db, id, { estado: 'revisado', motivo: 'Verificado' }, '9', inicio);
+  ventaCedis(db, 'v1', '1.0000');
+  servicio().marcarPendientes(db, 6, ['art-6'], fin);
+  assert.equal(procesar(db, fin).errores.length, 0);
+  const aviso = db.prepare('SELECT * FROM seguimiento_avisos').get();
+  assert.equal(aviso.estado, 'revisado');
+  assert.equal(aviso.saldo_revision, '90000');
+  assert.equal(aviso.fecha_revision, fin);
+  assert.equal(db.prepare("SELECT count(*) n FROM seguimiento_avisos_historial WHERE motivo='sin_movimiento_desde_revision'").get().n, 0);
+});
+
+test('un recálculo fallido no reabre con saldo viejo; al recuperarse renueva la referencia', t => {
+  const { db } = prepararDB(t);
+  compra(db, 'C1');
+  const inicio = '2027-01-20T18:00:00.000Z', fin = '2027-02-04T18:00:00.000Z';
+  servicio().marcarPendientes(db, 6, ['art-6'], inicio);
+  procesar(db, inicio);
+  const id = db.prepare('SELECT id FROM seguimiento_avisos').get().id;
+  require('./rutas').gestionarAviso(db, id, { estado: 'revisado', motivo: 'Verificado' }, '9', inicio);
+  ventaCedis(db, 'v1', '1.0000');
+  servicio().marcarPendientes(db, 6, ['art-6'], fin);
+  db.exec(`CREATE TRIGGER falla_revision BEFORE INSERT ON seguimiento_resultado
+    BEGIN SELECT RAISE(ABORT, 'fallo de prueba'); END`);
+  assert.equal(procesar(db, fin).errores.length, 1);
+  assert.equal(db.prepare('SELECT estado FROM seguimiento_avisos').get().estado, 'revisado');
+  db.exec('DROP TRIGGER falla_revision');
+  assert.equal(procesar(db, fin).errores.length, 0);
+  const aviso = db.prepare('SELECT * FROM seguimiento_avisos').get();
+  assert.equal(aviso.estado, 'revisado');
+  assert.equal(aviso.saldo_revision, '90000');
+  assert.equal(aviso.fecha_revision, fin);
+});
 
 function loteVenta(sequence, extra = {}) {
   return { schema_version: 1, mapping_version: 'ocosingo-f0-v1', batch_id: `lote-${sequence}`, sequence, clientes: [],
