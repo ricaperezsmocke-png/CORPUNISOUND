@@ -100,3 +100,51 @@ test('limpia controles y sustitucion sin perder saltos, limita y reemplaza vacio
 test('texto vacio se presenta con marcador sin rechazar el crudo', () => {
   assert.equal(extraer('messages', { messages: [mensaje({ text: { body: '' } })] })[0].mensajes[0].texto, '[Mensaje vacío]');
 });
+
+test('el fallo lleva la ruta del campo sin indices ni valores', () => {
+  const ruta = (field, value) => {
+    try { extraer(field, value); } catch (e) { return [e.codigo, e.ruta]; }
+    return null;
+  };
+  assert.deepEqual(ruta('messages', { messages: [mensaje(), mensaje({ id: 7 })] }), ['forma_desconocida', 'messages[].id']);
+  assert.deepEqual(ruta('messages', { messages: [mensaje({ timestamp: 'x' })] }), ['fecha_invalida', 'messages[].timestamp']);
+  assert.deepEqual(ruta('messages', { messages: [mensaje({ text: {} })] }), ['forma_desconocida', 'messages[].text.body']);
+  assert.deepEqual(ruta('smb_message_echoes', { message_echoes: [mensaje({ to: 5 })] }),
+    ['forma_desconocida', 'message_echoes[].to']);
+  assert.deepEqual(ruta('messages', { metadata: {}, messages: [] }), ['forma_desconocida', 'metadata.phone_number_id']);
+  assert.deepEqual(ruta('history', { history: [{ threads: {} }] }), ['forma_desconocida', 'history[].threads']);
+  assert.throws(() => extraerDeCrudo('{'), e => e.codigo === 'json_invalido' && e.ruta === null);
+});
+
+test('historial omite el mensaje o hilo roto y reporta su forma sin valores', () => {
+  const privado = '9191234567 TEXTO_PRIVADO';
+  const roto = { id: 'roto', from: 9191234567, timestamp: 1775627842, type: 'text', text: { body: { [privado]: privado } },
+    history_context: { status: 'read', '9191234567': privado } };
+  const avisos = extraer('history', { history: [{ threads: [
+    { id: cliente, messages: [mensaje(), roto, mensaje({ id: 'tres', timestamp: 'mal' })] },
+    { id: 5, messages: [mensaje()] },
+  ] }] });
+  assert.equal(avisos.length, 1);
+  assert.deepEqual(avisos[0].mensajes.map(m => m.wamid), ['uno']);
+  assert.deepEqual(avisos[0].descartados.map(d => [d.ruta, d.codigo]), [
+    ['history[].threads[].messages[].from', 'forma_desconocida'],
+    ['history[].threads[].messages[].timestamp', 'fecha_invalida'],
+    ['history[].threads[].id', 'forma_desconocida'],
+  ]);
+  assert.deepEqual(avisos[0].descartados[0].forma, { id: 'string', from: 'number', timestamp: 'number', type: 'string',
+    text: { body: { '?': '?' } }, history_context: { status: 'string', '?': '?' } });
+  assert.deepEqual(avisos[0].descartados[2].forma, { id: 'number', messages: 'array' });
+  assert.ok(!JSON.stringify(avisos[0].descartados).includes('9191234567'));
+  assert.ok(!JSON.stringify(avisos[0].descartados).includes('TEXTO_PRIVADO'));
+  const profundo = extraer('history', { history: [{ threads: [{ id: cliente, messages: [mensaje(),
+    mensaje({ id: 'p', timestamp: null, a: { b: { c: { d: 'x' } } } })] }] }] })[0].descartados[0].forma;
+  assert.deepEqual(profundo.a, { b: { c: 'object' } });
+});
+
+test('historial con todo descartado y nada valido es error del crudo con ruta', () => {
+  assert.throws(() => extraer('history', { history: [{ threads: [{ id: cliente, messages: [mensaje({ timestamp: 'x' })] }] }] }),
+    { codigo: 'fecha_invalida', ruta: 'history[].threads[].messages[].timestamp' });
+  assert.equal(extraer('history', { history: [{ threads: [{ id: cliente, messages: [mensaje({ type: 'reaction' })] }] }] })[0]
+    .mensajes.length, 0, 'solo reacciones no es error');
+  assert.throws(() => extraer('messages', { messages: [mensaje(), mensaje({ timestamp: 'x' })] }), { codigo: 'fecha_invalida' });
+});
