@@ -20,7 +20,7 @@ function esqueleto(valor, nivel = 1) {
 }
 
 function limpiarTexto(valor) {
-  return String(valor ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f�]/gu, '')
+  return String(valor ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\uFFFD]/gu, '')
     .slice(0, 4096).trim() || '[Mensaje vacío]';
 }
 
