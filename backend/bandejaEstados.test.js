@@ -13,6 +13,18 @@ function base(estado = null, extra = {}) {
 const cliente = DB => DB.crm.clientes.find(c => c.id === 5);
 const ISO = "2026-10-18T18:00:00.000Z";
 
+test('consulta usada por ciclo CRM excluye historial de la ultima entrada', t => {
+  const { prepararBandeja, canalWhatsApp, entrante } = require('./bandejaTestHelpers');
+  const { ultimasEntradas } = require('./bandeja/estados');
+  const { ctx, sqlite } = prepararBandeja(t);
+  const canal = canalWhatsApp(ctx);
+  const r = ctx.recibirEntrante(entrante(canal, { id_externo: '529191112233' }));
+  sqlite.prepare("UPDATE lead_interacciones SET tipo = 'mensaje_historial'").run();
+  assert.equal(ultimasEntradas(sqlite).get(r.cliente_id), undefined);
+  ctx.recibirEntrante(entrante(canal, { id_externo: '529191112233' }, 'nuevo', { ocurrido_en: '2026-01-01T00:00:00.000Z' }));
+  assert.equal(ultimasEntradas(sqlite).get(r.cliente_id), '2026-01-01T00:00:00.000Z');
+});
+
 test("mensaje saliente: sin estado pasa a contactado; un estado mayor no baja", () => {
   const DB = base();
   assert.equal(aplicarHechoNativo(DB, 5, "saliente", ISO).nuevo, "contactado");

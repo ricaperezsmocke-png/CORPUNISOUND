@@ -1,4 +1,5 @@
 const { createHash, timingSafeEqual } = require('node:crypto');
+const { contadorPendientes } = require('./gupshupPendientes');
 
 const MAX_CUERPO = 1572864;
 const MAX_SERIALIZADO = 1900000;
@@ -19,12 +20,13 @@ function tipoDeEvento(texto) {
 
 function registrarReceptorGupshup(app, {
   sqlite, disponible, mantenimiento, token, ahora = () => new Date(), avisar = m => console.warn(m),
-  maxPendientes = MAX_PENDIENTES, limitePorMinuto = 600,
+  maxPendientes = MAX_PENDIENTES, limitePorMinuto = 600, pendientes,
 }) {
   const habilitado = typeof token === 'string' && token.length >= 32;
   const secreto = habilitado ? sha256(token) : null;
   const rechazos = { 401: 0, 429: 0, 413: 0 };
   let minutoActual, peticiones = 0, ultimoAvisoTope;
+  const contador = pendientes && sqlite ? contadorPendientes(sqlite) : null;
 
   function atender(req, res) {
     const responder = codigo => {
@@ -72,9 +74,10 @@ function registrarReceptorGupshup(app, {
             return responder(413);
           }
           if (!disponible() || mantenimiento.estaActivo()) return responder(503);
-          const { pendientes } = sqlite.prepare(`SELECT coalesce(sum(length(payload_json)), 0) AS pendientes
-            FROM lead_eventos_externos WHERE proveedor = 'gupshup' AND procesado_en IS NULL`).get();
-          if (pendientes > maxPendientes) {
+          const totalPendientes = contador ? pendientes() + contador.adicionales
+            : sqlite.prepare(`SELECT coalesce(sum(length(payload_json)), 0) AS pendientes
+              FROM lead_eventos_externos WHERE proveedor = 'gupshup' AND procesado_en IS NULL`).get().pendientes;
+          if (totalPendientes > maxPendientes) {
             const minutoTope = Math.floor(ahora().getTime() / 60000);
             if (ultimoAvisoTope !== minutoTope) {
               ultimoAvisoTope = minutoTope;
@@ -82,11 +85,13 @@ function registrarReceptorGupshup(app, {
             }
             return responder(503);
           }
-          sqlite.prepare(`INSERT INTO lead_eventos_externos
+          const resultado = sqlite.prepare(`INSERT INTO lead_eventos_externos
             (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json)
             VALUES ('gupshup', ?, ?, ?, ?)
             ON CONFLICT(proveedor, identificador_evento_externo) DO NOTHING`)
             .run('sha256:' + sha256(cuerpo).toString('hex'), tipoDeEvento(texto), ahora().toISOString(), texto);
+          // SQLite length(TEXT) cuenta puntos de código, no unidades UTF-16 ni bytes UTF-8.
+          if (contador && resultado.changes) contador.adicionales += Array.from(texto.split('\0')[0]).length;
           responder(200);
         } catch { fallo(); }
       });

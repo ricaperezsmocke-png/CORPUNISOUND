@@ -124,4 +124,11 @@ function revisarEstadosAutomaticos({ DB, ahora = new Date().toISOString(), ultim
   return cambios;
 }
 
-module.exports = { DIAS_PARA_PERDIDO, anotarEstado, cambiarEstadoNativo, aplicarHechoNativo, revisarEstadosAutomaticos };
+function ultimasEntradas(sqlite) {
+  return new Map(sqlite.prepare(`SELECT i.cliente_id AS id, max(x.ocurrida_en) AS m FROM lead_interacciones x
+    JOIN lead_identidades_externas i ON i.id = x.identidad_externa_id
+    WHERE x.direccion = 'entrante' AND x.tipo <> 'mensaje_historial' AND i.cliente_id IS NOT NULL
+    GROUP BY i.cliente_id`).all().map(f => [Number(f.id), f.m]));
+}
+
+module.exports = { DIAS_PARA_PERDIDO, anotarEstado, cambiarEstadoNativo, aplicarHechoNativo, revisarEstadosAutomaticos, ultimasEntradas };

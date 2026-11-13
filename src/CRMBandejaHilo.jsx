@@ -83,9 +83,12 @@ export default function CRMBandejaHilo({ conversacionId, permisos = [], onCambio
     <ol className="max-h-96 space-y-2 overflow-y-auto">{conv.mensajes.map(m => <li key={m.id}
       className={`flex ${m.direccion === 'saliente' ? 'justify-end' : 'justify-start'}`}>
       <p className={`${BURBUJA} ${m.direccion === 'saliente' ? 'bg-blue-100' : 'bg-slate-100'}`}>{m.texto}
+        {m.tipo === 'mensaje_telefono' && <span className="block text-xs text-slate-500">Desde el teléfono de la tienda</span>}
+        {m.tipo === 'mensaje_historial' && <span className="block text-xs text-slate-500">historial</span>}
         <span className="block text-right text-[10px] text-slate-500">{new Date(m.ocurrida_en).toLocaleString('es-MX')}</span></p>
     </li>)}</ol>
-    {puede('responder_mensajes') && <form className="space-y-2" onSubmit={responder}>
+    {conv.proveedor === 'gupshup' ? <p className="text-sm text-slate-600">Por ahora contesta desde el teléfono de la tienda.</p>
+      : puede('responder_mensajes') && <form className="space-y-2" onSubmit={responder}>
       <textarea className={ENTRADA} aria-label="Respuesta" maxLength={4096} value={texto} disabled={ocupado}
         onChange={e => setTexto(e.target.value)} />
       <button className={BOTON} type="submit" disabled={ocupado || !texto.trim()}>Enviar</button>

@@ -47,7 +47,9 @@ export default function CRMBandeja({ permisos = [], onAbrirCliente }) {
             <span className="text-xs text-slate-500">{new Date(c.ultima_interaccion_en).toLocaleString('es-MX')}</span></span>
           <span className="block text-xs text-slate-600">{CANAL[c.canal] || c.canal} · {c.canal_nombre}
             {c.responsable_nombre ? ` · ${c.responsable_nombre}` : c.cliente_id ? ' · Sin responsable' : ' · Por identificar'}</span>
-          <span className="block truncate text-xs">{c.ultima_direccion === 'saliente' ? 'Tú: ' : ''}{c.ultimo_texto}</span>
+          <span className="block truncate text-xs">
+            {c.ultima_direccion === 'saliente' && !['mensaje_telefono', 'mensaje_historial'].includes(c.ultimo_tipo) ? 'Tú: ' : ''}
+            {c.ultimo_texto}</span>
         </button>
       </li>)}</ul>
     </div>

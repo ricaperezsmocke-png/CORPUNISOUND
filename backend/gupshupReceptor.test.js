@@ -129,6 +129,50 @@ test('pendientes sobre el tope responde 503 sin otra fila y avisa una vez por mi
   assert.ok(!JSON.stringify(f.avisos).includes('MARCADOR_PRIVADO'));
 });
 
+test('tope cacheado evita suma SQL y suma solo inserciones nuevas', async t => {
+  const f = await preparar(t, { pendientes: () => 0, maxPendientes: 3 });
+  const original = f.sqlite.prepare.bind(f.sqlite);
+  t.mock.method(f.sqlite, 'prepare', sql => {
+    if (/sum\(length\(payload_json\)\)/i.test(sql)) throw new Error('No debe sumar por peticion');
+    return original(sql);
+  });
+  assert.equal((await f.pedir('{}')).status, 200);
+  assert.equal((await f.pedir('{}')).status, 200, 'duplicado no suma');
+  assert.equal((await f.pedir('[]')).status, 200);
+  assert.equal((await f.pedir('siguiente')).status, 503);
+  assert.equal(f.filas().length, 2);
+});
+
+test('cache sobre tope rechaza sin sumar SQL', async t => {
+  const f = await preparar(t, { pendientes: () => MAX_PENDIENTES + 1 });
+  const original = f.sqlite.prepare.bind(f.sqlite);
+  t.mock.method(f.sqlite, 'prepare', sql => {
+    if (/sum\(length\(payload_json\)\)/i.test(sql)) throw new Error('No debe sumar');
+    return original(sql);
+  });
+  assert.equal((await f.pedir()).status, 503);
+  assert.equal(f.filas().length, 0);
+  assert.ok(f.avisos.some(m => m.includes('tope')), 'el rechazo viene del cache, no de un fallo SQL');
+});
+
+test('procesador recalcula el cache del receptor y libera capacidad', async t => {
+  const { crearProcesadorGupshup } = require('./bandeja/gupshupProcesador');
+  const { crearContextoBandeja } = require('./bandeja/mensajes');
+  let procesador;
+  const f = await preparar(t, { pendientes: () => procesador.pendientes(), maxPendientes: 3 });
+  const DB = { crm: { clientes: [], contactos_cliente: [], estados_historial: [] } };
+  const ctx = crearContextoBandeja({ sqlite: f.sqlite, DB });
+  procesador = crearProcesadorGupshup({ sqlite: f.sqlite, DB, ctx, guardar: () => {}, mantenimiento: { estaActivo: () => false } });
+  const cuerpo = JSON.stringify({ entry: [{ changes: [{ field: 'account_update', value: {} }] }] });
+  assert.equal((await f.pedir(cuerpo)).status, 200);
+  assert.equal((await f.pedir('siguiente')).status, 503);
+  assert.equal(procesador.recalcularPendientes(), cuerpo.length);
+  assert.equal((await f.pedir('siguiente')).status, 503, 'recalcular no pierde bytes pendientes');
+  await procesador.procesarPendientes();
+  assert.equal(procesador.pendientes(), 0);
+  assert.equal((await f.pedir(cuerpo + ' ')).status, 200);
+});
+
 test('mas de N peticiones por minuto responde 429 y se reinicia la ventana', async t => {
   let ahora = new Date(FECHA);
   const f = await preparar(t, { limitePorMinuto: 1, ahora: () => ahora });
