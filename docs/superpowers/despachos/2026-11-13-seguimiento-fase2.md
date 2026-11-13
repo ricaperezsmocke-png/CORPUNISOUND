@@ -96,7 +96,10 @@ nuevas: todo va dentro de `datos_json` del resultado), `sicarRespaldo.js`, `rend
 
 - Conservar el traspaso hasta el resultado exige cambiar la forma en que el motor reparte piezas (el FIFO no se toca).
 - Necesitas tabla/columna nueva, o tocar un archivo prohibido.
-- Una prueba existente cambia de expectativa por algo distinto a la versión del resultado (di cuál y por qué).
+- Una prueba existente cambia de expectativa por algo distinto a (a) la versión del resultado o (b) agregar las
+  claves nuevas (`dias_transito_alarma`, `movimientos_abiertos`, `traspasos_sin_entender`, `sin_entender`) a
+  comparaciones de objeto completo — esos dos casos están AUTORIZADOS (p. ej. `incorporar.test.js:22` con la
+  configuración inicial): actualízalas, lístalas en el reporte y sigue. Cualquier otro cambio de expectativa: detente.
 - El tamaño de `datos_json` crece de forma que afecte el respaldo (mide un renglón típico antes y después y repórtalo).
 
 ## Entrega
