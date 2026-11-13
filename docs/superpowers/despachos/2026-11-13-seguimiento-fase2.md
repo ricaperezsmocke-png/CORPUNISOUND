@@ -64,6 +64,15 @@ No puedes hacer `git add`/`commit` (tu sandbox no escribe en `.git`): deja los c
    ruta en `sicarRutas.js`), marcar como pendientes las claves de los artículos de los traspasos que tocan ese número
    SICAR (usa `marcarPendientes` del servicio; no recalcules dentro de la petición).
 
+### Regla para el dinero de lo "sin entender" (decidida 2026-11-13)
+
+Un traspaso sin entender NO se atribuye a ninguna factura ni por FIFO ni por estimación: el sistema no inventa
+importes. Se muestra **una sola vez** en la pestaña (no una fila por factura), con las facturas relacionadas (las
+que tienen saldo de esa clave) marcadas `sin_entender` y listadas en la fila. Su importe a costo de factura es
+"no calculable" (`centavos: null`). Como referencia se muestra aparte el valor que trae el propio traspaso de SICAR
+(precio × cantidad de su detalle, o su `total`), rotulado "Valor según SICAR", y ese es el que suma el total
+"dinero sin entender" y el aviso fijo. Nunca se mezcla con los totales de tránsito ni de por aclarar.
+
 ## Archivos autorizados
 
 `backend/seguimientoFactura/{motor,lector,servicio,consultas,rutas,config}.js` y sus `.test.js`
