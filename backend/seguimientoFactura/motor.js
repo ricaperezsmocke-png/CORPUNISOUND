@@ -44,11 +44,12 @@ function consumir(estado, sucursal, piezas) {
   return { partes, faltante: resta };
 }
 
-function aTramo(estado, partes, tramo, sucursal) {
+function aTramo(estado, partes, tramo, sucursal, movimiento) {
   for (const { indice, piezas } of partes) {
     if (indice === ANTERIOR) continue;
     const lote = estado.lotes[indice];
     lote[tramo] += piezas;
+    if (tramo === 'por_aclarar') lote.abiertos.push({ piezas, movimiento });
     if (tramo === 'vendido') {
       const s = lote.vendidoPorSucursal;
       s.set(sucursal, (s.get(sucursal) ?? 0n) + piezas);
@@ -70,7 +71,7 @@ function compra(estado, m) {
   estado.lotes.push({ lote: m.lote, comprado: m.piezas, valor_centavos: m.valor_centavos,
     valor_con_iva_centavos: m.valor_con_iva_centavos ?? null, vendido: 0n, transito: 0n,
     sin_agente: 0n, por_aclarar: 0n, motivos: m.por_aclarar ? [m.por_aclarar] : [], vendidoPorSucursal: new Map(),
-    recibidoPorSucursal: new Map() });
+    recibidoPorSucursal: new Map(), abiertos: [] });
   sumar(existencia(estado, m.sucursal_id), indice, m.piezas);
   anotarIncierto(estado, m.por_aclarar);
 }
@@ -86,7 +87,7 @@ function salida(estado, m) {
   if (dudosa) {
     anotarIncierto(estado, m.por_aclarar);
     marcarLotes(estado, partes, m.por_aclarar);
-    aTramo(estado, partes, 'por_aclarar');
+    aTramo(estado, partes, 'por_aclarar', undefined, m);
   } else if (m.sin_agente) {
     aTramo(estado, partes, 'sin_agente');
   } else {
@@ -94,7 +95,8 @@ function salida(estado, m) {
     aTramo(estado, partes, 'transito');
     const llave = llaveTraspaso(m.traspaso);
     const previo = estado.transitos.get(llave);
-    estado.transitos.set(llave, { destino: m.traspaso.destino, partes: [...(previo?.partes ?? []), ...partes] });
+    const enviadas = partes.map(p => ({ ...p, movimiento: m }));
+    estado.transitos.set(llave, { destino: m.traspaso.destino, partes: [...(previo?.partes ?? []), ...enviadas] });
   }
 }
 
@@ -135,12 +137,14 @@ function recepcion(estado, m) {
       lote.recibidoPorSucursal.set(m.sucursal_id, (lote.recibidoPorSucursal.get(m.sucursal_id) ?? 0n) + llega);
     }
     sumarEn(estado, m.sucursal_id, parte.indice, llega);
-    if (parte.piezas > llega) sobrantes.push({ indice: parte.indice, piezas: parte.piezas - llega });
+    if (parte.piezas > llega) sobrantes.push({ ...parte, piezas: parte.piezas - llega });
   }
   if (sobrantes.length) {
     anotarIncierto(estado, 'recepcion_menor');
     marcarLotes(estado, sobrantes, 'recepcion_menor');
-    aTramo(estado, sobrantes, 'por_aclarar');
+    for (const parte of sobrantes) {
+      aTramo(estado, [parte], 'por_aclarar', undefined, { ...parte.movimiento, por_aclarar: 'recepcion_menor' });
+    }
   }
   if (resta > 0n) {
     anotarIncierto(estado, 'recepcion_mayor');
@@ -157,7 +161,7 @@ function venta(estado, m) {
   if (m.por_aclarar) {
     anotarIncierto(estado, m.por_aclarar);
     marcarLotes(estado, partes, m.por_aclarar);
-    aTramo(estado, partes, 'por_aclarar');
+    aTramo(estado, partes, 'por_aclarar', undefined, m);
   } else {
     aTramo(estado, partes, 'vendido', m.sucursal_id);
   }
@@ -177,6 +181,43 @@ function repartir(valor, comprado, piezas) {
   return Object.fromEntries(TRAMOS.map(t => [t, String(dinero[t])]));
 }
 
+/** Conserva procedencia sin intervenir en consumir, en las recepciones ni en el reparto de tramos. */
+function movimientosAbiertos(estado, indice, dinero, conIva) {
+  const grupos = new Map();
+  const agregar = (tramo, { piezas, movimiento: m }) => {
+    const t = m?.traspaso;
+    const datos = { tramo, motivo: tramo === 'transito' ? null : m?.por_aclarar ?? null,
+      folio: t?.folio ?? null, fecha_envio: m?.fecha_envio ?? m?.fecha ?? null,
+      origen: t?.origen ?? m?.sucursal_id ?? null, destino: t?.destino ?? null,
+      sicar_origen: t?.suc_origen ?? null, sicar_destino: t?.suc_destino ?? null };
+    const llave = JSON.stringify(datos), previo = grupos.get(llave);
+    grupos.set(llave, { ...datos, piezas: String(BigInt(previo?.piezas ?? '0') + piezas) });
+  };
+  for (const p of estado.lotes[indice].abiertos) agregar('por_aclarar', p);
+  for (const t of estado.transitos.values()) {
+    for (const p of t.partes) if (p.indice === indice) agregar('transito', p);
+  }
+  const resultado = [...grupos.values()];
+  for (const tramo of ['transito', 'por_aclarar']) {
+    const filas = resultado.filter(m => m.tramo === tramo);
+    const total = filas.reduce((s, m) => s + BigInt(m.piezas), 0n);
+    for (const [campo, valores] of [['centavos', dinero], ['centavos_con_iva', conIva]]) {
+      let usado = 0n;
+      for (const m of filas) {
+        const valor = valores ? BigInt(valores[tramo]) * BigInt(m.piezas) / total : null;
+        m[campo] = valor === null ? null : String(valor);
+        usado += valor ?? 0n;
+      }
+      // Reparte únicamente los centavos del tramo ya calculado; nunca cambia ese total.
+      if (valores) for (let i = 0; usado < BigInt(valores[tramo]); i++, usado++) {
+        const m = filas[i % filas.length];
+        m[campo] = String(BigInt(m[campo]) + 1n);
+      }
+    }
+  }
+  return resultado;
+}
+
 function resultadoLote(estado, indice) {
   const l = estado.lotes[indice], quedaPorSucursal = new Map();
   for (const [sucursal, mapa] of estado.existencias) {
@@ -188,11 +229,13 @@ function resultadoLote(estado, indice) {
   const queda = [...quedaPorSucursal.values()].reduce((a, v) => a + v, 0n);
   const piezas = { vendido: l.vendido, queda, transito: l.transito, gris: l.sin_agente, por_aclarar: l.por_aclarar };
   const dinero = repartir(l.valor_centavos, l.comprado, piezas), con = l.valor_con_iva_centavos > 0n ? l.valor_con_iva_centavos : null;
+  const dineroConIva = dinero && con !== null ? repartir(con, l.comprado, piezas) : null;
   return { lote: l.lote, comprado: String(l.comprado), valor_centavos: String(l.valor_centavos), vendido: String(l.vendido),
     queda: String(queda), por_sucursal, transito: String(l.transito), sin_agente: String(l.sin_agente),
     por_aclarar: String(l.por_aclarar), motivos: [...l.motivos], dinero,
+    movimientos_abiertos: movimientosAbiertos(estado, indice, dinero, dineroConIva),
     // Mismo reparto sobre el valor con IVA. Sin dinero sin IVA, o con IVA en cero o ausente, no hay con IVA.
-    valor_con_iva_centavos: con === null ? null : String(con), dinero_con_iva: dinero && con !== null ? repartir(con, l.comprado, piezas) : null };
+    valor_con_iva_centavos: con === null ? null : String(con), dinero_con_iva: dineroConIva };
 }
 
 function fallar(estado, sucursal_id, motivo) {

@@ -33,6 +33,39 @@ function conserva(r) {
 }
 const lote = (r, id) => r.lotes.find(l => l.lote.com_id === id);
 
+test('abiertos: envío 20 recepción 18 conserva procedencia y cuadre exacto', () => {
+  const r = conserva(calcular([compra('A', 20, 20001, { valor_con_iva_centavos: 23201n }),
+    salida(6, 1, 20, { fecha: '2026-11-01', folio: 'PARCIAL' }), recepcion(6, 1, 18, { folio: 'PARCIAL' })]));
+  const a = lote(r, 'A');
+  assert.deepEqual(a.movimientos_abiertos, [{ tramo: 'por_aclarar', motivo: 'recepcion_menor', folio: 'PARCIAL',
+    fecha_envio: '2026-11-01', origen: 6, destino: 1, sicar_origen: 's6', sicar_destino: 's1',
+    piezas: T(2), centavos: a.dinero.por_aclarar, centavos_con_iva: a.dinero_con_iva.por_aclarar }]);
+});
+
+test('abiertos: tránsito entre tiendas conserva factura CEDIS y fecha del segundo envío', () => {
+  const r = conserva(calcular([compra('A', 5, 501), salida(6, 1, 5), recepcion(6, 1, 5),
+    salida(1, 2, 3, { fecha: '2026-11-05', folio: 'TIENDAS' })]));
+  const a = lote(r, 'A'), [m] = a.movimientos_abiertos;
+  assert.equal(a.lote.sucursal_id, 6);
+  assert.equal(m.folio, 'TIENDAS');
+  assert.equal(m.fecha_envio, '2026-11-05');
+  assert.equal(m.origen, 1);
+  assert.equal(m.destino, 2);
+  assert.equal(m.piezas, a.transito);
+  assert.equal(m.centavos, a.dinero.transito);
+});
+
+test('abiertos: varios grupos cuadran al centavo y venta incierta no inventa folio', () => {
+  const a = lote(conserva(calcular([compra('A', 7, 101), salida(6, 1, 1, { folio: 'UNO' }),
+    salida(6, 2, 2, { folio: 'DOS' }), venta(6, 1, { por_aclarar: 'cuenta_interna' })])), 'A');
+  for (const tramo of ['transito', 'por_aclarar']) {
+    const grupos = a.movimientos_abiertos.filter(m => m.tramo === tramo);
+    assert.equal(grupos.reduce((s, m) => s + BigInt(m.piezas), 0n), BigInt(a[tramo]));
+    assert.equal(grupos.reduce((s, m) => s + BigInt(m.centavos), 0n), BigInt(a.dinero[tramo]));
+  }
+  assert.equal(a.movimientos_abiertos.find(m => m.tramo === 'por_aclarar').folio, null);
+});
+
 test('la foto (anterior) se vende antes que la factura nueva', () => {
   const r = conserva(calcular([foto(6, 5), compra('A', 10, 10000), venta(6, 7)]));
   assert.deepEqual(r.anterior, { 6: '0' });
