@@ -93,3 +93,18 @@ test('descartados se ordenan por veces y cada grupo es ruta mas codigo', t => {
   ]);
   assert.equal(r.descartados[7].forma, 'number');
 });
+
+test('error de todo el crudo trae la forma del value sin valores', t => {
+  const { sqlite } = prepararBandeja(t);
+  const fecha = '2026-11-13T12:00:00.000Z';
+  const privado = '9191234567 TEXTO_PRIVADO';
+  const value = { metadata: { phone_number_id: privado }, history: { chunk: privado, hilos: [{ id: privado }], [privado]: 1 } };
+  sqlite.prepare(`INSERT INTO lead_eventos_externos
+    (proveedor, identificador_evento_externo, tipo, recibido_en, payload_json, procesado_en, error_procesamiento)
+    VALUES ('gupshup', 'sha256:x', 'history', ?, ?, NULL, 'forma_desconocida')`)
+    .run(fecha, JSON.stringify({ entry: [{ changes: [{ field: 'history', value }] }] }));
+  const r = resumenGupshup(sqlite, new Date(fecha));
+  assert.deepEqual(r.errores_recientes.map(e => [e.ruta, e.forma]), [['history',
+    { metadata: { phone_number_id: 'string' }, history: { chunk: 'string', hilos: 'array', '?': '?' } }]]);
+  assert.ok(!JSON.stringify(r).includes('9191234567') && !JSON.stringify(r).includes('TEXTO_PRIVADO'));
+});
