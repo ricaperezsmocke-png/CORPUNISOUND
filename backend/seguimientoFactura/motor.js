@@ -209,7 +209,7 @@ function movimientosAbiertos(estado, indice, dinero, conIva) {
         usado += valor ?? 0n;
       }
       // Reparte únicamente los centavos del tramo ya calculado; nunca cambia ese total.
-      if (valores) for (let i = 0; usado < BigInt(valores[tramo]); i++, usado++) {
+      if (valores && filas.length) for (let i = 0; usado < BigInt(valores[tramo]); i++, usado++) {
         const m = filas[i % filas.length];
         m[campo] = String(BigInt(m[campo]) + 1n);
       }
