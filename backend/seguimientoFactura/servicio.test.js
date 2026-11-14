@@ -385,7 +385,7 @@ function procesarRescate(db) {
   return servicio().procesarPendientes(db, { limite: 50, ahora: RESCATE_AHORA });
 }
 
-test('rescate: la clave rescatable guarda el resultado reconstruido con su marca y versión 2', t => {
+test('rescate: la clave rescatable guarda el resultado reconstruido con su marca y versión 3', t => {
   const db = prepararRescate(t, 9);
   envioY(db, '2026-11-06', '2026-11-06T13:00:00');
   ventaY(db, 'v1', '2026-11-08T11:00:00', 3);
@@ -396,8 +396,8 @@ test('rescate: la clave rescatable guarda el resultado reconstruido con su marca
   assert.equal(fila.datos.sin_agente, '0');
   assert.deepEqual(fila.datos.rescate, { desde: '2026-11-06T00:05:00.000', tiendas: [2] });
   assert.ok(!fila.datos.calidad.problemas.some(p => p.motivo === 'rescate_inconsistente'));
-  assert.equal(servicio().VERSION, 2);
-  assert.equal(db.prepare('SELECT version FROM seguimiento_resultado').get().version, 2);
+  assert.equal(servicio().VERSION, 3);
+  assert.equal(db.prepare('SELECT version FROM seguimiento_resultado').get().version, 3);
 });
 
 test('rescate: si el control no cuadra se guarda el resultado de hoy y el problema rescate_inconsistente', t => {

@@ -23,7 +23,7 @@ test('configuración inicial vive en código; las sobrescrituras no modifican lo
   const sqlite = prepararDB(t);
   const { VALORES_INICIALES, leerConfig } = require('./config');
   const iniciales = {
-    dias_revisado_caduca: 15, dias_posponer_maximo: 30,
+    dias_revisado_caduca: 15, dias_posponer_maximo: 30, dias_transito_alarma: 7,
     dias_traslado: 45, dias_margen_75: 60, dias_margen_50: 90, dias_liquidacion: 120,
     ganancia_75_porcentaje: 75, ganancia_50_porcentaje: 50, ganancia_liquidacion_porcentaje: 0,
     semanas_ventas: 8, semanas_informativas: 4, multiplicador_destino: 2,

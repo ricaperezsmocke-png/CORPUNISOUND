@@ -196,3 +196,30 @@ test('tiendas e incorporar: muestra la foto de las pendientes e incorpora con ge
   assert.equal(sqlite.prepare('SELECT actor FROM seguimiento_tiendas WHERE sucursal_id=1').get().actor, '983');
   assert.equal((await pedir('/tiendas/1/incorporar', 983, { metodo: 'POST', cuerpo: {} })).status, 409);
 });
+
+test('en camino y sucursales sin asignar: exigen sesión y el permiso de ver; no leen alcance del encabezado', async () => {
+  facturaEnAviso();
+  for (const ruta of ['/en-camino', '/sicar-sin-asignar', '/en-camino?sucursal_id=1&solo_alarmas=1']) {
+    assert.equal((await pedir(ruta, 981)).status, 403, ruta);
+    assert.equal((await pedir(ruta, null)).status, 401, ruta);
+    assert.equal((await pedir(ruta, 982)).status, 200, ruta);
+  }
+  const r = await pedir('/en-camino');
+  assert.equal(r.datos.total, 0);
+  assert.equal(r.datos.dias_transito_alarma, 7);
+  assert.equal(r.datos.totales.transito.centavos, '0');
+  assert.deepEqual((await pedir('/sicar-sin-asignar')).datos, { sin_asignar: [] });
+  assert.equal((await pedir('/en-camino?pagina=0')).status, 400);
+});
+
+test('config de la alarma de tránsito: inicial 7, enteros de 1 a 365 y solo quien gestiona', async () => {
+  assert.equal((await pedir('/config')).datos.valores.dias_transito_alarma, 7);
+  for (const valor of [0, 366, 1.5, '10', null]) {
+    assert.equal((await pedir('/config', 983, { metodo: 'PUT', cuerpo: { dias_transito_alarma: valor } })).status, 400);
+  }
+  assert.equal((await pedir('/config', 982, { metodo: 'PUT', cuerpo: { dias_transito_alarma: 3 } })).status, 403);
+  const ok = await pedir('/config', 983, { metodo: 'PUT', cuerpo: { dias_transito_alarma: 3 } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.datos.valores.dias_transito_alarma, 3);
+  assert.equal((await pedir('/en-camino')).datos.dias_transito_alarma, 3);
+});

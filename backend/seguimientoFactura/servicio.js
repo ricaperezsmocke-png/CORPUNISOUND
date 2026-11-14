@@ -10,7 +10,9 @@ const { etapa: etapaDe } = require('./estrategias');
 const { artIdsDelLote, marcarPendientes } = require('./pendientes');
 
 // Versión 2: resultados con rescate de la ventana de incorporación (datos.rescate) y controles del motor.
-const VERSION = 2;
+// Versión 3: cada renglón guarda de dónde viene lo en tránsito y por aclarar (movimientos_abiertos) y los traspasos
+// de su clave que no se entienden (traspasos_sin_entender). Los resultados viejos se rehacen en la vuelta diaria.
+const VERSION = 3;
 const CEDIS = 6;
 const DIA_MS = 86400000;
 
@@ -83,8 +85,11 @@ function calcularConRescate(sqlite, clave, ahora) {
 }
 
 function recalcularClave(sqlite, clave, config, ahora) {
-  const { lectura: { movimientos, calidad }, calculo, rescate } = calcularConRescate(sqlite, clave, ahora);
-  const { lotes, incierto, anterior } = calculo;
+  const { lectura, calculo, rescate } = calcularConRescate(sqlite, clave, ahora);
+  const { movimientos, calidad } = lectura, { lotes, incierto, anterior } = calculo;
+  // Lo que SICAR dice de cada traspaso sin entender; nunca se reparte entre facturas ni mueve piezas.
+  const traspasos_sin_entender = (lectura.sin_entender ?? []).map(s => ({ ...s, piezas: String(s.piezas),
+    valor_sicar_centavos: String(s.valor_sicar_centavos), valor_sicar_con_iva_centavos: String(s.valor_sicar_con_iva_centavos) }));
   // Saldo calculado de la clave por tienda (sin factura + todas sus facturas): se compara contra la existencia SICAR.
   const saldo = new Map(Object.entries(anterior).map(([s, v]) => [s, BigInt(v)]));
   for (const l of lotes) {
@@ -101,7 +106,7 @@ function recalcularClave(sqlite, clave, config, ahora) {
   for (const l of lotes) {
     const { sucursal_id, com_id, renglon } = l.lote;
     const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([com_id, renglon])), calidad, incierto, saldo_clave,
-      ...(rescate ? { rescate } : {}) };
+      traspasos_sin_entender, ...(rescate ? { rescate } : {}) };
     guardar.run(sucursal_id, com_id, renglon, clave, JSON.stringify(datos), VERSION, ahora);
     facturas.add(com_id);
   }

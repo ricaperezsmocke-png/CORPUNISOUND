@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
   parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion, textoPorArticulo,
-  totalFacturaTexto, valorConIvaTexto, notaRescate,
+  totalFacturaTexto, valorConIvaTexto, notaRescate, textoLugar, textoRuta, textoAlarma, etiquetaCamino, dineroCamino, avisoSinAsignar,
+  parametrosCamino,
 } from "./seguimiento.js";
 
 const factura = (extra = {}) => ({
@@ -234,4 +235,57 @@ test("nota del rescate: solo nombra las tiendas rescatadas donde esta factura ti
   assert.equal(notaRescate(renglones, nombres), "Reconstruido desde el 2026-11-06 con las ventas de SICAR en: Yajalón, San Cristóbal");
   const sinPiezas = [{ rescate, por_sucursal: { 6: { queda: "10000", vendido: "0" } } }];
   assert.equal(notaRescate(sinPiezas, nombres), null, "la factura no fue a ninguna tienda rescatada");
+});
+
+// ---- Fase 2: en el camino y por aclarar ----
+test("siguiente acción antepone Revisar traspasos cuando el servidor marca la factura", () => {
+  assert.equal(siguienteAccion(factura({ revisar_traspasos: true })), "Revisar traspasos · Revisar traslado");
+  assert.equal(siguienteAccion(factura({ revisar_traspasos: false })), "Revisar traslado");
+  const soloPorAclarar = { comprado: "100000", vendido: "80000", queda: "0", transito: "0", sin_agente: "0", por_aclarar: "20000" };
+  assert.equal(siguienteAccion(factura({ revisar_traspasos: true, etapa: null, aviso: null, piezas: soloPorAclarar })),
+    `Revisar traspasos · ${TEXTOS.por_aclarar}`);
+  assert.ok(!siguienteAccion(factura({ revisar_traspasos: true })).toLowerCase().includes("faltante"));
+});
+
+test("fila del camino: tienda por nombre o SICAR n, alarma de más de N días y tipo sin la palabra faltante", () => {
+  const nombres = { 1: "Ocosingo", 2: "Yajalón", 6: "CEDIS" };
+  assert.equal(textoLugar(1, "1", nombres), "Ocosingo");
+  assert.equal(textoLugar(null, "5", nombres), "SICAR 5");
+  assert.equal(textoLugar(9, "9", nombres), "Tienda 9");
+  assert.equal(textoLugar(null, null, nombres), "—");
+  assert.equal(textoRuta({ origen: 1, destino: 2, sicar_origen: "1", sicar_destino: "2" }, nombres), "Ocosingo → Yajalón");
+  assert.equal(textoRuta({ origen: 6, destino: null, sicar_origen: "6", sicar_destino: "5" }, nombres), "CEDIS → SICAR 5");
+  assert.equal(textoAlarma({ alarma: true }, 7), "Más de 7 días en camino");
+  assert.equal(textoAlarma({ alarma: false }, 7), null);
+  assert.equal(etiquetaCamino("transito"), "En tránsito");
+  assert.equal(etiquetaCamino("por_aclarar"), "Por aclarar");
+  assert.equal(etiquetaCamino("sin_entender"), "Traspaso sin entender");
+  for (const tipo of ["transito", "por_aclarar", "sin_entender"]) assert.ok(!etiquetaCamino(tipo).toLowerCase().includes("faltante"));
+});
+
+test("dinero del camino: costo de factura con y sin IVA; lo sin entender es no calculable con su valor según SICAR aparte", () => {
+  assert.deepEqual(dineroCamino({ tipo: "transito", centavos: "3000", centavos_con_iva: "3480" }),
+    { principal: "$34.80 con IVA · $30.00 sin IVA", referencia: null });
+  assert.deepEqual(dineroCamino({ tipo: "por_aclarar", centavos: "3000", centavos_con_iva: null }),
+    { principal: "$30.00 sin IVA", referencia: null });
+  assert.deepEqual(dineroCamino({ tipo: "transito", centavos: null, centavos_con_iva: null }),
+    { principal: "No calculable", referencia: null });
+  assert.deepEqual(dineroCamino({ tipo: "sin_entender", centavos: null, centavos_con_iva: null, valor_sicar_centavos: "4000",
+    valor_sicar_con_iva_centavos: "4640" }),
+  { principal: "No calculable", referencia: "Valor según SICAR: $46.40 con IVA · $40.00 sin IVA" });
+});
+
+test("aviso fijo de sucursales SICAR sin asignar: números, traspasos y dinero según SICAR; sin pendientes no hay aviso", () => {
+  assert.equal(avisoSinAsignar([]), null);
+  assert.equal(avisoSinAsignar(undefined), null);
+  assert.deepEqual(avisoSinAsignar([{ sicar_sucursal: "3", traspasos: 1, total_centavos: "150000" },
+    { sicar_sucursal: "5", traspasos: 254, total_centavos: "79000000" }]), {
+    titulo: "Hay sucursales de SICAR sin asignar (3, 5): sus traspasos no se están siguiendo.",
+    detalle: ["SICAR 3: 1 traspaso · $1,500.00 según SICAR", "SICAR 5: 254 traspasos · $790,000.00 según SICAR"],
+  });
+});
+
+test("parámetros de la pestaña del camino: solo alarmas y página", () => {
+  assert.equal(parametrosCamino({ solo_alarmas: false, pagina: 1 }), "");
+  assert.equal(parametrosCamino({ solo_alarmas: true, pagina: 3 }), "solo_alarmas=1&pagina=3");
 });

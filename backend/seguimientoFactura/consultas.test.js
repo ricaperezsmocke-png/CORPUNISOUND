@@ -354,3 +354,176 @@ test('importe SICAR: cambiar importes con IVA conserva dinero y total sin IVA', 
   assert.deepEqual(f.dinero, dinero);
   assert.equal(f.total_sin_iva_centavos, '48277');
 });
+
+// ---- Fase 2: en el camino y por aclarar ----
+const CORTE_F2 = '2026-09-01T18:00:00.000Z';
+
+/** CEDIS (6), Ocosingo (1) y Yajalón (2) incorporadas, con mapa s6/s1/s2 y una compra de CEDIS por factura pedida. */
+function escenarioCamino(t, compras = [['C1', '20.0000']]) {
+  const db = prepararDB(t);
+  db.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (2, ?)').run(AL);
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (2, 'art-2', 'A', 'Artículo', ?)`).run(AL);
+  db.prepare("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES ('s2', 2)").run();
+  for (const suc of [1, 2, 6]) db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (?, ?)').run(suc, CORTE_F2);
+  db.prepare("INSERT INTO sicar_proveedores(sucursal_id, prv_id, nombre, actualizado_en) VALUES (6, '1', 'Proveedor Uno', ?)").run(AL);
+  compras.forEach(([id, cantidad], i) => {
+    db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos,
+      primera_vez, actualizado_en) VALUES (6, ?, ?, '1', ?, '', 'vigente', 0, ?, ?)`)
+      .run(id, `2026-09-2${i}T10:00:00`, `F-${id}`, AL, AL);
+    db.prepare('INSERT INTO sicar_compras_detalle VALUES (6, ?, 0, ?, ?, 10000, 1000, 1160, 0)').run(id, 'art-6', cantidad);
+  });
+  return db;
+}
+
+/** Una punta de traspaso con precio de $10.00 sin IVA y $11.60 con IVA por pieza. */
+function puntaF2(db, suc, folio, { origen = 's6', destino = 's1', fecha = '2026-10-20', estado = 'enviado', aplicada = null,
+  cantidad = '20.0000', total = 0 } = {}) {
+  db.prepare('INSERT INTO sicar_traspasos VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)')
+    .run(suc, `${folio}-${suc}`, folio, origen, destino, fecha, estado, aplicada, total, AL);
+  db.prepare('INSERT INTO sicar_traspasos_detalle VALUES (?, ?, ?, ?, 1000, 1160)').run(suc, `${folio}-${suc}`, `art-${suc}`, cantidad);
+}
+
+function recalcular(db, ahora = AL) {
+  const servicio = require('./servicio');
+  servicio.marcarPendientes(db, 6, ['art-6'], ahora);
+  assert.deepEqual(servicio.procesarPendientes(db, { ahora }), { procesadas: 1, errores: [], quedan: 0 });
+}
+const camino = (db, q = {}) => require('./consultas').enCamino(db, q, AL);
+const facturaDe = (db, id) => require('./consultas').listar(db, {}, AL).facturas.find(f => f.com_id === id);
+
+test('en camino: envío 20 y recepción 18 deja 2 por aclarar con folio, fecha, tiendas, días y dinero; el cuadre sigue', t => {
+  const db = escenarioCamino(t);
+  puntaF2(db, 6, 'PARCIAL');
+  puntaF2(db, 1, 'PARCIAL', { estado: 'recibido', aplicada: '2026-10-21', cantidad: '18.0000' });
+  recalcular(db);
+  const datos = JSON.parse(db.prepare('SELECT datos_json FROM seguimiento_resultado').get().datos_json);
+  assert.deepEqual(datos.movimientos_abiertos, [{ tramo: 'por_aclarar', motivo: 'recepcion_menor', folio: 'PARCIAL',
+    fecha_envio: '2026-10-20', origen: 6, destino: 1, sicar_origen: 's6', sicar_destino: 's1', piezas: '20000',
+    centavos: '2000', centavos_con_iva: '2320' }]);
+  assert.equal(Object.values(datos.dinero).reduce((a, v) => a + BigInt(v), 0n), 20000n, 'los tramos suman la factura');
+  assert.deepEqual(datos.traspasos_sin_entender, []);
+  const r = camino(db);
+  assert.equal(r.total, 1);
+  const [fila] = r.filas;
+  assert.deepEqual({ tipo: fila.tipo, motivo: fila.motivo, com_id: fila.com_id, folio_factura: fila.folio_factura,
+    proveedor: fila.proveedor, clave: fila.clave, folio: fila.folio, fecha_envio: fila.fecha_envio, origen: fila.origen,
+    destino: fila.destino, dias: fila.dias, piezas: fila.piezas, centavos: fila.centavos, centavos_con_iva: fila.centavos_con_iva,
+    alarma: fila.alarma }, { tipo: 'por_aclarar', motivo: 'recepcion_menor', com_id: 'C1', folio_factura: 'F-C1',
+    proveedor: 'Proveedor Uno', clave: 'A', folio: 'PARCIAL', fecha_envio: '2026-10-20', origen: 6, destino: 1, dias: 16,
+    piezas: '20000', centavos: '2000', centavos_con_iva: '2320', alarma: false });
+  assert.deepEqual(r.totales.por_aclarar, { centavos: '2000', centavos_con_iva: '2320', filas: 1, sin_dinero: 0 });
+  assert.equal(r.totales.transito.centavos, '0');
+  assert.equal(r.totales.sin_entender.valor_sicar_centavos, '0');
+  const f = facturaDe(db, 'C1');
+  assert.equal(f.sin_entender, false);
+  assert.equal(f.transito_alarma, false);
+  assert.equal(f.revisar_traspasos, true, 'tiene piezas por aclarar');
+});
+
+test('en camino: tránsito de 8 días con alarma y de 6 sin ella; con la configuración en 3, los dos', t => {
+  const db = escenarioCamino(t);
+  puntaF2(db, 6, 'OCHO', { fecha: '2026-10-28', cantidad: '3.0000' });
+  puntaF2(db, 6, 'SEIS', { fecha: '2026-10-30', cantidad: '5.0000' });
+  recalcular(db);
+  let r = camino(db);
+  assert.equal(r.dias_transito_alarma, 7);
+  assert.deepEqual(r.filas.map(f => [f.folio, f.tipo, f.dias, f.alarma, f.centavos]),
+    [['SEIS', 'transito', 6, false, '5000'], ['OCHO', 'transito', 8, true, '3000']], 'orden: dinero y luego días');
+  assert.equal(r.alarmas, 1);
+  assert.deepEqual(r.totales.transito, { centavos: '8000', centavos_con_iva: '9280', filas: 2, sin_dinero: 0 });
+  assert.deepEqual(camino(db, { solo_alarmas: '1' }).filas.map(f => f.folio), ['OCHO']);
+  assert.equal(camino(db, { solo_alarmas: '1' }).totales.transito.centavos, '8000', 'los totales no dependen del filtro');
+  assert.equal(facturaDe(db, 'C1').transito_alarma, true);
+  assert.equal(facturaDe(db, 'C1').revisar_traspasos, true);
+  db.exec("INSERT INTO seguimiento_config(clave, valor) VALUES ('dias_transito_alarma', '3')");
+  r = camino(db);
+  assert.deepEqual(r.filas.map(f => f.alarma), [true, true]);
+  db.exec("UPDATE seguimiento_config SET valor='8'");
+  assert.equal(camino(db).alarmas, 0, '8 días no es más de 8');
+  assert.equal(facturaDe(db, 'C1').transito_alarma, false);
+  assert.equal(facturaDe(db, 'C1').revisar_traspasos, false, 'tránsito joven, nada por aclarar');
+  assert.deepEqual(camino(db, { por_pagina: '1', pagina: '2' }).filas.map(f => f.folio), ['OCHO']);
+  for (const q of [{ pagina: '0' }, { por_pagina: '201' }, { pagina: 'x' }]) assert.throws(() => camino(db, q), e => e.status === 400);
+});
+
+test('en camino: traspaso entre tiendas en tránsito conserva origen, destino y la factura de CEDIS', t => {
+  const db = escenarioCamino(t, [['C1', '5.0000']]);
+  puntaF2(db, 6, 'IDA', { fecha: '2026-10-10', cantidad: '5.0000' });
+  puntaF2(db, 1, 'IDA', { fecha: '2026-10-10', estado: 'recibido', aplicada: '2026-10-11', cantidad: '5.0000' });
+  puntaF2(db, 1, 'TIENDAS', { origen: 's1', destino: 's2', fecha: '2026-11-01', cantidad: '3.0000' });
+  recalcular(db);
+  const r = camino(db);
+  assert.deepEqual(r.filas.map(f => [f.tipo, f.folio, f.origen, f.destino, f.com_id, f.folio_factura, f.piezas, f.dias, f.centavos]),
+    [['transito', 'TIENDAS', 1, 2, 'C1', 'F-C1', '30000', 4, '3000']]);
+});
+
+test('en camino: traspaso a una sucursal SICAR sin mapa no mueve piezas, marca las facturas y sale una sola vez', t => {
+  const db = escenarioCamino(t, [['C1', '10.0000'], ['C2', '10.0000']]);
+  puntaF2(db, 6, 'INNO', { destino: 's5', fecha: '2026-10-25', cantidad: '4.0000', total: 99900 });
+  puntaF2(db, 6, 'ANULADO', { destino: 's5', fecha: '2026-10-26', estado: 'cancelado', cantidad: '9.0000', total: 500000 });
+  recalcular(db);
+  for (const fila of db.prepare('SELECT datos_json FROM seguimiento_resultado ORDER BY com_id').all()) {
+    const datos = JSON.parse(fila.datos_json);
+    assert.equal(datos.queda, '100000', 'no se mueven piezas a ciegas');
+    assert.deepEqual(datos.movimientos_abiertos, []);
+    assert.deepEqual(datos.traspasos_sin_entender, [{ motivo: 'sin_mapa', folio: 'INNO', fecha: '2026-10-25',
+      sicar_origen: 's6', sicar_destino: 's5', piezas: '40000', valor_sicar_centavos: '4000', valor_sicar_con_iva_centavos: '4640' }]);
+  }
+  assert.equal(facturaDe(db, 'C1').sin_entender, true);
+  assert.equal(facturaDe(db, 'C2').sin_entender, true);
+  assert.equal(facturaDe(db, 'C2').revisar_traspasos, true);
+  const r = camino(db);
+  assert.equal(r.total, 1, 'una fila por traspaso, no una por factura');
+  const [fila] = r.filas;
+  assert.deepEqual(fila, { tipo: 'sin_entender', motivo: 'sin_mapa', com_id: null, folio_factura: null, proveedor: null, clave: 'A',
+    folio: 'INNO', fecha_envio: '2026-10-25', origen: 6, destino: null, sicar_origen: 's6', sicar_destino: 's5', dias: 11,
+    piezas: '40000', centavos: null, centavos_con_iva: null, valor_sicar_centavos: '4000', valor_sicar_con_iva_centavos: '4640',
+    alarma: false, facturas: [{ com_id: 'C1', folio: 'F-C1', proveedor: 'Proveedor Uno' },
+      { com_id: 'C2', folio: 'F-C2', proveedor: 'Proveedor Uno' }] });
+  assert.deepEqual(r.totales.sin_entender, { valor_sicar_centavos: '4000', valor_sicar_con_iva_centavos: '4640', filas: 1 });
+  assert.equal(r.totales.transito.centavos, '0', 'lo sin entender nunca se mezcla con el tránsito');
+  assert.equal(r.totales.por_aclarar.centavos, '0');
+  assert.deepEqual(require('./consultas').sicarSinAsignar(db), { sin_asignar: [{ sicar_sucursal: 's5', traspasos: 1,
+    total_centavos: '99900' }] });
+});
+
+test('asignar el mapa deja pendiente la clave y, al recalcular, las piezas se mueven y sin_entender se apaga', t => {
+  const db = escenarioCamino(t, [['C1', '10.0000']]);
+  db.exec("DELETE FROM sicar_sucursales_mapa; INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES ('6', 6), ('1', 1)");
+  puntaF2(db, 6, 'INNO', { origen: '6', destino: '5', fecha: '2026-10-25', cantidad: '4.0000', total: 99900 });
+  recalcular(db);
+  assert.equal(facturaDe(db, 'C1').sin_entender, true);
+  assert.equal(db.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n, 0);
+  const { asignarMapaSicar } = require('../sicarTraspasos');
+  asignarMapaSicar(db, { sicar_sucursal: '5', sucursal_id: 2 }, '77', { verTodas: true, sucursalId: null }, () => true);
+  assert.deepEqual(db.prepare('SELECT clave FROM seguimiento_pendientes').all().map(f => f.clave), ['A']);
+  assert.equal(facturaDe(db, 'C1').sin_entender, true, 'no se recalcula dentro de la petición');
+  assert.deepEqual(require('./servicio').procesarPendientes(db, { ahora: AL }), { procesadas: 1, errores: [], quedan: 0 });
+  const f = facturaDe(db, 'C1');
+  assert.equal(f.sin_entender, false);
+  assert.equal(f.piezas.queda, '60000');
+  assert.equal(f.piezas.transito, '40000');
+  assert.deepEqual(camino(db).filas.map(x => [x.tipo, x.folio, x.origen, x.destino]), [['transito', 'INNO', 6, 2]]);
+  assert.deepEqual(require('./consultas').sicarSinAsignar(db), { sin_asignar: [] });
+});
+
+test('en camino: un resultado guardado con la versión anterior no rompe la pestaña ni la lista', t => {
+  const db = escenarioCamino(t);
+  puntaF2(db, 6, 'VIEJO', { fecha: '2026-10-20', cantidad: '3.0000' });
+  recalcular(db);
+  const fila = db.prepare('SELECT datos_json FROM seguimiento_resultado').get();
+  const viejo = JSON.parse(fila.datos_json);
+  delete viejo.movimientos_abiertos;
+  delete viejo.traspasos_sin_entender;
+  db.prepare('UPDATE seguimiento_resultado SET datos_json=?, version=2').run(JSON.stringify(viejo));
+  assert.equal(camino(db).total, 0);
+  const f = facturaDe(db, 'C1');
+  assert.equal(f.sin_entender, false);
+  assert.equal(f.transito_alarma, false);
+  const servicio = require('./servicio');
+  servicio.vueltaCompleta(db, AL);
+  servicio.procesarPendientes(db, { ahora: AL });
+  assert.equal(db.prepare('SELECT version FROM seguimiento_resultado').get().version, 3);
+  assert.equal(camino(db).total, 1, 'la vuelta diaria lo recalcula solo');
+});

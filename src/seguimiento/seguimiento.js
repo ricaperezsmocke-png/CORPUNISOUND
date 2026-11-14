@@ -96,7 +96,16 @@ const ETAPAS = {
 };
 export const etiquetaEtapa = (etapa) => ETAPAS[etapa] || "Sin aviso";
 
+/**
+ * El servidor marca `revisar_traspasos` cuando la factura tiene tránsito más viejo que el límite, piezas por aclarar o
+ * traspasos sin entender: entonces va primero "Revisar traspasos". Es para aclarar, nunca un faltante de nadie.
+ */
 export function siguienteAccion(f) {
+  const base = accionBase(f);
+  return f.revisar_traspasos ? `Revisar traspasos · ${base}` : base;
+}
+
+function accionBase(f) {
   const faltan = f.renglones_sin_seguimiento || 0;
   if (faltan > 0) {
     return `${TEXTOS.insuficiente}: ${faltan} ${faltan === 1 ? "renglón" : "renglones"} sin clave en el catálogo de CEDIS`;
@@ -129,6 +138,50 @@ export function parametrosLista(filtros) {
 }
 
 const nombre = (nombres, id) => nombres[id] || `Tienda ${id}`;
+
+// ---- Pestaña "En el camino y por aclarar" ----
+const TIPOS_CAMINO = { transito: "En tránsito", por_aclarar: "Por aclarar", sin_entender: "Traspaso sin entender" };
+export const etiquetaCamino = (tipo) => TIPOS_CAMINO[tipo] || tipo;
+
+/** Tienda por su nombre; si el número de SICAR no tiene tienda asignada, "SICAR n"; sin dato, raya. */
+export function textoLugar(id, sicar, nombres) {
+  if (id !== null && id !== undefined) return nombre(nombres, id);
+  return sicar === null || sicar === undefined || sicar === "" ? "—" : `SICAR ${sicar}`;
+}
+
+export const textoRuta = (fila, nombres) => `${textoLugar(fila.origen, fila.sicar_origen, nombres)} → `
+  + textoLugar(fila.destino, fila.sicar_destino, nombres);
+
+export const textoAlarma = (fila, dias) => (fila.alarma ? `Más de ${dias} días en camino` : null);
+
+/**
+ * Dinero de una fila. Lo sin entender no tiene costo de factura (no se atribuye a ciegas): se dice "No calculable" y,
+ * aparte, el valor que trae el propio traspaso de SICAR como referencia.
+ */
+export function dineroCamino(fila) {
+  const principal = esEntero(fila.centavos) ? valorConIvaTexto(fila.centavos, fila.centavos_con_iva) : "No calculable";
+  const referencia = fila.tipo === "sin_entender" && esEntero(fila.valor_sicar_centavos)
+    ? `Valor según SICAR: ${valorConIvaTexto(fila.valor_sicar_centavos, fila.valor_sicar_con_iva_centavos)}` : null;
+  return { principal, referencia };
+}
+
+/** Aviso fijo mientras haya números de sucursal SICAR sin tienda asignada con traspasos. Sin pendientes, null. */
+export function avisoSinAsignar(lista) {
+  if (!Array.isArray(lista) || lista.length === 0) return null;
+  return {
+    titulo: `Hay sucursales de SICAR sin asignar (${lista.map((s) => s.sicar_sucursal).join(", ")}): `
+      + "sus traspasos no se están siguiendo.",
+    detalle: lista.map((s) => `SICAR ${s.sicar_sucursal}: ${s.traspasos} ${s.traspasos === 1 ? "traspaso" : "traspasos"}`
+      + ` · ${pesosTexto(s.total_centavos)} según SICAR`),
+  };
+}
+
+export function parametrosCamino(filtros) {
+  const p = new URLSearchParams();
+  if (filtros.solo_alarmas) p.set("solo_alarmas", "1");
+  if (filtros.pagina && filtros.pagina > 1) p.set("pagina", String(filtros.pagina));
+  return p.toString();
+}
 
 /**
  * Nota del detalle cuando alguna clave se reconstruyó con el rescate: es un cálculo con las ventas de SICAR desde el inicio

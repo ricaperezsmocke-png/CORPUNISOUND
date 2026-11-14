@@ -2,6 +2,8 @@
 // No se recalcula nada: se muestran las cifras de cada SICAR y las diferencias entre las dos puntas, sin acusar a nadie.
 const { fechaLocal } = require('./fechas');
 const { aDiezmilesimas } = require('./cantidades');
+// El mismo marcarPendientes que exporta el servicio del seguimiento, tomado de su modulo sin motor.
+const { marcarPendientes } = require('./seguimientoFactura/pendientes');
 
 const DIA = 86400000;
 const DIAS_POR_DEFECTO = 30;
@@ -163,6 +165,19 @@ function listarSinAsignarSicar(sqlite, alcance) {
   return filas.map(f => f.n).filter(n => mapa.get(n) == null).sort((x, y) => Number(x) - Number(y) || (x < y ? -1 : 1));
 }
 
+// Al cambiar el mapa, el seguimiento de facturas entiende distinto los traspasos de ese numero SICAR: sus claves
+// quedan pendientes y el ciclo del seguimiento las recalcula despues (nunca dentro de esta peticion).
+function marcarClavesDelNumeroSicar(sqlite, sicar, ahora) {
+  const porTienda = new Map();
+  for (const f of sqlite.prepare(`SELECT DISTINCT d.sucursal_id, d.art_id FROM sicar_traspasos t
+    JOIN sicar_traspasos_detalle d ON d.sucursal_id = t.sucursal_id AND d.tra_id = t.tra_id
+    WHERE t.suc_origen = ? OR t.suc_destino = ?`).all(sicar, sicar)) {
+    if (!porTienda.has(f.sucursal_id)) porTienda.set(f.sucursal_id, []);
+    porTienda.get(f.sucursal_id).push(f.art_id);
+  }
+  for (const [sucursalId, artIds] of porTienda) marcarPendientes(sqlite, sucursalId, artIds, ahora);
+}
+
 // El mapa es de toda la empresa: cambiarlo cambia los nombres que ven todas las tiendas. Solo con alcance total.
 function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
   if (tiendaDelAlcance(alcance) !== null) throw fallo(403, 'El mapa de sucursales es de toda la empresa.');
@@ -192,6 +207,7 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
     sqlite.prepare(`INSERT INTO sicar_sucursales_mapa_historial (sicar_sucursal, anterior, nuevo, actor, fecha)
       VALUES (?, ?, ?, ?, ?)`).run(sicar, anterior?.sucursal_id == null ? null : String(anterior.sucursal_id),
       nuevo === null ? null : String(nuevo), quien, fila.asignado_en);
+    marcarClavesDelNumeroSicar(sqlite, sicar, fila.asignado_en);
     return fila;
   }).immediate();
 }

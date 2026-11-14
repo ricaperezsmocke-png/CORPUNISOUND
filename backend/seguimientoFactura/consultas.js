@@ -54,6 +54,7 @@ function sinDatos(com_id, esperada, encabezado, aviso, ahora) {
     comentario: encabezado?.comentario ?? null, fecha_compra: fecha, dias: diasDesde(fecha, ahora), etapa: null, agotada: false,
     piezas: Object.fromEntries(['comprado', 'vendido', 'queda', 'transito', 'sin_agente', 'por_aclarar'].map(k => [k, '0'])),
     ...SIN_DINERO, pendiente_centavos: '0', claves: [], tiendas: [], datos_al: null, renglones_sin_seguimiento: esperada.n,
+    sin_entender: false, transito_alarma: false, revisar_traspasos: false,
     aviso: aviso ? { id: aviso.id, etapa: aviso.etapa, estado: aviso.estado, pospuesto_hasta: aviso.pospuesto_hasta } : null };
 }
 
@@ -73,6 +74,17 @@ function avisosActivos(sqlite) {
 // Incertidumbre que invalida la atribución entera del lote (spec §11.1): clave con problema o unidad/cantidad dudosa.
 const INVALIDAN = ['clave_con_problema', 'cantidad_fraccionaria'];
 const atribucionInvalida = datos => (datos.motivos || []).some(m => INVALIDAN.includes(m));
+
+const saldoRenglon = datos => BigInt(datos.queda) + BigInt(datos.transito);
+/** Días desde el envío; sin fecha no se inventa una antigüedad. */
+const diasEnvio = (fecha, ahora) => (typeof fecha === 'string' && fecha.length >= 10 ? diasDesde(fecha.slice(0, 10), ahora) : null);
+/** Alarma: solo lo que sigue en tránsito con MÁS días que el límite configurado. */
+const enAlarma = (m, config, ahora) => {
+  const dias = diasEnvio(m.fecha_envio, ahora);
+  return m.tramo === 'transito' && dias !== null && dias > config.dias_transito_alarma;
+};
+/** Traspasos sin entender que tocan a este renglón: solo si todavía tiene saldo que podrían estar moviendo. */
+const sinEntenderDe = datos => (saldoRenglon(datos) > 0n ? datos.traspasos_sin_entender ?? [] : []);
 
 const totalTramos = d => String(TRAMOS.reduce((a, k) => a + d[k], 0n));
 const textoTramos = d => Object.fromEntries(TRAMOS.map(k => [k, String(d[k])]));
@@ -106,6 +118,8 @@ function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
   const fecha = renglones[0].datos.fecha_compra;
   const saldo = piezas.queda + piezas.transito;
   const dias = diasDesde(fecha, ahora);
+  const sinEntender = renglones.some(({ datos }) => sinEntenderDe(datos).length > 0);
+  const transitoAlarma = renglones.some(({ datos }) => (datos.movimientos_abiertos ?? []).some(m => enAlarma(m, config, ahora)));
   return {
     sucursal_id: CEDIS, com_id, folio: encabezado?.folio ?? null, proveedor: encabezado?.proveedor ?? null,
     comentario: encabezado?.comentario ?? null, fecha_compra: fecha, dias,
@@ -116,6 +130,10 @@ function resumir(com_id, renglones, encabezado, aviso, config, ahora) {
     ...dineroFactura(calculable, dinero, calculable && calculableConIva, conIva),
     pendiente_centavos: String(dinero.queda + dinero.transito), claves: [...new Set(renglones.map(r => r.clave))],
     tiendas: [...tiendas].sort((a, b) => a - b), datos_al,
+    // Marcas para "Revisar traspasos": traspasos de sus claves que no se entienden y tránsito más viejo que el límite.
+    sin_entender: sinEntender, transito_alarma: transitoAlarma,
+    // Una sola definición, en el servidor, de cuándo la lista antepone "Revisar traspasos".
+    revisar_traspasos: sinEntender || transitoAlarma || piezas.por_aclarar > 0n,
     aviso: aviso ? { id: aviso.id, etapa: aviso.etapa, estado: aviso.estado, pospuesto_hasta: aviso.pospuesto_hasta } : null,
   };
 }
@@ -178,6 +196,123 @@ function listar(sqlite, query = {}, ahora = new Date().toISOString()) {
     return { total: todas.length, pagina: filtros.pagina, por_pagina: filtros.por_pagina,
       facturas: todas.slice(inicio, inicio + filtros.por_pagina) };
   })();
+}
+
+function paginaDe(q) {
+  const entero = (v, def, max) => {
+    if (v === undefined || v === '') return def;
+    const n = Number(v);
+    if (!Number.isSafeInteger(n) || n < 1 || n > max) throw error(400, 'Paginación inválida.');
+    return n;
+  };
+  return { pagina: entero(q.pagina, 1, 100000), por_pagina: entero(q.por_pagina, 50, 200) };
+}
+
+/** Filas de lo que sigue en tránsito o por aclarar: una por grupo guardado en cada renglón, con su factura. */
+function filasAbiertas(fila, cabeza, config, ahora) {
+  const { datos, com_id, clave } = fila;
+  // Mismo criterio que la lista: sin datos confiables no se presenta un importe como si fuera cierto.
+  const calculable = !atribucionInvalida(datos) && !!datos.calidad?.datos_al;
+  return (datos.movimientos_abiertos ?? []).map(m => ({ tipo: m.tramo, motivo: m.motivo ?? null, com_id,
+    folio_factura: cabeza?.folio ?? null, proveedor: cabeza?.proveedor ?? null, clave, folio: m.folio ?? null,
+    fecha_envio: m.fecha_envio ?? null, origen: m.origen ?? null, destino: m.destino ?? null,
+    sicar_origen: m.sicar_origen ?? null, sicar_destino: m.sicar_destino ?? null, dias: diasEnvio(m.fecha_envio, ahora),
+    piezas: m.piezas, centavos: calculable ? m.centavos ?? null : null,
+    centavos_con_iva: calculable ? m.centavos_con_iva ?? null : null, valor_sicar_centavos: null,
+    valor_sicar_con_iva_centavos: null, alarma: enAlarma(m, config, ahora), facturas: null }));
+}
+
+/**
+ * Traspasos sin entender: UNA fila por traspaso y clave, nunca una por factura. Su costo de factura no es calculable
+ * (no se atribuye a ciegas); el valor que se muestra es el del propio traspaso de SICAR. Lista las facturas con saldo.
+ */
+function filasSinEntender(filas, cabezas, mapa, ahora) {
+  const porTraspaso = new Map();
+  for (const { datos, com_id, clave } of filas) {
+    for (const s of sinEntenderDe(datos)) {
+      const llave = JSON.stringify([clave, s.folio, s.sicar_origen, s.sicar_destino]);
+      if (!porTraspaso.has(llave)) {
+        porTraspaso.set(llave, { tipo: 'sin_entender', motivo: s.motivo, com_id: null, folio_factura: null, proveedor: null, clave,
+          folio: s.folio ?? null, fecha_envio: s.fecha ?? null, origen: mapa.get(s.sicar_origen) ?? null,
+          destino: mapa.get(s.sicar_destino) ?? null, sicar_origen: s.sicar_origen, sicar_destino: s.sicar_destino,
+          dias: diasEnvio(s.fecha, ahora), piezas: s.piezas, centavos: null, centavos_con_iva: null,
+          valor_sicar_centavos: s.valor_sicar_centavos ?? null,
+          valor_sicar_con_iva_centavos: s.valor_sicar_con_iva_centavos ?? null, alarma: false, facturas: [] });
+      }
+      const { facturas } = porTraspaso.get(llave), cabeza = cabezas.get(com_id);
+      if (!facturas.some(f => f.com_id === com_id)) {
+        facturas.push({ com_id, folio: cabeza?.folio ?? null, proveedor: cabeza?.proveedor ?? null });
+      }
+    }
+  }
+  return [...porTraspaso.values()];
+}
+
+/** Dinero para ordenar: costo de factura; en lo sin entender, el valor según SICAR. Sin dato va al final. */
+const dineroOrden = f => (f.centavos !== null ? BigInt(f.centavos)
+  : f.valor_sicar_centavos !== null ? BigInt(f.valor_sicar_centavos) : -1n);
+
+function compararCamino(a, b) {
+  const da = dineroOrden(a), db = dineroOrden(b);
+  if (da !== db) return da > db ? -1 : 1;
+  if ((a.dias ?? -1) !== (b.dias ?? -1)) return (b.dias ?? -1) - (a.dias ?? -1);
+  const la = JSON.stringify([a.com_id, a.clave, a.folio, a.tipo]), lb = JSON.stringify([b.com_id, b.clave, b.folio, b.tipo]);
+  return la < lb ? -1 : la > lb ? 1 : 0;
+}
+
+/** Totales de un tramo. Las filas sin importe calculable se cuentan aparte; sin con IVA en alguna, no hay total con IVA. */
+function totalTramo(filas) {
+  const con = filas.filter(f => f.centavos !== null);
+  const suma = campo => String(con.reduce((a, f) => a + BigInt(f[campo]), 0n));
+  return { centavos: suma('centavos'), centavos_con_iva: con.every(f => f.centavos_con_iva !== null) ? suma('centavos_con_iva') : null,
+    filas: filas.length, sin_dinero: filas.length - con.length };
+}
+
+/**
+ * Pestaña "En el camino y por aclarar": lo en tránsito, lo por aclarar y los traspasos sin entender de todas las
+ * facturas, con folio, tiendas, días y dinero. Los tres totales van separados y no dependen del filtro ni de la página.
+ * "Por aclarar" nunca es un faltante de una tienda ni de una persona.
+ */
+function enCamino(sqlite, query = {}, ahora = new Date().toISOString()) {
+  const { pagina, por_pagina } = paginaDe(query);
+  const soloAlarmas = query.solo_alarmas === '1' || query.solo_alarmas === 'true';
+  return sqlite.transaction(() => {
+    const config = leerConfig(sqlite), cabezas = encabezados(sqlite), resultados = filasResultado(sqlite);
+    const mapa = new Map(sqlite.prepare('SELECT sicar_sucursal, sucursal_id FROM sicar_sucursales_mapa').all()
+      .map(f => [f.sicar_sucursal, f.sucursal_id]));
+    const todas = [...resultados.flatMap(f => filasAbiertas(f, cabezas.get(f.com_id), config, ahora)),
+      ...filasSinEntender(resultados, cabezas, mapa, ahora)].sort(compararCamino);
+    const de = tipo => todas.filter(f => f.tipo === tipo), sinEntender = de('sin_entender');
+    const valor = campo => String(sinEntender.reduce((a, f) => a + BigInt(f[campo] ?? 0), 0n));
+    const visibles = soloAlarmas ? todas.filter(f => f.alarma) : todas, inicio = (pagina - 1) * por_pagina;
+    return { total: visibles.length, pagina, por_pagina, dias_transito_alarma: config.dias_transito_alarma,
+      alarmas: todas.filter(f => f.alarma).length,
+      totales: { transito: totalTramo(de('transito')), por_aclarar: totalTramo(de('por_aclarar')),
+        sin_entender: { valor_sicar_centavos: valor('valor_sicar_centavos'),
+          valor_sicar_con_iva_centavos: valor('valor_sicar_con_iva_centavos'), filas: sinEntender.length } },
+      filas: visibles.slice(inicio, inicio + por_pagina) };
+  })();
+}
+
+/**
+ * Números de sucursal SICAR que aparecen en traspasos no cancelados y no tienen tienda en el mapa: sus traspasos no se
+ * siguen. Cuenta cada traspaso una vez (aunque lo reporten las dos puntas) con el total que trae SICAR.
+ */
+function sicarSinAsignar(sqlite) {
+  const mapa = new Map(sqlite.prepare('SELECT sicar_sucursal, sucursal_id FROM sicar_sucursales_mapa').all()
+    .map(f => [f.sicar_sucursal, f.sucursal_id]));
+  const cuenta = new Map();
+  for (const t of sqlite.prepare(`SELECT suc_origen, suc_destino, CAST(max(total_centavos) AS TEXT) total FROM sicar_traspasos
+    WHERE estado <> 'cancelado' GROUP BY folio, suc_origen, suc_destino`).all()) {
+    for (const n of new Set([t.suc_origen, t.suc_destino])) {
+      if (mapa.get(n) != null) continue;
+      const previo = cuenta.get(n) ?? { traspasos: 0, total: 0n };
+      cuenta.set(n, { traspasos: previo.traspasos + 1, total: previo.total + BigInt(t.total) });
+    }
+  }
+  const orden = (a, b) => Number(a) - Number(b) || (a < b ? -1 : a > b ? 1 : 0);
+  return { sin_asignar: [...cuenta.keys()].sort(orden).map(n => ({ sicar_sucursal: n, traspasos: cuenta.get(n).traspasos,
+    total_centavos: String(cuenta.get(n).total) })) };
 }
 
 /** Ventas por semana completa (lunes a domingo, la última termina el domingo pasado) de una clave en cada tienda. */
@@ -343,4 +478,4 @@ function tiendas(sqlite, ahora = new Date().toISOString()) {
   return { incorporadas, pendientes };
 }
 
-module.exports = { listar, detalle, tiendas, transitoHacia, ETAPAS };
+module.exports = { listar, detalle, tiendas, transitoHacia, enCamino, sicarSinAsignar, ETAPAS };

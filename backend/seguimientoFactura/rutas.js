@@ -11,7 +11,7 @@ const error = (status, mensaje) => Object.assign(new Error(mensaje), { status })
 
 // Rango permitido de cada valor configurable (enteros).
 const RANGOS = {
-  dias_revisado_caduca: [1, 365], dias_posponer_maximo: [1, 365],
+  dias_revisado_caduca: [1, 365], dias_posponer_maximo: [1, 365], dias_transito_alarma: [1, 365],
   dias_traslado: [1, 3650], dias_margen_75: [1, 3650], dias_margen_50: [1, 3650], dias_liquidacion: [1, 3650],
   ganancia_75_porcentaje: [0, 100], ganancia_50_porcentaje: [0, 100], ganancia_liquidacion_porcentaje: [0, 100],
   semanas_ventas: [1, 52], semanas_informativas: [1, 52], multiplicador_destino: [1, 10], semanas_con_ventas: [1, 52],
@@ -114,6 +114,12 @@ function registrarRutasSeguimiento(app, { sqlite, requiereLogin, requierePermiso
     return { sucursal_id: Number(req.params.sucursal_id), corte: foto.corte, claves: foto.claves.length, problemas: foto.problemas.length };
   }));
   app.post(`${base}/avisos/:id`, ...permiso(GESTIONAR), ejecutar((db, req, actor) => gestionarAviso(db, req.params.id, req.body, actor)));
+  // Mismo alcance que la lista: quien ve el módulo ve todo. Solo se leen paginación y filtro; nunca ?sucursal_id=.
+  app.get(`${base}/en-camino`, ...permiso(VER), ejecutar((db, req) => {
+    const { pagina, por_pagina, solo_alarmas } = req.query;
+    return consultas.enCamino(db, { pagina, por_pagina, solo_alarmas });
+  }));
+  app.get(`${base}/sicar-sin-asignar`, ...permiso(VER), ejecutar(db => consultas.sicarSinAsignar(db)));
   app.get(base, ...permiso(VER), ejecutar((db, req) => consultas.listar(db, req.query)));
   app.get(`${base}/:sucursal_id/:com_id`, ...permiso(VER),
     ejecutar((db, req) => consultas.detalle(db, req.params.sucursal_id, req.params.com_id)));

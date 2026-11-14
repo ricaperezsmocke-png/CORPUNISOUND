@@ -68,7 +68,8 @@ function contexto(datos, rebajadas = new Set(), inicio = null) {
   }
   // envios: fecha de envío (sin hora) de cada movimiento de traspaso, para juzgar la ventana sin cambiar su salida.
   return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados, cache,
-    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set(), horasRecepcion: new Map() };
+    rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set(), horasRecepcion: new Map(),
+    sinEntender: [] };
 }
 
 function fotosDe(ctx) {
@@ -147,7 +148,8 @@ function gruposTraspasos({ sqlite, clave }) {
     SELECT DISTINCT t.folio, t.suc_origen, t.suc_destino FROM sicar_traspasos t
     JOIN sicar_traspasos_detalle d ON d.sucursal_id=t.sucursal_id AND d.tra_id=t.tra_id
     JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id WHERE a.clave=?
-  ) SELECT t.*, d.art_id, d.cantidad, a.clave, a.actualizado_en catalogo_al FROM claves k
+  ) SELECT t.*, d.art_id, d.cantidad, CAST(d.precio_sin_centavos AS TEXT) precio_sin,
+    CAST(d.precio_con_centavos AS TEXT) precio_con, a.clave, a.actualizado_en catalogo_al FROM claves k
     JOIN sicar_traspasos t ON t.folio=k.folio AND t.suc_origen=k.suc_origen AND t.suc_destino=k.suc_destino
     LEFT JOIN sicar_traspasos_detalle d ON d.sucursal_id=t.sucursal_id AND d.tra_id=t.tra_id
     LEFT JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
@@ -157,10 +159,16 @@ function gruposTraspasos({ sqlite, clave }) {
     const llave = JSON.stringify([f.folio, f.suc_origen, f.suc_destino]);
     if (!grupos.has(llave)) grupos.set(llave, new Map());
     const grupo = grupos.get(llave), id = JSON.stringify([f.sucursal_id, f.tra_id]);
-    if (!grupo.has(id)) grupo.set(id, { ...f, piezas: 0n, sinCatalogo: false, fuentes: [f.actualizado_en] });
+    if (!grupo.has(id)) grupo.set(id, { ...f, piezas: 0n, valorSin: 0n, valorCon: 0n, sinCatalogo: false, fuentes: [f.actualizado_en] });
     const punta = grupo.get(id);
     if (!f.clave?.trim()) punta.sinCatalogo = true;
-    if (f.clave === clave) punta.piezas += aDiezmilesimas(f.cantidad);
+    if (f.clave === clave) {
+      const cantidad = aDiezmilesimas(f.cantidad);
+      punta.piezas += cantidad;
+      // Valor que el propio traspaso de SICAR da a esta clave (precio × cantidad): referencia, no costo de factura.
+      punta.valorSin += mitadArriba(BigInt(f.precio_sin ?? 0) * cantidad);
+      punta.valorCon += mitadArriba(BigInt(f.precio_con ?? 0) * cantidad);
+    }
     if (f.catalogo_al) punta.fuentes.push(f.catalogo_al);
   }
   return [...grupos.values()].map(g => [...g.values()]);
@@ -193,6 +201,7 @@ function leerTraspasos(ctx) {
 function agregarObservaciones(ctx, grupo, traspaso, motivo) {
   const { tiendas, fuente, agregar } = ctx;
   // No elegir una coincidencia: estas observaciones no autorizan al motor a mover piezas.
+  const vistas = [];
   for (const p of grupo) {
     const t = tiendas.get(p.sucursal_id);
     const tipo = p.sucursal_id === traspaso.destino && traspaso.destino !== traspaso.origen ? 'recepcion' : 'salida';
@@ -203,7 +212,24 @@ function agregarObservaciones(ctx, grupo, traspaso, motivo) {
       tra_id: p.tra_id, traspaso, por_aclarar: motivo, solo_observacion: true };
     ctx.envios.set(m, p.fecha);
     agregar(m, fecha || p.fecha);
+    // Un traspaso cancelado nunca sacó mercancía: se anota la observación de siempre, pero no hay piezas que aclarar.
+    if (p.estado !== 'cancelado' && p.piezas > 0n) vistas.push({ tipo, p });
   }
+  anotarSinEntender(ctx, traspaso, motivo, vistas);
+}
+
+/**
+ * Un traspaso que no se entiende, una sola vez por clave y tal como lo dice SICAR: no se atribuye a ninguna factura.
+ * Cuentan las puntas de salida; si el origen no manda datos, las de recepción. El valor es el del propio traspaso.
+ */
+function anotarSinEntender(ctx, traspaso, motivo, vistas) {
+  const salidas = vistas.filter(v => v.tipo === 'salida');
+  const puntas = (salidas.length ? salidas : vistas).map(v => v.p);
+  if (!puntas.length) return;
+  const total = campo => puntas.reduce((a, p) => a + p[campo], 0n);
+  ctx.sinEntender.push({ motivo, folio: traspaso.folio, fecha: puntas.map(p => p.fecha).sort()[0],
+    sicar_origen: traspaso.suc_origen, sicar_destino: traspaso.suc_destino, piezas: total('piezas'),
+    valor_sicar_centavos: total('valorSin'), valor_sicar_con_iva_centavos: total('valorCon') });
 }
 
 // SICAR fecha los traspasos sin hora: el día del corte solo es dudoso si la foto no fue de madrugada.
@@ -445,6 +471,10 @@ function terminar(ctx, rescate = null) {
   const resultado = { movimientos: ordenados.map(o => o.m), calidad: {
     datos_al, atrasadas, problemas: [...new Map(problemas.map(p => [JSON.stringify(p), p])).values()],
   }, rescate };
+  // Traspasos sin entender: aparte de los movimientos (no mueven piezas) y fuera del JSON de la lectura.
+  const llaveSinEntender = s => JSON.stringify([s.fecha, s.folio, s.sicar_origen, s.sicar_destino]);
+  Object.defineProperty(resultado, 'sin_entender', {
+    value: [...ctx.sinEntender].sort((a, b) => comparar(llaveSinEntender(a), llaveSinEntender(b))) });
   // BigInt en memoria; JSON.stringify(resultado) convierte piezas y centavos a texto, sin tocar BigInt.prototype.
   Object.defineProperty(resultado, 'toJSON', { value() {
     return JSON.parse(JSON.stringify({ movimientos: this.movimientos, calidad: this.calidad, rescate: this.rescate },
