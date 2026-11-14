@@ -13,6 +13,7 @@ const { artIdsDelLote, marcarPendientes } = require('./pendientes');
 // Versión 3: cada renglón guarda de dónde viene lo en tránsito y por aclarar (movimientos_abiertos) y los traspasos
 // de su clave que no se entienden (traspasos_sin_entender). Los resultados viejos se rehacen en la vuelta diaria.
 const VERSION = 3;
+const INTENTOS_MAXIMOS = 5;
 const CEDIS = 6;
 const DIA_MS = 86400000;
 
@@ -146,8 +147,8 @@ function vencerPosposiciones(sqlite, ahora = new Date().toISOString()) {
 function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOString(), presupuestoMs = Infinity } = {}) {
   const inicio = Date.now();
   const config = leerConfig(sqlite);
-  const claves = sqlite.prepare('SELECT clave FROM seguimiento_pendientes ORDER BY desde, clave LIMIT ?')
-    .all(limite).map(f => f.clave);
+  const claves = sqlite.prepare('SELECT clave FROM seguimiento_pendientes WHERE intentos < ? ORDER BY desde, clave LIMIT ?')
+    .all(INTENTOS_MAXIMOS, limite).map(f => f.clave);
   const errores = [];
   let procesadas = 0;
   for (const clave of claves) {
@@ -156,13 +157,16 @@ function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOStrin
       sqlite.transaction(() => recalcularClave(sqlite, clave, config, ahora)).immediate();
       procesadas++;
     } catch (e) {
-      errores.push({ clave, mensaje: e.message });
-      sqlite.prepare('UPDATE seguimiento_pendientes SET desde=? WHERE clave=?').run(ahora, clave);
+      const mensaje = e.message.slice(0, 300);
+      errores.push({ clave, mensaje });
+      sqlite.prepare(`UPDATE seguimiento_pendientes SET desde=?, intentos=intentos+1, ultimo_error=?, ultimo_intento=?
+        WHERE clave=?`).run(ahora, mensaje, ahora, clave);
     }
   }
   vencerPosposiciones(sqlite, ahora);
-  const quedan = sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n;
-  return { procesadas, errores, quedan };
+  const quedan = sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes WHERE intentos < ?').get(INTENTOS_MAXIMOS).n;
+  const atoradas = sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes WHERE intentos >= ?').get(INTENTOS_MAXIMOS).n;
+  return { procesadas, errores, quedan, atoradas };
 }
 
 /**
@@ -180,8 +184,8 @@ function vueltaCompleta(sqlite, ahora = new Date().toISOString()) {
         WHERE c.sucursal_id=? AND c.estado='vigente' AND substr(c.fecha, 1, 10) >= ?
       UNION SELECT clave FROM seguimiento_resultado
     ) WHERE clave IS NOT NULL AND trim(clave) <> ''
-    ON CONFLICT(clave) DO NOTHING`).run(ahora, CEDIS, desdeDia).changes;
+    ON CONFLICT(clave) DO UPDATE SET intentos=0`).run(ahora, CEDIS, desdeDia).changes;
 }
 
-module.exports = { VERSION, artIdsDelLote, marcarPendientes, procesarPendientes, vueltaCompleta, vencerPosposiciones,
+module.exports = { VERSION, INTENTOS_MAXIMOS, artIdsDelLote, marcarPendientes, procesarPendientes, vueltaCompleta, vencerPosposiciones,
   saldoFactura, guardarRevision };

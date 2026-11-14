@@ -6,6 +6,42 @@ const { transitoHacia } = require('./consultas');
 
 const AL = '2026-11-05T18:00:00.000Z';
 
+test('salud vacía y límites: 100 claves ordenadas, 20 facturas distintas por clave', t => {
+  const db = prepararDB(t), { salud } = require('./consultas');
+  assert.deepEqual(salud(db), { ultimo_calculo: null, en_fila: 0, mas_vieja_desde: null, atoradas: [], intentos_maximos: 5 });
+  for (let i = 0; i < 105; i++) {
+    db.prepare('INSERT INTO seguimiento_pendientes(clave, intentos, ultimo_intento) VALUES (?, 5, ?)')
+      .run(`A${i}`, new Date(Date.parse(AL) + i * 1000).toISOString());
+  }
+  for (let i = 0; i < 25; i++) {
+    db.prepare(`INSERT INTO sicar_compras
+      (sucursal_id, com_id, fecha, estado, total_centavos, primera_vez, actualizado_en, folio, pro_id, comentario)
+      VALUES (6, ?, '2026-11-01', 'vigente', 0, ?, ?, ?, '1', '')`).run(String(i), AL, AL, `F${i}`);
+    for (let renglon = 0; renglon < 2; renglon++) {
+      db.prepare('INSERT INTO seguimiento_resultado VALUES (6, ?, ?, ?, ?, 3, ?)')
+        .run(String(i), renglon, 'A104', '{}', AL);
+    }
+  }
+  const r = salud(db);
+  assert.equal(r.ultimo_calculo, AL);
+  assert.equal(r.atoradas.length, 100);
+  assert.equal(r.atoradas[0].clave, 'A104');
+  assert.equal(r.atoradas[99].clave, 'A5');
+  assert.equal(r.atoradas[0].facturas.length, 20);
+  assert.equal(new Set(r.atoradas[0].facturas.map(f => f.com_id)).size, 20);
+  assert.ok(r.atoradas[0].facturas.every(f => f.folio === `F${f.com_id}` && f.sucursal_id === 6));
+});
+
+test('detalle muestra la fecha del renglón calculado más antiguo', t => {
+  const db = prepararDB(t), { detalle } = require('./consultas');
+  const datos = { fecha_compra: '2026-11-04', comprado: '1', queda: '1', vendido: '0', transito: '0',
+    sin_agente: '0', por_aclarar: '0', por_sucursal: {}, calidad: {} };
+  const insertar = db.prepare('INSERT INTO seguimiento_resultado VALUES (6, ?, ?, ?, ?, 3, ?)');
+  insertar.run('1', 0, 'A', JSON.stringify(datos), AL);
+  insertar.run('1', 1, 'B', JSON.stringify(datos), '2026-11-04T18:00:00.000Z');
+  assert.equal(detalle(db, 6, '1', AL).factura.calculado_en, '2026-11-04T18:00:00.000Z');
+});
+
 function prepararDB(t) {
   const db = new Database(':memory:');
   crearRepositorioSicar(db);
@@ -387,7 +423,7 @@ function puntaF2(db, suc, folio, { origen = 's6', destino = 's1', fecha = '2026-
 function recalcular(db, ahora = AL) {
   const servicio = require('./servicio');
   servicio.marcarPendientes(db, 6, ['art-6'], ahora);
-  assert.deepEqual(servicio.procesarPendientes(db, { ahora }), { procesadas: 1, errores: [], quedan: 0 });
+  assert.deepEqual(servicio.procesarPendientes(db, { ahora }), { procesadas: 1, errores: [], quedan: 0, atoradas: 0 });
 }
 const camino = (db, q = {}) => require('./consultas').enCamino(db, q, AL);
 const facturaDe = (db, id) => require('./consultas').listar(db, {}, AL).facturas.find(f => f.com_id === id);
@@ -499,7 +535,7 @@ test('asignar el mapa deja pendiente la clave y, al recalcular, las piezas se mu
   asignarMapaSicar(db, { sicar_sucursal: '5', sucursal_id: 2 }, '77', { verTodas: true, sucursalId: null }, () => true);
   assert.deepEqual(db.prepare('SELECT clave FROM seguimiento_pendientes').all().map(f => f.clave), ['A']);
   assert.equal(facturaDe(db, 'C1').sin_entender, true, 'no se recalcula dentro de la petición');
-  assert.deepEqual(require('./servicio').procesarPendientes(db, { ahora: AL }), { procesadas: 1, errores: [], quedan: 0 });
+  assert.deepEqual(require('./servicio').procesarPendientes(db, { ahora: AL }), { procesadas: 1, errores: [], quedan: 0, atoradas: 0 });
   const f = facturaDe(db, 'C1');
   assert.equal(f.sin_entender, false);
   assert.equal(f.piezas.queda, '60000');

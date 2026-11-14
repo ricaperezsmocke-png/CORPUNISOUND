@@ -2,6 +2,14 @@
 // centavos, ambos como texto: se convierten con BigInt para no perder precisión.
 
 const PIEZA = 10000n;
+export const TEXTO_SALUD_ERROR = 'Estas claves no se pudieron recalcular. '
+  + 'Sus facturas muestran el cálculo anterior hasta que se resuelva.';
+
+export function textoSalud(salud) {
+  const fecha = fechaHoraLocal(salud.ultimo_calculo).replace(/^(\d{4})-(\d{2})-(\d{2})/, '$3/$2/$1');
+  const calculo = salud.ultimo_calculo ? `Último cálculo: ${fecha}` : 'Sin cálculos todavía';
+  return `${calculo} · En fila: ${salud.en_fila} · Con error: ${salud.atoradas.length}`;
+}
 const miles = (texto) => texto.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const esEntero = (v) => typeof v === "string" && /^-?\d+$/.test(v);
 

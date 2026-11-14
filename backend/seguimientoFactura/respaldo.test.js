@@ -11,6 +11,32 @@ const TABLAS = ['seguimiento_config', 'seguimiento_config_historial', 'seguimien
   'seguimiento_foto', 'seguimiento_foto_problemas', 'seguimiento_pendientes', 'seguimiento_resultado',
   'seguimiento_avisos', 'seguimiento_avisos_historial'];
 
+for (const vieja of [true, false]) {
+  test(`salud: respaldo ${vieja ? 'viejo completa valores' : 'nuevo conserva intentos y actor'}`, async t => {
+    const f = prepararDB(t), g = prepararDB(t);
+    const campos = ['intentos', 'ultimo_error', 'ultimo_intento', 'reintento_por', 'reintento_en'];
+    for (const campo of campos) {
+      const tipo = campo === 'intentos' ? 'INTEGER NOT NULL DEFAULT 0' : 'TEXT';
+      if (!g.sqlite.pragma('table_info(seguimiento_pendientes)').some(c => c.name === campo)) {
+        g.sqlite.exec(`ALTER TABLE seguimiento_pendientes ADD COLUMN ${campo} ${tipo}`);
+      }
+      const existe = f.sqlite.pragma('table_info(seguimiento_pendientes)').some(c => c.name === campo);
+      if (vieja && existe) f.sqlite.exec(`ALTER TABLE seguimiento_pendientes DROP COLUMN ${campo}`);
+    }
+    f.sqlite.exec("INSERT INTO seguimiento_pendientes(clave, desde) VALUES ('A', 'ayer')");
+    if (!vieja) f.sqlite.exec(`UPDATE seguimiento_pendientes SET intentos=5, ultimo_error='Error',
+      ultimo_intento='hoy', reintento_por='9', reintento_en='antes'`);
+    const m = await respaldo.crearSnapshotSicar(f.repo, f.drive, { DB: {}, llave: LLAVE });
+    const p = await respaldo.prepararRestauracionSicar(g.repo, f.drive, m);
+    try {
+      p.aplicar();
+      assert.deepEqual(g.sqlite.prepare('SELECT * FROM seguimiento_pendientes').get(),
+        { clave: 'A', desde: 'ayer', intentos: vieja ? 0 : 5, ultimo_error: vieja ? null : 'Error',
+          ultimo_intento: vieja ? null : 'hoy', reintento_por: vieja ? null : '9', reintento_en: vieja ? null : 'antes' });
+    } finally { p.liberar(); }
+  });
+}
+
 function prepararDB(t) {
   const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), 'seguimiento-'));
   const sqlite = new Database(path.join(carpeta, 'prueba.sqlite'));
@@ -43,7 +69,7 @@ function sembrar(sqlite) {
     INSERT INTO seguimiento_tiendas VALUES (6, '2026-11-05T11:00:00.000Z', '9', 'hoy');
     INSERT INTO seguimiento_foto VALUES (6, 'A', '9007199254740993');
     INSERT INTO seguimiento_foto_problemas VALUES (6, 'B', 'clave_repetida');
-    INSERT INTO seguimiento_pendientes VALUES ('A', 'hoy');
+    INSERT INTO seguimiento_pendientes(clave, desde) VALUES ('A', 'hoy');
     INSERT INTO seguimiento_resultado VALUES (6, '123456789012345678901234567890', 0, 'A', '{}', 1, 'hoy');
     INSERT INTO seguimiento_avisos(id, sucursal_id, com_id, etapa, estado, pospuesto_hasta)
       VALUES (1, 6, '123456789012345678901234567890', 'traslado', 'nuevo', NULL);

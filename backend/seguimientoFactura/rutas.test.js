@@ -59,6 +59,53 @@ async function pedir(ruta, id = 983, { metodo = 'GET', cuerpo } = {}) {
   return { status: res.status, datos: texto.startsWith('{') || texto.startsWith('[') ? JSON.parse(texto) : texto };
 }
 
+test('salud HTTP: permisos propios y alcance independiente del selector con datos reales', async () => {
+  assert.equal((await pedir('/salud', null)).status, 401);
+  assert.equal((await pedir('/salud', 981)).status, 403);
+  facturaEnAviso();
+  sqlite.exec(`INSERT INTO seguimiento_pendientes(clave, desde, intentos, ultimo_error, ultimo_intento)
+    VALUES ('A', '2026-11-01', 5, 'Error guardado', '2026-11-14T16:32:00.000Z'),
+      ('B', '2026-11-02', 0, NULL, NULL)`);
+  const r = await pedir('/salud', 982);
+  assert.equal(r.status, 200);
+  assert.equal(r.datos.ultimo_calculo, sqlite.prepare('SELECT max(calculado_en) fecha FROM seguimiento_resultado').get().fecha);
+  assert.equal(r.datos.en_fila, 1);
+  assert.equal(r.datos.mas_vieja_desde, '2026-11-02');
+  assert.equal(r.datos.intentos_maximos, 5);
+  assert.deepEqual(r.datos.atoradas, [{ clave: 'A', intentos: 5, ultimo_error: 'Error guardado',
+    ultimo_intento: '2026-11-14T16:32:00.000Z', reintento_por: null, reintento_en: null,
+    facturas: [{ sucursal_id: 6, com_id: COM_ID, folio: 'F-77', proveedor: null }] }]);
+  assert.deepEqual((await pedir('/salud?sucursal_id=999', 982)).datos, r.datos);
+});
+
+test('salud HTTP: reintento valida cuerpo, permiso y actor; no recalcula durante la petición', async () => {
+  const post = (cuerpo, id = 983) => pedir('/salud/reintentar', id, { metodo: 'POST', cuerpo });
+  assert.equal((await post({ todas: true }, null)).status, 401);
+  assert.equal((await post({ todas: true }, 982)).status, 403);
+  for (const cuerpo of [{ todas: 'true' }, { todas: 1 }, { clave: 1 }, { clave: '' }, { clave: ' ' }, {}, []]) {
+    assert.equal((await post(cuerpo)).status, 400);
+  }
+  assert.equal((await post({ clave: 'NO_EXISTE' })).status, 404);
+  sqlite.exec(`INSERT INTO seguimiento_pendientes(clave, desde, intentos, ultimo_error)
+    VALUES ('A', 'ayer', 5, 'Anterior'), ('B', 'antes', 6, 'Otro'), ('C', 'hoy', 2, NULL)`);
+  const antes = new Date().toISOString();
+  assert.deepEqual((await post({ clave: 'A', actor: 'falso' })).datos, { reintentadas: 1 });
+  const fila = sqlite.prepare("SELECT * FROM seguimiento_pendientes WHERE clave='A'").get();
+  assert.equal(fila.intentos, 0);
+  assert.equal(fila.desde, 'ayer');
+  assert.equal(fila.ultimo_error, 'Anterior');
+  assert.equal(fila.reintento_por, '983');
+  assert.ok(fila.reintento_en >= antes && fila.reintento_en <= new Date().toISOString());
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM seguimiento_resultado').get().n, 0);
+  assert.deepEqual((await post({ todas: true })).datos, { reintentadas: 1 });
+  assert.equal(sqlite.prepare("SELECT intentos FROM seguimiento_pendientes WHERE clave='C'").get().intentos, 2);
+  assert.deepEqual((await post({ todas: true })).datos, { reintentadas: 0 });
+  sqlite.exec("UPDATE seguimiento_pendientes SET intentos=5 WHERE clave='A'");
+  const salud = (await pedir('/salud')).datos.atoradas[0];
+  assert.equal(salud.reintento_por, fila.reintento_por);
+  assert.equal(salud.reintento_en, fila.reintento_en);
+});
+
 test('posponer por HTTP: máximo 30 días; configurar 10 limita a 10', async () => {
   const id = facturaEnAviso();
   const posponer = dias => pedir(`/avisos/${id}`, 983, { metodo: 'POST', cuerpo: {
@@ -223,7 +270,7 @@ test('en camino y sucursales sin asignar: exigen sesión y el permiso de ver; no
     sqlite.prepare('INSERT INTO sicar_traspasos_detalle VALUES (?, ?, ?, ?, 1000, 1160)').run(suc, id, `art-${suc}`, cantidad);
   }
   servicio.marcarPendientes(sqlite, 6, ['art-6']);
-  assert.deepEqual(servicio.procesarPendientes(sqlite), { procesadas: 1, errores: [], quedan: 0 });
+  assert.deepEqual(servicio.procesarPendientes(sqlite), { procesadas: 1, errores: [], quedan: 0, atoradas: 0 });
   for (const ruta of ['/en-camino', '/sicar-sin-asignar', '/en-camino?sucursal_id=1&solo_alarmas=1']) {
     assert.equal((await pedir(ruta, 981)).status, 403, ruta);
     assert.equal((await pedir(ruta, null)).status, 401, ruta);
