@@ -243,6 +243,49 @@ test('mapa ausente o contradictorio y varias coincidencias no se asignan como mo
   assert.ok(traspasos(leer(db)).every(m => m.por_aclarar === 'mapa_contradictorio'));
 });
 
+for (const ambos of [false, true]) {
+  test(`sin mapa: dos tiendas cuentan una vez el traspaso; ambos números sin mapa=${ambos}`, t => {
+    const db = prepararDB(t);
+    punta(db, 6, 'envio', { cantidad: '4.0000' });
+    punta(db, 1, 'recibo', { cantidad: '4.0000' });
+    db.exec("UPDATE sicar_traspasos_detalle SET precio_sin_centavos=10000, precio_con_centavos=11600");
+    db.exec(ambos ? 'DELETE FROM sicar_sucursales_mapa' : "DELETE FROM sicar_sucursales_mapa WHERE sicar_sucursal='s1'");
+    const r = leer(db);
+    assert.deepEqual(r.sin_entender, [{ motivo: 'sin_mapa', folio: 'F', fecha: '2026-11-05',
+      sicar_origen: 's6', sicar_destino: 's1', piezas: 40000n,
+      valor_sicar_centavos: 40000n, valor_sicar_con_iva_centavos: 46400n }]);
+    assert.equal(traspasos(r).length, 2);
+    assert.ok(traspasos(r).every(m => m.solo_observacion && m.por_aclarar === 'sin_mapa'));
+  });
+}
+
+for (const [cantidad, piezas, valor, valorCon, fecha] of [
+  ['5.0000', 50000n, 100000n, 116000n, '2026-11-07'],
+  ['4.0000', 40000n, 40000n, 46400n, '2026-11-06'],
+]) {
+  test(`sin mapa: elige más piezas y desempata por menor sucursal; CEDIS reporta ${cantidad}`, t => {
+    const db = prepararDB(t);
+    punta(db, 6, 'envio', { cantidad, fecha: '2026-11-07' });
+    punta(db, 1, 'recibo', { cantidad: '4.0000', fecha: '2026-11-06' });
+    db.exec(`DELETE FROM sicar_sucursales_mapa;
+      UPDATE sicar_traspasos_detalle SET precio_sin_centavos=10000, precio_con_centavos=11600 WHERE sucursal_id=1;
+      UPDATE sicar_traspasos_detalle SET precio_sin_centavos=20000, precio_con_centavos=23200 WHERE sucursal_id=6`);
+    const [r] = leer(db).sin_entender;
+    assert.deepEqual([r.piezas, r.valor_sicar_centavos, r.valor_sicar_con_iva_centavos, r.fecha], [piezas, valor, valorCon, fecha]);
+  });
+}
+
+test('folio ambiguo: suma las salidas de la misma tienda y conserva su primera fecha', t => {
+  const db = prepararDB(t);
+  punta(db, 6, 'envio-1', { cantidad: '2.0000', fecha: '2026-11-07' });
+  punta(db, 6, 'envio-2', { cantidad: '3.0000', fecha: '2026-11-05' });
+  punta(db, 1, 'recibo', { cantidad: '9.0000' });
+  db.exec('UPDATE sicar_traspasos_detalle SET precio_sin_centavos=10000, precio_con_centavos=11600');
+  assert.deepEqual(leer(db).sin_entender, [{ motivo: 'folio_ambiguo', folio: 'F', fecha: '2026-11-05',
+    sicar_origen: 's6', sicar_destino: 's1', piezas: 50000n,
+    valor_sicar_centavos: 50000n, valor_sicar_con_iva_centavos: 58000n }]);
+});
+
 test('envío sin recepción no inventa disponibilidad; cancelación consistente no mueve nada', t => {
   const db = prepararDB(t);
   punta(db, 6, '1', { estado: 'recibido' });

@@ -221,15 +221,26 @@ function agregarObservaciones(ctx, grupo, traspaso, motivo) {
 /**
  * Un traspaso que no se entiende, una sola vez por clave y tal como lo dice SICAR: no se atribuye a ninguna factura.
  * Cuentan las puntas de salida; si el origen no manda datos, las de recepción. El valor es el del propio traspaso.
+ * Se suman por tienda y se elige la de más piezas; en empate, la de menor sucursal_id.
  */
 function anotarSinEntender(ctx, traspaso, motivo, vistas) {
   const salidas = vistas.filter(v => v.tipo === 'salida');
   const puntas = (salidas.length ? salidas : vistas).map(v => v.p);
   if (!puntas.length) return;
-  const total = campo => puntas.reduce((a, p) => a + p[campo], 0n);
-  ctx.sinEntender.push({ motivo, folio: traspaso.folio, fecha: puntas.map(p => p.fecha).sort()[0],
-    sicar_origen: traspaso.suc_origen, sicar_destino: traspaso.suc_destino, piezas: total('piezas'),
-    valor_sicar_centavos: total('valorSin'), valor_sicar_con_iva_centavos: total('valorCon') });
+  const porTienda = new Map();
+  for (const p of puntas) {
+    if (!porTienda.has(p.sucursal_id)) {
+      porTienda.set(p.sucursal_id, { sucursal_id: p.sucursal_id, piezas: 0n, valorSin: 0n, valorCon: 0n, fechas: [] });
+    }
+    const tienda = porTienda.get(p.sucursal_id);
+    for (const campo of ['piezas', 'valorSin', 'valorCon']) tienda[campo] += p[campo];
+    tienda.fechas.push(p.fecha);
+  }
+  const elegida = [...porTienda.values()].reduce((a, b) =>
+    b.piezas > a.piezas || (b.piezas === a.piezas && b.sucursal_id < a.sucursal_id) ? b : a);
+  ctx.sinEntender.push({ motivo, folio: traspaso.folio, fecha: elegida.fechas.sort()[0],
+    sicar_origen: traspaso.suc_origen, sicar_destino: traspaso.suc_destino, piezas: elegida.piezas,
+    valor_sicar_centavos: elegida.valorSin, valor_sicar_con_iva_centavos: elegida.valorCon });
 }
 
 // SICAR fecha los traspasos sin hora: el día del corte solo es dudoso si la foto no fue de madrugada.

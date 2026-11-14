@@ -197,17 +197,51 @@ test('tiendas e incorporar: muestra la foto de las pendientes e incorpora con ge
   assert.equal((await pedir('/tiendas/1/incorporar', 983, { metodo: 'POST', cuerpo: {} })).status, 409);
 });
 
-test('en camino y sucursales sin asignar: exigen sesión y el permiso de ver; no leen alcance del encabezado', async () => {
+test('en camino y sucursales sin asignar: exigen sesión y el permiso de ver; no leen alcance del encabezado', async t => {
   facturaEnAviso();
+  const ahora = new Date().toISOString();
+  const corte = new Date(Date.now() - 60 * DIA).toISOString();
+  for (const suc of [1, 2, 6]) {
+    sqlite.prepare('INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES (?, ?)').run(`s${suc}`, suc);
+    if (suc !== 6) sqlite.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (?, ?)').run(suc, corte);
+  }
+  const fecha = fechaLocal(Date.now() - 10 * DIA);
+  const aplicada = fechaLocal(Date.now() - 9 * DIA);
+  t.after(() => {
+    sqlite.exec("DELETE FROM sicar_traspasos_detalle WHERE tra_id LIKE 'alcance-%'");
+    sqlite.exec("DELETE FROM sicar_traspasos WHERE tra_id LIKE 'alcance-%'");
+  });
+  for (const [suc, id, folio, origen, destino, estado, recibida, cantidad] of [
+    [6, 'alcance-envio', 'RECIBIDO', 's6', 's1', 'enviado', null, '6.0000'],
+    [1, 'alcance-recibo', 'RECIBIDO', 's6', 's1', 'recibido', aplicada, '6.0000'],
+    [1, 'alcance-tienda', 'TIENDA', 's1', 's2', 'enviado', null, '2.0000'],
+    [6, 'alcance-cedis', 'CEDIS', 's6', 's2', 'enviado', null, '3.0000'],
+  ]) {
+    const envio = folio === 'RECIBIDO' ? fecha : fechaLocal(Date.now() - 8 * DIA);
+    sqlite.prepare('INSERT INTO sicar_traspasos VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)')
+      .run(suc, id, folio, origen, destino, envio, estado, recibida, ahora);
+    sqlite.prepare('INSERT INTO sicar_traspasos_detalle VALUES (?, ?, ?, ?, 1000, 1160)').run(suc, id, `art-${suc}`, cantidad);
+  }
+  servicio.marcarPendientes(sqlite, 6, ['art-6']);
+  assert.deepEqual(servicio.procesarPendientes(sqlite), { procesadas: 1, errores: [], quedan: 0 });
   for (const ruta of ['/en-camino', '/sicar-sin-asignar', '/en-camino?sucursal_id=1&solo_alarmas=1']) {
     assert.equal((await pedir(ruta, 981)).status, 403, ruta);
     assert.equal((await pedir(ruta, null)).status, 401, ruta);
     assert.equal((await pedir(ruta, 982)).status, 200, ruta);
   }
-  const r = await pedir('/en-camino');
-  assert.equal(r.datos.total, 0);
+  const r = await pedir('/en-camino', 982);
+  const conSucursal = await pedir('/en-camino?sucursal_id=1', 982);
+  assert.equal(r.status, 200);
+  assert.equal(conSucursal.status, 200);
+  assert.equal(r.datos.total, 2);
+  assert.deepEqual(r.datos.filas.map(f => [f.folio, f.origen, f.destino, f.piezas, f.centavos]), [
+    ['CEDIS', 6, 2, '30000', '3000'], ['TIENDA', 1, 2, '20000', '2000'],
+  ]);
+  assert.deepEqual(conSucursal.datos.filas, r.datos.filas);
+  assert.deepEqual(conSucursal.datos.totales, r.datos.totales);
+  assert.equal(conSucursal.datos.total, r.datos.total);
   assert.equal(r.datos.dias_transito_alarma, 7);
-  assert.equal(r.datos.totales.transito.centavos, '0');
+  assert.equal(r.datos.totales.transito.centavos, '5000');
   assert.deepEqual((await pedir('/sicar-sin-asignar')).datos, { sin_asignar: [] });
   assert.equal((await pedir('/en-camino?pagina=0')).status, 400);
 });
