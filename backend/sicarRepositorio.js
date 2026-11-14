@@ -205,7 +205,8 @@ const ESQUEMA = `
   );
   CREATE INDEX IF NOT EXISTS sicar_traspasos_punta ON sicar_traspasos (folio, suc_origen, suc_destino);
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa (
-    sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT
+    sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT,
+    baja INTEGER NOT NULL DEFAULT 0, nombre TEXT
   );
   CREATE TABLE IF NOT EXISTS sicar_sucursales_mapa_historial (
     id INTEGER PRIMARY KEY, sicar_sucursal TEXT, anterior TEXT, nuevo TEXT, actor TEXT, fecha TEXT
@@ -479,6 +480,11 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    for (const [columna, tipo] of [['baja', 'INTEGER NOT NULL DEFAULT 0'], ['nombre', 'TEXT']]) {
+      if (!sqlite.pragma('table_info(sicar_sucursales_mapa)').some(c => c.name === columna)) {
+        sqlite.exec(`ALTER TABLE sicar_sucursales_mapa ADD COLUMN ${columna} ${tipo}`);
+      }
+    }
     for (const columna of ['saldo_revision', 'fecha_revision']) {
       if (!sqlite.pragma('table_info(seguimiento_avisos)').some(c => c.name === columna)) {
         sqlite.exec(`ALTER TABLE seguimiento_avisos ADD COLUMN ${columna} TEXT`);

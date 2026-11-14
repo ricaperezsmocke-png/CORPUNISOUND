@@ -5,6 +5,9 @@ const PIEZA = 10000n;
 const miles = (texto) => texto.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const esEntero = (v) => typeof v === "string" && /^-?\d+$/.test(v);
 
+export const TEXTO_BAJAS = "Mercancía que SICAR dice que se envió a una tienda que ya cerró y nadie marcó como recibida. "
+  + "Hay que aclararla; no es faltante de ninguna tienda ni de ninguna persona.";
+
 export const TEXTOS = {
   fifo: "Asignación estimada en orden de llegada (FIFO) según SICAR.",
   gris: "Enviado, venta no comprobada",
@@ -183,6 +186,18 @@ export function parametrosCamino(filtros) {
   return p.toString();
 }
 
+export function resumenBaja(baja) {
+  const n = baja.envios.length;
+  return `SICAR ${baja.sicar_sucursal}${baja.nombre ? ` (${baja.nombre})` : ""} · ${n} ${n === 1 ? "envío" : "envíos"} sin recibir`
+    + ` · ${pesosTexto(baja.total_centavos)} según SICAR`;
+}
+
+export function rutaBaja(fila, nombres, bajas) {
+  const lugar = (id, sicar) => id == null
+    ? bajas.find((b) => b.sicar_sucursal === sicar)?.nombre || textoLugar(id, sicar, nombres) : textoLugar(id, sicar, nombres);
+  return `${lugar(fila.origen, fila.sicar_origen)} → ${lugar(fila.destino, fila.sicar_destino)}`;
+}
+
 /**
  * Nota del detalle cuando alguna clave se reconstruyó con el rescate: es un cálculo con las ventas de SICAR desde el inicio
  * del sistema, no una foto tomada ese día. Sin rescate en ningún renglón, null.
@@ -248,6 +263,7 @@ const MOTIVOS = {
   cantidad_fraccionaria: "Cantidad de compra fraccionaria",
   dia_del_corte: "Traspaso del mismo día de la foto",
   sin_mapa: "Sucursal SICAR sin asignar en el mapa",
+  sucursal_baja: "Sucursal SICAR dada de baja",
   mapa_contradictorio: "Mapa de sucursales contradictorio",
   folio_ambiguo: "Folio de traspaso con varias coincidencias",
   origen_cancelado_destino_recibido: "Origen cancelado pero destino recibido",

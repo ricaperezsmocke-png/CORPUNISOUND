@@ -179,6 +179,8 @@ function leerTraspasos(ctx) {
   cache.mapa ??= new Map(sqlite.prepare('SELECT sicar_sucursal, sucursal_id FROM sicar_sucursales_mapa').all()
     .map(f => [f.sicar_sucursal, f.sucursal_id]));
   cache.grupos ??= gruposTraspasos(ctx);
+  cache.bajas ??= new Set(sqlite.prepare('SELECT sicar_sucursal FROM sicar_sucursales_mapa WHERE baja=1').all()
+    .map(f => f.sicar_sucursal));
   const mapa = cache.mapa;
   const repetidos = new Set([...mapa.values()].filter((id, i, ids) => id != null && ids.indexOf(id) !== i));
   for (const grupo of cache.grupos) {
@@ -186,7 +188,10 @@ function leerTraspasos(ctx) {
     const traspaso = { origen, destino, folio: f.folio, suc_origen: f.suc_origen, suc_destino: f.suc_destino };
     const salidas = grupo.filter(p => p.sucursal_id === origen), entradas = grupo.filter(p => p.sucursal_id === destino);
     let motivo;
-    if (origen === null || destino === null) motivo = 'sin_mapa';
+    if (origen === null || destino === null) {
+      const deBaja = (origen === null && cache.bajas.has(f.suc_origen)) || (destino === null && cache.bajas.has(f.suc_destino));
+      motivo = deBaja ? 'sucursal_baja' : 'sin_mapa';
+    }
     else if (origen === destino || repetidos.has(origen) || repetidos.has(destino)
       || grupo.some(p => p.sucursal_id !== origen && p.sucursal_id !== destino)) motivo = 'mapa_contradictorio';
     else if (salidas.length > 1 || entradas.length > 1) motivo = 'folio_ambiguo';

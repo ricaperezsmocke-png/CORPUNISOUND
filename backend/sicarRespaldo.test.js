@@ -834,7 +834,7 @@ test('un manifiesto con renglones de mostrador pero sin ventas de mostrador no e
 const sembrarNuevas = f => f.sqlite.exec(`INSERT OR IGNORE INTO sicar_tiendas(sucursal_id) VALUES (1);
   INSERT INTO sicar_traspasos VALUES (1, 'T1', 'F-1', '1', '2', '2026-10-20', 'aplicado', '2026-10-21', NULL, 5000, 'hoy');
   INSERT INTO sicar_traspasos_detalle VALUES (1, 'T1', '9', '2.0000', 1000, 1160);
-  INSERT INTO sicar_sucursales_mapa VALUES ('1', 3, 'Victor', 'hoy');
+  INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, asignado_por, asignado_en) VALUES ('1', 3, 'Victor', 'hoy');
   INSERT INTO sicar_sucursales_mapa_historial VALUES (1, '1', NULL, '3', 'Victor', 'hoy');
   INSERT INTO facturas_por_llegar
     (id, uuid, rfc_emisor, nombre_emisor, fecha_emision, total_centavos, conceptos_json, estado,

@@ -694,3 +694,17 @@ test('rescate: la recepción del día del corte ANTES de la hora de la foto qued
   assert.deepEqual(r.movimientos.filter(m => m.sucursal_id === 2).map(m => m.tipo), ['foto', 'recepcion', 'venta', 'control']);
   assert.equal(require('./motor').calcular(r.movimientos).rescate_ok, true);
 });
+
+test('baja: observación posterior al corte, no mueve piezas y cuenta una vez', t => {
+  const db = prepararDB(t);
+  db.exec("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja) VALUES ('3', 1)");
+  punta(db, 6, 'BAJA', { destino: '3' });
+  const r = leer(db);
+  assert.equal(traspasos(r).length, 1);
+  assert.equal(traspasos(r)[0].por_aclarar, 'sucursal_baja');
+  assert.equal(traspasos(r)[0].solo_observacion, true);
+  assert.equal(r.sin_entender.length, 1);
+  assert.equal(r.sin_entender[0].motivo, 'sucursal_baja');
+  const calculo = require('./motor').calcular(r.movimientos);
+  assert.equal(calculo.anterior[6], '100000');
+});

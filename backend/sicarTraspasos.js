@@ -151,9 +151,9 @@ function consultarTraspasosSicar(sqlite, filtros = {}, alcance, nombresTiendas =
 }
 
 function listarMapaSicar(sqlite, nombresTiendas = {}) {
-  return sqlite.prepare('SELECT sicar_sucursal, sucursal_id, asignado_por, asignado_en FROM sicar_sucursales_mapa').all()
+  return sqlite.prepare('SELECT sicar_sucursal, sucursal_id, asignado_por, asignado_en, baja, nombre FROM sicar_sucursales_mapa').all()
     .sort((a, b) => Number(a.sicar_sucursal) - Number(b.sicar_sucursal))
-    .map(m => ({ ...m, tienda: m.sucursal_id === null ? null : nombresTiendas[m.sucursal_id] ?? null }));
+    .map(m => ({ ...m, baja: m.baja === 1, tienda: m.sucursal_id === null ? null : nombresTiendas[m.sucursal_id] ?? null }));
 }
 
 // Numeros SICAR (origen o destino) que aparecen en traspasos y no tienen tienda asignada, dentro del alcance de quien pregunta.
@@ -162,7 +162,8 @@ function listarSinAsignarSicar(sqlite, alcance) {
   const filas = sqlite.prepare(`SELECT suc_origen AS n FROM sicar_traspasos WHERE (@t IS NULL OR sucursal_id = @t)
     UNION SELECT suc_destino FROM sicar_traspasos WHERE (@t IS NULL OR sucursal_id = @t)`).all({ t: propia });
   const mapa = leerMapa(sqlite);
-  return filas.map(f => f.n).filter(n => mapa.get(n) == null).sort((x, y) => Number(x) - Number(y) || (x < y ? -1 : 1));
+  const bajas = new Set(sqlite.prepare('SELECT sicar_sucursal FROM sicar_sucursales_mapa WHERE baja=1').all().map(f => f.sicar_sucursal));
+  return filas.map(f => f.n).filter(n => mapa.get(n) == null && !bajas.has(n)).sort((x, y) => Number(x) - Number(y) || (x < y ? -1 : 1));
 }
 
 // Al cambiar el mapa, el seguimiento de facturas entiende distinto los traspasos de ese numero SICAR: sus claves
@@ -185,6 +186,15 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
   const sicar = typeof datos.sicar_sucursal === 'number' ? String(datos.sicar_sucursal) : datos.sicar_sucursal;
   if (typeof sicar !== 'string' || !/^[1-9]\d{0,8}$/.test(sicar)) throw fallo(400, 'El número de sucursal SICAR es inválido.');
   let nuevo = datos.sucursal_id;
+  if (Object.hasOwn(datos, 'baja') && typeof datos.baja !== 'boolean') throw fallo(400, 'La baja debe ser un booleano.');
+  if (Object.hasOwn(datos, 'nombre') && typeof datos.nombre !== 'string') throw fallo(400, 'El nombre debe ser texto.');
+  const nombre = datos.nombre?.trim() || null;
+  if (nombre && nombre.length > 60) throw fallo(400, 'El nombre no puede pasar de 60 caracteres.');
+  const baja = datos.baja === true ? 1 : 0;
+  if (baja) {
+    if (nuevo !== null && nuevo !== undefined) throw fallo(400, 'Una sucursal dada de baja no puede tener tienda asignada.');
+    nuevo = null;
+  }
   if (nuevo !== null) {
     const n = Number(nuevo);
     if (!['number', 'string'].includes(typeof nuevo) || nuevo === '' || !Number.isSafeInteger(n) || n <= 0) throw fallo(400, 'La tienda es inválida.');
@@ -195,18 +205,18 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
   if (!quien) throw fallo(401, 'No autenticado.');
   return sqlite.transaction(() => {
     const anterior = sqlite.prepare('SELECT * FROM sicar_sucursales_mapa WHERE sicar_sucursal = ?').get(sicar);
-    if (anterior && anterior.sucursal_id === nuevo) return anterior;
+    if (anterior && anterior.sucursal_id === nuevo && anterior.baja === baja && anterior.nombre === nombre) return anterior;
     if (nuevo !== null && sqlite.prepare('SELECT 1 FROM sicar_sucursales_mapa WHERE sucursal_id = ? AND sicar_sucursal <> ?').get(nuevo, sicar)) {
       throw fallo(400, 'Esa tienda ya tiene otro número de sucursal SICAR asignado.');
     }
-    const fila = { sicar_sucursal: sicar, sucursal_id: nuevo, asignado_por: quien, asignado_en: new Date().toISOString() };
-    sqlite.prepare(`INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, asignado_por, asignado_en)
-      VALUES (@sicar_sucursal, @sucursal_id, @asignado_por, @asignado_en)
+    const fila = { sicar_sucursal: sicar, sucursal_id: nuevo, baja, nombre, asignado_por: quien, asignado_en: new Date().toISOString() };
+    sqlite.prepare(`INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, baja, nombre, asignado_por, asignado_en)
+      VALUES (@sicar_sucursal, @sucursal_id, @baja, @nombre, @asignado_por, @asignado_en)
       ON CONFLICT(sicar_sucursal) DO UPDATE SET sucursal_id = excluded.sucursal_id, asignado_por = excluded.asignado_por,
-        asignado_en = excluded.asignado_en`).run(fila);
+        asignado_en = excluded.asignado_en, baja = excluded.baja, nombre = excluded.nombre`).run(fila);
     sqlite.prepare(`INSERT INTO sicar_sucursales_mapa_historial (sicar_sucursal, anterior, nuevo, actor, fecha)
-      VALUES (?, ?, ?, ?, ?)`).run(sicar, anterior?.sucursal_id == null ? null : String(anterior.sucursal_id),
-      nuevo === null ? null : String(nuevo), quien, fila.asignado_en);
+      VALUES (?, ?, ?, ?, ?)`).run(sicar, anterior?.baja ? 'baja' : anterior?.sucursal_id == null ? null : String(anterior.sucursal_id),
+      baja ? 'baja' : nuevo === null ? null : String(nuevo), quien, fila.asignado_en);
     marcarClavesDelNumeroSicar(sqlite, sicar, fila.asignado_en);
     return fila;
   }).immediate();

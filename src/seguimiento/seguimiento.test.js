@@ -289,3 +289,15 @@ test("parámetros de la pestaña del camino: solo alarmas y página", () => {
   assert.equal(parametrosCamino({ solo_alarmas: false, pagina: 1 }), "");
   assert.equal(parametrosCamino({ solo_alarmas: true, pagina: 3 }), "solo_alarmas=1&pagina=3");
 });
+
+test('bajas: textos neutrales, nombres y dinero exacto', async () => {
+  const { resumenBaja, rutaBaja, TEXTO_BAJAS } = await import('./seguimiento.js');
+  assert.equal(textoMotivo('sucursal_baja'), 'Sucursal SICAR dada de baja');
+  const baja = { sicar_sucursal: '3', nombre: 'Cerrada', envios: [{}, {}], total_centavos: '4131500' };
+  assert.equal(resumenBaja(baja), 'SICAR 3 (Cerrada) · 2 envíos sin recibir · $41,315.00 según SICAR');
+  assert.equal(resumenBaja({ ...baja, nombre: null, envios: [{}] }), 'SICAR 3 · 1 envío sin recibir · $41,315.00 según SICAR');
+  assert.equal(rutaBaja({ origen: 6, destino: null, sicar_origen: '6', sicar_destino: '3' }, { 6: 'CEDIS' }, [baja]), 'CEDIS → Cerrada');
+  assert.equal(rutaBaja({ origen: null, destino: null, sicar_origen: '7', sicar_destino: '3' }, {}, [baja]), 'SICAR 7 → Cerrada');
+  assert.equal(TEXTO_BAJAS, 'Mercancía que SICAR dice que se envió a una tienda que ya cerró y nadie marcó como recibida. '
+    + 'Hay que aclararla; no es faltante de ninguna tienda ni de ninguna persona.');
+});
