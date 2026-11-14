@@ -507,7 +507,8 @@ test('guarda traspasos en centavos, reemplaza el detalle al reenviar, separa tie
   for (const tabla of ['sicar_sucursales_mapa', 'sicar_sucursales_mapa_historial']) {
     assert.equal(sqlite.prepare(`SELECT COUNT(*) AS n FROM ${tabla}`).get().n, 0);
   }
-  assert.deepEqual(sqlite.pragma('table_info(sicar_sucursales_mapa)').map(c => c.name), ['sicar_sucursal', 'sucursal_id', 'asignado_por', 'asignado_en']);
+  assert.deepEqual(sqlite.pragma('table_info(sicar_sucursales_mapa)').map(c => c.name), 
+    ['sicar_sucursal', 'sucursal_id', 'asignado_por', 'asignado_en', 'baja', 'nombre']);
   assert.deepEqual(sqlite.pragma('table_info(sicar_sucursales_mapa_historial)').map(c => c.name),
     ['id', 'sicar_sucursal', 'anterior', 'nuevo', 'actor', 'fecha']);
   const base = { ...lote(), clientes: [], ventas: [] };
