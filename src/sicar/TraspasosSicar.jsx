@@ -147,7 +147,8 @@ function TablaTraspasos({ traspasos, tiendas, desde, hasta }) {
 }
 
 function FilaMapa({ fila, tiendas, editable, onGuardado }) {
-  const [valor, setValor] = useState(fila.sucursal_id === null || fila.sucursal_id === undefined ? "" : String(fila.sucursal_id));
+  const [valor, setValor] = useState(fila.baja ? "baja" : fila.sucursal_id == null ? "" : String(fila.sucursal_id));
+  const [nombre, setNombre] = useState(fila.nombre || "");
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
   const guardar = async (e) => {
@@ -155,7 +156,8 @@ function FilaMapa({ fila, tiendas, editable, onGuardado }) {
     setGuardando(true);
     setError("");
     try {
-      const cuerpo = { sicar_sucursal: fila.sicar_sucursal, sucursal_id: valor === "" ? null : Number(valor) };
+      const cuerpo = { sicar_sucursal: fila.sicar_sucursal, sucursal_id: valor === "" || valor === "baja" ? null : Number(valor),
+        baja: valor === "baja", nombre: valor === "baja" ? nombre : "" };
       const r = await apiFetch("/sicar/sucursales-mapa", { method: "PUT", body: JSON.stringify(cuerpo) });
       const datos = await r.json().catch(() => ({}));
       if (!r.ok) setError(datos.error || "No se pudo guardar el mapa.");
@@ -174,11 +176,18 @@ function FilaMapa({ fila, tiendas, editable, onGuardado }) {
           <form onSubmit={guardar} className="flex flex-wrap items-center gap-2">
             <select className={`${CAMPO} sm:w-60`} value={valor} onChange={(e) => setValor(e.target.value)} aria-label={`Tienda del número SICAR ${fila.sicar_sucursal}`}>
               <option value="">Sin tienda</option>
+              <option value="baja">Dada de baja (tienda cerrada)</option>
               {tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </select>
+            {valor === "baja" && (
+              <label className={ETIQUETA}>Nombre de la tienda cerrada (opcional)
+                <input className={CAMPO} value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} />
+              </label>
+            )}
             <button type="submit" className={BTN_PRIMARIO} disabled={guardando}>{guardando ? "Guardando…" : "Guardar"}</button>
           </form>
-        ) : (fila.tienda || "Sin tienda")}
+        ) : (fila.baja ? `Dada de baja${fila.nombre ? ` (${fila.nombre})` : ""}` : fila.tienda || "Sin tienda")}
+        {editable && fila.baja && <p className={NOTA_GRIS}>Dada de baja{fila.nombre ? ` (${fila.nombre})` : ""}</p>}
         {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
       </td>
     </tr>
@@ -226,7 +235,8 @@ function MapaSucursales({ permisos }) {
             <thead><tr><th className={ENCABEZADO}>Número en SICAR</th><th className={ENCABEZADO}>Tienda</th></tr></thead>
             <tbody>
               {filas.map((f) => (
-                <FilaMapa key={`${f.sicar_sucursal}-${f.sucursal_id}`} fila={f} tiendas={datos.tiendas || []} editable={editable} onGuardado={cargar} />
+                <FilaMapa key={`${f.sicar_sucursal}-${f.sucursal_id}-${f.baja}-${f.nombre}`}
+                  fila={f} tiendas={datos.tiendas || []} editable={editable} onGuardado={cargar} />
               ))}
               {filas.length === 0 && <tr><td className={CELDA} colSpan={2}>Todavía no hay números de sucursal SICAR.</td></tr>}
             </tbody>

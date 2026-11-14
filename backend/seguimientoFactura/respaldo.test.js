@@ -134,3 +134,22 @@ test('restaurar copia anterior completa las referencias ausentes con null', asyn
     assert.equal(aviso.fecha_revision, null);
   } finally { p.liberar(); }
 });
+
+for (const vieja of [true, false]) {
+  test(`mapa: restaurar copia ${vieja ? 'vieja completa 0/NULL' : 'nueva conserva baja y nombre'}`, async t => {
+    const f = prepararDB(t), g = prepararDB(t);
+    if (vieja) {
+      for (const campo of ['baja', 'nombre']) f.sqlite.exec(`ALTER TABLE sicar_sucursales_mapa DROP COLUMN ${campo}`);
+      f.sqlite.exec("INSERT INTO sicar_sucursales_mapa(sicar_sucursal) VALUES ('3')");
+    } else {
+      f.sqlite.exec("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja, nombre) VALUES ('3', 1, 'Cerrada')");
+    }
+    const m = await respaldo.crearSnapshotSicar(f.repo, f.drive, { DB: {}, llave: LLAVE });
+    const p = await respaldo.prepararRestauracionSicar(g.repo, f.drive, m);
+    try {
+      p.aplicar();
+      assert.deepEqual(g.sqlite.prepare('SELECT baja, nombre FROM sicar_sucursales_mapa').get(),
+        vieja ? { baja: 0, nombre: null } : { baja: 1, nombre: 'Cerrada' });
+    } finally { p.liberar(); }
+  });
+}

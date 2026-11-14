@@ -242,7 +242,7 @@ test('en camino y sucursales sin asignar: exigen sesión y el permiso de ver; no
   assert.equal(conSucursal.datos.total, r.datos.total);
   assert.equal(r.datos.dias_transito_alarma, 7);
   assert.equal(r.datos.totales.transito.centavos, '5000');
-  assert.deepEqual((await pedir('/sicar-sin-asignar')).datos, { sin_asignar: [] });
+  assert.deepEqual((await pedir('/sicar-sin-asignar')).datos, { sin_asignar: [], bajas: [] });
   assert.equal((await pedir('/en-camino?pagina=0')).status, 400);
 });
 

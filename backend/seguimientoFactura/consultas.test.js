@@ -485,7 +485,7 @@ test('en camino: traspaso a una sucursal SICAR sin mapa no mueve piezas, marca l
   assert.equal(r.totales.transito.centavos, '0', 'lo sin entender nunca se mezcla con el tránsito');
   assert.equal(r.totales.por_aclarar.centavos, '0');
   assert.deepEqual(require('./consultas').sicarSinAsignar(db), { sin_asignar: [{ sicar_sucursal: 's5', traspasos: 1,
-    total_centavos: '99900' }] });
+    total_centavos: '99900' }], bajas: [] });
 });
 
 test('asignar el mapa deja pendiente la clave y, al recalcular, las piezas se mueven y sin_entender se apaga', t => {
@@ -505,7 +505,7 @@ test('asignar el mapa deja pendiente la clave y, al recalcular, las piezas se mu
   assert.equal(f.piezas.queda, '60000');
   assert.equal(f.piezas.transito, '40000');
   assert.deepEqual(camino(db).filas.map(x => [x.tipo, x.folio, x.origen, x.destino]), [['transito', 'INNO', 6, 2]]);
-  assert.deepEqual(require('./consultas').sicarSinAsignar(db), { sin_asignar: [] });
+  assert.deepEqual(require('./consultas').sicarSinAsignar(db), { sin_asignar: [], bajas: [] });
 });
 
 test('en camino: un resultado guardado con la versión anterior no rompe la pestaña ni la lista', t => {
@@ -526,4 +526,40 @@ test('en camino: un resultado guardado con la versión anterior no rompe la pest
   servicio.procesarPendientes(db, { ahora: AL });
   assert.equal(db.prepare('SELECT version FROM seguimiento_resultado').get().version, 3);
   assert.equal(camino(db).total, 1, 'la vuelta diaria lo recalcula solo');
+});
+
+test('bajas: lista abierta agrupada, ordenada y exacta; excluye recibidos y cancelados', t => {
+  const db = escenarioCamino(t);
+  db.exec(`INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja, nombre) VALUES ('3', 1, 'Cerrada'), ('7', 1, NULL)`);
+  puntaF2(db, 6, 'ABIERTO', { destino: '3', fecha: '2026-10-25', total: 9007199254740993n });
+  puntaF2(db, 1, 'ABIERTO', { destino: '3', fecha: '2026-10-25', total: 1 });
+  puntaF2(db, 6, 'ANTES', { destino: '3', fecha: '2026-10-24', total: 7 });
+  puntaF2(db, 6, 'RECIBIDO', { destino: '3', estado: 'recibido', total: 90 });
+  puntaF2(db, 6, 'CANCELADO', { destino: '3', estado: 'cancelado', total: 100 });
+  puntaF2(db, 6, 'DOS', { destino: '3', total: 200 });
+  puntaF2(db, 1, 'DOS', { destino: '3', estado: 'recibido', total: 200 });
+  const r = require('./consultas').sicarSinAsignar(db, '2026-11-05T18:00:00.000Z');
+  assert.deepEqual(r.sin_asignar, []);
+  assert.deepEqual(r.bajas, [{ sicar_sucursal: '3', nombre: 'Cerrada', total_centavos: '9007199254741000', envios: [
+    { folio: 'ANTES', fecha: '2026-10-24', sicar_origen: 's6', sicar_destino: '3', origen: 6, destino: null, total_centavos: '7', dias: 12 },
+    { folio: 'ABIERTO', fecha: '2026-10-25', sicar_origen: 's6', sicar_destino: '3', origen: 6, destino: null,
+      total_centavos: '9007199254740993', dias: 11 },
+  ] }, { sicar_sucursal: '7', nombre: null, envios: [], total_centavos: '0' }]);
+});
+
+test('baja marca pendientes y cambia el motivo sin atribuir piezas; repetir no recalcula', t => {
+  const db = escenarioCamino(t, [['C1', '10.0000']]);
+  puntaF2(db, 6, 'BAJA', { destino: '3', fecha: '2026-10-25', cantidad: '4.0000' });
+  recalcular(db);
+  const poner = () => require('../sicarTraspasos').asignarMapaSicar(db,
+    { sicar_sucursal: '3', baja: true }, '77', { verTodas: true }, () => true);
+  poner();
+  assert.deepEqual(db.prepare('SELECT clave FROM seguimiento_pendientes').all(), [{ clave: 'A' }]);
+  require('./servicio').procesarPendientes(db, { ahora: AL });
+  const r = camino(db);
+  assert.equal(r.total, 1);
+  assert.equal(r.filas[0].motivo, 'sucursal_baja');
+  assert.equal(facturaDe(db, 'C1').piezas.queda, '100000');
+  poner();
+  assert.equal(db.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n, 0);
 });

@@ -6,7 +6,7 @@ import {
   TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
   totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer, etiquetaCamino, textoRuta, textoAlarma, dineroCamino,
-  avisoSinAsignar, parametrosCamino,
+  avisoSinAsignar, parametrosCamino, resumenBaja, rutaBaja, TEXTO_BAJAS, pesosTexto,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -436,17 +436,42 @@ function EnCamino({ nombres }) {
 }
 
 /** Aviso fijo arriba del módulo mientras haya números de sucursal SICAR con traspasos y sin tienda asignada. */
-function AvisoSinAsignar() {
-  const [aviso, setAviso] = useState(null);
+function AvisoSinAsignar({ nombres }) {
+  const [datos, setDatos] = useState(null);
   useEffect(() => {
-    pedir("/seguimiento-facturas/sicar-sin-asignar").then((d) => setAviso(avisoSinAsignar(d.sin_asignar))).catch(() => setAviso(null));
+    pedir("/seguimiento-facturas/sicar-sin-asignar").then(setDatos).catch(() => setDatos(null));
   }, []);
-  if (!aviso) return null;
+  const aviso = avisoSinAsignar(datos?.sin_asignar), bajas = datos?.bajas || [];
   return (
-    <div role="alert" className={AVISO_FIJO}>
-      <p className="font-semibold">{aviso.titulo}</p>
-      {aviso.detalle.map((linea) => <p key={linea}>{linea}</p>)}
-    </div>
+    <>
+      {aviso && <div role="alert" className={AVISO_FIJO}>
+        <p className="font-semibold">{aviso.titulo}</p>
+        {aviso.detalle.map((linea) => <p key={linea}>{linea}</p>)}
+      </div>}
+      {bajas.length > 0 && (
+        <details className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-800">
+          <summary className="cursor-pointer font-semibold">
+            Sucursales SICAR dadas de baja: {bajas.map(resumenBaja).join("; ")}
+          </summary>
+          <p className="my-3">{TEXTO_BAJAS}</p>
+          {bajas.map((b) => <div key={b.sicar_sucursal} className="mb-3 overflow-x-auto">
+            <p className="mb-2 font-semibold">{resumenBaja(b)}</p>
+            <table className="w-full text-sm">
+              <thead><tr>{["Folio", "Fecha", "Origen → destino", "Días", "Dinero según SICAR"].map((h) => (
+                <th key={h} className={ENCABEZADO}>{h}</th>
+              ))}</tr></thead>
+              <tbody>{b.envios.map((e) => <tr key={JSON.stringify([e.folio, e.sicar_origen, e.sicar_destino])}>
+                <td className={CELDA}>{e.folio}</td>
+                <td className={CELDA}>{e.fecha.slice(0, 10)}</td>
+                <td className={CELDA}>{rutaBaja(e, nombres, bajas)}</td>
+                <td className={`${CELDA} ${DERECHA}`}>{e.dias}</td>
+                <td className={`${CELDA} ${DERECHA}`}>{pesosTexto(e.total_centavos)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>)}
+        </details>
+      )}
+    </>
   );
 }
 
@@ -569,7 +594,7 @@ export default function SeguimientoFacturas({ permisos = [] }) {
     <div className={PAGINA}>
       <h1 className="mb-1 text-xl font-bold text-slate-900">Seguimiento de facturas CEDIS</h1>
       <p className={NOTA_AMBAR}>{TEXTOS.fifo} Sirve para decidir traslados y precios, no para cobrar faltantes a nadie.</p>
-      <AvisoSinAsignar />
+      <AvisoSinAsignar nombres={nombres} />
       <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" aria-pressed={pestana === "facturas"} className={estilo("facturas")} onClick={() => setPestana("facturas")}>Facturas</button>
         <button type="button" aria-pressed={pestana === "camino"} className={estilo("camino")} onClick={() => setPestana("camino")}>

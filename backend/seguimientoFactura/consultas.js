@@ -298,21 +298,38 @@ function enCamino(sqlite, query = {}, ahora = new Date().toISOString()) {
  * Números de sucursal SICAR que aparecen en traspasos no cancelados y no tienen tienda en el mapa: sus traspasos no se
  * siguen. Cuenta cada traspaso una vez (aunque lo reporten las dos puntas) con el total que trae SICAR.
  */
-function sicarSinAsignar(sqlite) {
-  const mapa = new Map(sqlite.prepare('SELECT sicar_sucursal, sucursal_id FROM sicar_sucursales_mapa').all()
+function sicarSinAsignar(sqlite, ahora = new Date().toISOString()) {
+  const filas = sqlite.prepare('SELECT sicar_sucursal, sucursal_id, baja, nombre FROM sicar_sucursales_mapa').all();
+  const bajas = new Map(filas.filter(f => f.baja === 1).map(f => [f.sicar_sucursal,
+    { sicar_sucursal: f.sicar_sucursal, nombre: f.nombre, envios: [], total_centavos: '0' }]));
+  const mapa = new Map(filas
     .map(f => [f.sicar_sucursal, f.sucursal_id]));
   const cuenta = new Map();
   for (const t of sqlite.prepare(`SELECT suc_origen, suc_destino, CAST(max(total_centavos) AS TEXT) total FROM sicar_traspasos
     WHERE estado <> 'cancelado' GROUP BY folio, suc_origen, suc_destino`).all()) {
     for (const n of new Set([t.suc_origen, t.suc_destino])) {
-      if (mapa.get(n) != null) continue;
+      if (mapa.get(n) != null || bajas.has(n)) continue;
       const previo = cuenta.get(n) ?? { traspasos: 0, total: 0n };
       cuenta.set(n, { traspasos: previo.traspasos + 1, total: previo.total + BigInt(t.total) });
     }
   }
   const orden = (a, b) => Number(a) - Number(b) || (a < b ? -1 : a > b ? 1 : 0);
+  for (const t of sqlite.prepare(`SELECT folio, suc_origen, suc_destino, min(fecha) fecha,
+    CAST(max(total_centavos) AS TEXT) total_centavos FROM sicar_traspasos
+    GROUP BY folio, suc_origen, suc_destino
+    HAVING max(CASE WHEN estado IN ('cancelado', 'recibido') THEN 1 ELSE 0 END)=0
+    ORDER BY fecha, folio, suc_origen, suc_destino`).all()) {
+    for (const n of new Set([t.suc_origen, t.suc_destino])) {
+      const baja = bajas.get(n);
+      if (!baja) continue;
+      baja.envios.push({ folio: t.folio, fecha: t.fecha, sicar_origen: t.suc_origen, sicar_destino: t.suc_destino,
+        origen: mapa.get(t.suc_origen) ?? null, destino: mapa.get(t.suc_destino) ?? null,
+        total_centavos: t.total_centavos, dias: diasEnvio(t.fecha, ahora) });
+      baja.total_centavos = String(BigInt(baja.total_centavos) + BigInt(t.total_centavos));
+    }
+  }
   return { sin_asignar: [...cuenta.keys()].sort(orden).map(n => ({ sicar_sucursal: n, traspasos: cuenta.get(n).traspasos,
-    total_centavos: String(cuenta.get(n).total) })) };
+    total_centavos: String(cuenta.get(n).total) })), bajas: [...bajas.keys()].sort(orden).map(n => bajas.get(n)) };
 }
 
 /** Ventas por semana completa (lunes a domingo, la última termina el domingo pasado) de una clave en cada tienda. */

@@ -5,6 +5,52 @@ const { crearRepositorioSicar } = require('./sicarRepositorio');
 const { consultarTraspasosSicar, listarMapaSicar, asignarMapaSicar } = require('./sicarTraspasos');
 
 const HOY = '2026-10-23';
+test('baja: migra mapa anterior sin perder asignación y permite repetir migración', t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  sqlite.exec(`CREATE TABLE sicar_sucursales_mapa (
+    sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT);
+    INSERT INTO sicar_sucursales_mapa VALUES ('3', NULL, '77', 'ayer')`);
+  crearRepositorioSicar(sqlite);
+  crearRepositorioSicar(sqlite);
+  assert.deepEqual(sqlite.prepare('SELECT baja, nombre, asignado_por FROM sicar_sucursales_mapa').get(),
+    { baja: 0, nombre: null, asignado_por: '77' });
+});
+
+test('baja: guarda, audita, es idempotente, excluye del aviso y permite reasignar', t => {
+  const sqlite = escenario(t);
+  const poner = datos => asignarMapaSicar(sqlite, { sicar_sucursal: '3', ...datos }, '77', TODAS, () => true);
+  poner({ baja: true, nombre: '  Tienda cerrada  ' });
+  assert.deepEqual(sqlite.prepare("SELECT baja, nombre, sucursal_id FROM sicar_sucursales_mapa WHERE sicar_sucursal='3'").get(),
+    { baja: 1, nombre: 'Tienda cerrada', sucursal_id: null });
+  const historial = () => sqlite.prepare('SELECT anterior, nuevo, actor, fecha FROM sicar_sucursales_mapa_historial').all();
+  assert.equal(historial()[0].nuevo, 'baja');
+  assert.equal(historial()[0].actor, '77');
+  assert.ok(Number.isFinite(Date.parse(historial()[0].fecha)));
+  sqlite.exec('DELETE FROM seguimiento_pendientes');
+  poner({ baja: true, nombre: 'Tienda cerrada' });
+  assert.equal(historial().length, 1);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n, 0);
+  assert.equal(listarMapaSicar(sqlite).find(m => m.sicar_sucursal === '3').baja, true);
+  assert.equal(require('./sicarTraspasos').listarSinAsignarSicar(sqlite, TODAS).includes('3'), false);
+  poner({ sucursal_id: '3' });
+  assert.equal(historial()[1].anterior, 'baja');
+  assert.equal(historial()[1].nuevo, '3');
+  assert.equal(listarMapaSicar(sqlite).find(m => m.sicar_sucursal === '3').baja, false);
+  poner({ baja: true, nombre: '' });
+  poner({ sucursal_id: null, baja: false });
+  assert.equal(historial()[3].anterior, 'baja');
+  assert.equal(listarMapaSicar(sqlite).find(m => m.sicar_sucursal === '3').nombre, null);
+});
+
+for (const datos of [{ baja: true, sucursal_id: 1 }, ...['true', 1, 0, null, {}].map(baja => ({ baja })),
+  ...[61, null, {}, 'a'.repeat(61)].map(nombre => ({ baja: true, nombre }))]) {
+  test(`baja: rechaza cuerpo inválido ${JSON.stringify(datos)}`, t => {
+    const { sqlite } = prepararDB(t);
+    assert.throws(() => asignarMapaSicar(sqlite, { sicar_sucursal: '3', sucursal_id: null, ...datos }, '77', TODAS, () => true), errorCon(400));
+  });
+}
+
 const TODAS = { verTodas: true, sucursalId: null };
 const SOLO = id => ({ verTodas: false, sucursalId: id });
 const NOMBRES = { 1: 'CEDIS', 2: 'Ocosingo' };
