@@ -5,7 +5,7 @@ const PIEZA = 10000n;
 const miles = (texto) => texto.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const esEntero = (v) => typeof v === "string" && /^-?\d+$/.test(v);
 
-export const TEXTO_BAJAS = "Mercancía que SICAR dice que se envió a una tienda que ya cerró y nadie marcó como recibida. "
+export const TEXTO_BAJAS = "Mercancía que SICAR dice que se envió a un número de sucursal que ya no se usa y nadie marcó como recibida. "
   + "Hay que aclararla; no es faltante de ninguna tienda ni de ninguna persona.";
 
 export const TEXTOS = {

@@ -176,11 +176,11 @@ function FilaMapa({ fila, tiendas, editable, onGuardado }) {
           <form onSubmit={guardar} className="flex flex-wrap items-center gap-2">
             <select className={`${CAMPO} sm:w-60`} value={valor} onChange={(e) => setValor(e.target.value)} aria-label={`Tienda del número SICAR ${fila.sicar_sucursal}`}>
               <option value="">Sin tienda</option>
-              <option value="baja">Dada de baja (tienda cerrada)</option>
+              <option value="baja">Dada de baja (número que ya no se usa)</option>
               {tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </select>
             {valor === "baja" && (
-              <label className={ETIQUETA}>Nombre de la tienda cerrada (opcional)
+              <label className={ETIQUETA}>A qué tienda correspondía (opcional)
                 <input className={CAMPO} value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} />
               </label>
             )}
