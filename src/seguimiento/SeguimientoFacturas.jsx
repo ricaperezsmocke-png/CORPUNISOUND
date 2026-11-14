@@ -5,7 +5,8 @@ import { contadorDePeticiones } from "../sicar/cortesSicar.js";
 import {
   TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
-  totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer,
+  totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer, etiquetaCamino, textoRuta, textoAlarma, dineroCamino,
+  avisoSinAsignar, parametrosCamino,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -16,6 +17,8 @@ const CELDA = "border-b border-slate-200 px-3 py-2 align-top";
 const DERECHA = "text-right tabular-nums";
 const NOTA_ROJA = "mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800";
 const NOTA_AMBAR = "mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900";
+const AVISO_FIJO = "mb-3 rounded-md border-2 border-red-400 bg-red-50 p-3 text-sm text-red-900";
+const ETIQUETA_ALARMA = "mt-1 inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800";
 const NOTA_GRIS = "text-xs text-slate-600";
 const SECUNDARIO = "text-[11px] text-slate-500";
 const PESTANA = "rounded-md border px-3 py-2 text-sm";
@@ -28,6 +31,7 @@ const BARRA = "flex h-3 w-48 overflow-hidden rounded bg-slate-100";
 const ETAPAS = [["", "Todas"], ["traslado", "Traslado"], ["margen_75", "Margen 75 %"], ["margen_50", "Margen 50 %"], ["liquidar", "Liquidar"]];
 const CONFIG = [
   ["dias_revisado_caduca", "Días sin movimiento para volver a avisar"], ["dias_posponer_maximo", "Días máximos para posponer"],
+  ["dias_transito_alarma", "Días en camino para alarma de traspaso"],
   ["dias_traslado", "Días para aviso de traslado"], ["dias_margen_75", "Días para bajar precio (75 %)"],
   ["dias_margen_50", "Días para bajar precio (50 %)"], ["dias_liquidacion", "Días para liquidar a costo"],
   ["ganancia_75_porcentaje", "Ganancia conservada 1 (%)"], ["ganancia_50_porcentaje", "Ganancia conservada 2 (%)"],
@@ -37,6 +41,9 @@ const CONFIG = [
   ["semanas_reserva_origen", "Reserva del origen (semanas)"], ["dias_datos_atrasados", "Datos atrasados después de (días)"],
   ["horas_foto_vieja", "Foto vieja después de (horas)"],
 ];
+
+// Valores que el servidor solo acepta de 1 a 365 días.
+const DE_1_A_365 = ["dias_revisado_caduca", "dias_posponer_maximo", "dias_transito_alarma"];
 
 async function pedir(ruta, opciones) {
   const r = await apiFetch(ruta, opciones);
@@ -327,6 +334,122 @@ function Facturas({ nombres, permisos }) {
   );
 }
 
+function TotalCamino({ titulo, monto, total, nota }) {
+  return (
+    <div className={CAJA}>
+      <p className={ETIQUETA}>{titulo}</p>
+      <p className="text-base font-semibold">{monto}</p>
+      <p className={NOTA_GRIS}>
+        {total.filas} {total.filas === 1 ? "movimiento" : "movimientos"}
+        {total.sin_dinero > 0 ? ` · ${total.sin_dinero} sin importe calculable` : ""}{nota ? ` · ${nota}` : ""}
+      </p>
+    </div>
+  );
+}
+
+function FilaCamino({ f, nombres, diasAlarma }) {
+  const dinero = dineroCamino(f), alarma = textoAlarma(f, diasAlarma);
+  const facturas = (f.facturas || []).map((x) => x.folio || x.com_id).join(", ");
+  return (
+    <tr className={f.alarma ? "bg-red-50" : ""}>
+      <td className={CELDA}>
+        {etiquetaCamino(f.tipo)}
+        {f.motivo && <span className={`block ${SECUNDARIO}`}>{textoMotivo(f.motivo)}</span>}
+        {alarma && <span className={ETIQUETA_ALARMA}>{alarma}</span>}
+      </td>
+      <td className={CELDA}>{f.tipo === "sin_entender" ? "—" : f.proveedor || "—"}</td>
+      <td className={CELDA}>
+        {f.tipo === "sin_entender" ? `Facturas con saldo de esta clave: ${facturas || "—"}` : f.folio_factura || f.com_id}
+      </td>
+      <td className={CELDA}>{f.clave}</td>
+      <td className={CELDA}>{f.folio || "Sin traspaso identificado"}</td>
+      <td className={CELDA}>{textoRuta(f, nombres)}</td>
+      <td className={CELDA}>{f.fecha_envio ? f.fecha_envio.slice(0, 10) : "—"}</td>
+      <td className={`${CELDA} ${DERECHA}`}>{f.dias ?? "—"}</td>
+      <td className={`${CELDA} ${DERECHA}`}>{piezasTexto(f.piezas)}</td>
+      <td className={`${CELDA} ${DERECHA}`}>
+        {dinero.principal}
+        {dinero.referencia && <span className={`block ${SECUNDARIO}`}>{dinero.referencia}</span>}
+      </td>
+    </tr>
+  );
+}
+
+const COLUMNAS_CAMINO = ["Qué es", "Proveedor", "Factura", "Clave", "Traspaso", "Origen → destino", "Enviado", "Días", "Piezas",
+  "Dinero"];
+
+function EnCamino({ nombres }) {
+  const [filtros, setFiltros] = useState({ solo_alarmas: false, pagina: 1 });
+  const [datos, setDatos] = useState(null);
+  const [error, setError] = useState("");
+  const peticiones = useRef(contadorDePeticiones());
+  const cargar = useCallback(async () => {
+    const numero = peticiones.current.nueva();
+    try {
+      const cuerpo = await pedir(`/seguimiento-facturas/en-camino?${parametrosCamino(filtros)}`);
+      if (peticiones.current.vigente(numero)) { setDatos(cuerpo); setError(""); }
+    } catch (e) {
+      if (peticiones.current.vigente(numero)) { setDatos(null); setError(e.message); }
+    }
+  }, [filtros]);
+  useEffect(() => { cargar(); }, [cargar]);
+  if (error) return <p role="alert" className={NOTA_ROJA}>{error}</p>;
+  if (!datos) return <p className="text-sm text-slate-500">Cargando…</p>;
+  const { totales: t } = datos, paginas = Math.max(1, Math.ceil(datos.total / datos.por_pagina));
+  return (
+    <>
+      <p className={NOTA_AMBAR}>
+        Mercancía de facturas de CEDIS que va en camino o cuyo traspaso hay que aclarar. “Por aclarar” no es un faltante de
+        ninguna tienda ni de ninguna persona: es un traspaso que hay que revisar en SICAR.
+      </p>
+      <div className="mb-3 grid gap-3 sm:grid-cols-3">
+        <TotalCamino titulo="Dinero en tránsito" total={t.transito}
+          monto={valorConIvaTexto(t.transito.centavos, t.transito.centavos_con_iva)} />
+        <TotalCamino titulo="Dinero por aclarar" total={t.por_aclarar}
+          monto={valorConIvaTexto(t.por_aclarar.centavos, t.por_aclarar.centavos_con_iva)} />
+        <TotalCamino titulo="Dinero sin entender (valor según SICAR)" total={t.sin_entender} nota="no se reparte entre facturas"
+          monto={valorConIvaTexto(t.sin_entender.valor_sicar_centavos, t.sin_entender.valor_sicar_con_iva_centavos)} />
+      </div>
+      <label className="mb-3 block text-sm">
+        <input type="checkbox" checked={filtros.solo_alarmas}
+          onChange={(e) => setFiltros({ solo_alarmas: e.target.checked, pagina: 1 })} />
+        {` Solo alarmas (más de ${datos.dias_transito_alarma} días en camino): ${datos.alarmas}`}
+      </label>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr>{COLUMNAS_CAMINO.map((h) => <th key={h} className={ENCABEZADO}>{h}</th>)}</tr></thead>
+          <tbody>
+            {datos.filas.map((f, i) => <FilaCamino key={i} f={f} nombres={nombres} diasAlarma={datos.dias_transito_alarma} />)}
+          </tbody>
+        </table>
+        {datos.filas.length === 0 && <p className="mt-3 text-sm text-slate-700">No hay nada en camino ni por aclarar.</p>}
+        <div className="mt-3 flex items-center gap-2 text-sm">
+          <button type="button" className={BTN} disabled={filtros.pagina <= 1}
+            onClick={() => setFiltros((x) => ({ ...x, pagina: x.pagina - 1 }))}>Anterior</button>
+          <span>Página {datos.pagina} de {paginas} · {datos.total} movimientos</span>
+          <button type="button" className={BTN} disabled={filtros.pagina >= paginas}
+            onClick={() => setFiltros((x) => ({ ...x, pagina: x.pagina + 1 }))}>Siguiente</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Aviso fijo arriba del módulo mientras haya números de sucursal SICAR con traspasos y sin tienda asignada. */
+function AvisoSinAsignar() {
+  const [aviso, setAviso] = useState(null);
+  useEffect(() => {
+    pedir("/seguimiento-facturas/sicar-sin-asignar").then((d) => setAviso(avisoSinAsignar(d.sin_asignar))).catch(() => setAviso(null));
+  }, []);
+  if (!aviso) return null;
+  return (
+    <div role="alert" className={AVISO_FIJO}>
+      <p className="font-semibold">{aviso.titulo}</p>
+      {aviso.detalle.map((linea) => <p key={linea}>{linea}</p>)}
+    </div>
+  );
+}
+
 function Tiendas({ nombres, permisos }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
@@ -409,8 +532,7 @@ function Configuracion() {
         {CONFIG.map(([clave, texto]) => (
           <label key={clave} className={ETIQUETA}>{texto} <span className="font-normal">(inicial {datos.iniciales[clave]})</span>
             <input type="number" step="1" className={CAMPO} value={valores[clave] ?? ""}
-              min={clave === "dias_revisado_caduca" || clave === "dias_posponer_maximo" ? 1 : undefined}
-              max={clave === "dias_revisado_caduca" || clave === "dias_posponer_maximo" ? 365 : undefined}
+              min={DE_1_A_365.includes(clave) ? 1 : undefined} max={DE_1_A_365.includes(clave) ? 365 : undefined}
               onChange={(e) => setValores((v) => ({ ...v, [clave]: e.target.value }))} />
           </label>
         ))}
@@ -447,8 +569,12 @@ export default function SeguimientoFacturas({ permisos = [] }) {
     <div className={PAGINA}>
       <h1 className="mb-1 text-xl font-bold text-slate-900">Seguimiento de facturas CEDIS</h1>
       <p className={NOTA_AMBAR}>{TEXTOS.fifo} Sirve para decidir traslados y precios, no para cobrar faltantes a nadie.</p>
-      <div className="mb-4 flex gap-2">
+      <AvisoSinAsignar />
+      <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" aria-pressed={pestana === "facturas"} className={estilo("facturas")} onClick={() => setPestana("facturas")}>Facturas</button>
+        <button type="button" aria-pressed={pestana === "camino"} className={estilo("camino")} onClick={() => setPestana("camino")}>
+          En el camino y por aclarar
+        </button>
         <button type="button" aria-pressed={pestana === "tiendas"} className={estilo("tiendas")} onClick={() => setPestana("tiendas")}>Tiendas</button>
         {gestiona && (
           <button type="button" aria-pressed={pestana === "config"} className={estilo("config")} onClick={() => setPestana("config")}>
@@ -457,6 +583,7 @@ export default function SeguimientoFacturas({ permisos = [] }) {
         )}
       </div>
       {pestana === "facturas" && <Facturas nombres={nombres} permisos={permisos} />}
+      {pestana === "camino" && <EnCamino nombres={nombres} />}
       {pestana === "tiendas" && <Tiendas nombres={nombres} permisos={permisos} />}
       {pestana === "config" && gestiona && <Configuracion />}
     </div>
