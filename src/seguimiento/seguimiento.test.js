@@ -298,6 +298,6 @@ test('bajas: textos neutrales, nombres y dinero exacto', async () => {
   assert.equal(resumenBaja({ ...baja, nombre: null, envios: [{}] }), 'SICAR 3 · 1 envío sin recibir · $41,315.00 según SICAR');
   assert.equal(rutaBaja({ origen: 6, destino: null, sicar_origen: '6', sicar_destino: '3' }, { 6: 'CEDIS' }, [baja]), 'CEDIS → Cerrada');
   assert.equal(rutaBaja({ origen: null, destino: null, sicar_origen: '7', sicar_destino: '3' }, {}, [baja]), 'SICAR 7 → Cerrada');
-  assert.equal(TEXTO_BAJAS, 'Mercancía que SICAR dice que se envió a una tienda que ya cerró y nadie marcó como recibida. '
+  assert.equal(TEXTO_BAJAS, 'Mercancía que SICAR dice que se envió a un número de sucursal que ya no se usa y nadie marcó como recibida. '
     + 'Hay que aclararla; no es faltante de ninguna tienda ni de ninguna persona.');
 });
