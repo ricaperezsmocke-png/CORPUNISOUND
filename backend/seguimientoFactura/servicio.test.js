@@ -67,6 +67,26 @@ test('salud: cinco fallos detienen la clave, conservan el error y dejan avanzar 
   assert.deepEqual(pendientes(db), []);
 });
 
+test('salud: un lanzamiento sin message registra el intento y deja avanzar la clave sana', t => {
+  const { db } = prepararDB(t);
+  compra(db, '1');
+  db.function('fallar_sin_message', () => { throw { codigo: 1 }; });
+  db.exec(`CREATE TRIGGER fallo_sin_message BEFORE INSERT ON seguimiento_resultado
+    WHEN NEW.clave='A' BEGIN SELECT fallar_sin_message(); END`);
+  servicio().marcarPendientes(db, 6, ['art-6'], CORTE);
+  db.prepare('INSERT INTO seguimiento_pendientes(clave, desde) VALUES (?, ?)').run('SANA', CORTE);
+  let r;
+  assert.doesNotThrow(() => { r = servicio().procesarPendientes(db, { ahora: DIA_50 }); });
+  const fila = db.prepare("SELECT * FROM seguimiento_pendientes WHERE clave='A'").get();
+  assert.equal(fila.intentos, 1);
+  assert.equal(fila.ultimo_intento, DIA_50);
+  assert.equal(typeof fila.ultimo_error, 'string');
+  assert.ok(fila.ultimo_error.length > 0);
+  assert.equal(fila.ultimo_error, '[object Object]');
+  assert.deepEqual(r, { procesadas: 1, errores: [{ clave: 'A', mensaje: fila.ultimo_error }], quedan: 1, atoradas: 0 });
+  assert.deepEqual(pendientes(db), ['A']);
+});
+
 for (const diaria of [false, true]) {
   test(`salud: ${diaria ? 'vuelta diaria' : 'lote'} reinicia intentos sin borrar antigüedad ni error`, t => {
     const { db } = prepararDB(t);

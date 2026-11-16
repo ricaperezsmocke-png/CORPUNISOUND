@@ -157,7 +157,21 @@ function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOStrin
       sqlite.transaction(() => recalcularClave(sqlite, clave, config, ahora)).immediate();
       procesadas++;
     } catch (e) {
-      const mensaje = e.message.slice(0, 300);
+      let mensaje;
+      try {
+        const detalle = e?.message;
+        if (typeof detalle === 'string' && detalle.length > 0) mensaje = detalle;
+      } catch {
+        // Incluso leer message puede fallar si es un getter.
+      }
+      if (!mensaje) {
+        try {
+          mensaje = String(e);
+        } catch {
+          mensaje = 'Error sin mensaje';
+        }
+      }
+      mensaje = (mensaje || 'Error sin mensaje').slice(0, 300);
       errores.push({ clave, mensaje });
       sqlite.prepare(`UPDATE seguimiento_pendientes SET desde=?, intentos=intentos+1, ultimo_error=?, ultimo_intento=?
         WHERE clave=?`).run(ahora, mensaje, ahora, clave);
