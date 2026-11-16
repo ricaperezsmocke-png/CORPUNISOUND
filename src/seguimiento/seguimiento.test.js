@@ -1,5 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { textoSalud, TEXTO_SALUD_ERROR } from './seguimiento.js';
+
+test('salud: textos con cálculo, sin cálculo y con errores', () => {
+  const fecha = '2026-11-14T16:32:00.000Z';
+  assert.equal(textoSalud({ ultimo_calculo: fecha, en_fila: 0, atoradas: [] }),
+    'Último cálculo: 14/11/2026 10:32 · En fila: 0 · Con error: 0');
+  assert.equal(textoSalud({ ultimo_calculo: null, en_fila: 2, atoradas: [] }),
+    'Sin cálculos todavía · En fila: 2 · Con error: 0');
+  assert.equal(textoSalud({ ultimo_calculo: fecha, en_fila: 3, atoradas: [{ clave: 'A' }] }),
+    'Último cálculo: 14/11/2026 10:32 · En fila: 3 · Con error: 1');
+  assert.equal(TEXTO_SALUD_ERROR,
+    'Estas claves no se pudieron recalcular. Sus facturas muestran el cálculo anterior hasta que se resuelva.');
+});
 import {
   piezasTexto, pesosTexto, porcentaje, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar,
   parametrosLista, textoTraslado, validarPosponer, botonIncorporar, textoMotivo, TEXTOS, fechaHoraLocal, textoComparacion, textoPorArticulo,

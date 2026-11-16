@@ -37,6 +37,88 @@ function ventaCedis(db, id, cantidad) {
 
 const servicio = () => require('./servicio');
 
+test('salud: cinco fallos detienen la clave, conservan el error y dejan avanzar las sanas', t => {
+  const { db } = prepararDB(t);
+  compra(db, '1');
+  const mensaje = 'Error de cálculo: ' + 'x'.repeat(320);
+  db.exec(`CREATE TRIGGER fallo_salud BEFORE INSERT ON seguimiento_resultado
+    WHEN NEW.clave='A' BEGIN SELECT RAISE(ABORT, '${mensaje}'); END`);
+  servicio().marcarPendientes(db, 6, ['art-6'], CORTE);
+  for (let i = 1; i <= 5; i++) {
+    db.prepare('INSERT INTO seguimiento_pendientes(clave, desde) VALUES (?, ?)').run('SANA', CORTE);
+    const r = servicio().procesarPendientes(db, { ahora: DIA_50 });
+    assert.equal(r.procesadas, 1);
+    const fila = db.prepare("SELECT * FROM seguimiento_pendientes WHERE clave='A'").get();
+    assert.equal(fila.intentos, i);
+    assert.equal(fila.ultimo_error, mensaje.slice(0, 300));
+    assert.equal(fila.ultimo_intento, DIA_50);
+    assert.equal(fila.desde, DIA_50);
+    assert.equal(r.quedan, i === 5 ? 0 : 1);
+    assert.equal(r.atoradas, i === 5 ? 1 : 0);
+  }
+  assert.equal(servicio().INTENTOS_MAXIMOS, 5);
+  assert.deepEqual(servicio().procesarPendientes(db, { ahora: DIA_61 }),
+    { procesadas: 0, errores: [], quedan: 0, atoradas: 1 });
+  assert.equal(db.prepare('SELECT ultimo_intento FROM seguimiento_pendientes').get().ultimo_intento, DIA_50);
+  db.exec('DROP TRIGGER fallo_salud');
+  servicio().marcarPendientes(db, 6, ['art-6'], DIA_61);
+  assert.equal(servicio().procesarPendientes(db, { ahora: DIA_61 }).procesadas, 1);
+  assert.deepEqual(require('./consultas').salud(db).atoradas, []);
+  assert.deepEqual(pendientes(db), []);
+});
+
+test('salud: un lanzamiento sin message registra el intento y deja avanzar la clave sana', t => {
+  const { db } = prepararDB(t);
+  compra(db, '1');
+  db.function('fallar_sin_message', () => { throw { codigo: 1 }; });
+  db.exec(`CREATE TRIGGER fallo_sin_message BEFORE INSERT ON seguimiento_resultado
+    WHEN NEW.clave='A' BEGIN SELECT fallar_sin_message(); END`);
+  servicio().marcarPendientes(db, 6, ['art-6'], CORTE);
+  db.prepare('INSERT INTO seguimiento_pendientes(clave, desde) VALUES (?, ?)').run('SANA', CORTE);
+  let r;
+  assert.doesNotThrow(() => { r = servicio().procesarPendientes(db, { ahora: DIA_50 }); });
+  const fila = db.prepare("SELECT * FROM seguimiento_pendientes WHERE clave='A'").get();
+  assert.equal(fila.intentos, 1);
+  assert.equal(fila.ultimo_intento, DIA_50);
+  assert.equal(typeof fila.ultimo_error, 'string');
+  assert.ok(fila.ultimo_error.length > 0);
+  assert.equal(fila.ultimo_error, '[object Object]');
+  assert.deepEqual(r, { procesadas: 1, errores: [{ clave: 'A', mensaje: fila.ultimo_error }], quedan: 1, atoradas: 0 });
+  assert.deepEqual(pendientes(db), ['A']);
+});
+
+for (const diaria of [false, true]) {
+  test(`salud: ${diaria ? 'vuelta diaria' : 'lote'} reinicia intentos sin borrar antigüedad ni error`, t => {
+    const { db } = prepararDB(t);
+    compra(db, '1');
+    db.prepare(`INSERT INTO seguimiento_pendientes(clave, desde, intentos, ultimo_error, ultimo_intento)
+      VALUES ('A', ?, 5, 'Fallo anterior', ?)`).run(CORTE, DIA_50);
+    const marcar = () => diaria ? servicio().vueltaCompleta(db, DIA_61) : servicio().marcarPendientes(db, 6, ['art-6'], DIA_61);
+    marcar();
+    const fila = db.prepare('SELECT * FROM seguimiento_pendientes').get();
+    assert.equal(fila.intentos, 0);
+    assert.equal(fila.desde, CORTE);
+    assert.equal(fila.ultimo_error, 'Fallo anterior');
+    assert.equal(fila.ultimo_intento, DIA_50);
+    marcar();
+    assert.deepEqual(db.prepare('SELECT * FROM seguimiento_pendientes').get(), fila);
+  });
+}
+
+test('salud: ciclo registra un resumen por tramo con errores', t => {
+  const { db } = prepararDB(t);
+  compra(db, '1');
+  db.exec(`CREATE TRIGGER fallo_ciclo BEFORE INSERT ON seguimiento_resultado
+    BEGIN SELECT RAISE(ABORT, 'Fallo de prueba'); END`);
+  servicio().marcarPendientes(db, 6, ['art-6']);
+  const mensajes = [];
+  t.mock.method(console, 'error', (...args) => mensajes.push(args));
+  t.mock.method(global, 'setTimeout', () => ({ unref() {} }));
+  t.mock.method(global, 'setInterval', () => ({ unref() {} }));
+  require('./rutas').iniciarCiclosSeguimiento(() => db).tramo();
+  assert.deepEqual(mensajes, [['SEGUIMIENTO_CLAVES_CON_ERROR', 1]]);
+});
+
 const fechaRevision = '2026-11-13T18:00:00.000Z';
 const despues = dias => new Date(Date.parse(fechaRevision) + dias * 86400000).toISOString();
 
@@ -217,7 +299,7 @@ test('procesar calcula la factura, crea su aviso y vacía pendientes; dos veces 
   compra(db, 'C1');
   ventaCedis(db, 'v1', '4.0000');
   servicio().marcarPendientes(db, 6, ['art-6'], DIA_50);
-  assert.deepEqual(procesar(db), { procesadas: 1, errores: [], quedan: 0 });
+  assert.deepEqual(procesar(db), { procesadas: 1, errores: [], quedan: 0, atoradas: 0 });
   const [fila] = resultado(db);
   assert.equal(fila.clave, 'A');
   assert.equal(fila.datos.vendido, '40000');
@@ -325,10 +407,10 @@ test('vuelta completa no marca claves de compras anteriores al corte de CEDIS', 
 
 test('presupuesto de tiempo: procesa al menos una clave, se detiene y dice cuántas quedan', t => {
   const { db } = prepararDB(t);
-  for (const clave of ['B', 'C', 'D']) db.prepare('INSERT INTO seguimiento_pendientes VALUES (?, ?)').run(clave, DIA_50);
+  for (const clave of ['B', 'C', 'D']) db.prepare('INSERT INTO seguimiento_pendientes(clave, desde) VALUES (?, ?)').run(clave, DIA_50);
   const r = servicio().procesarPendientes(db, { limite: 50, ahora: DIA_50, presupuestoMs: 0 });
-  assert.deepEqual(r, { procesadas: 1, errores: [], quedan: 2 });
-  assert.deepEqual(procesar(db), { procesadas: 2, errores: [], quedan: 0 });
+  assert.deepEqual(r, { procesadas: 1, errores: [], quedan: 2, atoradas: 0 });
+  assert.deepEqual(procesar(db), { procesadas: 2, errores: [], quedan: 0, atoradas: 0 });
 });
 
 test('ciclos: la vuelta diaria corre una vez por día y deja todo procesado sin encimarse', t => {
@@ -338,7 +420,7 @@ test('ciclos: la vuelta diaria corre una vez por día y deja todo procesado sin 
   ciclos.revisarDia();
   assert.deepEqual(pendientes(db), []);
   assert.equal(resultado(db).length, 1);
-  db.prepare("INSERT INTO seguimiento_pendientes VALUES ('Z', 'x')").run();
+  db.prepare("INSERT INTO seguimiento_pendientes(clave, desde) VALUES ('Z', 'x')").run();
   ciclos.revisarDia(); // mismo día: no repite la vuelta ni procesa
   assert.deepEqual(pendientes(db), ['Z']);
 });
@@ -381,7 +463,7 @@ function envioY(db, fecha, aplicada) {
 }
 
 function procesarRescate(db) {
-  db.prepare("INSERT INTO seguimiento_pendientes VALUES ('A', ?)").run(RESCATE_AHORA);
+  db.prepare("INSERT INTO seguimiento_pendientes(clave, desde) VALUES ('A', ?)").run(RESCATE_AHORA);
   return servicio().procesarPendientes(db, { limite: 50, ahora: RESCATE_AHORA });
 }
 
@@ -389,7 +471,7 @@ test('rescate: la clave rescatable guarda el resultado reconstruido con su marca
   const db = prepararRescate(t, 9);
   envioY(db, '2026-11-06', '2026-11-06T13:00:00');
   ventaY(db, 'v1', '2026-11-08T11:00:00', 3);
-  assert.deepEqual(procesarRescate(db), { procesadas: 1, errores: [], quedan: 0 });
+  assert.deepEqual(procesarRescate(db), { procesadas: 1, errores: [], quedan: 0, atoradas: 0 });
   const [fila] = resultado(db);
   // Foto reconstruida 2 = 9 − 10 + 3: la venta se lleva primero esas 2 anteriores y 1 de la factura.
   assert.deepEqual(fila.datos.por_sucursal, { 2: { queda: '90000', vendido: '10000' } });

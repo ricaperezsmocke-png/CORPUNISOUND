@@ -6,7 +6,7 @@ import {
   TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
   totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer, etiquetaCamino, textoRuta, textoAlarma, dineroCamino,
-  avisoSinAsignar, parametrosCamino, resumenBaja, rutaBaja, TEXTO_BAJAS, pesosTexto,
+  avisoSinAsignar, parametrosCamino, resumenBaja, rutaBaja, TEXTO_BAJAS, pesosTexto, textoSalud, TEXTO_SALUD_ERROR,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -153,13 +153,15 @@ function Estrategias({ e, renglon, nombres }) {
   );
 }
 
-function Renglon({ r, nombres }) {
+function Renglon({ r, nombres, calculadoEn }) {
   const tiendas = Object.entries(r.por_sucursal);
   const motivos = [...new Set([...(r.motivos || []), ...(r.incierto || [])])];
   return (
     <div className={CAJA}>
       <p className="font-semibold">{r.clave} {r.descripcion || ""}</p>
-      <p className={NOTA_GRIS}>Datos al {fechaHoraLocal(r.calidad?.datos_al)}</p>
+      <p className={NOTA_GRIS}>
+        Datos al {fechaHoraLocal(r.calidad?.datos_al)} · Calculado el {fechaHoraLocal(calculadoEn)}
+      </p>
       <table className="mt-2 text-sm">
         <tbody>
           <tr><td className="pr-4">Comprado</td><td className={DERECHA}>{piezasTexto(r.comprado)} pzas · {valorConIvaTexto(r.valor_centavos, r.valor_con_iva_centavos)}</td></tr>
@@ -227,7 +229,9 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
             onHecho={() => { cargar(); onCambio(); }} />}
         </div>
       )}
-      <div className="grid gap-3 md:grid-cols-2">{renglones.map((r) => <Renglon key={r.renglon} r={r} nombres={nombres} />)}</div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {renglones.map((r) => <Renglon key={r.renglon} r={r} nombres={nombres} calculadoEn={factura.calculado_en} />)}
+      </div>
       {avisos.length > 0 && (
         <div className={CAJA}>
           <p className="mb-1 font-semibold">Historial de avisos</p>
@@ -576,6 +580,57 @@ function Configuracion() {
   );
 }
 
+function Salud({ gestiona }) {
+  const [datos, setDatos] = useState(null);
+  const [error, setError] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const cargar = useCallback(async () => {
+    const salud = await pedir('/seguimiento-facturas/salud');
+    setDatos(salud);
+    setError('');
+  }, []);
+  useEffect(() => { cargar().catch(e => setError(e.message)); }, [cargar]);
+  const reintentar = async cuerpo => {
+    setEnviando(true);
+    try {
+      await pedir('/seguimiento-facturas/salud/reintentar', { method: 'POST', body: JSON.stringify(cuerpo) });
+      await cargar();
+    } catch (e) { setError(e.message); }
+    finally { setEnviando(false); }
+  };
+  const conErrores = datos?.atoradas.length > 0;
+  return (
+    <section className={conErrores ? NOTA_AMBAR : 'mb-3 text-sm text-slate-600'} aria-label="Salud del cálculo">
+      {error && <p role="alert">No se pudo actualizar la salud: {error}</p>}
+      {!datos && !error && <p>Cargando salud del cálculo…</p>}
+      {datos && !conErrores && <p>{textoSalud(datos)}</p>}
+      {conErrores && (
+        <details>
+          <summary className="cursor-pointer">{textoSalud(datos)}</summary>
+          <p className="my-2">{TEXTO_SALUD_ERROR}</p>
+          {gestiona && <button type="button" className={BTN} disabled={enviando} onClick={() => reintentar({ todas: true })}>
+            Reintentar todas
+          </button>}
+          {datos.atoradas.map(f => (
+            <div key={f.clave} className="mt-3 border-t border-amber-300 pt-2">
+              <p className="font-semibold">{f.clave} · Intentos: {f.intentos} · Último intento: {fechaHoraLocal(f.ultimo_intento)}</p>
+              <p className="break-words">{f.ultimo_error}</p>
+              {f.facturas.map(factura => (
+                <p key={`${factura.sucursal_id}-${factura.com_id}`}>
+                  Factura {factura.folio || factura.com_id} · {factura.proveedor || 'Proveedor sin nombre'}
+                </p>
+              ))}
+              {gestiona && <button type="button" className={BTN} disabled={enviando} onClick={() => reintentar({ clave: f.clave })}>
+                Reintentar
+              </button>}
+            </div>
+          ))}
+        </details>
+      )}
+    </section>
+  );
+}
+
 export default function SeguimientoFacturas({ permisos = [] }) {
   const [pestana, setPestana] = useState("facturas");
   const [nombres, setNombres] = useState({});
@@ -595,6 +650,7 @@ export default function SeguimientoFacturas({ permisos = [] }) {
       <h1 className="mb-1 text-xl font-bold text-slate-900">Seguimiento de facturas CEDIS</h1>
       <p className={NOTA_AMBAR}>{TEXTOS.fifo} Sirve para decidir traslados y precios, no para cobrar faltantes a nadie.</p>
       <AvisoSinAsignar nombres={nombres} />
+      <Salud gestiona={gestiona} />
       <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" aria-pressed={pestana === "facturas"} className={estilo("facturas")} onClick={() => setPestana("facturas")}>Facturas</button>
         <button type="button" aria-pressed={pestana === "camino"} className={estilo("camino")} onClick={() => setPestana("camino")}>

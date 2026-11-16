@@ -468,6 +468,8 @@ function detalle(sqlite, sucursal_id, com_id, ahora = new Date().toISOString()) 
     const config = leerConfig(sqlite);
     const factura = filas.length ? completar(resumir(com_id, filas, cabeza, aviso, config, ahora), esperada, filas.length)
       : sinDatos(com_id, esperada, cabeza, aviso, ahora);
+    factura.calculado_en = sqlite.prepare(`SELECT min(calculado_en) fecha FROM seguimiento_resultado
+      WHERE sucursal_id=? AND com_id=?`).get(CEDIS, com_id).fecha;
     const descripcion = sqlite.prepare('SELECT descripcion FROM sicar_articulos WHERE sucursal_id=? AND clave=? LIMIT 1');
     const renglones = filas.map(r => ({ renglon: r.renglon, clave: r.clave, descripcion: descripcion.get(CEDIS, r.clave)?.descripcion ?? null,
       ...r.datos, rescate: r.datos.rescate ?? null, // { desde, tiendas } si la clave se reconstruyó con el rescate
@@ -495,4 +497,21 @@ function tiendas(sqlite, ahora = new Date().toISOString()) {
   return { incorporadas, pendientes };
 }
 
-module.exports = { listar, detalle, tiendas, transitoHacia, enCamino, sicarSinAsignar, ETAPAS };
+function salud(sqlite) {
+  const { INTENTOS_MAXIMOS } = require('./servicio');
+  return sqlite.transaction(() => {
+    const ultimo_calculo = sqlite.prepare('SELECT max(calculado_en) fecha FROM seguimiento_resultado').get().fecha;
+    const fila = sqlite.prepare(`SELECT count(*) en_fila, min(desde) mas_vieja_desde FROM seguimiento_pendientes
+      WHERE intentos < ?`).get(INTENTOS_MAXIMOS);
+    const facturas = sqlite.prepare(`SELECT DISTINCT r.sucursal_id, r.com_id, c.folio, p.nombre proveedor
+      FROM seguimiento_resultado r JOIN sicar_compras c ON c.sucursal_id=r.sucursal_id AND c.com_id=r.com_id
+      LEFT JOIN sicar_proveedores p ON p.sucursal_id=c.sucursal_id AND p.prv_id=c.pro_id
+      WHERE r.clave=? ORDER BY r.sucursal_id, r.com_id LIMIT 20`);
+    const atoradas = sqlite.prepare(`SELECT clave, intentos, ultimo_error, ultimo_intento, reintento_por, reintento_en
+      FROM seguimiento_pendientes WHERE intentos >= ? ORDER BY ultimo_intento DESC, clave LIMIT 100`)
+      .all(INTENTOS_MAXIMOS).map(f => ({ ...f, facturas: facturas.all(f.clave) }));
+    return { ultimo_calculo, ...fila, atoradas, intentos_maximos: INTENTOS_MAXIMOS };
+  })();
+}
+
+module.exports = { listar, detalle, tiendas, transitoHacia, enCamino, sicarSinAsignar, salud, ETAPAS };

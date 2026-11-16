@@ -13,6 +13,22 @@ function prepararDB(t) {
   return { sqlite, repo: crearRepositorioSicar(sqlite) };
 }
 
+test('salud: columnas nuevas y migración idempotente conservan pendientes antiguos', t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  sqlite.exec(`CREATE TABLE seguimiento_pendientes(clave TEXT PRIMARY KEY NOT NULL, desde TEXT);
+    INSERT INTO seguimiento_pendientes(clave, desde) VALUES ('A', 'ayer')`);
+  const crear = require('./sicarRepositorio').crearRepositorioSicar;
+  crear(sqlite);
+  const esperado = { clave: 'A', desde: 'ayer', intentos: 0, ultimo_error: null, ultimo_intento: null,
+    reintento_por: null, reintento_en: null };
+  assert.deepEqual(sqlite.prepare('SELECT * FROM seguimiento_pendientes').get(), esperado);
+  crear(sqlite);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM seguimiento_pendientes').get(), esperado);
+  sqlite.exec("INSERT INTO seguimiento_pendientes(clave) VALUES ('B')");
+  assert.equal(sqlite.prepare("SELECT intentos FROM seguimiento_pendientes WHERE clave='B'").get().intentos, 0);
+});
+
 function lote(sequence = '1') {
   return {
     schema_version: 1, mapping_version: 'ocosingo-f0-v1', batch_id: `lote-${sequence}`, sequence,

@@ -252,7 +252,8 @@ const ESQUEMA = `
     FOREIGN KEY (sucursal_id) REFERENCES seguimiento_tiendas(sucursal_id)
   );
   CREATE TABLE IF NOT EXISTS seguimiento_pendientes (
-    clave TEXT PRIMARY KEY NOT NULL, desde TEXT
+    clave TEXT PRIMARY KEY NOT NULL, desde TEXT, intentos INTEGER NOT NULL DEFAULT 0,
+    ultimo_error TEXT, ultimo_intento TEXT, reintento_por TEXT, reintento_en TEXT
   );
   CREATE TABLE IF NOT EXISTS seguimiento_resultado (
     sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, renglon INTEGER NOT NULL, clave TEXT,
@@ -480,6 +481,13 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    const columnasPendientes = [['intentos', 'INTEGER NOT NULL DEFAULT 0'], ['ultimo_error', 'TEXT'],
+      ['ultimo_intento', 'TEXT'], ['reintento_por', 'TEXT'], ['reintento_en', 'TEXT']];
+    for (const [columna, tipo] of columnasPendientes) {
+      if (!sqlite.pragma('table_info(seguimiento_pendientes)').some(c => c.name === columna)) {
+        sqlite.exec(`ALTER TABLE seguimiento_pendientes ADD COLUMN ${columna} ${tipo}`);
+      }
+    }
     for (const [columna, tipo] of [['baja', 'INTEGER NOT NULL DEFAULT 0'], ['nombre', 'TEXT']]) {
       if (!sqlite.pragma('table_info(sicar_sucursales_mapa)').some(c => c.name === columna)) {
         sqlite.exec(`ALTER TABLE sicar_sucursales_mapa ADD COLUMN ${columna} ${tipo}`);

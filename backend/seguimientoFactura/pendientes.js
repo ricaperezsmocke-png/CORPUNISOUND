@@ -37,7 +37,7 @@ function marcarPendientes(sqlite, sucursal_id, art_ids, ahora = new Date().toISO
   return sqlite.prepare(`INSERT INTO seguimiento_pendientes(clave, desde)
     SELECT DISTINCT clave, ? FROM sicar_articulos WHERE sucursal_id=? AND clave IS NOT NULL AND trim(clave) <> ''
       AND art_id IN (SELECT value FROM json_each(?))
-    ON CONFLICT(clave) DO NOTHING`).run(ahora, Number(sucursal_id), JSON.stringify(art_ids.map(String))).changes;
+    ON CONFLICT(clave) DO UPDATE SET intentos=0`).run(ahora, Number(sucursal_id), JSON.stringify(art_ids.map(String))).changes;
 }
 
 module.exports = { artIdsDelLote, marcarPendientes };

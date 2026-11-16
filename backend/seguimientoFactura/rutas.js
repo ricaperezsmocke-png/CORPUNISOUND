@@ -4,7 +4,7 @@
 const { fechaLocal } = require('../fechas');
 const { VALORES_INICIALES, leerConfig } = require('./config');
 const { incorporar } = require('./incorporar');
-const { vueltaCompleta, procesarPendientes, saldoFactura, guardarRevision } = require('./servicio');
+const { vueltaCompleta, procesarPendientes, saldoFactura, guardarRevision, INTENTOS_MAXIMOS } = require('./servicio');
 const consultas = require('./consultas');
 
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
@@ -93,6 +93,24 @@ function cambiarConfig(sqlite, cuerpo, actor, ahora = new Date().toISOString()) 
   }).immediate();
 }
 
+function reintentar(sqlite, cuerpo, actor, ahora = new Date().toISOString()) {
+  const todas = cuerpo?.todas === true;
+  const clave = typeof cuerpo?.clave === 'string' ? cuerpo.clave.trim() : '';
+  if (!cuerpo || Array.isArray(cuerpo) || (Object.hasOwn(cuerpo, 'todas') && !todas)
+    || (!todas && !clave) || (todas && Object.hasOwn(cuerpo, 'clave'))) {
+    throw error(400, 'Indica una clave de texto no vacía o todas: true.');
+  }
+  return sqlite.transaction(() => {
+    if (!todas && !sqlite.prepare('SELECT 1 FROM seguimiento_pendientes WHERE clave=?').get(clave)) {
+      throw error(404, 'Clave pendiente no encontrada.');
+    }
+    const sql = `UPDATE seguimiento_pendientes SET intentos=0, reintento_por=?, reintento_en=? WHERE intentos >= ?`;
+    const args = [actor, ahora, INTENTOS_MAXIMOS];
+    const resultado = todas ? sqlite.prepare(sql).run(...args) : sqlite.prepare(`${sql} AND clave=?`).run(...args, clave);
+    return { reintentadas: resultado.changes };
+  }).immediate();
+}
+
 function registrarRutasSeguimiento(app, { sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol }) {
   const permiso = clave => [requiereLogin, requierePermiso(clave, resolverPermisosDeRol)];
   const VER = 'ver_seguimiento_facturas', GESTIONAR = 'gestionar_seguimiento_facturas';
@@ -105,6 +123,8 @@ function registrarRutasSeguimiento(app, { sqlite, requiereLogin, requierePermiso
     }
   };
   const base = '/api/seguimiento-facturas';
+  app.get(`${base}/salud`, ...permiso(VER), ejecutar(db => consultas.salud(db)));
+  app.post(`${base}/salud/reintentar`, ...permiso(GESTIONAR), ejecutar((db, req, actor) => reintentar(db, req.body, actor)));
   app.get(`${base}/tiendas`, ...permiso(VER), ejecutar(db => consultas.tiendas(db)));
   app.get(`${base}/config`, ...permiso(GESTIONAR), ejecutar(db => verConfig(db)));
   app.put(`${base}/config`, ...permiso(GESTIONAR), ejecutar((db, req, actor) => cambiarConfig(db, req.body, actor)));
@@ -136,7 +156,11 @@ function iniciarCiclosSeguimiento(sqlite, { tramoMs = 200, pausaMs = 1000 } = {}
     if (ocupado) return;
     ocupado = true;
     let quedan = 0;
-    try { quedan = procesarPendientes(sqlite(), { limite: 200, presupuestoMs: tramoMs }).quedan; }
+    try {
+      const resultado = procesarPendientes(sqlite(), { limite: 200, presupuestoMs: tramoMs });
+      quedan = resultado.quedan;
+      if (resultado.errores.length) console.error('SEGUIMIENTO_CLAVES_CON_ERROR', resultado.errores.length);
+    }
     catch (e) { console.error('SEGUIMIENTO_FALLO', e.message); }
     finally { ocupado = false; }
     if (quedan > 0) setTimeout(tramo, pausaMs).unref();
