@@ -59,6 +59,24 @@ function lote(sequence = '1') {
 }
 const ruta = '/api/integraciones/sicar/v1';
 
+test('aclarado: exige sesión, permiso propio y alcance total; guarda actor del token', async () => {
+  const url = '/api/sicar/sucursales-mapa/aclarado';
+  const body = { sicar_sucursal: '3', aclarado: true, nota: 'Mercancía ajustada' };
+  sqlite.exec("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja) VALUES ('3', 1)");
+  assert.equal((await pedir(url, undefined, body, 'PUT')).status, 401);
+  assert.equal((await pedir(url, vecino, body, 'PUT')).status, 403);
+  for (const [id, permisos] of [[981, ['administrar_sucursales', 'ver_todas_las_sucursales']], [982, ['administrar_sucursales']]]) {
+    app.DB.admin.roles.push({ id, nombre: `Aclarado ${id}`, permisos, modulos: ['admin'] });
+    app.DB.admin.usuarios.push({ id, nombre: 'Aclarador', usuario: `aclarado${id}`, rol_id: id, sucursal_id: 1, activo: true });
+  }
+  const token = id => firmarToken({ id, rol_id: id, sucursal_id: 1 });
+  assert.equal((await pedir(url, token(982), body, 'PUT')).status, 403);
+  const r = await pedir(url, token(981), body, 'PUT');
+  assert.equal(r.status, 200);
+  assert.equal(r.datos.aclarado_por, '981');
+  assert.equal((await pedir(url, token(981), { ...body, nota: 'ab' }, 'PUT')).status, 400);
+});
+
 test('catálogo, guard y reconciliación conceden SICAR solo al Administrador', () => {
   const { sembrarRolesIniciales, reconciliarRoles } = require('./roles');
   const { PERMISOS, MODULOS_SISTEMA } = require('./permisosCatalogo');

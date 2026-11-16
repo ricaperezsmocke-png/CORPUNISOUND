@@ -6,7 +6,7 @@ import {
   TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
   totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer, etiquetaCamino, textoRuta, textoAlarma, dineroCamino,
-  avisoSinAsignar, parametrosCamino, resumenBaja, rutaBaja, TEXTO_BAJAS, pesosTexto, textoSalud, TEXTO_SALUD_ERROR,
+  avisoSinAsignar, parametrosCamino, resumenBaja, encabezadoBajas, rutaBaja, TEXTO_BAJAS, pesosTexto, textoSalud, TEXTO_SALUD_ERROR,
 } from "./seguimiento.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -440,11 +440,26 @@ function EnCamino({ nombres }) {
 }
 
 /** Aviso fijo arriba del módulo mientras haya números de sucursal SICAR con traspasos y sin tienda asignada. */
-function AvisoSinAsignar({ nombres }) {
+function AvisoSinAsignar({ nombres, permisos }) {
   const [datos, setDatos] = useState(null);
+  const [notas, setNotas] = useState({});
+  const [error, setError] = useState("");
+  const [guardando, setGuardando] = useState(false);
   useEffect(() => {
     pedir("/seguimiento-facturas/sicar-sin-asignar").then(setDatos).catch(() => setDatos(null));
   }, []);
+  const cambiarAclarado = async (baja) => {
+    setGuardando(true);
+    setError("");
+    try {
+      await pedir("/sicar/sucursales-mapa/aclarado", {
+        method: "PUT",
+        body: JSON.stringify({ sicar_sucursal: baja.sicar_sucursal, aclarado: !baja.aclarado_en, nota: notas[baja.sicar_sucursal] || "" }),
+      });
+      setDatos(await pedir("/seguimiento-facturas/sicar-sin-asignar"));
+      setNotas((previas) => ({ ...previas, [baja.sicar_sucursal]: "" }));
+    } catch (e) { setError(e.message); } finally { setGuardando(false); }
+  };
   const aviso = avisoSinAsignar(datos?.sin_asignar), bajas = datos?.bajas || [];
   return (
     <>
@@ -455,12 +470,25 @@ function AvisoSinAsignar({ nombres }) {
       {bajas.length > 0 && (
         <details className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-800">
           <summary className="cursor-pointer font-semibold">
-            Sucursales SICAR dadas de baja: {bajas.map(resumenBaja).join("; ")}
+            {encabezadoBajas(bajas)}
           </summary>
           <p className="my-3">{TEXTO_BAJAS}</p>
+          {error && <p role="alert" className={NOTA_ROJA}>{error}</p>}
           {bajas.map((b) => <div key={b.sicar_sucursal} className="mb-3 overflow-x-auto">
             <p className="mb-2 font-semibold">{resumenBaja(b)}</p>
-            <table className="w-full text-sm">
+            {permisos?.includes("administrar_sucursales") && <div className="mb-3 space-y-2">
+              {!b.aclarado_en && <label className={ETIQUETA}>
+                Nota (qué pasó con esa mercancía)
+                <input type="text" className={CAMPO} maxLength={200} value={notas[b.sicar_sucursal] || ""} disabled={guardando}
+                  onChange={(e) => setNotas((previas) => ({ ...previas, [b.sicar_sucursal]: e.target.value }))} />
+              </label>}
+              <button type="button" className="rounded border border-slate-400 px-3 py-2 disabled:opacity-50"
+                disabled={guardando || (!b.aclarado_en && (notas[b.sicar_sucursal] || "").trim().length < 3)}
+                onClick={() => cambiarAclarado(b)}>
+                {b.aclarado_en ? "Quitar aclarado" : "Marcar como aclarado"}
+              </button>
+            </div>}
+            {b.envios.length > 0 && <table className="w-full text-sm">
               <thead><tr>{["Folio", "Fecha", "Origen → destino", "Días", "Dinero según SICAR"].map((h) => (
                 <th key={h} className={ENCABEZADO}>{h}</th>
               ))}</tr></thead>
@@ -471,7 +499,7 @@ function AvisoSinAsignar({ nombres }) {
                 <td className={`${CELDA} ${DERECHA}`}>{e.dias}</td>
                 <td className={`${CELDA} ${DERECHA}`}>{pesosTexto(e.total_centavos)}</td>
               </tr>)}</tbody>
-            </table>
+            </table>}
           </div>)}
         </details>
       )}
@@ -649,7 +677,7 @@ export default function SeguimientoFacturas({ permisos = [] }) {
     <div className={PAGINA}>
       <h1 className="mb-1 text-xl font-bold text-slate-900">Seguimiento de facturas CEDIS</h1>
       <p className={NOTA_AMBAR}>{TEXTOS.fifo} Sirve para decidir traslados y precios, no para cobrar faltantes a nadie.</p>
-      <AvisoSinAsignar nombres={nombres} />
+      <AvisoSinAsignar nombres={nombres} permisos={permisos} />
       <Salud gestiona={gestiona} />
       <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" aria-pressed={pestana === "facturas"} className={estilo("facturas")} onClick={() => setPestana("facturas")}>Facturas</button>

@@ -6,6 +6,24 @@ const { transitoHacia } = require('./consultas');
 
 const AL = '2026-11-05T18:00:00.000Z';
 
+test('aclarado: cubre hasta el día local inclusive y conserva envíos posteriores con dinero exacto', t => {
+  const db = escenarioCamino(t);
+  db.exec(`INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja) VALUES ('3', 1)`);
+  puntaF2(db, 6, 'ANTES', { destino: '3', fecha: '2026-11-15', total: 50 });
+  puntaF2(db, 6, 'MISMO', { destino: '3', fecha: '2026-11-16T23:59:59', total: 70 });
+  puntaF2(db, 1, 'MISMO', { destino: '3', fecha: '2026-11-16T23:59:59', total: 70 });
+  puntaF2(db, 6, 'DESPUÉS', { destino: '3', fecha: '2026-11-17', total: 9007199254740993n });
+  db.prepare('UPDATE sicar_sucursales_mapa SET aclarado_en=?, aclarado_nota=?, aclarado_por=? WHERE sicar_sucursal=?')
+    .run('2026-11-17T02:00:00.000Z', 'Ajustado', '77', '3');
+  const baja = require('./consultas').sicarSinAsignar(db).bajas[0];
+  assert.equal(baja.aclarado_en, '2026-11-17T02:00:00.000Z');
+  assert.equal(baja.aclarado_nota, 'Ajustado');
+  assert.equal(baja.aclarado_por, '77');
+  assert.equal(baja.envios_aclarados, 2);
+  assert.deepEqual(baja.envios.map(e => e.folio), ['DESPUÉS']);
+  assert.equal(baja.total_centavos, '9007199254740993');
+});
+
 test('salud vacía y límites: 100 claves ordenadas, 20 facturas distintas por clave', t => {
   const db = prepararDB(t), { salud } = require('./consultas');
   assert.deepEqual(salud(db), { ultimo_calculo: null, en_fila: 0, mas_vieja_desde: null, atoradas: [], intentos_maximos: 5 });
@@ -576,11 +594,12 @@ test('bajas: lista abierta agrupada, ordenada y exacta; excluye recibidos y canc
   puntaF2(db, 1, 'DOS', { destino: '3', estado: 'recibido', total: 200 });
   const r = require('./consultas').sicarSinAsignar(db, '2026-11-05T18:00:00.000Z');
   assert.deepEqual(r.sin_asignar, []);
-  assert.deepEqual(r.bajas, [{ sicar_sucursal: '3', nombre: 'Cerrada', total_centavos: '9007199254741000', envios: [
+  const aclaradoVacio = { aclarado_en: null, aclarado_nota: null, aclarado_por: null, envios_aclarados: 0 };
+  assert.deepEqual(r.bajas, [{ ...aclaradoVacio, sicar_sucursal: '3', nombre: 'Cerrada', total_centavos: '9007199254741000', envios: [
     { folio: 'ANTES', fecha: '2026-10-24', sicar_origen: 's6', sicar_destino: '3', origen: 6, destino: null, total_centavos: '7', dias: 12 },
     { folio: 'ABIERTO', fecha: '2026-10-25', sicar_origen: 's6', sicar_destino: '3', origen: 6, destino: null,
       total_centavos: '9007199254740993', dias: 11 },
-  ] }, { sicar_sucursal: '7', nombre: null, envios: [], total_centavos: '0' }]);
+  ] }, { ...aclaradoVacio, sicar_sucursal: '7', nombre: null, envios: [], total_centavos: '0' }]);
 });
 
 test('baja marca pendientes y cambia el motivo sin atribuir piezas; repetir no recalcula', t => {

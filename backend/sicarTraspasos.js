@@ -151,7 +151,8 @@ function consultarTraspasosSicar(sqlite, filtros = {}, alcance, nombresTiendas =
 }
 
 function listarMapaSicar(sqlite, nombresTiendas = {}) {
-  return sqlite.prepare('SELECT sicar_sucursal, sucursal_id, asignado_por, asignado_en, baja, nombre FROM sicar_sucursales_mapa').all()
+  return sqlite.prepare(`SELECT sicar_sucursal, sucursal_id, asignado_por, asignado_en, baja, nombre,
+    aclarado_en, aclarado_nota, aclarado_por FROM sicar_sucursales_mapa`).all()
     .sort((a, b) => Number(a.sicar_sucursal) - Number(b.sicar_sucursal))
     .map(m => ({ ...m, baja: m.baja === 1, tienda: m.sucursal_id === null ? null : nombresTiendas[m.sucursal_id] ?? null }));
 }
@@ -213,7 +214,10 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
     sqlite.prepare(`INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, baja, nombre, asignado_por, asignado_en)
       VALUES (@sicar_sucursal, @sucursal_id, @baja, @nombre, @asignado_por, @asignado_en)
       ON CONFLICT(sicar_sucursal) DO UPDATE SET sucursal_id = excluded.sucursal_id, asignado_por = excluded.asignado_por,
-        asignado_en = excluded.asignado_en, baja = excluded.baja, nombre = excluded.nombre`).run(fila);
+        asignado_en = excluded.asignado_en, baja = excluded.baja, nombre = excluded.nombre,
+        aclarado_en = CASE WHEN excluded.baja = 1 AND sicar_sucursales_mapa.baja = 1 THEN aclarado_en ELSE NULL END,
+        aclarado_nota = CASE WHEN excluded.baja = 1 AND sicar_sucursales_mapa.baja = 1 THEN aclarado_nota ELSE NULL END,
+        aclarado_por = CASE WHEN excluded.baja = 1 AND sicar_sucursales_mapa.baja = 1 THEN aclarado_por ELSE NULL END`).run(fila);
     sqlite.prepare(`INSERT INTO sicar_sucursales_mapa_historial (sicar_sucursal, anterior, nuevo, actor, fecha)
       VALUES (?, ?, ?, ?, ?)`).run(sicar, anterior?.baja ? 'baja' : anterior?.sucursal_id == null ? null : String(anterior.sucursal_id),
       baja ? 'baja' : nuevo === null ? null : String(nuevo), quien, fila.asignado_en);
@@ -222,4 +226,28 @@ function asignarMapaSicar(sqlite, datos, actor, alcance, tiendaExiste) {
   }).immediate();
 }
 
-module.exports = { consultarTraspasosSicar, listarMapaSicar, listarSinAsignarSicar, asignarMapaSicar };
+function aclararBajaSicar(sqlite, datos, actor, alcance) {
+  if (tiendaDelAlcance(alcance) !== null) throw fallo(403, 'El mapa de sucursales es de toda la empresa.');
+  const quien = String(actor ?? '');
+  if (!quien) throw fallo(401, 'No autenticado.');
+  if (!datos || typeof datos !== 'object' || Array.isArray(datos)) throw fallo(400, 'Solicitud inválida.');
+  const sicar = typeof datos.sicar_sucursal === 'number' ? String(datos.sicar_sucursal) : datos.sicar_sucursal;
+  if (typeof sicar !== 'string' || !/^[1-9]\d{0,8}$/.test(sicar)) throw fallo(400, 'El número de sucursal SICAR es inválido.');
+  if (typeof datos.aclarado !== 'boolean') throw fallo(400, 'El aclarado debe ser un booleano.');
+  const nota = typeof datos.nota === 'string' ? datos.nota.trim() : '';
+  if (datos.aclarado && (nota.length < 3 || nota.length > 200)) throw fallo(400, 'La nota debe tener de 3 a 200 caracteres.');
+  return sqlite.transaction(() => {
+    const leer = sqlite.prepare('SELECT * FROM sicar_sucursales_mapa WHERE sicar_sucursal = ?');
+    const anterior = leer.get(sicar);
+    if (!anterior || anterior.baja !== 1) throw fallo(400, 'Solo se puede marcar como aclarado un número dado de baja.');
+    if (Boolean(anterior.aclarado_en) === datos.aclarado && (!datos.aclarado || anterior.aclarado_nota === nota)) return anterior;
+    const ahora = new Date().toISOString();
+    sqlite.prepare('UPDATE sicar_sucursales_mapa SET aclarado_en=?, aclarado_nota=?, aclarado_por=? WHERE sicar_sucursal=?')
+      .run(datos.aclarado ? ahora : null, datos.aclarado ? nota : null, datos.aclarado ? quien : null, sicar);
+    sqlite.prepare(`INSERT INTO sicar_sucursales_mapa_historial (sicar_sucursal, anterior, nuevo, actor, fecha)
+      VALUES (?, ?, ?, ?, ?)`).run(sicar, datos.aclarado ? 'baja' : 'aclarado', datos.aclarado ? 'aclarado' : 'baja', quien, ahora);
+    return leer.get(sicar);
+  }).immediate();
+}
+
+module.exports = { consultarTraspasosSicar, listarMapaSicar, listarSinAsignarSicar, asignarMapaSicar, aclararBajaSicar };

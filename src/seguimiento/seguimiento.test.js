@@ -2,6 +2,24 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { textoSalud, TEXTO_SALUD_ERROR } from './seguimiento.js';
 
+test('aclarado: renglón con fecha local, nota y solo los envíos posteriores', async () => {
+  const { resumenBaja } = await import('./seguimiento.js');
+  const baja = { sicar_sucursal: '3', nombre: 'Palenque (número anterior)', aclarado_en: '2026-11-17T02:00:00.000Z',
+    aclarado_nota: 'la mercancía se ajustó', envios: [], total_centavos: '0' };
+  const texto = 'SICAR 3 (Palenque (número anterior)) · aclarado el 16/11/2026 · Nota: la mercancía se ajustó';
+  assert.equal(resumenBaja(baja), texto);
+  assert.equal(resumenBaja({ ...baja, envios: [{}, {}], total_centavos: '12345' }), texto + ' · 2 envíos sin recibir · $123.45 según SICAR');
+});
+
+test('aclarado: encabezado sin pendientes solo cuando todos están aclarados y sin envíos', async () => {
+  const { encabezadoBajas } = await import('./seguimiento.js');
+  const baja = { sicar_sucursal: '3', aclarado_en: '2026-11-16T18:00:00.000Z', aclarado_nota: 'Ajustado', envios: [], total_centavos: '0' };
+  const titulo = 'Sucursales SICAR dadas de baja: sin pendientes';
+  assert.equal(encabezadoBajas([baja, { ...baja, sicar_sucursal: '7' }]), titulo);
+  assert.notEqual(encabezadoBajas([baja, { ...baja, aclarado_en: null }]), titulo);
+  assert.notEqual(encabezadoBajas([{ ...baja, envios: [{}], total_centavos: '100' }]), titulo);
+});
+
 test('salud: textos con cálculo, sin cálculo y con errores', () => {
   const fecha = '2026-11-14T16:32:00.000Z';
   assert.equal(textoSalud({ ultimo_calculo: fecha, en_fila: 0, atoradas: [] }),

@@ -5,12 +5,81 @@ const { crearRepositorioSicar } = require('./sicarRepositorio');
 const { consultarTraspasosSicar, listarMapaSicar, asignarMapaSicar } = require('./sicarTraspasos');
 
 const HOY = '2026-10-23';
+test('aclarado: guarda, lista, audita, repite sin recalcular y permite quitar', t => {
+  const sqlite = escenario(t);
+  asignarMapaSicar(sqlite, { sicar_sucursal: '3', baja: true }, '77', TODAS, () => true);
+  sqlite.exec('DELETE FROM seguimiento_pendientes; DELETE FROM sicar_sucursales_mapa_historial');
+  const aclarar = datos => require('./sicarTraspasos').aclararBajaSicar(sqlite, { sicar_sucursal: 3, ...datos }, '88', TODAS);
+  aclarar({ aclarado: true, nota: '  la mercancía se ajustó  ' });
+  const fila = listarMapaSicar(sqlite).find(m => m.sicar_sucursal === '3');
+  assert.equal(fila.aclarado_nota, 'la mercancía se ajustó');
+  assert.equal(fila.aclarado_por, '88');
+  assert.equal(new Date(fila.aclarado_en).toISOString(), fila.aclarado_en);
+  aclarar({ aclarado: true, nota: 'la mercancía se ajustó' });
+  const historial = () => sqlite.prepare('SELECT anterior, nuevo, actor, fecha FROM sicar_sucursales_mapa_historial').all();
+  assert.deepEqual(historial(), [{ anterior: 'baja', nuevo: 'aclarado', actor: '88', fecha: fila.aclarado_en }]);
+  aclarar({ aclarado: true, nota: 'Otra nota' });
+  assert.equal(historial().length, 2);
+  aclarar({ aclarado: false });
+  aclarar({ aclarado: false });
+  assert.equal(historial().length, 3);
+  assert.deepEqual([historial()[2].anterior, historial()[2].nuevo, historial()[2].actor], ['aclarado', 'baja', '88']);
+  const fin = listarMapaSicar(sqlite).find(m => m.sicar_sucursal === '3');
+  assert.deepEqual([fin.aclarado_en, fin.aclarado_nota, fin.aclarado_por], [null, null, null]);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n, 0);
+});
+
+test('aclarado: rechaza datos inválidos, falta de actor y alcance parcial sin escribir', t => {
+  const { sqlite } = prepararDB(t);
+  sqlite.exec("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja) VALUES ('3', 1), ('7', 0)");
+  const aclarar = (datos, actor = '77', alcance = TODAS) => require('./sicarTraspasos').aclararBajaSicar(sqlite, datos, actor, alcance);
+  const base = { sicar_sucursal: '3', aclarado: true, nota: 'Bien' };
+  for (const datos of [null, [], ...[undefined, null, 2, '', 'ab', 'a'.repeat(201)].map(nota => ({ ...base, nota })),
+    ...['true', 1, null, undefined].map(aclarado => ({ ...base, aclarado })),
+    ...['7', '9', '0', 'x', {}, null].map(sicar_sucursal => ({ ...base, sicar_sucursal }))]) {
+    assert.throws(() => aclarar(datos), errorCon(400));
+  }
+  assert.throws(() => aclarar(base, null), errorCon(401));
+  assert.throws(() => aclarar(base, '77', SOLO(1)), { status: 403, message: 'El mapa de sucursales es de toda la empresa.' });
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM sicar_sucursales_mapa_historial').get().n, 0);
+});
+
+for (const sucursal_id of [3, null]) {
+  test(`aclarado: salir de baja a ${sucursal_id} limpia y otra baja empieza sin aclarado`, t => {
+    const { sqlite } = prepararDB(t);
+    const poner = datos => asignarMapaSicar(sqlite, { sicar_sucursal: '3', ...datos }, '77', TODAS, () => true);
+    poner({ baja: true });
+    require('./sicarTraspasos').aclararBajaSicar(sqlite, { sicar_sucursal: '3', aclarado: true, nota: 'Ajustado' }, '77', TODAS);
+    poner({ sucursal_id });
+    let fila = listarMapaSicar(sqlite)[0];
+    assert.deepEqual([fila.baja, fila.aclarado_en, fila.aclarado_nota, fila.aclarado_por], [false, null, null, null]);
+    poner({ baja: true });
+    fila = listarMapaSicar(sqlite)[0];
+    assert.deepEqual([fila.baja, fila.aclarado_en, fila.aclarado_nota, fila.aclarado_por], [true, null, null, null]);
+  });
+}
+
+test('aclarado: migra las tres columnas con NULL y conserva datos al reiniciar', t => {
+  const sqlite = new Database(':memory:');
+  t.after(() => sqlite.close());
+  sqlite.exec(`CREATE TABLE sicar_sucursales_mapa (
+    sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT, baja INTEGER, nombre TEXT);
+    INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, asignado_por, asignado_en, baja, nombre)
+      VALUES ('3', NULL, '77', 'ayer', 1, 'Palenque')`);
+  crearRepositorioSicar(sqlite);
+  assert.deepEqual(sqlite.prepare('SELECT aclarado_en, aclarado_nota, aclarado_por FROM sicar_sucursales_mapa').get(),
+    { aclarado_en: null, aclarado_nota: null, aclarado_por: null });
+  sqlite.exec("UPDATE sicar_sucursales_mapa SET aclarado_en='2026-11-16T18:00:00.000Z', aclarado_nota='Ajustado', aclarado_por='88'");
+  const antes = listarMapaSicar(sqlite);
+  crearRepositorioSicar(sqlite);
+  assert.deepEqual(listarMapaSicar(sqlite), antes);
+});
 test('baja: migra mapa anterior sin perder asignación y permite repetir migración', t => {
   const sqlite = new Database(':memory:');
   t.after(() => sqlite.close());
   sqlite.exec(`CREATE TABLE sicar_sucursales_mapa (
     sicar_sucursal TEXT PRIMARY KEY, sucursal_id INTEGER, asignado_por TEXT, asignado_en TEXT);
-    INSERT INTO sicar_sucursales_mapa VALUES ('3', NULL, '77', 'ayer')`);
+    INSERT INTO sicar_sucursales_mapa (sicar_sucursal, sucursal_id, asignado_por, asignado_en) VALUES ('3', NULL, '77', 'ayer')`);
   crearRepositorioSicar(sqlite);
   crearRepositorioSicar(sqlite);
   assert.deepEqual(sqlite.prepare('SELECT baja, nombre, asignado_por FROM sicar_sucursales_mapa').get(),

@@ -299,9 +299,11 @@ function enCamino(sqlite, query = {}, ahora = new Date().toISOString()) {
  * siguen. Cuenta cada traspaso una vez (aunque lo reporten las dos puntas) con el total que trae SICAR.
  */
 function sicarSinAsignar(sqlite, ahora = new Date().toISOString()) {
-  const filas = sqlite.prepare('SELECT sicar_sucursal, sucursal_id, baja, nombre FROM sicar_sucursales_mapa').all();
+  const filas = sqlite.prepare(`SELECT sicar_sucursal, sucursal_id, baja, nombre,
+    aclarado_en, aclarado_nota, aclarado_por FROM sicar_sucursales_mapa`).all();
   const bajas = new Map(filas.filter(f => f.baja === 1).map(f => [f.sicar_sucursal,
-    { sicar_sucursal: f.sicar_sucursal, nombre: f.nombre, envios: [], total_centavos: '0' }]));
+    { sicar_sucursal: f.sicar_sucursal, nombre: f.nombre, envios: [], total_centavos: '0',
+      aclarado_en: f.aclarado_en, aclarado_nota: f.aclarado_nota, aclarado_por: f.aclarado_por, envios_aclarados: 0 }]));
   const mapa = new Map(filas
     .map(f => [f.sicar_sucursal, f.sucursal_id]));
   const cuenta = new Map();
@@ -322,6 +324,10 @@ function sicarSinAsignar(sqlite, ahora = new Date().toISOString()) {
     for (const n of new Set([t.suc_origen, t.suc_destino])) {
       const baja = bajas.get(n);
       if (!baja) continue;
+      if (baja.aclarado_en && t.fecha.slice(0, 10) <= fechaLocal(baja.aclarado_en)) {
+        baja.envios_aclarados += 1;
+        continue;
+      }
       baja.envios.push({ folio: t.folio, fecha: t.fecha, sicar_origen: t.suc_origen, sicar_destino: t.suc_destino,
         origen: mapa.get(t.suc_origen) ?? null, destino: mapa.get(t.suc_destino) ?? null,
         total_centavos: t.total_centavos, dias: diasEnvio(t.fecha, ahora) });
