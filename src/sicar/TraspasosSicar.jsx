@@ -74,7 +74,7 @@ function OmitidosArriba({ omitidos }) {
         {grupos.map((g) => (
           <li key={g.clave} className="font-semibold">
             {g.texto}
-            {g.desde && ` Detectados desde el ${fechaTraspaso(new Date(g.desde).toLocaleDateString("en-CA", { timeZone: ZONA_TIENDA }))}.`}
+            {g.desde && ` ${g.cantidad > 1 ? "Detectados" : "Detectado"} desde el ${fechaTraspaso(new Date(g.desde).toLocaleDateString("en-CA", { timeZone: ZONA_TIENDA }))}.`}
             {g.cantidad > 1 && (
               <details className="mt-1 font-normal">
                 <summary className="cursor-pointer">Ver los {g.cantidad} traspasos</summary>
