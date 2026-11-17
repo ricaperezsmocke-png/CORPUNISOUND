@@ -52,6 +52,7 @@ test('salud vacía y límites: 100 claves ordenadas, 20 facturas distintas por c
 
 test('detalle muestra la fecha del renglón calculado más antiguo', t => {
   const db = prepararDB(t), { detalle } = require('./consultas');
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (6, ?)').run('2026-09-01T18:00:00Z');
   const datos = { fecha_compra: '2026-11-04', comprado: '1', queda: '1', vendido: '0', transito: '0',
     sin_agente: '0', por_aclarar: '0', por_sucursal: {}, calidad: {} };
   const insertar = db.prepare('INSERT INTO seguimiento_resultado VALUES (6, ?, ?, ?, ?, 3, ?)');
@@ -530,11 +531,12 @@ test('en camino: traspaso a una sucursal SICAR sin mapa no mueve piezas, marca l
   const r = camino(db);
   assert.equal(r.total, 1, 'una fila por traspaso, no una por factura');
   const [fila] = r.filas;
-  assert.deepEqual(fila, { tipo: 'sin_entender', motivo: 'sin_mapa', com_id: null, folio_factura: null, proveedor: null, clave: 'A',
+  const origen = { origen_factura: 6, origen_factura_nombre: 'CEDIS', origen_no_traslada: false };
+  assert.deepEqual(fila, { ...origen, tipo: 'sin_entender', motivo: 'sin_mapa', com_id: null, folio_factura: null, proveedor: null, clave: 'A',
     folio: 'INNO', fecha_envio: '2026-10-25', origen: 6, destino: null, sicar_origen: 's6', sicar_destino: 's5', dias: 11,
     piezas: '40000', centavos: null, centavos_con_iva: null, valor_sicar_centavos: '4000', valor_sicar_con_iva_centavos: '4640',
-    alarma: false, facturas: [{ com_id: 'C1', folio: 'F-C1', proveedor: 'Proveedor Uno' },
-      { com_id: 'C2', folio: 'F-C2', proveedor: 'Proveedor Uno' }] });
+    alarma: false, facturas: [{ ...origen, com_id: 'C1', folio: 'F-C1', proveedor: 'Proveedor Uno' },
+      { ...origen, com_id: 'C2', folio: 'F-C2', proveedor: 'Proveedor Uno' }] });
   assert.deepEqual(r.totales.sin_entender, { valor_sicar_centavos: '4000', valor_sicar_con_iva_centavos: '4640', filas: 1 });
   assert.equal(r.totales.transito.centavos, '0', 'lo sin entender nunca se mezcla con el tránsito');
   assert.equal(r.totales.por_aclarar.centavos, '0');
@@ -617,4 +619,142 @@ test('baja marca pendientes y cambia el motivo sin atribuir piezas; repetir no r
   assert.equal(facturaDe(db, 'C1').piezas.queda, '100000');
   poner();
   assert.equal(db.prepare('SELECT count(*) n FROM seguimiento_pendientes').get().n, 0);
+});
+
+function escenarioMulti(t, incorporada = true) {
+  const db = escenarioCamino(t, [['100', '20.0000'], ['101', '2.0000']]);
+  db.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (7, ?)').run(AL);
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (7, 'art-7', 'A', 'Artículo Innotec', ?)`).run(AL);
+  if (incorporada) db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (7, ?)').run(CORTE_F2);
+  for (const [id, cantidad, fecha] of [['100', '10.0000', '2026-09-20'], ['101', '3.0000', '2026-09-21']]) {
+    db.prepare(`INSERT INTO sicar_compras (sucursal_id, com_id, fecha, folio, pro_id, comentario, estado, total_centavos, primera_vez, actualizado_en)
+      VALUES (7, ?, ?, ?, '1', '', 'vigente', 0, ?, ?)`).run(id, fecha + 'T10:00:00', 'I-' + id, AL, AL);
+    db.prepare('INSERT INTO sicar_compras_detalle VALUES (7, ?, 0, ?, ?, 10000, 10000, 11600, 0)')
+      .run(id, 'art-7', cantidad);
+  }
+  db.exec('UPDATE sicar_compras_detalle SET precio_sin_centavos=10000, precio_con_centavos=11600');
+  return db;
+}
+function venderMulti(db, suc, id, cantidad, precio, fecha) {
+  db.prepare("INSERT OR IGNORE INTO sicar_clientes(sucursal_id, cli_id, nombre) VALUES (?, 'cliente', 'Cliente')").run(suc);
+  db.prepare("INSERT OR IGNORE INTO sicar_envios VALUES (?, 'b', 'r', 'h', '{}', 1, 1, 0, ?, 'aceptado')").run(suc, AL);
+  db.prepare(`INSERT INTO sicar_ventas(sucursal_id, ven_id, cli_id, fecha_local, estado, total_centavos, revision, hash)
+    VALUES (?, ?, 'cliente', ?, 'vigente', 0, 'r', 'h')`).run(suc, id, fecha);
+  db.prepare(`INSERT INTO sicar_detalles VALUES (?, ?, ?, 0, 'A', 'Artículo', ?, ?, ?, 0, 0)`)
+    .run(suc, id, 'art-' + suc, cantidad, precio, precio);
+}
+function calcularMulti(db, ahora = '2026-11-20T18:00:00.000Z') {
+  const servicio = require('./servicio');
+  servicio.vueltaCompleta(db, ahora);
+  assert.equal(servicio.procesarPendientes(db, { ahora }).errores.length, 0);
+}
+
+test('multi-origen: lista y detalles separan compras homónimas, ventas y avisos', t => {
+  const db = escenarioMulti(t), { listar, detalle } = require('./consultas');
+  puntaF2(db, 6, 'IDA', { cantidad: '5.0000' });
+  puntaF2(db, 1, 'IDA', { cantidad: '5.0000', estado: 'recibido', aplicada: '2026-10-21' });
+  venderMulti(db, 1, 'v1', '2.0000', '200.00', '2026-10-22T12:00:00');
+  venderMulti(db, 7, 'v7', '1.0000', '300.00', '2026-10-23T12:00:00');
+  calcularMulti(db);
+  const lista = listar(db, {}, '2026-11-20T18:00:00Z');
+  assert.equal(lista.total, 4);
+  assert.deepEqual(lista.origenes.map(o => o.sucursal_id), [6, 7]);
+  for (const [suc, vendido, folio] of [[6, '20000', 'F-100'], [7, '10000', 'I-100']]) {
+    const d = detalle(db, suc, '100', '2026-11-20T18:00:00Z');
+    assert.equal(d.factura.origen_factura, suc);
+    assert.equal(d.factura.folio, folio);
+    assert.equal(d.factura.piezas.vendido, vendido);
+    assert.equal(d.avisos[0].sucursal_id, suc);
+    assert.equal(d.factura.total_sin_iva_centavos, suc === 6 ? '200000' : '100000');
+  }
+});
+
+test('multi-origen: filtros validados y detalle de Innotec no incorporado', t => {
+  const db = escenarioMulti(t), { listar, enCamino, detalle } = require('./consultas');
+  calcularMulti(db);
+  assert.equal(listar(db, { origen_factura: '7' }).total, 2);
+  assert.ok(listar(db, { origen_factura: '7', sucursal_id: '6' }).facturas.every(f => f.origen_factura === 7));
+  for (const fn of [listar, enCamino]) for (const origen_factura of ['5', 'abc', '0', '7x']) {
+    assert.throws(() => fn(db, { origen_factura }), e => e.status === 400);
+  }
+  const sin = escenarioMulti(t, false);
+  calcularMulti(sin);
+  assert.equal(listar(sin).total, 2);
+  assert.throws(() => detalle(sin, 7, '100'), e => e.status === 404);
+});
+
+test('multi-origen: referencias de precio y piezas recientes pertenecen solo a su cadena', t => {
+  const db = escenarioMulti(t), { detalle } = require('./consultas');
+  venderMulti(db, 1, 'v1', '1.0000', '200.00', '2026-10-22T12:00:00');
+  venderMulti(db, 7, 'v7', '1.0000', '300.00', '2026-10-23T12:00:00');
+  calcularMulti(db);
+  for (const [suc, precio, piezas] of [[6, '17500', '2'], [7, '25000', '3']]) {
+    const e = detalle(db, suc, '100', '2026-11-20T18:00:00Z').renglones[0].estrategias;
+    assert.equal(e.margen.precio_referencia_centavos, precio);
+    assert.match(e.articulo_compartido, new RegExp('de ' + piezas + ' piezas'));
+  }
+});
+
+test('multi-origen: Innotec conserva etapas sin traslados ni candidatos entre cadenas', t => {
+  const db = escenarioMulti(t), { detalle } = require('./consultas');
+  calcularMulti(db);
+  for (const [fecha, etapa] of [['2026-11-09', 'traslado'], ['2026-11-20', 'margen_75'],
+    ['2026-12-20', 'margen_50'], ['2027-01-20', 'liquidar']]) {
+    const d = detalle(db, 7, '100', fecha + 'T18:00:00Z');
+    assert.equal(d.factura.etapa, etapa);
+    assert.equal(d.factura.origen_no_traslada, true);
+    assert.equal(d.renglones[0].estrategias.origen_no_traslada, true);
+    assert.deepEqual(d.renglones[0].estrategias.traslados, []);
+    const cedis = detalle(db, 6, '100', fecha + 'T18:00:00Z');
+    assert.deepEqual(d.renglones[0].estrategias.margen, cedis.renglones[0].estrategias.margen);
+  }
+});
+
+test('multi-origen: en camino conserva ruta y separa totales por origen de factura', t => {
+  const db = escenarioMulti(t), { enCamino } = require('./consultas');
+  puntaF2(db, 6, 'IDA', { cantidad: '5.0000' });
+  calcularMulti(db);
+  const r = enCamino(db);
+  assert.equal(r.totales, null);
+  assert.equal(r.totales_por_origen['6'].transito.centavos, '50000');
+  assert.equal(r.totales_por_origen['7'].transito.centavos, '0');
+  assert.equal(r.filas[0].origen, 6);
+  assert.equal(r.filas[0].origen_factura, 6);
+  assert.equal(r.filas[0].origen_factura_nombre, 'CEDIS');
+  const filtrado = enCamino(db, { origen_factura: '7' });
+  assert.equal(filtrado.total, 0);
+  assert.equal(filtrado.totales.transito.centavos, '0');
+});
+
+test('multi-origen: rutas pasan origen_factura y descartan el selector de sucursal en camino', () => {
+  const rutas = new Map();
+  const app = { get: (url, ...handlers) => rutas.set(url, handlers.at(-1)), post() {}, put() {} };
+  const db = new Database(':memory:');
+  crearRepositorioSicar(db);
+  try {
+    require('./rutas').registrarRutasSeguimiento(app, { sqlite: () => db, requiereLogin: (_req, _res, next) => next(),
+      requierePermiso: () => (_req, _res, next) => next() });
+    for (const url of ['/api/seguimiento-facturas', '/api/seguimiento-facturas/en-camino']) {
+      let status = 200;
+      const res = { set() {}, status: n => { status = n; return res; }, json() {} };
+      rutas.get(url)({ usuarioToken: { id: '1' }, query: { origen_factura: 'abc', sucursal_id: '6' } }, res);
+      assert.equal(status, 400);
+    }
+  } finally { db.close(); }
+});
+
+test('multi-origen: Innotec con mucha venta nunca sustituye el destino Unisound', t => {
+  const db = escenarioTraslado(t);
+  db.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (7, ?)').run(AL);
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (7, ?)').run(CORTE_F2);
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (7, 'art-7', 'A', 'Artículo', ?)`).run(AL);
+  db.prepare("INSERT INTO sicar_existencias VALUES (7, 'art-7', 0, ?)").run(AL);
+  for (const [id, dia] of [['i1', '2026-10-20'], ['i2', '2026-10-27']]) {
+    db.prepare('INSERT INTO sicar_ventas_mostrador VALUES (7, ?, ?, ?, 100, ?)').run(id, dia + 'T12:00:00', 'vigente', AL);
+    db.prepare("INSERT INTO sicar_detalles_mostrador VALUES (7, ?, 0, 'art-7', '80.0000', 100, 0)").run(id);
+  }
+  assert.deepEqual(procesarYDetalle(db).renglones[0].estrategias.traslados,
+    [{ de: 6, a: 1, piezas: '80000', razon: 'destino_vende_mas' }]);
 });

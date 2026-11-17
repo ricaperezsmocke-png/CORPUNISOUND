@@ -1,4 +1,4 @@
-// Funciones puras de la pantalla "Seguimiento de facturas CEDIS". Piezas llegan en diezmilésimas y dinero en
+// Funciones puras de la pantalla "Seguimiento de facturas". Piezas llegan en diezmilésimas y dinero en
 // centavos, ambos como texto: se convierten con BigInt para no perder precisión.
 
 const PIEZA = 10000n;
@@ -105,7 +105,8 @@ const ETAPAS = {
   margen_50: "Bajar precio (conservar 50 % de la ganancia)",
   liquidar: "Liquidar a costo",
 };
-export const etiquetaEtapa = (etapa) => ETAPAS[etapa] || "Sin aviso";
+export const etiquetaEtapa = (etapa, factura = {}) => etapa === "traslado" && factura.origen_no_traslada
+  ? "Revisar" : ETAPAS[etapa] || "Sin aviso";
 
 /**
  * El servidor marca `revisar_traspasos` cuando la factura tiene tránsito más viejo que el límite, piezas por aclarar o
@@ -119,7 +120,7 @@ export function siguienteAccion(f) {
 function accionBase(f) {
   const faltan = f.renglones_sin_seguimiento || 0;
   if (faltan > 0) {
-    return `${TEXTOS.insuficiente}: ${faltan} ${faltan === 1 ? "renglón" : "renglones"} sin clave en el catálogo de CEDIS`;
+    return `${TEXTOS.insuficiente}: ${faltan} ${faltan === 1 ? "renglón" : "renglones"} sin clave en el catálogo de ${f.origen_factura_nombre || "CEDIS"}`;
   }
   const p = f.piezas || {};
   const saldo = BigInt(p.queda ?? "0") + BigInt(p.transito ?? "0");
@@ -130,15 +131,15 @@ function accionBase(f) {
     return "Agotada";
   }
   if (f.aviso?.estado === "pospuesto") return `Pospuesto hasta ${f.aviso.pospuesto_hasta}`;
-  if (f.aviso?.estado === "revisado") return `Revisado: ${etiquetaEtapa(f.aviso.etapa)}`;
-  return etiquetaEtapa(f.etapa);
+  if (f.aviso?.estado === "revisado") return `Revisado: ${etiquetaEtapa(f.aviso.etapa, f)}`;
+  return f.etapa === "traslado" && f.origen_no_traslada ? textoRevisionOrigen(f) : etiquetaEtapa(f.etapa);
 }
 
 export const puedeGestionar = (permisos) => (permisos || []).includes("gestionar_seguimiento_facturas");
 
 export function parametrosLista(filtros) {
   const p = new URLSearchParams();
-  for (const campo of ["proveedor", "folio", "clave", "desde", "hasta", "tienda", "etapa"]) {
+  for (const campo of ["proveedor", "folio", "clave", "desde", "hasta", "tienda", "etapa", "origen_factura"]) {
     const v = typeof filtros[campo] === "string" ? filtros[campo].trim() : filtros[campo];
     if (v !== undefined && v !== null && v !== "") p.set(campo, String(v));
   }
@@ -189,6 +190,7 @@ export function avisoSinAsignar(lista) {
 
 export function parametrosCamino(filtros) {
   const p = new URLSearchParams();
+  if (filtros.origen_factura) p.set("origen_factura", String(filtros.origen_factura));
   if (filtros.solo_alarmas) p.set("solo_alarmas", "1");
   if (filtros.pagina && filtros.pagina > 1) p.set("pagina", String(filtros.pagina));
   return p.toString();
@@ -312,4 +314,16 @@ export function textoComparacion(c, nombres) {
   const base = `${tienda}: SICAR ${piezasTexto(c.sicar)} · ${calculado}`;
   if (c.diferencia === null) return base;
   return c.diferencia === "0" ? `${base} · cuadra` : `${base} · diferencia ${piezasTexto(c.diferencia)} (movimientos por aclarar)`;
+}
+
+export const textoRevisionOrigen = f => `Revisar: ${f.origen_factura_nombre} no traslada a otras tiendas. `
+  + 'Decide si conviene bajar el precio o moverla en la tienda.';
+
+export const montoOrigen = (nombre, sinIva, conIva) => `${nombre}: ${valorConIvaTexto(sinIva, conIva)}`;
+
+export function textoIncorporacion(tienda, nombre) {
+  const inicio = `Se guardará la foto de existencias de ${nombre} como "mercancía anterior". `;
+  return inicio + (tienda.origen_no_traslada
+    ? `Desde ahora sus compras se siguen como facturas de ${tienda.origen_factura_nombre} y sus ventas cuentan contra ellas. No se puede deshacer.`
+    : 'Desde ahora sus ventas y traspasos se cuentan contra las facturas de CEDIS. No se puede deshacer.');
 }

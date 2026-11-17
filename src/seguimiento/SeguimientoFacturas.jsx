@@ -3,7 +3,7 @@ import { apiFetch } from "../api";
 import ModalConfirmar from "../ModalConfirmar.jsx";
 import { contadorDePeticiones } from "../sicar/cortesSicar.js";
 import {
-  TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
+  textoRevisionOrigen, montoOrigen, textoIncorporacion, TEXTOS, piezasTexto, tramosDeFactura, etiquetaEtapa, siguienteAccion, puedeGestionar, parametrosLista,
   textoTraslado, validarMotivo, validarPosponer, botonIncorporar, textoMotivo, fechaHoraLocal, textoComparacion, textoPorArticulo,
   totalFacturaTexto, valorConIvaTexto, notaRescate, limitePosponer, etiquetaCamino, textoRuta, textoAlarma, dineroCamino,
   avisoSinAsignar, parametrosCamino, resumenBaja, encabezadoBajas, rutaBaja, TEXTO_BAJAS, pesosTexto, textoSalud, TEXTO_SALUD_ERROR,
@@ -59,7 +59,7 @@ function Barra({ factura }) {
   const titulo = tramos.map((t) => `${t.etiqueta}: ${montoTexto(t)} · ${t.piezas} pzas`).join("\n");
   return (
     <div title={titulo}>
-      <p className="text-xs font-semibold text-slate-800">{totalFacturaTexto(factura)}</p>
+      <p className="text-xs font-semibold text-slate-800">{factura.origen_factura_nombre}: {totalFacturaTexto(factura)}</p>
       <div className={BARRA} role="img" aria-label={titulo}>
         {tramos.map((t) => t.porcentaje > 0 && <div key={t.id} className={t.color} style={{ width: `${t.porcentaje}%` }} />)}
       </div>
@@ -140,12 +140,13 @@ function GestionAviso({ aviso, diasPosponer, onHecho }) {
   );
 }
 
-function Estrategias({ e, renglon, nombres }) {
+function Estrategias({ e, renglon, nombres, factura }) {
   if (!e) return null;
   return (
     <div className="mt-2 space-y-1 text-sm">
       {textoPorArticulo(e.facturas_en_aviso) && <p className="text-slate-600">{textoPorArticulo(e.facturas_en_aviso)}</p>}
-      {e.traslados.length === 0 && <p className="text-slate-600">{TEXTOS.sin_traslado}</p>}
+      {factura.origen_no_traslada && factura.etapa === "traslado" && <p>{textoRevisionOrigen(factura)}</p>}
+      {!factura.origen_no_traslada && e.traslados.length === 0 && <p className="text-slate-600">{TEXTOS.sin_traslado}</p>}
       {e.traslados.map((s, i) => <p key={i}>{textoTraslado(s, nombres, renglon.clave, renglon.descripcion)}</p>)}
       {e.margen && <p>{e.margen.texto}</p>}
       {e.articulo_compartido && <p className="font-semibold text-amber-800">{e.articulo_compartido}</p>}
@@ -153,7 +154,7 @@ function Estrategias({ e, renglon, nombres }) {
   );
 }
 
-function Renglon({ r, nombres, calculadoEn }) {
+function Renglon({ r, nombres, calculadoEn, factura }) {
   const tiendas = Object.entries(r.por_sucursal);
   const motivos = [...new Set([...(r.motivos || []), ...(r.incierto || [])])];
   return (
@@ -183,24 +184,24 @@ function Renglon({ r, nombres, calculadoEn }) {
           ))}
         </div>
       )}
-      <Estrategias e={r.estrategias} renglon={r} nombres={nombres} />
+      <Estrategias e={r.estrategias} renglon={r} nombres={nombres} factura={factura} />
     </div>
   );
 }
 
-function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
+function Detalle({ sucursalId, comId, nombres, permisos, onCerrar, onCambio }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const cargar = useCallback(async () => {
     try {
       const [detalle, config] = await Promise.all([
-        pedir(`/seguimiento-facturas/6/${comId}`),
+        pedir(`/seguimiento-facturas/${sucursalId}/${comId}`),
         puedeGestionar(permisos) ? pedir("/seguimiento-facturas/config") : Promise.resolve(null),
       ]);
       setDatos({ ...detalle, config: config?.valores }); setError("");
     }
     catch (e) { setError(e.message); }
-  }, [comId, permisos]);
+  }, [sucursalId, comId, permisos]);
   useEffect(() => { cargar(); }, [cargar]);
   if (error) return <p role="alert" className={NOTA_ROJA}>{error}</p>;
   if (!datos) return <p className="text-sm text-slate-500">Cargando…</p>;
@@ -217,27 +218,27 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
         </div>
         <button type="button" className={BTN} onClick={onCerrar}>Cerrar</button>
       </div>
-      <p className="text-base font-semibold">{totalFacturaTexto(factura)}</p>
+      <p className="text-base font-semibold">{factura.origen_factura_nombre}: {totalFacturaTexto(factura)}</p>
       <p className="text-sm font-semibold text-slate-700">{TEXTOS.fifo}</p>
       {rescate && <p className={NOTA_AMBAR}>{rescate}</p>}
       <Leyenda factura={factura} />
       {activo && (
         <div className={CAJA}>
-          <p className="font-semibold">Aviso: {etiquetaEtapa(activo.etapa)} ({activo.estado}
+          <p className="font-semibold">Aviso: {etiquetaEtapa(activo.etapa, factura)} ({activo.estado}
             {activo.pospuesto_hasta ? ` hasta ${activo.pospuesto_hasta}` : ""})</p>
           {puedeGestionar(permisos) && <GestionAviso aviso={activo} diasPosponer={datos.config.dias_posponer_maximo}
             onHecho={() => { cargar(); onCambio(); }} />}
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">
-        {renglones.map((r) => <Renglon key={r.renglon} r={r} nombres={nombres} calculadoEn={factura.calculado_en} />)}
+        {renglones.map((r) => <Renglon key={r.renglon} r={r} nombres={nombres} calculadoEn={factura.calculado_en} factura={factura} />)}
       </div>
       {avisos.length > 0 && (
         <div className={CAJA}>
           <p className="mb-1 font-semibold">Historial de avisos</p>
           {avisos.flatMap((a) => a.historial.map((h, i) => (
             <p key={`${a.id}-${i}`} className="text-sm">
-              {fechaHoraLocal(h.fecha)} · {etiquetaEtapa(a.etapa)} · {h.estado}
+              {fechaHoraLocal(h.fecha)} · {etiquetaEtapa(a.etapa, factura)} · {h.estado}
               {h.motivo ? ` · ${textoMotivo(h.motivo)}` : ""} · {h.actor === "sistema" ? "Sistema" : `Usuario #${h.actor}`}
             </p>
           )))}
@@ -247,9 +248,19 @@ function Detalle({ comId, nombres, permisos, onCerrar, onCambio }) {
   );
 }
 
+function SelectorOrigen({ origenes = [], valor, onChange }) {
+  if (origenes.length < 2) return null;
+  return <label className={ETIQUETA}>Origen
+    <select className={CAMPO} value={valor} onChange={onChange}>
+      <option value="">Todos</option>
+      {origenes.map(o => <option key={o.sucursal_id} value={o.sucursal_id}>{o.nombre}</option>)}
+    </select>
+  </label>;
+}
+
 function Facturas({ nombres, permisos }) {
   const [filtros, setFiltros] = useState({ proveedor: "", folio: "", clave: "", desde: "", hasta: "", tienda: "", etapa: "",
-    solo_aviso: false, ocultar_agotadas: true, pagina: 1 });
+    origen_factura: "", solo_aviso: false, ocultar_agotadas: true, pagina: 1 });
   const [consulta, setConsulta] = useState(filtros);
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
@@ -274,8 +285,10 @@ function Facturas({ nombres, permisos }) {
   const paginas = datos ? Math.max(1, Math.ceil(datos.total / datos.por_pagina)) : 1;
   return (
     <>
-      {abierta && <Detalle comId={abierta} nombres={nombres} permisos={permisos} onCerrar={() => setAbierta(null)} onCambio={cargar} />}
+      {abierta && <Detalle key={`${abierta.sucursal_id}-${abierta.com_id}`} sucursalId={abierta.sucursal_id} comId={abierta.com_id}
+        nombres={nombres} permisos={permisos} onCerrar={() => setAbierta(null)} onCambio={cargar} />}
       <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SelectorOrigen origenes={datos?.origenes} valor={filtros.origen_factura} onChange={cambiar("origen_factura")} />
         <label className={ETIQUETA}>Proveedor<input className={CAMPO} value={filtros.proveedor} onChange={cambiar("proveedor")} /></label>
         <label className={ETIQUETA}>Folio<input className={CAMPO} value={filtros.folio} onChange={cambiar("folio")} /></label>
         <label className={ETIQUETA}>Clave<input className={CAMPO} value={filtros.clave} onChange={cambiar("clave")} /></label>
@@ -304,14 +317,15 @@ function Facturas({ nombres, permisos }) {
           <table className="w-full text-sm">
             <thead>
               <tr>
-                {["Proveedor", "Folio", "Compra", "Días", "Barra", "Siguiente acción", "Datos al", ""].map((h) => (
+                {["Origen", "Proveedor", "Folio", "Compra", "Días", "Barra", "Siguiente acción", "Datos al", ""].map((h) => (
                   <th key={h} className={ENCABEZADO}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {datos.facturas.map((f) => (
-                <tr key={f.com_id}>
+                <tr key={`${f.sucursal_id}-${f.com_id}`}>
+                  <td className={CELDA}>{f.origen_factura_nombre}</td>
                   <td className={CELDA}>{f.proveedor || "—"}</td>
                   <td className={CELDA}>{f.folio || f.com_id}</td>
                   <td className={CELDA}>{f.fecha_compra}</td>
@@ -319,7 +333,7 @@ function Facturas({ nombres, permisos }) {
                   <td className={CELDA}><Barra factura={f} /></td>
                   <td className={CELDA}>{siguienteAccion(f)}</td>
                   <td className={CELDA}>{f.datos_al ? fechaHoraLocal(f.datos_al, { soloFecha: true }) : TEXTOS.insuficiente}</td>
-                  <td className={CELDA}><button type="button" className={BTN} onClick={() => setAbierta(f.com_id)}>Ver</button></td>
+                  <td className={CELDA}><button type="button" className={BTN} onClick={() => setAbierta(f)}>Ver</button></td>
                 </tr>
               ))}
             </tbody>
@@ -356,6 +370,7 @@ function FilaCamino({ f, nombres, diasAlarma }) {
   const facturas = (f.facturas || []).map((x) => x.folio || x.com_id).join(", ");
   return (
     <tr className={f.alarma ? "bg-red-50" : ""}>
+      <td className={CELDA}>{f.origen_factura_nombre}</td>
       <td className={CELDA}>
         {etiquetaCamino(f.tipo)}
         {f.motivo && <span className={`block ${SECUNDARIO}`}>{textoMotivo(f.motivo)}</span>}
@@ -379,11 +394,11 @@ function FilaCamino({ f, nombres, diasAlarma }) {
   );
 }
 
-const COLUMNAS_CAMINO = ["Qué es", "Proveedor", "Factura", "Clave", "Traspaso", "Origen → destino", "Enviado", "Días", "Piezas",
+const COLUMNAS_CAMINO = ["Origen", "Qué es", "Proveedor", "Factura", "Clave", "Traspaso", "Origen → destino", "Enviado", "Días", "Piezas",
   "Dinero"];
 
 function EnCamino({ nombres }) {
-  const [filtros, setFiltros] = useState({ solo_alarmas: false, pagina: 1 });
+  const [filtros, setFiltros] = useState({ origen_factura: "", solo_alarmas: false, pagina: 1 });
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const peticiones = useRef(contadorDePeticiones());
@@ -399,24 +414,29 @@ function EnCamino({ nombres }) {
   useEffect(() => { cargar(); }, [cargar]);
   if (error) return <p role="alert" className={NOTA_ROJA}>{error}</p>;
   if (!datos) return <p className="text-sm text-slate-500">Cargando…</p>;
-  const { totales: t } = datos, paginas = Math.max(1, Math.ceil(datos.total / datos.por_pagina));
+  const paginas = Math.max(1, Math.ceil(datos.total / datos.por_pagina));
   return (
     <>
       <p className={NOTA_AMBAR}>
-        Mercancía de facturas de CEDIS que va en camino o cuyo traspaso hay que aclarar. “Por aclarar” no es un faltante de
+        Mercancía de facturas que va en camino o cuyo traspaso hay que aclarar. “Por aclarar” no es un faltante de
         ninguna tienda ni de ninguna persona: es un traspaso que hay que revisar en SICAR.
       </p>
-      <div className="mb-3 grid gap-3 sm:grid-cols-3">
-        <TotalCamino titulo="Dinero en tránsito" total={t.transito}
-          monto={valorConIvaTexto(t.transito.centavos, t.transito.centavos_con_iva)} />
-        <TotalCamino titulo="Dinero por aclarar" total={t.por_aclarar}
-          monto={valorConIvaTexto(t.por_aclarar.centavos, t.por_aclarar.centavos_con_iva)} />
-        <TotalCamino titulo="Dinero sin entender (valor según SICAR)" total={t.sin_entender} nota="no se reparte entre facturas"
-          monto={valorConIvaTexto(t.sin_entender.valor_sicar_centavos, t.sin_entender.valor_sicar_con_iva_centavos)} />
-      </div>
+      <SelectorOrigen origenes={datos.origenes} valor={filtros.origen_factura}
+        onChange={e => setFiltros(f => ({ ...f, origen_factura: e.target.value, pagina: 1 }))} />
+      {Object.entries(datos.totales_por_origen).map(([id, t]) => {
+        const nombre = datos.origenes.find(o => String(o.sucursal_id) === id)?.nombre;
+        return <div key={id} className="mb-3 grid gap-3 sm:grid-cols-3">
+          <TotalCamino titulo="Dinero en tránsito" total={t.transito}
+            monto={montoOrigen(nombre, t.transito.centavos, t.transito.centavos_con_iva)} />
+          <TotalCamino titulo="Dinero por aclarar" total={t.por_aclarar}
+            monto={montoOrigen(nombre, t.por_aclarar.centavos, t.por_aclarar.centavos_con_iva)} />
+          <TotalCamino titulo="Dinero sin entender (valor según SICAR)" total={t.sin_entender} nota="no se reparte entre facturas"
+            monto={montoOrigen(nombre, t.sin_entender.valor_sicar_centavos, t.sin_entender.valor_sicar_con_iva_centavos)} />
+        </div>;
+      })}
       <label className="mb-3 block text-sm">
         <input type="checkbox" checked={filtros.solo_alarmas}
-          onChange={(e) => setFiltros({ solo_alarmas: e.target.checked, pagina: 1 })} />
+          onChange={(e) => setFiltros(f => ({ ...f, solo_alarmas: e.target.checked, pagina: 1 }))} />
         {` Solo alarmas (más de ${datos.dias_transito_alarma} días en camino): ${datos.alarmas}`}
       </label>
       <div className="overflow-x-auto">
@@ -555,8 +575,7 @@ function Tiendas({ nombres, permisos }) {
       </div>
       {confirmar && (
         <ModalConfirmar titulo={`Incorporar ${nombre(confirmar.sucursal_id)}`}
-          mensaje={`Se guardará la foto de existencias de ${nombre(confirmar.sucursal_id)} como "mercancía anterior". `
-            + "Desde ahora sus ventas y traspasos se cuentan contra las facturas de CEDIS. No se puede deshacer."}
+          mensaje={textoIncorporacion(confirmar, nombre(confirmar.sucursal_id))}
           textoConfirmar="Sí, incorporar" textoCancelar="Volver" peligro onConfirmar={incorporar} onCancelar={() => setConfirmar(null)} />
       )}
     </div>
@@ -675,7 +694,7 @@ export default function SeguimientoFacturas({ permisos = [] }) {
   const estilo = (id) => `${PESTANA} ${pestana === id ? PESTANA_ON : PESTANA_OFF}`;
   return (
     <div className={PAGINA}>
-      <h1 className="mb-1 text-xl font-bold text-slate-900">Seguimiento de facturas CEDIS</h1>
+      <h1 className="mb-1 text-xl font-bold text-slate-900">Seguimiento de facturas</h1>
       <p className={NOTA_AMBAR}>{TEXTOS.fifo} Sirve para decidir traslados y precios, no para cobrar faltantes a nadie.</p>
       <AvisoSinAsignar nombres={nombres} permisos={permisos} />
       <Salud gestiona={gestiona} />

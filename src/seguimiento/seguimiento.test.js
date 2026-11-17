@@ -332,3 +332,40 @@ test('bajas: textos neutrales, nombres y dinero exacto', async () => {
   assert.equal(TEXTO_BAJAS, 'Mercancía que SICAR dice que se envió a un número de sucursal que ya no se usa y nadie marcó como recibida. '
     + 'Hay que aclararla; no es faltante de ninguna tienda ni de ninguna persona.');
 });
+
+test('multi-origen: aviso de revisión usa el nombre y conserva las otras etapas', async () => {
+  const { siguienteAccion, textoRevisionOrigen, etiquetaEtapa } = await import('./seguimiento.js');
+  const factura = { origen_no_traslada: true, origen_factura_nombre: 'Innotec', etapa: 'traslado', piezas: { queda: '10000' } };
+  const texto = 'Revisar: Innotec no traslada a otras tiendas. Decide si conviene bajar el precio o moverla en la tienda.';
+  assert.equal(siguienteAccion(factura), texto);
+  assert.equal(textoRevisionOrigen(factura), texto);
+  assert.equal(etiquetaEtapa('traslado', factura), 'Revisar');
+  assert.equal(siguienteAccion({ ...factura, aviso: { etapa: 'traslado', estado: 'revisado' } }), 'Revisado: Revisar');
+  assert.match(textoRevisionOrigen({ ...factura, origen_factura_nombre: 'Otra' }), /^Revisar: Otra /);
+  for (const etapa of ['margen_75', 'margen_50', 'liquidar']) {
+    assert.equal(siguienteAccion({ ...factura, etapa }), etiquetaEtapa(etapa));
+  }
+});
+
+test('multi-origen: totales rotulados y filtro propio en ambas pestañas', async () => {
+  const { montoOrigen, parametrosLista, parametrosCamino } = await import('./seguimiento.js');
+  assert.equal(montoOrigen('CEDIS', '10000', null), 'CEDIS: $100.00 sin IVA');
+  assert.equal(montoOrigen('Innotec', '20000', '23200'), 'Innotec: $232.00 con IVA · $200.00 sin IVA');
+  for (const fn of [parametrosLista, parametrosCamino]) {
+    assert.equal(new URLSearchParams(fn({ origen_factura: '7', sucursal_id: '6' })).get('origen_factura'), '7');
+    assert.equal(new URLSearchParams(fn({ origen_factura: '7', sucursal_id: '6' })).has('sucursal_id'), false);
+  }
+});
+
+test('multi-origen: confirmación de incorporación distingue compras propias', async () => {
+  const { textoIncorporacion } = await import('./seguimiento.js');
+  const texto = textoIncorporacion({ origen_no_traslada: true, origen_factura_nombre: 'Innotec' }, 'Innotec');
+  assert.match(texto, /Desde ahora sus compras se siguen como facturas de Innotec y sus ventas cuentan contra ellas\. No se puede deshacer\./);
+  assert.match(textoIncorporacion({}, 'Ocosingo'), /sus ventas y traspasos se cuentan contra las facturas de CEDIS/);
+});
+
+test('multi-origen: catálogo sin clave muestra el nombre del origen de la factura', async () => {
+  const { siguienteAccion } = await import('./seguimiento.js');
+  assert.equal(siguienteAccion({ renglones_sin_seguimiento: 1, origen_factura_nombre: 'Innotec' }),
+    'Información insuficiente: 1 renglón sin clave en el catálogo de Innotec');
+});

@@ -3,8 +3,8 @@
 // y la clave sigue pendiente. Solo escribe tablas seguimiento_*; nunca toca SICAR.
 
 const { fechaLocal } = require('../fechas');
-const { leerConfig } = require('./config');
-const { movimientosPorClave } = require('./lector');
+const { leerConfig, origenesIncorporados } = require('./config');
+const { movimientosPorClave, corteLocal } = require('./lector');
 const { calcular } = require('./motor');
 const { etapa: etapaDe } = require('./estrategias');
 const { artIdsDelLote, marcarPendientes } = require('./pendientes');
@@ -14,7 +14,6 @@ const { artIdsDelLote, marcarPendientes } = require('./pendientes');
 // de su clave que no se entienden (traspasos_sin_entender). Los resultados viejos se rehacen en la vuelta diaria.
 const VERSION = 3;
 const INTENTOS_MAXIMOS = 5;
-const CEDIS = 6;
 const DIA_MS = 86400000;
 
 function registrar(sqlite, avisoId, estado, motivo, ahora) {
@@ -48,21 +47,21 @@ function guardarRevision(sqlite, aviso, saldo, ahora) {
  * Avisos de una factura según sus renglones guardados. Saldo = queda + tránsito (lo gris no genera avisos, §11.4).
  * Un aviso por etapa; al cambiar de etapa se retira el anterior. Sin resultados o sin saldo: se retiran todos.
  */
-function revisarAvisos(sqlite, com_id, config, ahora) {
+function revisarAvisos(sqlite, sucursal_id, com_id, config, ahora) {
   const filas = sqlite.prepare('SELECT datos_json FROM seguimiento_resultado WHERE sucursal_id=? AND com_id=?')
-    .all(CEDIS, com_id).map(f => JSON.parse(f.datos_json));
+    .all(sucursal_id, com_id).map(f => JSON.parse(f.datos_json));
   const activos = sqlite.prepare(`SELECT * FROM seguimiento_avisos WHERE sucursal_id=? AND com_id=? AND estado <> 'retirado'`)
-    .all(CEDIS, com_id);
+    .all(sucursal_id, com_id);
   const saldo = filas.reduce((a, f) => a + BigInt(f.queda) + BigInt(f.transito), 0n);
   const etapa = filas.length && saldo > 0n ? etapaDe(diasDesde(filas[0].fecha_compra, ahora), config) : null;
   const motivo = !filas.length ? 'sin_resultado' : saldo === 0n ? 'agotada' : etapa ? 'cambio_de_etapa' : 'sin_etapa';
   for (const aviso of activos) if (aviso.etapa !== etapa) cambiarEstado(sqlite, aviso, 'retirado', motivo, ahora);
   if (!etapa) return;
   const existente = sqlite.prepare('SELECT * FROM seguimiento_avisos WHERE sucursal_id=? AND com_id=? AND etapa=?')
-    .get(CEDIS, com_id, etapa);
+    .get(sucursal_id, com_id, etapa);
   if (!existente) {
     const { lastInsertRowid } = sqlite.prepare(`INSERT INTO seguimiento_avisos(sucursal_id, com_id, etapa, estado)
-      VALUES (?, ?, ?, 'nuevo')`).run(CEDIS, com_id, etapa);
+      VALUES (?, ?, ?, 'nuevo')`).run(sucursal_id, com_id, etapa);
     registrar(sqlite, lastInsertRowid, 'nuevo', null, ahora);
   } else if (existente.estado === 'retirado') {
     cambiarEstado(sqlite, existente, 'nuevo', 'saldo_de_nuevo', ahora);
@@ -73,8 +72,8 @@ function revisarAvisos(sqlite, com_id, config, ahora) {
  * Calcula la clave con el rescate de la ventana de incorporación. Todo o nada: si el lector no puede rescatarla o el motor
  * no cuadra sus controles, la clave se calcula exactamente como sin rescate y el intento queda anotado en calidad.
  */
-function calcularConRescate(sqlite, clave, ahora) {
-  const lectura = movimientosPorClave(sqlite, clave, { ahora, rescate: true });
+function calcularConRescate(sqlite, clave, ahora, origen) {
+  const lectura = movimientosPorClave(sqlite, clave, { ahora, rescate: true, origen });
   const calculo = calcular(lectura.movimientos);
   const { rescate } = lectura;
   if (rescate && !rescate.imposible && calculo.rescate_ok) return { lectura, calculo, rescate };
@@ -85,8 +84,8 @@ function calcularConRescate(sqlite, clave, ahora) {
   return { lectura: hoy, calculo: rescate.imposible ? calculo : calcular(hoy.movimientos), rescate: null };
 }
 
-function recalcularClave(sqlite, clave, config, ahora) {
-  const { lectura, calculo, rescate } = calcularConRescate(sqlite, clave, ahora);
+function guardarCalculo(sqlite, clave, ahora, resultado, facturas) {
+  const { lectura, calculo, rescate } = resultado;
   const { movimientos, calidad } = lectura, { lotes, incierto, anterior } = calculo;
   // Lo que SICAR dice de cada traspaso sin entender; nunca se reparte entre facturas ni mueve piezas.
   const traspasos_sin_entender = (lectura.sin_entender ?? []).map(s => ({ ...s, piezas: String(s.piezas),
@@ -98,20 +97,28 @@ function recalcularClave(sqlite, clave, config, ahora) {
   }
   const saldo_clave = Object.fromEntries([...saldo].map(([s, v]) => [s, String(v)]));
   const fechas = new Map(movimientos.filter(m => m.tipo === 'compra')
-    .map(m => [JSON.stringify([m.lote.com_id, m.lote.renglon]), m.fecha.slice(0, 10)]));
-  const facturas = new Set(sqlite.prepare('SELECT com_id FROM seguimiento_resultado WHERE clave=? AND sucursal_id=?')
-    .all(clave, CEDIS).map(f => f.com_id));
-  sqlite.prepare('DELETE FROM seguimiento_resultado WHERE clave=?').run(clave);
+    .map(m => [JSON.stringify([m.lote.sucursal_id, m.lote.com_id, m.lote.renglon]), m.fecha.slice(0, 10)]));
   const guardar = sqlite.prepare(`INSERT OR REPLACE INTO seguimiento_resultado
     (sucursal_id, com_id, renglon, clave, datos_json, version, calculado_en) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   for (const l of lotes) {
     const { sucursal_id, com_id, renglon } = l.lote;
-    const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([com_id, renglon])), calidad, incierto, saldo_clave,
+    const datos = { ...l, clave, fecha_compra: fechas.get(JSON.stringify([sucursal_id, com_id, renglon])), calidad, incierto, saldo_clave,
       traspasos_sin_entender, ...(rescate ? { rescate } : {}) };
     guardar.run(sucursal_id, com_id, renglon, clave, JSON.stringify(datos), VERSION, ahora);
-    facturas.add(com_id);
+    facturas.add(JSON.stringify([sucursal_id, com_id]));
   }
-  for (const com_id of [...facturas].sort()) revisarAvisos(sqlite, com_id, config, ahora);
+}
+
+function recalcularClave(sqlite, clave, config, ahora) {
+  const facturas = new Set(sqlite.prepare('SELECT sucursal_id, com_id FROM seguimiento_resultado WHERE clave=?')
+    .all(clave).map(f => JSON.stringify([f.sucursal_id, f.com_id])));
+  sqlite.prepare('DELETE FROM seguimiento_resultado WHERE clave=?').run(clave);
+  // Calidad, rescate y saldos se calculan por cadena: un catálogo ambiguo de otra razón social no invalida esta factura.
+  for (const origen of origenesIncorporados(sqlite)) {
+    const resultado = calcularConRescate(sqlite, clave, ahora, origen.sucursal_id);
+    guardarCalculo(sqlite, clave, ahora, resultado, facturas);
+  }
+  for (const id of [...facturas].sort()) revisarAvisos(sqlite, ...JSON.parse(id), config, ahora);
   sqlite.prepare('DELETE FROM seguimiento_pendientes WHERE clave=?').run(clave);
 }
 
@@ -184,21 +191,26 @@ function procesarPendientes(sqlite, { limite = 50, ahora = new Date().toISOStrin
 }
 
 /**
- * Vuelta diaria: marca las claves de compras vigentes de CEDIS desde el día de su corte (las anteriores son
+ * Vuelta diaria: marca las claves de compras vigentes de cada origen desde su propio corte (las anteriores son
  * mercancía de la foto, no facturas seguidas) y toda clave con resultado guardado.
  */
 function vueltaCompleta(sqlite, ahora = new Date().toISOString()) {
-  const cedis = sqlite.prepare('SELECT corte FROM seguimiento_tiendas WHERE sucursal_id=?').get(CEDIS);
-  const desdeDia = cedis ? fechaLocal(cedis.corte) : '9999-12-31';
-  return sqlite.prepare(`INSERT INTO seguimiento_pendientes(clave, desde)
-    SELECT DISTINCT clave, ? FROM (
-      SELECT a.clave FROM sicar_compras c
-        JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
-        JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
-        WHERE c.sucursal_id=? AND c.estado='vigente' AND substr(c.fecha, 1, 10) >= ?
-      UNION SELECT clave FROM seguimiento_resultado
-    ) WHERE clave IS NOT NULL AND trim(clave) <> ''
-    ON CONFLICT(clave) DO UPDATE SET intentos=0`).run(ahora, CEDIS, desdeDia).changes;
+  return sqlite.transaction(() => {
+    const compras = sqlite.prepare(`SELECT DISTINCT a.clave FROM sicar_compras c
+      JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
+      JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
+      WHERE c.sucursal_id=? AND c.estado='vigente' AND c.fecha > ? AND a.clave IS NOT NULL AND trim(a.clave) <> ''`);
+    const claves = new Set(sqlite.prepare(`SELECT DISTINCT clave FROM seguimiento_resultado
+      WHERE clave IS NOT NULL AND trim(clave) <> ''`).all().map(f => f.clave));
+    for (const o of origenesIncorporados(sqlite)) {
+      const { corte } = sqlite.prepare('SELECT corte FROM seguimiento_tiendas WHERE sucursal_id=?').get(o.sucursal_id);
+      for (const f of compras.all(o.sucursal_id, corteLocal(corte))) claves.add(f.clave);
+    }
+    const marcar = sqlite.prepare(`INSERT INTO seguimiento_pendientes(clave, desde) VALUES (?, ?)
+      ON CONFLICT(clave) DO UPDATE SET intentos=0`);
+    for (const clave of claves) marcar.run(clave, ahora);
+    return claves.size;
+  })();
 }
 
 module.exports = { VERSION, INTENTOS_MAXIMOS, artIdsDelLote, marcarPendientes, procesarPendientes, vueltaCompleta, vencerPosposiciones,

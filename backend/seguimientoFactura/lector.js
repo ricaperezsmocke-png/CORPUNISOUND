@@ -1,7 +1,7 @@
 const { aDiezmilesimas } = require('../cantidades');
 const { momentoLocal } = require('../fechas');
 const { NO_INTERNA } = require('../sicarVentaReal');
-const { leerConfig } = require('./config');
+const { leerConfig, ORIGENES, TIENDAS_APARTE, perteneceCadena } = require('./config');
 
 const comparar = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const mitadArriba = numerador => (numerador + 5000n) / 10000n;
@@ -9,7 +9,7 @@ const mitadArriba = numerador => (numerador + 5000n) / 10000n;
 const prioridad = { foto: 0, compra: 1, salida: 2, recepcion: 2, venta: 3, control: 3 };
 // Foto tomada antes de esta hora local (tienda cerrada): todo lo que SICAR fecha ese día es posterior a la foto.
 const HORA_LIMITE_MADRUGADA = '07:00';
-const CEDIS = 6;
+const CEDIS = ORIGENES.find(o => o.nombre === 'CEDIS').sucursal_id;
 // Por aclarar que el rescate sí admite en la ventana: salen o entran piezas ciertas, solo sin factura o sin venta.
 const ADMITIDOS_EN_VENTANA = ['cuenta_interna', 'origen_no_incorporado'];
 
@@ -22,7 +22,7 @@ function corteLocal(iso) {
 }
 
 /** Lo que no depende del corte efectivo; las consultas de cada lector se guardan en `cache` para no repetirlas. */
-function leerDatos(sqlite, clave, ahora) {
+function leerDatos(sqlite, clave, ahora, origen) {
   const instante = new Date(ahora).getTime();
   if (!Number.isFinite(instante)) throw new Error('Ahora debe ser una fecha válida.');
   const tiendas = new Map(sqlite.prepare(`SELECT t.sucursal_id, t.corte, s.ultima_recepcion
@@ -33,10 +33,13 @@ function leerDatos(sqlite, clave, ahora) {
   const repetidas = sqlite.prepare(`SELECT a.sucursal_id FROM sicar_articulos a
     JOIN seguimiento_tiendas t USING (sucursal_id) WHERE a.clave=? GROUP BY a.sucursal_id HAVING count(*)>1`).all(clave);
   for (const { sucursal_id } of repetidas) problemas.push({ sucursal_id, clave, motivo: 'clave_repetida' });
+  if (origen !== undefined) {
+    for (const id of tiendas.keys()) if (!perteneceCadena(origen, id)) tiendas.delete(id);
+  }
   const limite = leerConfig(sqlite).dias_datos_atrasados * 86400000;
   const atrasadas = [...tiendas.values()].filter(t => !Number.isFinite(Date.parse(t.ultima_recepcion))
     || instante - Date.parse(t.ultima_recepcion) > limite).map(t => t.sucursal_id);
-  return { sqlite, clave, tiendas, problemas, atrasadas, cache: {} };
+  return { sqlite, clave, tiendas, problemas: problemas.filter(p => tiendas.has(p.sucursal_id)), atrasadas, cache: {}, origen };
 }
 
 /**
@@ -67,7 +70,7 @@ function contexto(datos, rebajadas = new Set(), inicio = null) {
     ordenados.push({ m, fechaOrden });
   }
   // envios: fecha de envío (sin hora) de cada movimiento de traspaso, para juzgar la ventana sin cambiar su salida.
-  return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados, cache,
+  return { sqlite, clave, tiendas, problemas, atrasadas, fuentes, fuente, agregar, ordenados, cache, origen: datos.origen,
     rescate: rebajadas.size ? { inicio, rebajadas } : null, envios: new Map(), dudosas: new Set(), horasRecepcion: new Map(),
     sinEntender: [] };
 }
@@ -81,6 +84,7 @@ function fotosDe(ctx) {
 function leerFotos(ctx) {
   const { tiendas, agregar } = ctx;
   for (const f of fotosDe(ctx)) {
+    if (!tiendas.has(f.sucursal_id)) continue;
     const t = tiendas.get(f.sucursal_id);
     agregar({ tipo: 'foto', fecha: t.efectivo, sucursal_id: f.sucursal_id, piezas: BigInt(f.piezas_diezmilesimas) });
   }
@@ -88,26 +92,26 @@ function leerFotos(ctx) {
 
 function leerCompras(ctx) {
   const { sqlite, clave, tiendas, fuente, agregar } = ctx;
-  const cedis = tiendas.get(CEDIS);
-  if (!cedis) return;
-  ctx.cache.compras ??= sqlite.prepare(`SELECT c.com_id, c.fecha, c.actualizado_en, d.renglon, d.cantidad,
+  ctx.cache.compras ??= ORIGENES.filter(o => tiendas.has(o.sucursal_id)).flatMap(o =>
+    sqlite.prepare(`SELECT c.sucursal_id, c.com_id, c.fecha, c.actualizado_en, d.renglon, d.cantidad,
     CAST(d.factor_diezmilesimas AS TEXT) factor, CAST(d.precio_sin_centavos AS TEXT) precio,
     CAST(d.precio_con_centavos AS TEXT) precio_con, CAST(d.importe_con_centavos AS TEXT) importe_con,
     a.actualizado_en catalogo_al FROM sicar_compras c
     JOIN sicar_compras_detalle d ON d.sucursal_id=c.sucursal_id AND d.com_id=c.com_id
     JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
-    WHERE c.sucursal_id=6 AND c.estado='vigente' AND c.fecha > ? AND a.clave=?`).all(cedis.local, clave);
+    WHERE c.sucursal_id=? AND c.estado='vigente' AND c.fecha > ? AND a.clave=?`)
+      .all(o.sucursal_id, tiendas.get(o.sucursal_id).local, clave));
   for (const f of ctx.cache.compras) {
     fuente(f.actualizado_en);
     fuente(f.catalogo_al);
     const cantidad = aDiezmilesimas(f.cantidad), producto = cantidad * BigInt(f.factor);
     const importeCon = f.importe_con == null ? null : BigInt(f.importe_con);
-    const m = { tipo: 'compra', fecha: f.fecha, sucursal_id: 6, piezas: mitadArriba(producto),
+    const m = { tipo: 'compra', fecha: f.fecha, sucursal_id: f.sucursal_id, piezas: mitadArriba(producto),
       valor_centavos: mitadArriba(BigInt(f.precio) * cantidad),
       // Preferir el importe exacto de SICAR; sin él, conservar el cálculo por precio y cantidad.
       valor_con_iva_centavos: importeCon > 0n ? importeCon
         : f.precio_con === null ? null : mitadArriba(BigInt(f.precio_con) * cantidad),
-      lote: { sucursal_id: 6, com_id: f.com_id, renglon: f.renglon } };
+      lote: { sucursal_id: f.sucursal_id, com_id: f.com_id, renglon: f.renglon } };
     if (producto % 10000n !== 0n) m.por_aclarar = 'cantidad_fraccionaria';
     agregar(m);
   }
@@ -132,7 +136,7 @@ function leerVentas(ctx) {
       JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
       ${envio} WHERE v.estado='vigente' AND a.clave=?`).all(clave);
     for (const f of ctx.cache[llave]) {
-      if (f.fecha_local <= tiendas.get(f.sucursal_id).efectivo) continue;
+      if (!tiendas.has(f.sucursal_id) || f.fecha_local <= tiendas.get(f.sucursal_id).efectivo) continue;
       fuente(f.actualizado_en);
       fuente(f.catalogo_al);
       agregar({ tipo: 'venta', fecha: f.fecha_local, sucursal_id: f.sucursal_id, piezas: aDiezmilesimas(f.cantidad),
@@ -184,6 +188,7 @@ function leerTraspasos(ctx) {
   const mapa = cache.mapa;
   const repetidos = new Set([...mapa.values()].filter((id, i, ids) => id != null && ids.indexOf(id) !== i));
   for (const grupo of cache.grupos) {
+    if (ctx.origen !== undefined && !grupo.some(p => perteneceCadena(ctx.origen, p.sucursal_id))) continue;
     const f = grupo[0], origen = mapa.get(f.suc_origen) ?? null, destino = mapa.get(f.suc_destino) ?? null;
     const traspaso = { origen, destino, folio: f.folio, suc_origen: f.suc_origen, suc_destino: f.suc_destino };
     const salidas = grupo.filter(p => p.sucursal_id === origen), entradas = grupo.filter(p => p.sucursal_id === destino);
@@ -363,7 +368,8 @@ function lugarEnVentana(inicio, t, fecha) {
 function tiendasElegibles(datos, inicio) {
   const mostrador = datos.sqlite.prepare(`SELECT 1 FROM sicar_ventas_mostrador
     WHERE sucursal_id=? AND estado IN ('vigente', 'cancelada') AND fecha_local > ? LIMIT 1`);
-  return [...datos.tiendas.values()].filter(t => t.sucursal_id !== CEDIS && t.local > inicio
+  return [...datos.tiendas.values()].filter(t => !ORIGENES.some(o => o.sucursal_id === t.sucursal_id)
+    && !TIENDAS_APARTE.includes(t.sucursal_id) && t.local > inicio
     && mostrador.get(t.sucursal_id, t.local)).map(t => t.sucursal_id);
 }
 
@@ -537,9 +543,9 @@ function conRescate(datos) {
  * Solo lectura y una instantánea consistente. Piezas y valor_centavos son BigInt; en JSON son strings.
  * Con `rescate: true` intenta el rescate de la ventana (ver conRescate); `rescate` del resultado dice qué pasó.
  */
-function movimientosPorClave(sqlite, clave, { ahora = new Date().toISOString(), rescate = false } = {}) {
+function movimientosPorClave(sqlite, clave, { ahora = new Date().toISOString(), rescate = false, origen } = {}) {
   return sqlite.transaction(() => {
-    const datos = leerDatos(sqlite, clave, ahora);
+    const datos = leerDatos(sqlite, clave, ahora, origen);
     return rescate ? conRescate(datos) : terminar(pasada(datos), null);
   })();
 }

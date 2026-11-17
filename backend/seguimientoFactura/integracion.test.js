@@ -185,3 +185,43 @@ test('rescate C 32194: lo que CEDIS mandó a Yajalón antes de su foto se sigue 
   assert.equal(suma, BigInt(d.comprado), 'la suma por lote cuadra con lo comprado');
   assert.deepEqual(d.saldo_clave, { 2: '440000', 6: '0' }, 'lo calculado en Yajalón es su existencia sin la factura vendida');
 });
+
+test('multi-origen: ingesta e incorporación reales, anterior y FIFO separados con compra 100', t => {
+  for (const k of Object.keys(secuencias)) delete secuencias[k];
+  const sqlite = new Database(':memory:');
+  const repo = crearRepositorioSicar(sqlite);
+  t.after(() => sqlite.close());
+  for (const suc of [1, 6, 7]) {
+    sqlite.prepare('INSERT INTO sicar_sucursales_mapa(sicar_sucursal, sucursal_id) VALUES (?, ?)').run(String(suc), suc);
+    lote(repo, suc, { articulos: [{ art_id: '201', clave: 'A', descripcion: 'Instrumento' }],
+      existencias: [{ art_id: '201', existencia: suc === 7 ? '1.0000' : '0.0000' }] });
+    incorporar(sqlite, { sucursal_id: suc, actor: '1', ahora: new Date().toISOString() });
+  }
+  for (const suc of [6, 7]) {
+    lote(repo, suc, { compras: [{ com_id: '100', fecha: `${dia(1)}T10:00:00`, pro_id: '10', folio: `F-${suc}`,
+      comentario: '', estado: 'vigente', cancelada_en: null, total_con: '1160.00',
+      detalle: [{ art_id: '201', cantidad: '10.0000', factor: '1', precio_sin: '100.00',
+        precio_con: '116.00', importe_con: '1160.00' }] }] });
+  }
+  const enviar = traspaso('7001', 'enviado', '5.0000', null);
+  enviar.detalle[0].art_id = '201';
+  lote(repo, 6, { traspasos: [enviar] });
+  lote(repo, 1, { traspasos: [traspaso('8001', 'recibido', '5.0000', `${dia(3)}T12:00:00`)],
+    mostrador: [venta('9001', '2.0000')] });
+  lote(repo, 7, { mostrador: [venta('9001', '3.0000')] });
+  const ahora = new Date(AHORA + 50 * DIA).toISOString();
+  servicio.vueltaCompleta(sqlite, ahora);
+  assert.equal(servicio.procesarPendientes(sqlite, { ahora }).errores.length, 0);
+  const { listar, detalle } = require('./consultas');
+  assert.equal(listar(sqlite, {}, ahora).total, 2);
+  for (const suc of [6, 7]) {
+    const d = detalle(sqlite, suc, '100', ahora);
+    assert.equal(d.factura.folio, `F-${suc}`);
+    assert.equal(d.factura.piezas.vendido, '20000');
+    assert.equal(d.factura.piezas.queda, '80000');
+    assert.equal(d.avisos[0].sucursal_id, suc);
+    assert.equal(Object.values(d.factura.dinero).reduce((a, v) => a + BigInt(v), 0n), 100000n);
+    assert.equal(Object.values(d.factura.dinero_con_iva).reduce((a, v) => a + BigInt(v), 0n), 116000n);
+  }
+  assert.equal(detalle(sqlite, 7, '100', ahora).renglones[0].por_sucursal[1], undefined);
+});
