@@ -344,6 +344,9 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
           if (c.tabla === 'sicar_sucursales_mapa' && fila) {
             if (!Object.hasOwn(fila, 'baja')) fila.baja = 0;
             if (!Object.hasOwn(fila, 'nombre')) fila.nombre = null;
+            for (const campo of ['aclarado_en', 'aclarado_nota', 'aclarado_por']) {
+              if (!Object.hasOwn(fila, campo)) fila[campo] = null;
+            }
           }
           if (c.tabla === 'seguimiento_avisos' && fila) {
             for (const campo of ['saldo_revision', 'fecha_revision']) {

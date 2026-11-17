@@ -231,6 +231,9 @@ function registrarRutasSicar(app, opciones) {
     const existe = id => tiendas().some(t => Number(t.id) === id);
     res.json(traspasos.asignarMapaSicar(repo.conexionParaVinculos(), req.body, String(req.usuarioToken.id), alcance, existe));
   }));
+  app.put('/api/sicar/sucursales-mapa/aclarado', ...permiso('administrar_sucursales'), ejecutar((req, res, alcance) => {
+    res.json(traspasos.aclararBajaSicar(repo.conexionParaVinculos(), req.body, String(req.usuarioToken.id), alcance));
+  }));
   // Cortes SICAR: el alcance sale solo del token (ver todas o su tienda); ?sucursal_id= es un filtro que lo recorta.
   app.get('/api/sicar/cortes', ...permiso('ver_cortes_sicar'), ejecutar((req, res, alcance) => {
     const { desde, hasta, sucursal_id, caj_id, usu_id } = req.query;

@@ -999,6 +999,24 @@ test('Task 3: restaura generacion vieja con proveedores sin columna RFC', async 
   for (const tabla of COMPRAS_TASK3) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
 });
 
+test('aclarado: respaldo viejo sin las tres claves restaura con NULL', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  f.sqlite.exec("INSERT INTO sicar_sucursales_mapa(sicar_sucursal, baja, nombre) VALUES ('3', 1, 'Palenque')");
+  for (const campo of ['aclarado_en', 'aclarado_nota', 'aclarado_por']) {
+    if (f.sqlite.pragma('table_info(sicar_sucursales_mapa)').some(c => c.name === campo)) {
+      f.sqlite.exec(`ALTER TABLE sicar_sucursales_mapa DROP COLUMN ${campo}`);
+    }
+  }
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  try { p.aplicar(); } finally { p.liberar(); }
+  const fila = g.sqlite.prepare('SELECT * FROM sicar_sucursales_mapa').get();
+  assert.deepEqual([fila.aclarado_en, fila.aclarado_nota, fila.aclarado_por], [null, null, null]);
+  assert.equal(fila.baja, 1);
+  assert.equal(fila.nombre, 'Palenque');
+});
+
 const cerrarTask5 = f => f.sqlite.exec(`INSERT INTO compras_cerradas (sucursal_id,com_id,motivo,actor,fecha)
   VALUES (42,'9007199254740993','Muestra sin factura','9','2026-11-04T12:00:00Z')`);
 test('Decisión 2: respaldo nuevo conserva compras cerradas con y sin bandeja', async t => {

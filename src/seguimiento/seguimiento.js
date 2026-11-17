@@ -196,8 +196,18 @@ export function parametrosCamino(filtros) {
 
 export function resumenBaja(baja) {
   const n = baja.envios.length;
-  return `SICAR ${baja.sicar_sucursal}${baja.nombre ? ` (${baja.nombre})` : ""} · ${n} ${n === 1 ? "envío" : "envíos"} sin recibir`
-    + ` · ${pesosTexto(baja.total_centavos)} según SICAR`;
+  let texto = `SICAR ${baja.sicar_sucursal}${baja.nombre ? ` (${baja.nombre})` : ""}`;
+  if (baja.aclarado_en) {
+    const fecha = fechaHoraLocal(baja.aclarado_en, { soloFecha: true }).replace(/^(\d{4})-(\d{2})-(\d{2})/, '$3/$2/$1');
+    texto += ` · aclarado el ${fecha} · Nota: ${baja.aclarado_nota}`;
+  }
+  if (!baja.aclarado_en || n > 0) texto += ` · ${n} ${n === 1 ? "envío" : "envíos"} sin recibir · ${pesosTexto(baja.total_centavos)} según SICAR`;
+  return texto;
+}
+
+export function encabezadoBajas(bajas) {
+  const sinPendientes = bajas.length > 0 && bajas.every(b => b.aclarado_en && b.envios.length === 0);
+  return `Sucursales SICAR dadas de baja: ${sinPendientes ? "sin pendientes" : bajas.map(resumenBaja).join("; ")}`;
 }
 
 export function rutaBaja(fila, nombres, bajas) {
