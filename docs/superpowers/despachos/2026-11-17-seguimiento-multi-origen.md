@@ -50,7 +50,11 @@ una compra entra en la tienda de `m.sucursal_id` y las ventas de cada tienda con
    origen real de cada compra; la vuelta diaria marca las claves de las compras de **todos** los orígenes incorporados,
    cada uno desde su propio corte. Las tablas ya tienen `sucursal_id`: **sin tablas ni columnas nuevas, sin tocar el
    respaldo**.
-4. **`consultas.js`**:
+4. **`consultas.js`** — **NOMBRES (corrección 2026-11-17, segunda parada de Codex):** en `enCamino` el campo `origen` ya
+   significa "tienda que envía el traspaso" y NO cambia. En TODO este despacho, donde dice `origen`/`origen_nombre` como
+   campo nuevo de una factura o renglón, y el filtro por query `origen`, léase **`origen_factura`**,
+   **`origen_factura_nombre`** y query **`origen_factura`** (en `listar` y en `enCamino` por igual). `totales_por_origen`,
+   `origenes` y `origen_no_traslada` se quedan con esos nombres.
    - Todos los mapas hoy indexados solo por `com_id` (encabezados, renglones esperados, avisos activos, resultados) se
      indexan por **(sucursal_id, com_id)**: dos SICAR distintos pueden repetir número de compra y no se pueden pisar.
    - `listar` y `enCamino`: cada factura/renglón trae `origen` (sucursal_id) y `origen_nombre`. Filtro nuevo por query
