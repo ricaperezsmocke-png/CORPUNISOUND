@@ -66,6 +66,13 @@ una compra entra en la tienda de `m.sucursal_id` y las ventas de cada tienda con
      marca `origen_no_traslada: true`; para una factura de CEDIS, las tiendas de `TIENDAS_APARTE` no entran en las
      velocidades/existencias candidatas (ni destino ni origen). Las etapas (`etapa()` en `estrategias.js`) no cambian:
      a los 45 días la etapa sigue llamándose `traslado` (los filtros no cambian); solo cambia el texto mostrado.
+   - **Precios por cadena (decidido 2026-11-17, a raíz de la parada de Codex):** `ultimoPrecio()` (~línea 408) y el
+     aviso de "SICAR cambia el precio por artículo" (`avisoArticuloCompartido` y las piezas recientes que lo alimentan)
+     se calculan **solo con la cadena del origen de la factura**: para una factura de CEDIS, ventas y compras de las
+     tiendas que NO están en `TIENDAS_APARTE`; para una de Innotec, solo las de Innotec (su propio SICAR cambia su
+     precio por artículo de forma independiente). Regla general para cualquier otra consulta de `estrategias` que mire
+     varias tiendas: misma separación. Define el helper una sola vez (p. ej. `tiendasDeLaCadena(origen)` en
+     `config.js`) y úsalo en todas.
    - `tiendas()` (pestaña Tiendas) y la respuesta de la lista exponen qué orígenes están incorporados
      (`origenes: [{ sucursal_id, nombre, traslada }]`), para que la pantalla no repita la lista.
 5. **`rutas.js`**: sin rutas nuevas ni permisos nuevos; solo pasar el filtro `origen`.
@@ -114,6 +121,9 @@ una compra entra en la tienda de `m.sucursal_id` y las ventas de cada tienda con
 - Factura de Innotec con 45+ días y saldo: etapa `traslado`, sin sugerencias, `origen_no_traslada: true`; a 60/90/120
   los mismos textos de margen/liquidar que CEDIS.
 - Factura de CEDIS: Innotec (7) incorporado y con mucha venta de la clave **no** aparece como destino sugerido.
+- Precios: costo $100, última venta Unisound $200, última venta Innotec $300 de la misma clave → la referencia de margen
+  de la factura de CEDIS usa $200 y la de Innotec $300; el aviso de artículo compartido de cada una cuenta solo piezas
+  de su cadena.
 - Rescate: Innotec incorporado después del inicio con mostrador cargado **no** es elegible.
 - Filtro `origen=7` solo trae Innotec; `origen=5` o `origen=abc` → 400. `totales_por_origen` correctos y separados.
 - `detalle` con `/7/x` sin Innotec incorporado → 404.
