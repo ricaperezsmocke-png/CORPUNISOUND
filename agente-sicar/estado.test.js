@@ -6,6 +6,13 @@ const path = require('node:path');
 const { inicial, guardar, cargar, bloquear, registrar } = require('./estado');
 const { enviarPendiente } = require('./envio');
 const { sobre } = require('./formato');
+test('esquema anterior: registra el aviso resumido y reconoce el código', () => {
+  const mensajes = [];
+  registrar(m => mensajes.push(m))('TRASPASOS_ESQUEMA_ANTERIOR');
+  assert.deepEqual(mensajes, ['TRASPASOS_ESQUEMA_ANTERIOR']);
+  assert.equal(require('./estado').describirFallo(new Error('TRASPASO_ESQUEMA_ANTERIOR')),
+    'FALLO TRASPASO_ESQUEMA_ANTERIOR');
+});
 async function entorno(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sicar-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));

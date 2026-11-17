@@ -552,7 +552,8 @@ async function ejecutar(archivo, config, deps) {
           ultimo = tra_id;
           const { traspaso, omitido } = traspasoSeguro({ traspaso: fila, detalles: pagina.detalles });
           if (omitido) {
-            avisarUnaVez('TRASPASO_OMITIDO', tra_id, omitido);
+            if (omitido.codigo === 'TRASPASO_ESQUEMA_ANTERIOR') avisarUnaVez('TRASPASOS_ESQUEMA_ANTERIOR');
+            else avisarUnaVez('TRASPASO_OMITIDO', tra_id, omitido);
             traspasos.push({ traspaso_omitido: { tra_id, codigo: omitido.codigo } });
           } else traspasos.push({ traspaso });
         }

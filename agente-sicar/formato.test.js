@@ -276,6 +276,17 @@ const { traspasoSeguro } = require('./formato');
 const traspasoDe = (extra = {}) => ({ tra_id: '41', folio: 'T-41', sucOri: 6, sucDes: '2', fecha: '2026-10-22', total: '100.3300',
   status: 2, fechaApl: '2026-10-23 09:30:00', fechaCan: null, aliasOri: 'CEDIS', aliasDes: 'OCOSINGO', ...extra });
 const renglonT = (art_id, extra = {}) => ({ tra_id: '41', art_id, cantidad: '2.0000', precioSin: '50.00', precioCon: '58.00', ...extra });
+for (const status of [-4, '-4', -3, '-3', -2, '-2']) {
+  test(`esquema anterior: ${typeof status} ${status} precede fechas, detalles e ids de sucursal inválidos`, () => {
+    const traspaso = traspasoDe({ status, fecha: 'imposible', sucOri: -2, sucDes: null });
+    assert.deepEqual(traspasoSeguro({ traspaso, detalles: null }),
+      { traspaso: null, omitido: { tra_id: '41', codigo: 'TRASPASO_ESQUEMA_ANTERIOR' } });
+    for (const desconocido of [0, 3, -5, null, 'texto']) {
+      assert.equal(traspasoSeguro({ traspaso: traspasoDe({ status: desconocido }), detalles: [] }).omitido.codigo,
+        'ESTADO_TRASPASO_DESCONOCIDO');
+    }
+  });
+}
 test('traspaso: recibido con su detalle, sin nombres de sucursal, y el servidor lo acepta tal cual', () => {
   const { traspaso, omitido } = traspasoSeguro({ traspaso: traspasoDe(), detalles: [renglonT('7'), renglonT('8'), renglonT('9', { tra_id: '42' })] });
   assert.equal(omitido, null);

@@ -45,6 +45,26 @@ function aplicar(repo, datos = lote(), sucursalId = 1, hash = `hash-${datos.sequ
   return repo.aplicarLote({ sucursalId, lote: datos, hash });
 }
 
+test('esquema anterior: borra solo la alerta de esa tienda y conserva otros motivos', t => {
+  const { sqlite, repo } = prepararDB(t);
+  const base = { ...lote(), clientes: [], ventas: [] };
+  const vieja = [{ tra_id: '2', codigo: 'ESTADO_TRASPASO_DESCONOCIDO' }];
+  aplicar(repo, { ...base, traspasos_omitidos: vieja });
+  aplicar(repo, { ...base, batch_id: 'otra-tienda', traspasos_omitidos: vieja }, 2);
+  aplicar(repo, { ...base, batch_id: 'limpieza', sequence: '2', traspasos_omitidos: [
+    { tra_id: '2', codigo: 'TRASPASO_ESQUEMA_ANTERIOR' },
+    { tra_id: '3', codigo: 'TRASPASO_ESQUEMA_ANTERIOR' },
+    { tra_id: '4', codigo: 'FECHA_INVALIDA' }, { tra_id: '5', codigo: 'DESCONOCIDO' },
+  ] });
+  const filas = sqlite.prepare('SELECT sucursal_id, tra_id, codigo FROM sicar_traspasos_omitidos ORDER BY sucursal_id, tra_id').all();
+  assert.deepEqual(filas, [
+    { sucursal_id: 1, tra_id: '4', codigo: 'FECHA_INVALIDA' },
+    { sucursal_id: 1, tra_id: '5', codigo: 'OTRO' },
+    { sucursal_id: 2, tra_id: '2', codigo: 'ESTADO_TRASPASO_DESCONOCIDO' },
+  ]);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sicar_traspasos').get().n, 0);
+});
+
 function foto(sqlite) {
   const tablas = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'sicar_%' ORDER BY name").all();
   return Object.fromEntries(tablas.map(({ name }) => [name, sqlite.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()]));

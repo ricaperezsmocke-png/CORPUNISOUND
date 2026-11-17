@@ -94,7 +94,7 @@ function esHorarioHistorico(ahora) {
 // queda en el registro con su id y el motivo, y la carga sigue. Cualquier otro error sí detiene la corrida.
 const DATOS_RAROS = new Set(['ID_INVALIDO', 'DECIMAL_INVALIDO', 'PRECISION_NO_PACTADA', 'IMPORTE_EXCESIVO',
   'TEXTO_INVALIDO', 'TEXTO_VACIO', 'ESTADO_VENTA_DESCONOCIDO', 'FECHA_INVALIDA', 'DETALLE_FUERA_DE_LIMITE',
-  'ESTADO_TRASPASO_DESCONOCIDO']);
+  'ESTADO_TRASPASO_DESCONOCIDO', 'TRASPASO_ESQUEMA_ANTERIOR']);
 function clienteSeguro(c, avisar, publicos) {
   try { return { cliente: cliente(c, avisar, publicos), omitido: null }; }
   catch (error) {
@@ -272,6 +272,9 @@ function ventaClienteSegura(v, c, detalles, enviada, avisar, publicos) {
 // Traspaso de SICAR entre sucursales (Seguimiento de facturas, 2026-10-25). status 2 = recibido (aplicado), 1 = enviado
 // sin recibir, -1 = cancelado. Solo números de sucursal: aliasOri/aliasDes (nombres) nunca se mandan.
 const ESTADOS_TRASPASO = new Map([['2', 'recibido'], ['1', 'enviado'], ['-1', 'cancelado']]);
+// Yajalón, medido 2026-11-17: 428 con -4 y fechaApl, 89 con -3 y fechaCan, 7 con -2 sin ambas fechas.
+// Historia de 2015 a agosto de 2023, casi toda entre sucursales -2 y 1: no se traduce al esquema actual.
+const ESTADOS_TRASPASO_ANTERIOR = new Set(['-4', '-3', '-2']);
 // fecha es date en SICAR; si llegara con hora, cuenta el día. Mismo criterio que el servidor: 2026-02-30 no es fecha.
 function fechaDia(valor) {
   const dia = /^(\d{4}-\d{2}-\d{2})(?: \d{2}:\d{2}:\d{2})?$/.exec(String(valor))?.[1];
@@ -281,6 +284,7 @@ function fechaDia(valor) {
 // fechaApl / fechaCan: sin fecha (null, o la fecha cero de MySQL) va como null; una imposible es dato raro.
 const fechaHora = valor => (valor == null || String(valor) === '0000-00-00 00:00:00' ? null : fechaLocal(valor));
 function traspaso({ traspaso: t, detalles }) {
+  if (ESTADOS_TRASPASO_ANTERIOR.has(String(t.status))) throw new Error('TRASPASO_ESQUEMA_ANTERIOR');
   const tra_id = id(t.tra_id);
   const estado = ESTADOS_TRASPASO.get(String(t.status));
   if (!estado) throw new Error('ESTADO_TRASPASO_DESCONOCIDO');

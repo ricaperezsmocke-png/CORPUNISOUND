@@ -77,6 +77,37 @@ export function textoOmitido(o) {
   return `Traspaso SICAR #${o?.tra_id} de ${tienda} no llegó al sistema: ${motivo}. Revísalo en SICAR.`;
 }
 
+/** Un aviso por tienda y motivo, con ids completos sin perder precisión ni modificar la entrada. */
+export function agruparOmitidos(omitidos) {
+  const grupos = new Map();
+  for (const o of omitidos || []) {
+    const motivo = o.motivo || "Dato que el sistema no sabe leer";
+    const clave = JSON.stringify([String(o.sucursal_id), o.codigo ? ["codigo", o.codigo] : ["motivo", motivo]]);
+    if (!grupos.has(clave)) {
+      grupos.set(clave, { clave, sucursal_id: o.sucursal_id, tienda: o.tienda || `Tienda ${o.sucursal_id}`,
+        codigo: o.codigo, motivo, cantidad: 0, ids: [], rango: null, desde: null, texto: textoOmitido(o) });
+    }
+    const grupo = grupos.get(clave);
+    grupo.cantidad++;
+    grupo.ids.push(o.tra_id);
+    if (o.primera_vez && (!grupo.desde || o.primera_vez < grupo.desde)) grupo.desde = o.primera_vez;
+  }
+  for (const g of grupos.values()) {
+    const enteros = g.ids.every(id => /^\d+$/.test(id));
+    g.ids.sort(enteros
+      ? (a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0)
+      : (a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    if (enteros && g.cantidad > 1 && g.ids.every((id, i) => i === 0 || BigInt(id) === BigInt(g.ids[i - 1]) + 1n)) {
+      g.rango = { primero: g.ids[0], ultimo: g.ids.at(-1) };
+    }
+    if (g.cantidad > 1) {
+      const rango = g.rango ? ` (#${g.rango.primero} a #${g.rango.ultimo})` : "";
+      g.texto = `${g.tienda}: ${g.cantidad} traspasos SICAR no llegaron al sistema${rango}: ${g.motivo}. Revísalos en SICAR.`;
+    }
+  }
+  return [...grupos.values()].sort((a, b) => a.tienda.localeCompare(b.tienda, "es") || a.motivo.localeCompare(b.motivo, "es"));
+}
+
 /**
  * El servidor ignora sucursal_id y manda lo del alcance del token. Quien ve todas filtra aquí por la tienda
  * que dueña del registro ("" = todas).
