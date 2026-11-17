@@ -708,3 +708,37 @@ test('baja: observación posterior al corte, no mueve piezas y cuenta una vez', 
   const calculo = require('./motor').calcular(r.movimientos);
   assert.equal(calculo.anterior[6], '100000');
 });
+
+function agregarInnotec(db, incorporada = true) {
+  db.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (7, ?)').run(ACTUALIZADO);
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (7, 'art-7', 'A', 'Artículo', ?)`).run(ACTUALIZADO);
+  if (incorporada) db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (7, ?)')
+    .run('2026-11-06T18:00:00.000Z');
+}
+
+test('multi-origen: compras con igual número conservan origen y corte propio', t => {
+  const db = prepararDB(t);
+  agregarInnotec(db);
+  compra(db, '100');
+  compra(db, '100', { suc: 7, fecha: '2026-11-06T12:00:01' });
+  compra(db, 'anterior', { suc: 7, fecha: '2026-11-06T12:00:00' });
+  const compras = leer(db).movimientos.filter(m => m.tipo === 'compra');
+  assert.deepEqual(compras.map(m => [m.sucursal_id, m.lote.sucursal_id, m.lote.com_id]), [[6, 6, '100'], [7, 7, '100']]);
+});
+
+test('multi-origen: compras de Innotec sin incorporar se ignoran', t => {
+  const db = prepararDB(t);
+  agregarInnotec(db, false);
+  compra(db, '100', { suc: 7 });
+  assert.equal(leer(db).movimientos.filter(m => m.tipo === 'compra').length, 0);
+});
+
+test('multi-origen: Innotec no participa en rescate aunque tenga mostrador posterior', t => {
+  const db = prepararDB(t);
+  agregarInnotec(db);
+  venta(db, 'ventana', { suc: 7, mostrador: true, fecha: '2026-11-05T13:00:00' });
+  venta(db, 'posterior', { suc: 7, mostrador: true, fecha: '2026-11-07T13:00:00' });
+  const lectura = require('./lector').movimientosPorClave(db, 'A', { ahora: AHORA, rescate: true });
+  assert.equal(lectura.rescate, null);
+});

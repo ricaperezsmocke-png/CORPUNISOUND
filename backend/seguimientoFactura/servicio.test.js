@@ -511,3 +511,64 @@ test('rescate: si el lector no puede rescatar se guarda el resultado de hoy con 
   assert.deepEqual(fila.datos.calidad.problemas.filter(p => p.motivo === 'rescate_inconsistente'),
     [{ clave: 'A', motivo: 'rescate_inconsistente', detalle: [{ sucursal_id: 2, motivo: 'foto_negativa' }] }]);
 });
+
+function multiOrigen(t) {
+  const { db } = prepararDB(t);
+  db.prepare('INSERT INTO sicar_tiendas(sucursal_id, ultima_recepcion) VALUES (7, ?)').run(RECIENTE);
+  db.prepare(`INSERT INTO sicar_articulos(sucursal_id, art_id, clave, descripcion, actualizado_en)
+    VALUES (7, 'art-7', 'A', 'Artículo', ?)`).run(RECIENTE);
+  db.prepare('INSERT INTO seguimiento_tiendas(sucursal_id, corte) VALUES (7, ?)').run(CORTE);
+  compra(db, '100');
+  db.exec(`INSERT INTO sicar_compras
+    (sucursal_id, com_id, fecha, pro_id, folio, comentario, estado, total_centavos, primera_vez, actualizado_en)
+    SELECT 7, com_id, fecha, pro_id, folio, comentario, estado,
+    total_centavos, primera_vez, actualizado_en FROM sicar_compras WHERE sucursal_id=6`);
+  db.exec(`INSERT INTO sicar_compras_detalle SELECT 7, com_id, renglon, 'art-7', cantidad,
+    factor_diezmilesimas, precio_sin_centavos, precio_con_centavos, importe_con_centavos
+    FROM sicar_compras_detalle WHERE sucursal_id=6`);
+  return db;
+}
+
+test('multi-origen: resultados, fechas y avisos no se pisan con el mismo com_id', t => {
+  const db = multiOrigen(t);
+  db.exec("UPDATE sicar_compras SET fecha='2026-09-21T10:00:00' WHERE sucursal_id=7");
+  servicio().vueltaCompleta(db, DIA_50);
+  assert.equal(servicio().procesarPendientes(db, { ahora: DIA_50 }).errores.length, 0);
+  assert.deepEqual(db.prepare('SELECT sucursal_id, com_id FROM seguimiento_avisos ORDER BY sucursal_id').all(),
+    [{ sucursal_id: 6, com_id: '100' }, { sucursal_id: 7, com_id: '100' }]);
+  const fechas = db.prepare('SELECT datos_json FROM seguimiento_resultado ORDER BY sucursal_id').all()
+    .map(f => JSON.parse(f.datos_json).fecha_compra);
+  assert.deepEqual(fechas, ['2026-09-20', '2026-09-21']);
+  db.exec("UPDATE sicar_compras SET estado='cancelada' WHERE sucursal_id=7");
+  servicio().vueltaCompleta(db, DIA_50);
+  servicio().procesarPendientes(db, { ahora: DIA_50 });
+  assert.deepEqual(db.prepare('SELECT sucursal_id, estado FROM seguimiento_avisos ORDER BY sucursal_id').all(),
+    [{ sucursal_id: 6, estado: 'nuevo' }, { sucursal_id: 7, estado: 'retirado' }]);
+});
+
+test('multi-origen: vuelta diaria toma claves de Innotec desde su propio corte', t => {
+  const db = multiOrigen(t);
+  db.exec("UPDATE sicar_compras SET estado='cancelada' WHERE sucursal_id=6; UPDATE sicar_articulos SET clave='INNO' WHERE sucursal_id=7");
+  servicio().vueltaCompleta(db, DIA_50);
+  assert.deepEqual(pendientes(db), ['INNO']);
+  db.exec("DELETE FROM seguimiento_pendientes; UPDATE seguimiento_tiendas SET corte='2026-09-21T18:00:00Z' WHERE sucursal_id=7");
+  servicio().vueltaCompleta(db, DIA_50);
+  assert.deepEqual(pendientes(db), []);
+});
+
+test('multi-origen: un problema de catálogo en Innotec no invalida el dinero de CEDIS', t => {
+  const db = multiOrigen(t);
+  db.exec("INSERT INTO seguimiento_foto_problemas VALUES (7, 'A', 'clave_repetida')");
+  servicio().vueltaCompleta(db, DIA_50);
+  assert.equal(servicio().procesarPendientes(db, { ahora: DIA_50 }).errores.length, 0);
+  const d = require('./consultas').detalle(db, 6, '100', DIA_50);
+  assert.equal(d.factura.total_sin_iva_centavos, '10000');
+  assert.equal(d.renglones[0].motivos.includes('clave_con_problema'), false);
+});
+
+test('multi-origen: vuelta diaria cuenta una sola vez la clave compartida con resultados previos', t => {
+  const db = multiOrigen(t);
+  assert.equal(servicio().vueltaCompleta(db, DIA_50), 1);
+  servicio().procesarPendientes(db, { ahora: DIA_50 });
+  assert.equal(servicio().vueltaCompleta(db, DIA_50), 1);
+});

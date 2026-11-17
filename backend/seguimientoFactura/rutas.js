@@ -136,8 +136,8 @@ function registrarRutasSeguimiento(app, { sqlite, requiereLogin, requierePermiso
   app.post(`${base}/avisos/:id`, ...permiso(GESTIONAR), ejecutar((db, req, actor) => gestionarAviso(db, req.params.id, req.body, actor)));
   // Mismo alcance que la lista: quien ve el módulo ve todo. Solo se leen paginación y filtro; nunca ?sucursal_id=.
   app.get(`${base}/en-camino`, ...permiso(VER), ejecutar((db, req) => {
-    const { pagina, por_pagina, solo_alarmas } = req.query;
-    return consultas.enCamino(db, { pagina, por_pagina, solo_alarmas });
+    const { pagina, por_pagina, solo_alarmas, origen_factura } = req.query;
+    return consultas.enCamino(db, { pagina, por_pagina, solo_alarmas, origen_factura });
   }));
   app.get(`${base}/sicar-sin-asignar`, ...permiso(VER), ejecutar(db => consultas.sicarSinAsignar(db)));
   app.get(base, ...permiso(VER), ejecutar((db, req) => consultas.listar(db, req.query)));

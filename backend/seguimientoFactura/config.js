@@ -1,3 +1,15 @@
+const ORIGENES = Object.freeze([
+  { sucursal_id: 6, nombre: 'CEDIS', traslada: true },
+  { sucursal_id: 7, nombre: 'Innotec', traslada: false },
+]);
+const TIENDAS_APARTE = Object.freeze([7]);
+const perteneceCadena = (origen, tienda) => TIENDAS_APARTE.includes(Number(origen))
+  ? Number(tienda) === Number(origen) : !TIENDAS_APARTE.includes(Number(tienda));
+function origenesIncorporados(sqlite) {
+  const ids = new Set(sqlite.prepare('SELECT sucursal_id FROM seguimiento_tiendas').all().map(t => t.sucursal_id));
+  return ORIGENES.filter(o => ids.has(o.sucursal_id));
+}
+
 // La base guarda solo sobrescrituras; los valores iniciales no activan una generación nueva de respaldo.
 const VALORES_INICIALES = Object.freeze({
   dias_revisado_caduca: 15,
@@ -27,4 +39,4 @@ function leerConfig(sqlite) {
   };
 }
 
-module.exports = { VALORES_INICIALES, leerConfig };
+module.exports = { VALORES_INICIALES, leerConfig, ORIGENES, TIENDAS_APARTE, perteneceCadena, origenesIncorporados };
