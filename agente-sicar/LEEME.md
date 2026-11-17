@@ -294,6 +294,14 @@ descripción ni clave del artículo. No llegan al CRM ni a la lista de clientes.
 
 ### Traspasos entre sucursales
 
+Los estados **-4, -3 y -2** pertenecen al esquema anterior de SICAR: en Yajalón se midieron 524 traspasos de 2015 a
+agosto de 2023 (428 con -4 y fecha de aplicación, 89 con -3 y fecha de cancelación, 7 con -2 sin esas fechas).
+El agente no los convierte a recibido, cancelado ni enviado. Manda solo su número y `TRASPASO_ESQUEMA_ANTERIOR` en
+`traspasos_omitidos` para borrar cualquier alerta anterior en el servidor, sin crear traspasos ni alertas nuevas.
+Siguen intactos en SICAR y el cursor y las huellas avanzan al confirmar el lote. La bitácora resume estos casos en
+`TRASPASOS_ESQUEMA_ANTERIOR`, como máximo una vez por corrida (el mecanismo de avisos lo limita además a una vez al día).
+Para esta actualización se despliega **primero el servidor y después el agente**: uno viejo guardaría el código como `OTRO`.
+
 Con `"traspasos": true` el agente manda los traspasos de SICAR de esta tienda (los que mandó y los que recibió) para
 verlos en CORPUNISOUND con sus alertas: número de traspaso, folio, sucursal que envía y que recibe (**solo el número
 de sucursal de SICAR**, nunca su nombre), fecha, estado (enviado sin recibir, recibido o cancelado), fecha en que se
@@ -312,7 +320,7 @@ recibió o se canceló, total y, por artículo, cantidad y precio sin y con impu
   en la primera corrida; de día también sigue una vuelta cortada si ya pasó ese plazo.
 - Todo avanza solo cuando el servidor confirma. Si un paquete de solo traspasos no se puede mandar tras sus reintentos,
   se descarta (`TRASPASOS_DESCARTADOS`) **para no frenar las ventas** y se vuelve a leer y mandar después.
-- Un traspaso con un dato que el agente no sabe leer (estado que no es 2, 1 ni -1; fecha imposible; importe con más
+- Un traspaso con un dato que el agente no sabe leer (estado ajeno al actual y al esquema anterior; fecha imposible; importe con más
   decimales; folio vacío; sin artículos, con más de 500 o con un artículo repetido) se salta y queda
   `TRASPASO_OMITIDO tra_id=... codigo=...` una vez al día en el registro de esta PC. **Además se avisa al servidor**:
   en el mismo paquete de traspasos va `traspasos_omitidos` con su número y el código del motivo (nada más), y en

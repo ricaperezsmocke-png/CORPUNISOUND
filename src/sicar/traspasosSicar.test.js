@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as funcionesTraspasos from "./traspasosSicar.js";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
   puedeEditarMapa, textoSinAsignar, nombreEstado, llaveTraspaso, filtrarPorTienda, textoOmitido, fechaTraspaso,
@@ -11,6 +12,71 @@ const BASE = {
   alertas: { sin_recibir_3_dias: false, cancelado: false, con_diferencias: false, sin_conciliar: false, puntas_ambiguas: false },
 };
 const con = (cambios, alertas = {}) => ({ ...BASE, ...cambios, alertas: { ...BASE.alertas, ...alertas } });
+
+const omitidoAgrupable = (tra_id, extra = {}) => ({
+  sucursal_id: 2, tienda: "Yajalón", tra_id, codigo: "ESTADO_TRASPASO_DESCONOCIDO",
+  motivo: "Estado desconocido en SICAR", ...extra,
+});
+
+test("agruparOmitidos: 524 desordenados forman rango exacto; un hueco elimina el rango", () => {
+  const lista = Array.from({ length: 524 }, (_, i) => omitidoAgrupable(String(i + 2))).reverse();
+  const copia = structuredClone(lista);
+  const [g] = funcionesTraspasos.agruparOmitidos(lista);
+  assert.equal(g.cantidad, 524);
+  assert.deepEqual(g.rango, { primero: "2", ultimo: "525" });
+  assert.equal(g.texto, "Yajalón: 524 traspasos SICAR no llegaron al sistema (#2 a #525): Estado desconocido en SICAR. Revísalos en SICAR.");
+  assert.deepEqual(g.ids, copia.map(o => o.tra_id).reverse());
+  assert.equal(g.desde, null);
+  assert.deepEqual(lista, copia);
+  const grupos = funcionesTraspasos.agruparOmitidos(lista.filter(o => o.tra_id !== "300"));
+  assert.equal(grupos.length, 1);
+  assert.equal(grupos[0].rango, null);
+  assert.equal(grupos[0].texto, "Yajalón: 523 traspasos SICAR no llegaron al sistema: Estado desconocido en SICAR. Revísalos en SICAR.");
+});
+
+test("agruparOmitidos: separa tiendas y códigos, ordena por tienda y motivo y conserva texto individual", () => {
+  const lista = [omitidoAgrupable("2"), omitidoAgrupable("3", { codigo: "FECHA_INVALIDA", motivo: "Fecha inválida" }),
+    omitidoAgrupable("4", { sucursal_id: 1, tienda: "Ocosingo" })];
+  const grupos = funcionesTraspasos.agruparOmitidos(lista);
+  assert.deepEqual(grupos.map(g => g.ids[0]), ["4", "2", "3"]);
+  assert.equal(new Set(grupos.map(g => g.clave)).size, 3);
+  for (const g of grupos) {
+    const o = lista.find(o => o.tra_id === g.ids[0]);
+    assert.equal(g.texto, textoOmitido(o));
+    assert.equal(g.sucursal_id, o.sucursal_id);
+    assert.equal(g.codigo, o.codigo);
+    assert.equal(g.tienda, o.tienda);
+    assert.equal(g.motivo, o.motivo);
+    assert.equal(g.rango, null);
+  }
+});
+
+test("agruparOmitidos: orden numérico sin perder precisión, texto estable y primera detección", () => {
+  for (const ids of [["10", "9"], ["9007199254740993", "9007199254740992"], ["010", "009"]]) {
+    const [g] = funcionesTraspasos.agruparOmitidos(ids.map(id => omitidoAgrupable(id)));
+    assert.deepEqual(g.ids, [...ids].reverse());
+    assert.deepEqual(g.rango, { primero: ids[1], ultimo: ids[0] });
+  }
+  const [g] = funcionesTraspasos.agruparOmitidos([
+    omitidoAgrupable("x", { primera_vez: "2026-11-17T00:00:00.000Z" }),
+    omitidoAgrupable("9", { primera_vez: "2026-11-15T00:00:00.000Z" }), omitidoAgrupable("10"),
+  ]);
+  assert.deepEqual(g.ids, ["10", "9", "x"]);
+  assert.equal(g.rango, null);
+  assert.equal(g.desde, "2026-11-15T00:00:00.000Z");
+});
+
+test("agruparOmitidos: ausencias, motivo sin código, duplicados y entrada congelada", () => {
+  for (const vacio of [null, undefined, []]) assert.deepEqual(funcionesTraspasos.agruparOmitidos(vacio), []);
+  const lista = Object.freeze([Object.freeze({ sucursal_id: 7, tra_id: "2" }), Object.freeze({ sucursal_id: 7, tra_id: "2" })]);
+  const [g] = funcionesTraspasos.agruparOmitidos(lista);
+  assert.equal(g.rango, null);
+  assert.equal(g.texto, "Tienda 7: 2 traspasos SICAR no llegaron al sistema: Dato que el sistema no sabe leer. Revísalos en SICAR.");
+  const grupos = funcionesTraspasos.agruparOmitidos([
+    ...lista, { sucursal_id: 7, tra_id: "3", motivo: "Otro motivo" },
+  ]);
+  assert.equal(grupos.length, 2);
+});
 
 test("parametrosTraspasos manda siempre su sucursal_id y omite lo vacio", () => {
   assert.equal(parametrosTraspasos({ sucursal: "", desde: "2026-10-01", hasta: "2026-10-25", estado: "" }),

@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
+import { ZONA_TIENDA } from "../fechas.js";
 import {
   formatoDinero, fechaRelativa, contadorDePeticiones, tiendasDelSelector,
 } from "./cortesSicar.js";
 import {
   parametrosTraspasos, alertasDeTraspaso, resumenDeAlertas, etiquetaFueraDeRango, textoComparacion, formatoCantidad,
-  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso, textoOmitido, fechaTraspaso,
+  puedeEditarMapa, textoSinAsignar, filtrarPorTienda, nombreEstado, llaveTraspaso, agruparOmitidos, fechaTraspaso,
 } from "./traspasosSicar.js";
 
 const PAGINA = "mx-auto max-w-7xl p-4 sm:p-6";
@@ -65,11 +66,25 @@ function Desglose({ t }) {
 // Los traspasos que el agente no pudo mandar van arriba y en rojo, antes que las demás alertas: salió mercancía de una
 // tienda y aquí no hay registro. Se ven siempre, sin importar las fechas, hasta que el traspaso llega bien.
 function OmitidosArriba({ omitidos }) {
-  if (!omitidos.length) return null;
+  const grupos = agruparOmitidos(omitidos);
+  if (!grupos.length) return null;
   return (
     <div role="alert" className={ALERTA_ROJA}>
       <ul className="space-y-1">
-        {omitidos.map((o) => <li key={`${o.sucursal_id}-${o.tra_id}`} className="font-semibold">{textoOmitido(o)}</li>)}
+        {grupos.map((g) => (
+          <li key={g.clave} className="font-semibold">
+            {g.texto}
+            {g.desde && ` Detectados desde el ${fechaTraspaso(new Date(g.desde).toLocaleDateString("en-CA", { timeZone: ZONA_TIENDA }))}.`}
+            {g.cantidad > 1 && (
+              <details className="mt-1 font-normal">
+                <summary className="cursor-pointer">Ver los {g.cantidad} traspasos</summary>
+                <div className="max-h-40 overflow-y-auto rounded border border-red-300 p-2">
+                  {g.ids.map(id => `#${id}`).join(", ")}
+                </div>
+              </details>
+            )}
+          </li>
+        ))}
       </ul>
     </div>
   );

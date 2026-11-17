@@ -641,6 +641,10 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
     }
     // Los omitidos van antes que los traspasos: si el mismo lote trae el traspaso valido, ese gana y la alerta se borra.
     for (const o of lote.traspasos_omitidos || []) {
+      if (o.codigo === 'TRASPASO_ESQUEMA_ANTERIOR') {
+        sentencias.borrarTraspasoOmitido.run(sucursalId, o.tra_id);
+        continue;
+      }
       const codigo = CODIGOS_TRASPASO_OMITIDO.has(o.codigo) ? o.codigo : 'OTRO';
       sentencias.traspasoOmitido.run({ sucursal_id: sucursalId, tra_id: o.tra_id, codigo, fecha: actualizado_en });
     }

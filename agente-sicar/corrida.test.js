@@ -1649,6 +1649,20 @@ function conRenglonesDe(p, tra_id, n) {
   };
 }
 const omitidosMandados = p => p.lotes.filter(l => l.traspasos_omitidos).map(l => l.traspasos_omitidos);
+test('esquema anterior: viaja junto al válido, avanza cursor y huellas con un solo aviso', async t => {
+  const p = await preparar(t, { ...inicial(), fase: 'incremental' });
+  conTraspasos(p, [traspasoSicar(1), traspasoSicar(2, { status: -4 }), traspasoSicar(3, { status: '-2' })]);
+  await ejecutar(p.archivo, { traspasos: true }, p.deps);
+  const lotes = p.lotes.filter(l => l.traspasos || l.traspasos_omitidos);
+  assert.equal(lotes.length, 1);
+  assert.deepEqual(lotes[0].traspasos.map(x => x.tra_id), ['1']);
+  assert.deepEqual(lotes[0].traspasos_omitidos, ['2', '3'].map(tra_id => ({ tra_id, codigo: 'TRASPASO_ESQUEMA_ANTERIOR' })));
+  const estado = await cargar(p.archivo);
+  assert.equal(estado.traspasos_cursor, '3');
+  assert.deepEqual(Object.keys(estado.traspasos_firmas).sort(), ['1', '2', '3']);
+  assert.equal(p.mensajes.filter(m => m === 'TRASPASOS_ESQUEMA_ANTERIOR').length, 1);
+  assert.equal(p.mensajes.filter(m => m === 'TRASPASO_OMITIDO').length, 0);
+});
 test('traspasos omitidos: uno de mas de 500 renglones sale en traspasos_omitidos con su codigo, junto a los validos', async t => {
   const p = await preparar(t, { ...inicial(), fase: 'incremental' });
   const filas = [traspasoSicar(1), traspasoSicar(2), traspasoSicar(3, { status: 7 })];
