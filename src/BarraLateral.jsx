@@ -30,6 +30,7 @@ const ICONOS = {
   traspasos_sicar: Truck,
   facturas_por_llegar: FileClock,
   seguimiento_facturas: FileSearch,
+  resurtido: Boxes,
   cortes_sicar: Calculator,
   crm: Users,
   radar_demanda: RadioTower,

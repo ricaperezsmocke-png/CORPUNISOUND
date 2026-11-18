@@ -52,7 +52,7 @@ test("un usuario sin listas declaradas no se filtra", () => {
   // modulos/permisos, se muestra todo en vez de dejar el menú vacío.
   const vistas = categoriasVisibles({});
   assert.equal(vistas.length, 3);
-  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 21);
+  assert.equal(vistas.reduce((n, c) => n + c.modulos.length, 0), 22);
 });
 
 test("hacen falta el módulo Y el permiso, no uno solo", () => {
@@ -110,6 +110,7 @@ const PARES_CONGELADOS = {
   traspasos_sicar: { modulo: "inventario",  permiso: "ver_traspasos_sicar" },
   facturas_por_llegar: { modulo: "inventario", permiso: "ver_facturas_por_llegar" },
   seguimiento_facturas: { modulo: "inventario", permiso: "ver_seguimiento_facturas" },
+  resurtido: { modulo: "inventario", permiso: "ver_resurtido" },
   cortes_sicar:    { modulo: "admin",         permiso: "ver_cortes_sicar" },
   crm:             { modulo: "crm",           permiso: undefined },
   radar_demanda:   { modulo: "radar_demanda", permiso: ["ver_radar_demanda", "registrar_demanda", "ver_resumen_demanda"] },

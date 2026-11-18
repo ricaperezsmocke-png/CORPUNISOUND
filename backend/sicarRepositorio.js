@@ -1,6 +1,7 @@
 const { esPublicoSicar } = require('./sicarVinculos');
 const { artIdsDelLote, marcarPendientes } = require('./seguimientoFactura/pendientes');
 const { aDiezmilesimas } = require('./cantidades');
+const { observarExistencias } = require('./resurtido/existenciaDiaria');
 
 class ErrorSicar extends Error {
   constructor(codigo, mensaje, siguienteSecuencia) {
@@ -232,6 +233,34 @@ const ESQUEMA = `
   CREATE TABLE IF NOT EXISTS compras_cerradas (
     sucursal_id INTEGER NOT NULL, com_id TEXT NOT NULL, motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL,
     PRIMARY KEY (sucursal_id, com_id)
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_config (
+    clave TEXT PRIMARY KEY NOT NULL, valor TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_config_historial (
+    id INTEGER PRIMARY KEY, clave TEXT NOT NULL, anterior TEXT, nuevo TEXT NOT NULL, actor TEXT, fecha TEXT
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_existencia_diaria (
+    sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, dia TEXT NOT NULL,
+    piezas_diezmilesimas INTEGER NOT NULL CHECK (typeof(piezas_diezmilesimas) = 'integer'),
+    origen TEXT NOT NULL CHECK (origen IN ('foto','reconstruida')), PRIMARY KEY (sucursal_id, clave, dia)
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_minmax (
+    sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, marca TEXT NOT NULL,
+    minimo INTEGER NOT NULL, maximo INTEGER NOT NULL, venta_diaria_diezmilesimas INTEGER NOT NULL,
+    dias_validos INTEGER NOT NULL, dias_en_cero INTEGER NOT NULL,
+    lista TEXT NOT NULL CHECK (lista IN ('calculado','sin_historia','no_se_mueve')),
+    calidad TEXT NOT NULL CHECK (calidad IN ('aproximada','observada')), calculado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, clave)
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_ajustes (
+    sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, minimo INTEGER NOT NULL, maximo INTEGER NOT NULL,
+    motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL, PRIMARY KEY (sucursal_id, clave)
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_ajustes_historial (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL,
+    accion TEXT NOT NULL CHECK (accion IN ('poner','quitar')), minimo INTEGER, maximo INTEGER,
+    motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS seguimiento_config (
     clave TEXT PRIMARY KEY NOT NULL, valor TEXT NOT NULL, actor TEXT, fecha TEXT
@@ -623,6 +652,7 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
           existencia_diezmilesimas: diezmilesimas(e.existencia), actualizado_en });
       }
     }
+    observarExistencias(sqlite, sucursalId, lote.existencias, actualizado_en);
     for (const c of lote.cortes || []) {
       const ids = { sucursal_id: sucursalId, cor_id: c.cor_id };
       sentencias.corte.run({ ...ids, caj_id: c.caj_id, fecha_local: c.fecha_local, usu_id: c.usu_id, actualizado_en,
