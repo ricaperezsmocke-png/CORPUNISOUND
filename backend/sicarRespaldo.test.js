@@ -9,6 +9,40 @@ const respaldos = require('./respaldos');
 const { construirDBPrueba } = require('./testHelpers');
 const { desempaquetar } = require('./respaldoCifrado');
 const LLAVE = Buffer.alloc(32, 7);
+const RESURTIDO = ['resurtido_config', 'resurtido_config_historial', 'resurtido_existencia_diaria',
+  'resurtido_minmax', 'resurtido_ajustes', 'resurtido_ajustes_historial'];
+
+test('resurtido: generación anterior restaura y deja vacías las tablas nuevas', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  for (const tabla of RESURTIDO) {
+    assert.ok(g.sqlite.prepare('SELECT name FROM sqlite_master WHERE name=?').get(tabla), `Falta tabla ${tabla}`);
+  }
+  sembrar(f);
+  f.sqlite.exec("INSERT INTO seguimiento_config VALUES ('semanas_ventas', '52', 'Victor', '2026-11-18')");
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(Object.keys(m.conteos).length, 44);
+  assert.equal(Object.hasOwn(m.conteos, 'resurtido_ajustes'), false);
+  g.sqlite.exec("INSERT INTO resurtido_ajustes VALUES (3, 'A', 10000, 20000, 'Prueba', 'Victor', 'hoy')");
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  try { p.aplicar(); } finally { p.liberar(); }
+  for (const tabla of RESURTIDO) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
+});
+
+test('resurtido: copia nueva restaura ajustes con y sin bandeja', async t => {
+  for (const bandeja of [false, true]) {
+    const f = preparar(t), g = preparar(t), s = api();
+    assert.ok(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE name='resurtido_ajustes'").get(), 'Falta persistencia');
+    if (bandeja) for (const db of [f, g]) require('./centroLeads/persistencia').inicializarPersistenciaCentroLeads(db.sqlite);
+    f.sqlite.exec("INSERT INTO resurtido_ajustes VALUES (3, 'A', 10000, 20000, 'Exhibición', 'Victor', '2026-11-18')");
+    const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+    assert.equal(m.conteos.resurtido_ajustes, 1);
+    s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+    const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+    try { p.aplicar(); } finally { p.liberar(); }
+    assert.deepEqual(g.sqlite.prepare('SELECT * FROM resurtido_ajustes').all(), f.sqlite.prepare('SELECT * FROM resurtido_ajustes').all());
+  }
+});
 const LIMITE = 2 * 1024 * 1024;
 const MANIFIESTO_INVALIDO = 'El manifiesto SICAR es inválido.';
 const { TABLAS_15 } = require('./sicarRespaldo');

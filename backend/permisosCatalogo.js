@@ -74,6 +74,11 @@ const PERMISOS = [
   { clave: "registrar_propina", etiqueta: "Registrar Propina (restaurante)", modulo: "pos", implementado: false },
 
   // ---- Inventario y Productos ----
+  { clave: "ver_resurtido", etiqueta: "Ver Resurtido", modulo: "inventario", implementado: true },
+  { clave: "corregir_minimos_resurtido", etiqueta: "Corregir Mínimos de Resurtido", modulo: "inventario", implementado: true },
+  { clave: "configurar_resurtido", etiqueta: "Configurar Resurtido", modulo: "inventario", implementado: true },
+  { clave: "dar_visto_bueno_resurtido", etiqueta: "Dar Visto Bueno a Resurtido", modulo: "inventario", implementado: false },
+  { clave: "aprobar_pedido_resurtido", etiqueta: "Aprobar Pedido de Resurtido", modulo: "inventario", implementado: false },
   { clave: "crear_producto", etiqueta: "Agregar Artículo", modulo: "inventario", implementado: true },
   { clave: "editar_producto", etiqueta: "Editar Artículo", modulo: "inventario", implementado: true },
   { clave: "eliminar_producto", etiqueta: "Eliminar Artículo", modulo: "inventario", implementado: true },
