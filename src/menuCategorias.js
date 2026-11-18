@@ -36,6 +36,7 @@ export const CATEGORIAS = [
       { id: "traspasos_sicar", nombre: "Traspasos SICAR", modulo: "inventario", permiso: "ver_traspasos_sicar" },
       { id: "facturas_por_llegar", nombre: "Facturas por Llegar", modulo: "inventario", permiso: "ver_facturas_por_llegar" },
       { id: "seguimiento_facturas", nombre: "Seguimiento de Facturas", modulo: "inventario", permiso: "ver_seguimiento_facturas" },
+      { id: "resurtido", nombre: "Resurtido", modulo: "inventario", permiso: "ver_resurtido" },
     ],
   },
   {

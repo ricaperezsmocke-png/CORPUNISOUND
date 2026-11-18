@@ -9,6 +9,7 @@ const TITULOS = {
   dashboard:  "Inicio",
   pos:        "Punto de Venta",
   inventario: "Inventario y Productos",
+  resurtido: "Resurtido",
   traspasos:  "Traspasos entre Sucursales",
   garantias:  "Garantías",
   gastos:     "Gastos",
