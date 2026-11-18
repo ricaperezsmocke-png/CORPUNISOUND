@@ -3296,7 +3296,10 @@ if (repoSicar) {
   // Seguimiento por factura de CEDIS: lecturas con ver_, cambios con gestionar_. Ver seguimientoFactura/rutas.js.
   const seguimientoRutas = require('./seguimientoFactura/rutas');
   seguimientoRutas.registrarRutasSeguimiento(app, { sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol });
+  require('./resurtido/rutas').registrarRutasResurtido(app, { sqlite: () => conexionSqlite,
+    requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado });
   if (require.main === module) seguimientoRutas.iniciarCiclosSeguimiento(() => conexionSqlite);
+  if (require.main === module) require('./resurtido/servicio').iniciarCicloResurtido(conexionSqlite);
   if (require.main === module) {
     setInterval(() => {
       try { facturasCompras.revisar(); }
