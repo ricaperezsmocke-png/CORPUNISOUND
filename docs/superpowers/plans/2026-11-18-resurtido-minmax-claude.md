@@ -15,6 +15,40 @@ SICAR.
 
 **Spec:** `docs/superpowers/specs/2026-11-18-resurtido-minmax-design.md`
 
+**Plan final (v2, 2026-11-18):** une el plan de Claude con el independiente de Codex
+(`docs/superpowers/plans/2026-11-18-resurtido-minmax-codex.md`, rama `docs/resurtido-plan-codex`, commit `1916d12`).
+Victor delegó en Claude las preguntas abiertas; las decisiones están abajo y no se vuelven a preguntar.
+
+## Decisiones finales (Victor delegó, 2026-11-18)
+
+1. **Arranque con reconstrucción aproximada** de los días en cero, marcada como aproximada en pantalla y en cada
+   resultado (`calidad: 'aproximada'|'observada'`). Desde el primer día se guardan **observaciones reales** de cada cambio
+   de existencia (Task 4). Codex propuso no generar pedidos hasta tener meses observados; se rechaza porque Victor revisa
+   los números al cierre de la Entrega 1 antes de que exista cualquier pedido.
+2. **Unidades: todo es pieza entera.** Victor: "los rollos de cable normalmente vienen por 100 y se venden por pieza".
+   El metro de cable es una pieza en SICAR; no hay manejo de fracciones. El **empaque** (rollo = 100 piezas por omisión)
+   se captura por clave en pantalla (Task 9); el sistema **sugiere** rollo de 100 para las claves Solcor cuyos
+   traspasos históricos llegan en múltiplos de 100, pero no lo aplica hasta que alguien lo confirma.
+3. **Cuentas internas fuera** del cálculo: se usa `NO_INTERNA` de `backend/sicarVentaReal.js`.
+4. **Corte del pedido el día 1** de cada mes (configurable). Cada tienda tiene **3 días** para su visto bueno; después
+   quien aprueba puede aprobar con las tiendas listas y las faltantes quedan fuera de ese pedido (pueden ir en un pedido
+   extra).
+5. **Sobrante del rollo:** a la tienda que más vende esa clave hasta llegar a su máximo, luego a la siguiente; si todas
+   quedan en su máximo, el resto va a la que más vende (CEDIS no guarda).
+6. **Traslados entre tiendas:** la donante solo cede lo que tiene **arriba de su máximo**, con **reserva** al aceptar
+   para que dos tiendas no tomen el mismo sobrante (Task 13).
+7. **Temporada**: por marca con las 4 tiendas juntas, calculada **clave por clave** (cociente mes/año de cada clave,
+   promedio con igual peso, normalizado a media 1) para que una clave grande no domine (aporte de Codex).
+
+## Aportes de Codex incorporados
+
+Internas fuera; unidades/empaque como dato capturado; carga histórica de mostrador con cursor propio (no basta cambiar
+`INICIO_MOSTRADOR`: también `agente-sicar/corrida.js:14`); frescura de existencias por vuelta completa, no por
+`ultima_recepcion`; compras solo de CEDIS (6) impuesto por el módulo; alcance por token en **todas** las rutas (no
+copiar el `en-camino` del seguimiento, que muestra todo); borrador idempotente; "registrar envío" manual; compra al
+proveedor ligada por candidato confirmado, nunca por coincidencia de texto; reservas en traslados; restaurar un respaldo
+no regenera un pedido ya enviado; desestacionalizar antes de medir la variación.
+
 ## Global Constraints
 
 - Sin dependencias nuevas. Líneas de máximo 200 caracteres en `src/` y `backend/`. Commits sin acentos, staging por
@@ -24,8 +58,9 @@ SICAR.
 - Marcas: departamento SICAR `'JR'` y `'SOLCOR'` (`sicar_articulos.departamento`, comparación exacta tras `trim()` y
   mayúsculas).
 - Producto entre tiendas = **`clave`** (el `art_id` cambia por tienda).
-- Cantidades en **diezmilésimas enteras** (como `sicar_existencias.existencia_diezmilesimas`); el cable por metro se
-  maneja en metros con la misma unidad.
+- Cantidades guardadas en **diezmilésimas enteras** (como `sicar_existencias.existencia_diezmilesimas`), pero mínimo,
+  máximo y pedido son **piezas enteras** (múltiplos de 10000). El metro de cable es una pieza.
+- Ventas = vigentes, sin cuentas internas (`NO_INTERNA` de `backend/sicarVentaReal.js`).
 - Valores por omisión: plazo de entrega **20** días, ciclo de pedido **30** días, nivel de servicio **z = 1.65**,
   ventana de historia **365** días.
 - Alcance de tienda **solo del token** (`ver_todas_las_sucursales` o `sucursal_id` del usuario), nunca de
@@ -65,7 +100,8 @@ SICAR.
     actor, fecha)`, `resurtido_existencia_diaria(sucursal_id, clave, dia, piezas_diezmilesimas INTEGER, origen TEXT
     CHECK IN ('foto','reconstruida'), PK(sucursal_id, clave, dia))`, `resurtido_minmax(sucursal_id, clave, marca,
     minimo, maximo, venta_diaria_diezmilesimas, dias_validos, dias_en_cero, lista CHECK IN
-    ('calculado','sin_historia','no_se_mueve'), calculado_en, PK(sucursal_id, clave))`, `resurtido_ajustes(sucursal_id,
+    ('calculado','sin_historia','no_se_mueve'), calidad CHECK IN ('aproximada','observada'), calculado_en,
+    PK(sucursal_id, clave))`, `resurtido_ajustes(sucursal_id,
     clave, minimo, maximo, motivo, actor, fecha, PK(sucursal_id, clave))`, `resurtido_ajustes_historial(id,
     sucursal_id, clave, accion CHECK IN ('poner','quitar'), minimo, maximo, motivo, actor, fecha)`. Mínimo y máximo en
     diezmilésimas enteras.
@@ -97,12 +133,15 @@ SICAR.
 - Produces: `indicesTemporada(ventasMensuales: Map<'YYYY-MM', number>, hoyMes: 'YYYY-MM') -> { indices: number[12],
   anios: number }`; `factorPara(indices, mes: 1..12) -> number`.
 
-Regla: solo años calendario **completos** anteriores a `hoyMes`; índice del mes = promedio de ese mes / promedio
-mensual general; acotado a **[0.5, 1.5]**; con menos de **2** años completos todos los índices son 1.0 y `anios` dice
-cuántos hubo.
+Regla: solo años calendario **completos** anteriores a `hoyMes`. Entrada por clave: `ventasMensuales: Map<clave,
+Map<'YYYY-MM', number>>`. Para cada clave y año con venta, cociente mes = venta del mes / promedio mensual de ese año;
+índice del mes = promedio de los cocientes (igual peso por clave-año); los 12 índices se normalizan a media 1 y se acotan
+a **[0.5, 1.5]**. Con menos de **2** años completos o menos de **5** claves con venta, todos los índices son 1.0 y la
+respuesta dice por qué. Firma ajustada: `indicesTemporada(ventasPorClave, hoyMes) -> { indices, anios, claves, motivo }`.
 
-- [ ] **Step 1: Pruebas rojas**: con 2022–2025 donde octubre vende 130 y el resto 100 → índice 10 ≈ 1.27 (±0.01);
-  un mes con 0 → 0.5 (acotado); solo 2025 completo → todos 1.0, `anios: 1`; el año en curso (2026) no entra.
+- [ ] **Step 1: Pruebas rojas**: con 2022–2025 donde octubre vende 130 y el resto 100 en 5 claves → índice 10 ≈ 1.27
+  (±0.01); una clave que vende 100× más que las otras no mueve el índice más que cualquier otra; un mes con 0 → 0.5
+  (acotado); solo 2025 completo → todos 1.0, `anios: 1`; el año en curso (2026) no entra.
 - [ ] **Step 2–4:** `node --test resurtido/temporada.test.js` FAIL → implementar → PASS.
 - [ ] **Step 5:** Commit `feat(resurtido): indices de temporada por marca`.
 
@@ -119,20 +158,28 @@ cuántos hubo.
   - `ventasDiarias(sqlite, sucursal_id, desde: 'YYYY-MM-DD') -> Map<clave, Map<dia, diezmilesimas>>`: suma
     `sicar_detalles` (unidas a `sicar_ventas` con `estado='vigente'`, día = `fecha_local`) y `sicar_detalles_mostrador`
     (unidas a `sicar_ventas_mostrador` vigente), llevando `art_id` → `clave` con `sicar_articulos` de esa tienda.
+    Las ventas con cliente excluyen cuentas internas con `NO_INTERNA('sicar_ventas')`.
   - `existenciaActual(sqlite, sucursal_id) -> { porClave: Map<clave, diezmilesimas>, actualizado: ISO|null }`.
   - `ventasMensualesMarca(sqlite, marca, tiendas) -> Map<'YYYY-MM', number>` (para Task 2, las 4 tiendas juntas).
 
 - [ ] **Step 1: Pruebas rojas** (base con `crearTablas` del repositorio y filas sembradas): dos `art_id` con la misma
-  clave suman ventas y existencia; una venta `cancelada` no cuenta; una venta de mostrador y una con cliente el mismo
+  clave suman ventas y existencia; una venta `cancelada` no cuenta; una venta a una cuenta marcada en
+  `sicar_internas` no cuenta; una venta de mostrador y una con cliente el mismo
   día suman; un artículo de departamento `STEREN` no aparece; cantidad `'2.5000'` (metros) da 25000.
 - [ ] **Step 2–4:** FAIL → implementar con consultas agrupadas por día (sin traer renglón por renglón a JS) → PASS.
 - [ ] **Step 5:** Commit `feat(resurtido): lector de ventas y existencias por clave`.
 
-### Task 4: Existencia diaria (foto nocturna + reconstrucción inicial)
+### Task 4: Existencia diaria (observaciones + foto nocturna + reconstrucción inicial)
 
 **Files:**
 - Create: `backend/resurtido/existenciaDiaria.js`
+- Modify: `backend/sicarRepositorio.js` (al aceptar existencias: anotar el cambio en la misma transacción)
 - Test: `backend/resurtido/existenciaDiaria.test.js`
+
+Observaciones (aporte de Codex): cuando la ingesta acepta una existencia de una clave JR/Solcor de las tiendas 1–4 y
+**cambia** de signo (pasa a ≤ 0 o sale de ≤ 0), se escribe `resurtido_existencia_diaria` del día con `origen='foto'` y
+el valor nuevo; así un agotado a media tarde queda registrado aunque la foto nocturna lo vea ya resurtido. La
+observación no debe tumbar ni frenar la ingesta: va en la misma transacción y una falla se registra y se ignora.
 
 **Interfaces:**
 - Consumes: `clavesDeMarca`, `ventasDiarias`, `existenciaActual` (Task 3).
@@ -169,25 +216,28 @@ Algoritmo (no lo determinan las firmas):
 ```
 dias = cada día de desde..hasta
 valido(d) = !diasEnCero.has(d) || ventas(d) > 0        // si vendió, había
-dias_validos = cuenta(valido); total = Σ ventas(d) sobre válidos
-si total == 0:
+dias_validos = cuenta(valido)
+si Σ ventas == 0:
   lista = (dias_en_cero / dias.length * 100 >= proporcion_cero_sin_historia) ? 'sin_historia' : 'no_se_mueve'
-  sin_historia -> minimo 1 unidad, maximo 2 unidades; no_se_mueve -> 0 y 0
+  sin_historia -> minimo 1 pieza, maximo 2 piezas; no_se_mueve -> 0 y 0
 si dias_validos < dias_validos_minimos -> lista 'sin_historia', mismo 1/2
 si no: lista 'calculado'
-  d = total / dias_validos;  s = desviación estándar de ventas diarias en días válidos
-  minimo = ceilUnidad(d*factor*plazo + z*s*sqrt(plazo));  maximo = minimo + ceilUnidad(d*factor*ciclo)
-  minimo >= 1 unidad; maximo >= minimo + 1 unidad
-ceilUnidad redondea hacia arriba a unidad entera (10000)
+  y_d = ventas(d) / indice(mes(d)) en días válidos         // desestacionalizado (Codex)
+  mu = promedio(y_d);  s = desviación estándar muestral de y_d
+  F = (indice(mes actual) + indice(mes siguiente)) / 2     // diciembre -> enero
+  minimo = ceilPieza(mu*F*plazo + z*s*F*sqrt(plazo));  maximo = max(minimo + 1 pieza, ceilPieza(minimo + mu*F*ciclo))
+ceilPieza redondea hacia arriba a pieza entera (10000); se redondea solo el resultado, nunca cada sumando
 ```
+
+La firma recibe `indices` (Task 2) y `mesCalculo` en lugar de `factor`.
 
 - [ ] **Step 1: Pruebas rojas** (con los números de San Cristóbal del spec §3):
   - 73 piezas repartidas parejo en 249 días válidos y 116 en cero, factor 1.0, plazo 20, ciclo 30, z 1.65 →
     `venta_diaria` ≈ 0.293 pz, `minimo` ≥ 6 y ≤ 12, `maximo - minimo` = 9, `dias_en_cero` 116. **Si los 116 días se
     contaran como válidos, el mínimo bajaría:** una segunda aserción lo fija.
-  - factor 1.3 (octubre Solcor) sube mínimo y máximo respecto de 1.0 con los mismos datos.
+  - índices de octubre/noviembre 1.3/1.2 suben mínimo y máximo respecto de índices planos con los mismos datos.
   - sin ventas y 300/365 en cero → `sin_historia`, 1 y 2; sin ventas y 10 en cero → `no_se_mueve`, 0 y 0.
-  - metros: ventas de 2.5 m redondean el mínimo hacia arriba a metro entero.
+  - mínimo y máximo siempre múltiplos de 10000 (pieza entera).
 - [ ] **Step 2–4:** FAIL → implementar → PASS.
 - [ ] **Step 5:** Commit `feat(resurtido): calculo de minimo y maximo`.
 
@@ -204,8 +254,12 @@ ceilUnidad redondea hacia arriba a unidad entera (10000)
   foto del día, reconstrucción la primera vez, cálculo de cada clave, `INSERT OR REPLACE` en `resurtido_minmax`, todo
   en una transacción por tienda); `iniciarCicloResurtido(sqlite)` (una vuelta al arrancar y una por día después de las
   02:00 locales; `setTimeout(...).unref()`; nunca dos a la vez).
-- Una tienda cuya `sicar_tiendas.ultima_recepcion` tenga más de `dias_datos_atrasados` días **no se recalcula** y sale
-  `atrasada: true` (Review Focus 1).
+- Una tienda cuyas existencias no tengan una **vuelta completa** reciente (la del agente es diaria,
+  `agente-sicar/corrida.js:383`; buscar dónde la registra el servidor y, si no la registra, usar el `actualizado_en`
+  más reciente de `sicar_existencias` de esa tienda) de hace más de `dias_datos_atrasados` días **no se recalcula** y
+  sale `atrasada: true` (Review Focus 1). `ultima_recepcion` sola no basta (aporte de Codex).
+- Cada fila de `resurtido_minmax` guarda `calidad`: `'aproximada'` si algún día de la ventana vino de reconstrucción,
+  `'observada'` si todos vienen de fotos/observaciones. Agregar la columna en Task 1.
 
 - [ ] **Step 1: Pruebas rojas**: dos tiendas sembradas → filas en `resurtido_minmax` para las dos; tienda atrasada →
   sin filas nuevas y `atrasada`; segunda corrida el mismo día no duplica fotos; Innotec (7) y CEDIS (6) nunca aparecen.
@@ -251,7 +305,7 @@ ceilUnidad redondea hacia arriba a unidad entera (10000)
 
 **Interfaces:**
 - Consumes: `GET/PUT/DELETE /api/resurtido*` (Task 7).
-- Produces: `textoEstado(fila)`, `formatoCantidad(diezmilesimas, esMetro)` en `resurtido.js`.
+- Produces: `textoEstado(fila)`, `piezas(diezmilesimas) -> number` y `textoCalidad(fila)` en `resurtido.js`.
 
 Pantalla: selector de tienda (solo si el usuario ve todas), filtros marca / lista ("Calculados", "Revisar: sin
 historia por falta de existencia", "No se mueve") / estado; tabla con Clave, Producto, Hay, Mínimo, Máximo, Vende al
@@ -259,8 +313,8 @@ mes, Días en cero (año), Estado; ícono "corregido a mano" con quién y motivo
 modal con scroll, mínimo, máximo y motivo obligatorio; "Quitar corrección". Aviso ámbar si hay tiendas atrasadas y la
 fecha del último cálculo.
 
-- [ ] **Step 1: Pruebas rojas de `resurtido.js`**: `formatoCantidad(25000, true)` = `'2.5 m'`; `textoEstado` de
-  agotado/bajo mínimo/sobre máximo.
+- [ ] **Step 1: Pruebas rojas de `resurtido.js`**: `piezas(30000)` = 3; `textoEstado` de agotado/bajo mínimo/sobre
+  máximo; `textoCalidad` de una fila `aproximada` = "Aproximado: algunos días en cero se calcularon hacia atrás".
 - [ ] **Step 2–4:** FAIL → implementar → PASS. `npx eslint src backend --quiet` 0 errores; `npx vite build` OK.
 - [ ] **Step 5: Navegador** (copia local, datos sembrados de dos tiendas): ver lista, corregir un mínimo con motivo,
   ver la marca de corrección, quitarla, entrar como usuario de una tienda y no poder ver la otra.
@@ -287,13 +341,18 @@ diezmilesimas` (traspasos CEDIS → tienda `enviado` sin aplicar + renglones de 
 tope de 45 días).
 
 Regla (revisión periódica hasta el máximo): por tienda no atrasada y clave con `lista` distinta de `no_se_mueve`,
-`pedido = max(0, maximo_efectivo - max(existencia, 0) - enCamino)`, en unidades enteras. Total por clave redondeado
-hacia arriba al empaque si hay `resurtido_empaques`; el sobrante va a la tienda con más `venta_mes`. Un solo borrador
-abierto por marca.
+`pedido = max(0, maximo_efectivo - max(existencia, 0) - enCamino)`, en piezas enteras. Total por clave redondeado
+hacia arriba al empaque **confirmado** en `resurtido_empaques` (columna `confirmado_por`; una sugerencia sin confirmar
+no redondea). Sobrante: a la tienda que más vende hasta su máximo, luego a la siguiente; si todas llegaron a su máximo,
+el resto a la que más vende. El borrador se crea **el día 1** (config `dia_corte`) por el ciclo nocturno, con llave
+única `(marca, periodo 'YYYY-MM', tipo 'mensual')`: dos disparos o un reinicio no duplican. Tras restaurar un respaldo,
+el ciclo **no** crea borradores hasta que alguien con `aprobar_pedido_resurtido` lo reactiva (config
+`pedidos_pausados = 1` que pone la restauración).
 
-- [ ] Pruebas rojas: existencia −2 cuenta como 0 y no como −2; tienda atrasada no entra; rollo de 100 m con pedidos
-  30+25+20 → total 100 y sobrante 25 a la que más vende; traspaso enviado sin aplicar reduce el pedido; segundo
-  borrador de la misma marca → 409.
+- [ ] Pruebas rojas: existencia −2 cuenta como 0 y no como −2; tienda atrasada no entra; rollo de 100 con pedidos
+  30+25+20 y máximos holgados → total 100 y sobrante 25 a la que más vende; si esa queda en su máximo con 10, los 15
+  restantes van a la segunda; empaque sin confirmar no redondea; traspaso enviado sin aplicar reduce el pedido; segundo
+  disparo el mismo periodo no crea otro; con `pedidos_pausados` no se crea.
 - [ ] FAIL → implementar → PASS → commit `feat(resurtido): borrador de pedido mensual`.
 
 ### Task 10: Visto bueno por tienda, aprobación y salida al proveedor
@@ -306,7 +365,11 @@ visto bueno de todas las tiendas con renglones); `listaProveedor(sqlite, pedido_
 `hojaReparto(sqlite, pedido_id) -> [{ sucursal, renglones }]`.
 
 Contra abuso: un cambio que **suba** un renglón más de 2× lo sugerido exige motivo y queda marcado para quien aprueba;
-todo cambio va al historial con antes/después.
+todo cambio va al historial con antes/después. Cambiar un renglón después del visto bueno de esa tienda **anula** ese
+visto bueno. Plazo: a los 3 días de creado (config `dias_visto_bueno`), `aprobar` acepta aprobar solo con las tiendas que
+dieron visto bueno; las demás salen del pedido con estado `fuera_de_tiempo`. Acción aparte `registrarEnvio(sqlite,
+pedido_id, { referencia }, actor)` (permiso de aprobar): el pedido pasa a `enviado` solo cuando una persona dice que ya
+lo mandó; el sistema no manda nada.
 
 - [ ] Pruebas rojas: encargado de Yajalón no puede tocar renglones de Ocosingo (403); aprobar sin todos los vistos
   buenos → 409; subir de 4 a 20 sin motivo → 400 y con motivo queda `marcado`; `listaProveedor` agrupa por clave con
@@ -319,9 +382,10 @@ todo cambio va al historial con antes/después.
 
 **Interfaces:** `revisarLlegadas(sqlite, ahora)`: por pedido `aprobado`, suma a `llegado` los traspasos CEDIS → tienda
 **aplicados** después de `aprobado_en` por clave y tienda (sin pasar de lo pedido); pasa a `surtido` cuando todos los
-renglones llegaron o a los 45 días (queda la diferencia visible). La compra de CEDIS al proveedor (proveedor de
-`sicar_proveedores` de la sucursal 6 cuyo nombre coincide con el de la marca en `config`) se muestra como "llegó a
-CEDIS" con fecha.
+renglones llegaron o a los 45 días (queda la diferencia visible). La compra de CEDIS al proveedor se **propone como
+candidata** (sucursal 6, `pro_id` del proveedor configurado por marca en `config`, posterior al envío, con claves del
+pedido) y una persona la **confirma**; nunca se liga sola por texto, fecha o importe. Una clave sustituta no cierra la
+original: se muestra como "por aclarar".
 
 - [ ] Pruebas rojas: llegada parcial deja diferencia; traspaso cancelado no cuenta; traspaso anterior a la aprobación
   no cuenta; a los 45 días se cierra con faltante visible.
@@ -331,7 +395,8 @@ CEDIS" con fecha.
 
 **Files:** `src/resurtido/Pedido.jsx` (+ funciones puras en `resurtido.js` y prueba).
 
-Pestaña "Pedido" en Resurtido: borrador por marca, columnas por tienda, edición solo de la propia tienda, botón "Doy
+Pestaña "Empaques": lista de claves con empaque sugerido (rollo de 100) y botón "Confirmar" / editar tamaño (permiso
+`configurar_resurtido`). Pestaña "Pedido" en Resurtido: borrador por marca, columnas por tienda, edición solo de la propia tienda, botón "Doy
 visto bueno", botón "Aprobar pedido" (con permiso), "Copiar para WhatsApp" e "Imprimir" de la lista al proveedor, y la
 hoja de reparto. Navegador: flujo completo con dos usuarios de tienda y uno con permiso de aprobar.
 
@@ -354,8 +419,15 @@ donante abajo de su máximo**; propuesta "pedir extra" con lo que falta para el 
 motivo }, actor)` (`dar_visto_bueno_resurtido`, su tienda). "Pedir" agrega renglones a un pedido corto de la marca
 (Entrega 2, mismo visto bueno).
 
-- [ ] Pruebas rojas: donante con 12 y máximo 10 ofrece 2, no más; ninguna donante sobre su máximo → solo "pedir";
-  aviso se cierra al llegar la existencia; no se abren dos avisos para la misma tienda/clave.
+Reservas (aporte de Codex): al decidir "pasar", se guarda `resurtido_reservas(aviso_id, donante, clave, piezas, creada,
+vence)`; lo transferible de una donante descuenta reservas vivas. La reserva vence a los 3 días o se consume cuando
+aparece el traspaso donante → receptora en SICAR. El sistema no puede apartar dentro de SICAR: la pantalla dice
+"revisa la existencia en SICAR antes de hacer el traspaso". La receptora ve de la donante solo nombre, clave y piezas
+ofrecidas, nada de sus ventas ni pedidos.
+
+- [ ] Pruebas rojas: donante con 12 y máximo 10 ofrece 2, no más; dos receptoras no reservan las mismas 2 piezas;
+  reserva vencida libera; ninguna donante sobre su máximo → solo "pedir"; aviso se cierra al llegar la existencia; no
+  se abren dos avisos para la misma tienda/clave.
 - [ ] FAIL → implementar → PASS → pantalla "Avisos" (lista por tienda, tres botones) → navegador → commit
   `feat(resurtido): avisos entre pedidos`.
 
@@ -368,8 +440,12 @@ motivo }, actor)` (`dar_visto_bueno_resurtido`, su tienda). "Pedir" agrega rengl
 **Files:** Modify `agente-sicar/mapeo.js`, `agente-sicar/configuracion.js`, `agente-sicar/LEEME.md`; tests del agente.
 
 **Interfaces:** `config.mostrador_desde` opcional `'YYYY-MM-DD'` (por omisión `'2025-01-01'`, sin cambio de conducta);
-fecha inválida → `CONFIGURACION_INVALIDA`. Verificar en `backend/sicarRepositorio.js` que el servidor acepta ventas de
-mostrador anteriores a 2025 sin rechazarlas; si las rechaza, el ajuste del servidor entra en esta misma tarea.
+fecha inválida → `CONFIGURACION_INVALIDA`. El corte vive en **dos** lugares (`agente-sicar/mapeo.js:40` y
+`agente-sicar/corrida.js:14`, usado en `:504` y `:518`): los dos leen la configuración. Como el cursor de mostrador ya
+avanzó, la historia anterior se trae con un **cursor propio** en `estado.json` (`mostrador_historico`) que va desde
+`mostrador_desde` hasta la primera venta ya enviada, por lotes, reanudable tras reinicio y sin frenar las ventas nuevas.
+Verificar en `backend/sicarRepositorio.js` que el servidor acepta ventas de mostrador anteriores a 2025; si las rechaza,
+el ajuste del servidor entra en esta misma tarea, compatible con agentes viejos.
 
 - [ ] Pruebas rojas del agente → implementar → `cd agente-sicar && node --test` → commit
   `feat(agente): fecha de inicio de mostrador configurable`.
