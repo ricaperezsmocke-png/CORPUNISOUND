@@ -58,3 +58,11 @@ La referencia a `crearTablas` en la Task 3 era un error de nombre del plan; ya e
 `crearRepositorioSicar(sqlite)`. Para diferencias de **nombre o firma** con una corrección obvia que no cambia la
 conducta pedida (como esa), **corrige, anótalo en el informe y sigue**. Detente solo cuando la diferencia cambie lo que
 se construye, ponga en riesgo la ingesta, o no tenga una corrección evidente.
+
+## Decisión de Claude sobre la detención en Task 4 (2026-11-18)
+
+Se adopta la propuesta mínima de Codex: `resurtido_existencia_diaria.piezas_diezmilesimas` es **el menor valor
+observado durante el día** (observaciones de ingesta y foto nocturna). Una observación posterior más alta no lo
+reemplaza; la foto nocturna tampoco lo sube. `origen` queda `'foto'` si hubo alguna observación real ese día. La
+existencia actual se sigue leyendo de `sicar_existencias`. Sin columnas nuevas. Tasks 1–3 ya están commiteadas por
+Claude (`da6c904`, `7aeafd1`, `53dee1e`); continúa con Tasks 4 a 8.
