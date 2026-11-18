@@ -1,6 +1,7 @@
 const { esPublicoSicar } = require('./sicarVinculos');
 const { artIdsDelLote, marcarPendientes } = require('./seguimientoFactura/pendientes');
 const { aDiezmilesimas } = require('./cantidades');
+const { observarExistencias } = require('./resurtido/existenciaDiaria');
 
 class ErrorSicar extends Error {
   constructor(codigo, mensaje, siguienteSecuencia) {
@@ -651,6 +652,7 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
           existencia_diezmilesimas: diezmilesimas(e.existencia), actualizado_en });
       }
     }
+    observarExistencias(sqlite, sucursalId, lote.existencias, actualizado_en);
     for (const c of lote.cortes || []) {
       const ids = { sucursal_id: sucursalId, cor_id: c.cor_id };
       sentencias.corte.run({ ...ids, caj_id: c.caj_id, fecha_local: c.fecha_local, usu_id: c.usu_id, actualizado_en,
