@@ -51,3 +51,10 @@ raíz del worktree. ESLint: `npx eslint <archivos que tocaste> --quiet` (0 error
 Por task: archivos tocados, pruebas nuevas (cuántas, cuántas estuvieron rojas antes), salida del comando de prueba de
 esa task, y desviaciones del plan con su razón. Al final: lo que no hiciste, riesgos que viste y cualquier cosa del
 Review Focus que no quedó cubierta por una prueba.
+
+## Aclaración (2026-11-18, tras la primera detención)
+
+La referencia a `crearTablas` en la Task 3 era un error de nombre del plan; ya está corregida a
+`crearRepositorioSicar(sqlite)`. Para diferencias de **nombre o firma** con una corrección obvia que no cambia la
+conducta pedida (como esa), **corrige, anótalo en el informe y sigue**. Detente solo cuando la diferencia cambie lo que
+se construye, ponga en riesgo la ingesta, o no tenga una corrección evidente.

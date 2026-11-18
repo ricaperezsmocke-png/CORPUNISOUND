@@ -162,7 +162,7 @@ respuesta dice por qué. Firma ajustada: `indicesTemporada(ventasPorClave, hoyMe
   - `existenciaActual(sqlite, sucursal_id) -> { porClave: Map<clave, diezmilesimas>, actualizado: ISO|null }`.
   - `ventasMensualesMarca(sqlite, marca, tiendas) -> Map<'YYYY-MM', number>` (para Task 2, las 4 tiendas juntas).
 
-- [ ] **Step 1: Pruebas rojas** (base con `crearTablas` del repositorio y filas sembradas): dos `art_id` con la misma
+- [ ] **Step 1: Pruebas rojas** (base con `crearRepositorioSicar(sqlite)` en el `prepararDB()` local, como `seguimientoFactura/lector.test.js:12`, y filas sembradas): dos `art_id` con la misma
   clave suman ventas y existencia; una venta `cancelada` no cuenta; una venta a una cuenta marcada en
   `sicar_internas` no cuenta; una venta de mostrador y una con cliente el mismo
   día suman; un artículo de departamento `STEREN` no aparece; cantidad `'2.5000'` (metros) da 25000.
