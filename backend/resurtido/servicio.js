@@ -5,6 +5,7 @@ const { toparDemanda } = require('./demanda');
 const { tomarFoto, reconstruir, diasEnCero } = require('./existenciaDiaria');
 const { indicesTemporada } = require('./temporada');
 const { calcularMinMax } = require('./calculo');
+const { armarBorrador } = require('./pedido');
 const ciclos = new WeakMap();
 const DIA = 86400000;
 
@@ -66,6 +67,20 @@ function prepararCalculo(sqlite, ahora) {
   };
 }
 
+// Después de cada vuelta nocturna: lo que llegó de los pedidos y el borrador del mes (desde el día de corte, una sola vez
+// por la llave única). Cada tarea falla por separado: una no tumba a las demás.
+function tareasDiarias(sqlite, ahora = new Date().toISOString()) {
+  const { armarBorrador, revisarLlegadas } = require('./pedido');
+  const tareas = [() => revisarLlegadas(sqlite, ahora)];
+  if (Number(fechaLocal(ahora).slice(8, 10)) >= leerConfig(sqlite).dia_corte) {
+    for (const marca of MARCAS) tareas.push(() => armarBorrador(sqlite, marca, ahora));
+  }
+  tareas.push(() => require('./avisos').revisarAvisos(sqlite, ahora));
+  for (const tarea of tareas) {
+    try { tarea(); } catch (e) { console.error('RESURTIDO_TAREA_DIARIA_FALLO', e.message); }
+  }
+}
+
 function recalcular(sqlite, ahora = new Date().toISOString()) {
   const inicio = Date.now(), calcularTienda = prepararCalculo(sqlite, ahora);
   return { tiendas: TIENDAS.map(calcularTienda), ms: Date.now() - inicio };
@@ -104,7 +119,7 @@ function iniciarCicloResurtido(sqlite, { reloj = () => new Date(), programar = s
       try {
         calcularTienda(TIENDAS[indice++]);
         if (indice < TIENDAS.length) { turno = ceder(avanzar); turno?.unref?.(); }
-        else terminar();
+        else { tareasDiarias(sqlite, reloj().toISOString()); terminar(); }
       } catch (e) { console.error('RESURTIDO_RECALCULO_FALLO', e.message); terminar(); }
     }
     avanzar();
@@ -112,4 +127,4 @@ function iniciarCicloResurtido(sqlite, { reloj = () => new Date(), programar = s
   temporizador = programar(vuelta, esperaInicial); temporizador.unref?.();
   return detener;
 }
-module.exports = { recalcular, iniciarCicloResurtido, completarMeses, demoraHastaLasDos };
+module.exports = { recalcular, iniciarCicloResurtido, completarMeses, demoraHastaLasDos, tareasDiarias };

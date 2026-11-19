@@ -88,3 +88,45 @@ test('sin pedido porque ya llega a su máximo lo dice con números', () => {
   assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'calculado', maximo: 24, existencia: 30, en_camino: 0 }),
     'No se sugiere pedir: con lo que hay (30) llega a su máximo (24).');
 });
+
+// ---- Pedido guardado (Task 12) ----
+test('texto para WhatsApp del pedido guardado: usa lo pedido y avisa tiendas fuera de tiempo', () => {
+  const datos = { marca: 'SOLCOR', tiendas_atrasadas: [], tiendas_fuera_de_tiempo: [2], renglones: [
+    { clave: 'C1', descripcion: 'CABLE 2X14', total: 1000000, por_tienda: [{ sucursal_id: 1, pedido: 450000 }, { sucursal_id: 4, pedido: 550000 }] }] };
+  assert.equal(resurtido.textoWhatsApp(datos, '01/12/2026'),
+    'Pedido SOLCOR — 01/12/2026\nC1 CABLE 2X14 — 100 (Oco 45, Pal 55)\nSin visto bueno a tiempo, NO incluidas: Yajalón');
+});
+
+test('estado del pedido en español', () => {
+  assert.deepEqual(['borrador', 'en_revision', 'aprobado', 'enviado', 'surtido'].map(resurtido.textoEstadoPedido),
+    ['Borrador', 'En revisión de tiendas', 'Aprobado', 'Enviado al proveedor', 'Surtido']);
+});
+
+test('motivo obligatorio solo al subir más del doble de lo sugerido', () => {
+  const r = { sugerido: 40000, pedido: 40000 };
+  assert.equal(resurtido.necesitaMotivo(r, 8), false);
+  assert.equal(resurtido.necesitaMotivo(r, 9), true);
+  assert.equal(resurtido.necesitaMotivo({ sugerido: 40000, pedido: 200000 }, 15), false, 'bajar no exige motivo');
+});
+
+test('cambios de la tienda: solo los renglones que cambiaron, en piezas, con su motivo', () => {
+  const renglones = [{ clave: 'A', pedido: 40000 }, { clave: 'B', pedido: 10000 }];
+  assert.deepEqual(resurtido.cambiosTienda(renglones, { A: '4', B: '0' }, { B: ' ya no ' }), [{ clave: 'B', pedido: 0, motivo: 'ya no' }]);
+  assert.deepEqual(resurtido.cambiosTienda(renglones, {}, {}), []);
+});
+
+test('estado de cada tienda en el pedido: lista, pendiente o fuera de tiempo', () => {
+  const renglones = [{ sucursal_id: 1, estado: 'activo', visto_bueno_por: '9', marcado: 1 },
+    { sucursal_id: 1, estado: 'activo', visto_bueno_por: '9', marcado: 0 }, { sucursal_id: 2, estado: 'activo', visto_bueno_por: null, marcado: 0 },
+    { sucursal_id: 3, estado: 'fuera_de_tiempo', visto_bueno_por: null, marcado: 0 }];
+  assert.deepEqual(resurtido.estadoTiendas(renglones), [
+    { sucursal_id: 1, estado: 'listo', marcados: 1 }, { sucursal_id: 2, estado: 'pendiente', marcados: 0 },
+    { sucursal_id: 3, estado: 'fuera_de_tiempo', marcados: 0 }]);
+});
+
+test('aviso de antes de comprar: solo con sobra, en piezas y con nombre de tienda', () => {
+  assert.equal(resurtido.textoSobra([]), '');
+  assert.equal(resurtido.textoSobra(undefined), '');
+  assert.equal(resurtido.textoSobra([{ sucursal_id: 3, piezas: 30000 }, { sucursal_id: 1, piezas: 10000 }]),
+    'Antes de comprar: San Cristóbal tiene 3 de sobra, Ocosingo tiene 1 de sobra');
+});

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
-import { piezas, textoWhatsApp } from './resurtido';
+import { piezas, textoWhatsApp, textoSobra } from './resurtido';
 
 const TIENDAS = [[1, 'Ocosingo'], [2, 'Yajalón'], [3, 'San Cristóbal'], [4, 'Palenque']];
 const CELDA = 'border-b border-slate-200 px-3 py-2 text-left tabular-nums';
@@ -53,7 +53,8 @@ export default function ListaProveedor({ tienda, cerrar }) {
           <thead><tr>{['Clave', 'Producto', 'Total', ...columnas.map(([, n]) => n)].map(h =>
             <th key={h} scope="col" className={CELDA}>{h}</th>)}</tr></thead>
           <tbody>{datos.renglones.map(r => <tr key={r.clave}>
-            <td className={CELDA}>{r.clave}</td><td className={CELDA}>{r.descripcion}</td>
+            <td className={CELDA}>{r.clave}</td><td className={CELDA}>{r.descripcion}
+              {!!r.sobra?.length && <p className="text-xs text-amber-800">{textoSobra(r.sobra)}</p>}</td>
             <td className={`${CELDA} font-semibold`}>{piezas(r.total)}</td>
             {columnas.map(([id]) => <td key={id} className={CELDA}>{piezas(r.por_tienda.find(t => t.sucursal_id === id)?.sugerido || 0) || ''}</td>)}
           </tr>)}</tbody>

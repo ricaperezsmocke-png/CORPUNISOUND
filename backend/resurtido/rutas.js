@@ -1,6 +1,7 @@
 const { TIENDAS, VALORES_INICIALES, leerConfig, cambiarConfig } = require('./config');
 const { listar, listaProveedor, ponerAjuste, quitarAjuste } = require('./consultas');
 const { explicar } = require('./explicacion');
+const { registrarRutasPedido } = require('./rutasPedido');
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
 function registrarRutasResurtido(app, { sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol,
@@ -53,9 +54,14 @@ function registrarRutasResurtido(app, { sqlite, requiereLogin, requierePermiso, 
     historial: db.prepare('SELECT * FROM resurtido_config_historial ORDER BY id DESC LIMIT 200').all() });
   ruta('get', '/api/resurtido/config', 'configurar_resurtido', db => verConfig(db), { conTienda: false });
   ruta('put', '/api/resurtido/config', 'configurar_resurtido', (db, req) => {
+    // La pausa de pedidos la quita solo quien aprueba pedidos (POST /api/resurtido/pedidos/reactivar).
+    if (req.body && typeof req.body === 'object' && Object.hasOwn(req.body, 'pedidos_pausados')) {
+      throw error(403, 'Reactivar los pedidos le toca a quien los aprueba.');
+    }
     cambiarConfig(db, req.body, String(req.usuarioToken.id));
     return verConfig(db);
   }, { conTienda: false });
+  registrarRutasPedido(ruta, id => nombreDeUsuario(id) || `usuario #${id}`);
 }
 
 module.exports = { registrarRutasResurtido };

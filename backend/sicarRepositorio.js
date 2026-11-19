@@ -262,6 +262,48 @@ const ESQUEMA = `
     accion TEXT NOT NULL CHECK (accion IN ('poner','quitar')), minimo INTEGER, maximo INTEGER,
     motivo TEXT NOT NULL, actor TEXT NOT NULL, fecha TEXT NOT NULL
   );
+  -- Pedido al proveedor (Entrega 2): la llave única evita que dos disparos del ciclo o un clic doble dupliquen el pedido.
+  CREATE TABLE IF NOT EXISTS resurtido_pedidos (
+    id INTEGER PRIMARY KEY, marca TEXT NOT NULL CHECK (marca IN ('JR','SOLCOR')),
+    tipo TEXT NOT NULL CHECK (tipo IN ('mensual','extra')), periodo TEXT NOT NULL, llave TEXT NOT NULL UNIQUE,
+    estado TEXT NOT NULL CHECK (estado IN ('borrador','en_revision','aprobado','enviado','surtido','cancelado')),
+    creado_en TEXT NOT NULL, creado_por TEXT NOT NULL, tiendas_atrasadas TEXT NOT NULL DEFAULT '[]', aviso_id INTEGER,
+    aprobado_por TEXT, aprobado_en TEXT, enviado_por TEXT, enviado_en TEXT, referencia_envio TEXT, cerrado_en TEXT,
+    compra_com_id TEXT, compra_confirmada_por TEXT, compra_confirmada_en TEXT
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_pedido_renglones (
+    pedido_id INTEGER NOT NULL, sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, descripcion TEXT NOT NULL,
+    sugerido INTEGER NOT NULL, pedido INTEGER NOT NULL CHECK (typeof(pedido) = 'integer' AND pedido >= 0),
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','fuera_de_tiempo')),
+    visto_bueno_por TEXT, visto_bueno_en TEXT, motivo_cambio TEXT, marcado INTEGER NOT NULL DEFAULT 0,
+    llegado INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (pedido_id, sucursal_id, clave)
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_pedido_historial (
+    id INTEGER PRIMARY KEY, pedido_id INTEGER NOT NULL, sucursal_id INTEGER, clave TEXT, accion TEXT NOT NULL,
+    antes INTEGER, despues INTEGER, motivo TEXT, actor TEXT NOT NULL, fecha TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_empaques (
+    clave TEXT PRIMARY KEY NOT NULL, tamano_diezmilesimas INTEGER NOT NULL CHECK (tamano_diezmilesimas > 10000),
+    confirmado_por TEXT, confirmado_en TEXT
+  );
+  CREATE TABLE IF NOT EXISTS resurtido_empaques_historial (
+    id INTEGER PRIMARY KEY, clave TEXT NOT NULL, accion TEXT NOT NULL CHECK (accion IN ('confirmar','quitar')),
+    anterior INTEGER, nuevo INTEGER, actor TEXT NOT NULL, fecha TEXT NOT NULL
+  );
+  -- Avisos entre pedidos (Entrega 3). Un solo aviso abierto por tienda y clave.
+  CREATE TABLE IF NOT EXISTS resurtido_avisos (
+    id INTEGER PRIMARY KEY, sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, marca TEXT NOT NULL, creado_en TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('abierto','resuelto','descartado')), propuesta_json TEXT NOT NULL,
+    decision TEXT CHECK (decision IS NULL OR decision IN ('pasar','pedir','esperar')), motivo TEXT, actor TEXT,
+    decidido_en TEXT, cerrado_en TEXT, pedido_id INTEGER
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS resurtido_avisos_abierto ON resurtido_avisos (sucursal_id, clave) WHERE estado = 'abierto';
+  -- Piezas de sobrante apartadas para una tienda: el sistema no aparta nada dentro de SICAR.
+  CREATE TABLE IF NOT EXISTS resurtido_reservas (
+    id INTEGER PRIMARY KEY, aviso_id INTEGER NOT NULL, donante INTEGER NOT NULL, receptora INTEGER NOT NULL,
+    clave TEXT NOT NULL, piezas INTEGER NOT NULL CHECK (piezas > 0), creada TEXT NOT NULL, vence TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('viva','consumida','vencida')), cerrada_en TEXT
+  );
   CREATE TABLE IF NOT EXISTS seguimiento_config (
     clave TEXT PRIMARY KEY NOT NULL, valor TEXT NOT NULL, actor TEXT, fecha TEXT
   );
