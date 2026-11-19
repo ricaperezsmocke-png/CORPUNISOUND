@@ -123,6 +123,32 @@ test('en camino suma lo pedido y aprobado que no ha llegado, sin contar dos vece
 
 // ---- Task 10: visto bueno por tienda, aprobación y salida al proveedor ----
 const pedido10 = require('./pedido');
+
+for (const metodo of ['cambiarRenglones', 'vistoBuenoTienda']) test(`claves repetidas: ${metodo} rechaza sin escribir cambios ni historial`, t => {
+  const db = conPedido(t);
+  pedido10.vistoBuenoTienda(db, 1, 3, [], '33', AHORA);
+  const antes = renglon(db, 3);
+  const historia = db.prepare('SELECT * FROM resurtido_pedido_historial ORDER BY id').all();
+  assert.throws(() => pedido10[metodo](db, 1, 3, [{ clave: 'A', pedido: 5 }, { clave: 'A', pedido: 6 }], '33', AHORA), { status: 400 });
+  assert.deepEqual(renglon(db, 3), antes);
+  assert.deepEqual(db.prepare('SELECT * FROM resurtido_pedido_historial ORDER BY id').all(), historia);
+});
+
+for (const fuera of [false, true]) test(`rollos: valida el total activo al aprobar, fuera de plazo=${fuera}`, t => {
+  const db = prepararDB(t);
+  db.exec("INSERT INTO resurtido_empaques VALUES ('C',1000000,'9','hoy')");
+  const id = armarBorrador(db, 'SOLCOR', AHORA).pedido_id;
+  for (const suc of [1, 2, 3, 4]) {
+    if (fuera && suc === 1) continue;
+    pedido10.vistoBuenoTienda(db, id, suc, suc === 1 ? [{ clave: 'C', pedido: 14 }] : [], '9', AHORA);
+  }
+  const fecha = fuera ? '2026-11-23T18:00:00Z' : AHORA;
+  assert.throws(() => pedido10.aprobar(db, id, '9', fecha), e => e.status === 409 && /C/.test(e.message) && /100/.test(e.message));
+  assert.equal(db.prepare('SELECT estado FROM resurtido_pedidos WHERE id=?').get(id).estado, 'en_revision');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM resurtido_pedido_renglones WHERE estado<>'activo'").get().n, 0);
+  db.exec('UPDATE resurtido_empaques SET confirmado_por=NULL');
+  assert.equal(pedido10.aprobar(db, id, '9', fecha).ok, true);
+});
 function conPedido(t, { creado = '2026-11-19T15:00:00Z' } = {}) {
   const db = prepararDB(t);
   db.prepare(`INSERT INTO resurtido_pedidos(id,marca,tipo,periodo,llave,estado,creado_en,creado_por,tiendas_atrasadas)

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
-import { piezas } from './resurtido';
+import { piezas, avisoDecidible } from './resurtido';
 
 const TIENDAS = [[1, 'Ocosingo'], [2, 'Yajalón'], [3, 'San Cristóbal'], [4, 'Palenque']];
 const nombreTienda = id => TIENDAS.find(([n]) => n === Number(id))?.[1] || String(id);
@@ -23,7 +23,7 @@ async function pedir(ruta, opciones) {
 function Tarjeta({ a, puede, decidir, ocupado }) {
   const [motivo, setMotivo] = useState('');
   const p = a.propuesta, abierto = a.estado === 'abierto';
-  const decidible = abierto && puede && a.decision !== 'pedir' && !(a.decision === 'pasar' && a.reservas.some(r => r.estado !== 'vencida'));
+  const decidible = puede && avisoDecidible(a);
   return <article className={TARJETA}>
     <p className="font-semibold">{nombreTienda(a.sucursal_id)} · {a.clave} · {a.descripcion}</p>
     {abierto ? <p>Hay {piezas(Math.max(a.existencia ?? 0, 0))}{a.en_camino ? ` y vienen ${piezas(a.en_camino)}` : ''}; su mínimo es {piezas(a.minimo ?? 0)}.

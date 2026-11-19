@@ -80,3 +80,7 @@ export function textoCalidad(fila) {
   if (fila.calidad === 'aproximada') return 'Aproximado: algunos días en cero se calcularon hacia atrás';
   return fila.calidad === 'observada' ? 'Observado: todos los días tienen registros reales' : 'Sin cálculo';
 }
+export function avisoDecidible(aviso, ahora = Date.now()) {
+  const apartado = aviso.reservas.some(r => r.estado === 'viva' && Date.parse(r.vence) > ahora);
+  return aviso.estado === 'abierto' && aviso.decision !== 'pedir' && !(aviso.decision === 'pasar' && apartado);
+}

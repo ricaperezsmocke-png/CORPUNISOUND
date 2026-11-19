@@ -4,6 +4,19 @@ import { piezas, textoEstado, textoCalidad } from './resurtido.js';
 import { CATEGORIAS, moduloVisible } from '../menuCategorias.js';
 import * as resurtido from './resurtido.js';
 
+test('decidir aviso solo se bloquea por reservas vivas sin vencer', () => {
+  const ahora = Date.parse('2026-11-19T18:00:00Z');
+  const a = { estado: 'abierto', decision: 'pasar', reservas: [] };
+  for (const estado of ['consumida', 'vencida', 'viva']) {
+    a.reservas = [{ estado, vence: new Date(ahora).toISOString() }];
+    assert.equal(resurtido.avisoDecidible(a, ahora), true);
+  }
+  a.reservas = [{ estado: 'viva', vence: new Date(ahora + 1000).toISOString() }];
+  assert.equal(resurtido.avisoDecidible(a, ahora), false);
+  assert.equal(resurtido.avisoDecidible({ ...a, decision: 'pedir', reservas: [] }, ahora), false);
+  assert.equal(resurtido.avisoDecidible({ ...a, estado: 'resuelto', reservas: [] }, ahora), false);
+});
+
 test('origen de temporada distingue SICAR y cálculo con las cuatro tiendas', () => {
   assert.equal(resurtido.textoTemporada({ temporada_origen: 'sicar' }), 'Temporada medida en SICAR de San Cristóbal (2022–2025)');
   assert.equal(resurtido.textoTemporada({ temporada_origen: 'calculada' }), 'Temporada calculada con las ventas de las cuatro tiendas');

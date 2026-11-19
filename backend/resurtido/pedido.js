@@ -99,9 +99,12 @@ const renglonesTienda = (sqlite, pedido_id, suc) => sqlite.prepare(`SELECT * FRO
 function validarCambios(cambios, renglones) {
   if (!Array.isArray(cambios)) throw error(400, 'Cambios inválidos.');
   const porClave = new Map(renglones.map(r => [r.clave, r]));
+  const vistas = new Set();
   return cambios.map(c => {
     const r = porClave.get(c?.clave);
     if (!r) throw error(400, 'Ese producto no está en el pedido de tu tienda.');
+    if (vistas.has(c.clave)) throw error(400, `La clave ${c.clave} está repetida.`);
+    vistas.add(c.clave);
     if (!Number.isSafeInteger(c.pedido) || c.pedido < 0 || !Number.isSafeInteger(c.pedido * PIEZA)) {
       throw error(400, 'La cantidad debe ser de piezas enteras, cero o más.');
     }
@@ -174,6 +177,13 @@ function aprobar(sqlite, pedido_id, actor, ahora = new Date().toISOString()) {
     for (const suc of faltan) {
       sqlite.prepare("UPDATE resurtido_pedido_renglones SET estado='fuera_de_tiempo' WHERE pedido_id=? AND sucursal_id=?").run(p.id, suc);
       historial(sqlite, { pedido_id: p.id, sucursal_id: suc, accion: 'fuera_de_tiempo', actor, fecha: ahora });
+    }
+    const empaques = empaquesConfirmados(sqlite);
+    const totales = sqlite.prepare(`SELECT clave, SUM(pedido) total FROM resurtido_pedido_renglones
+      WHERE pedido_id=? AND estado='activo' GROUP BY clave`).all(p.id);
+    for (const { clave, total } of totales) {
+      const rollo = empaques.get(clave);
+      if (rollo && total % rollo !== 0) throw error(409, `La clave ${clave} requiere rollos completos de ${rollo / PIEZA}.`);
     }
     sqlite.prepare("UPDATE resurtido_pedidos SET estado='aprobado', aprobado_por=?, aprobado_en=? WHERE id=?").run(String(actor), ahora, p.id);
     const marcados = sqlite.prepare("SELECT COUNT(*) n FROM resurtido_pedido_renglones WHERE pedido_id=? AND estado='activo' AND marcado=1")
@@ -313,10 +323,12 @@ function verPedido(sqlite, pedido_id, suc = null, ahora = new Date().toISOString
     renglones, historial: historialPedido };
 }
 
-function listarPedidos(sqlite, { marca } = {}) {
+function listarPedidos(sqlite, { marca, sucursal_id = null } = {}) {
   if (marca && !MARCAS.includes(marca)) throw error(400, 'Marca inválida.');
   const pedidos = sqlite.prepare(`SELECT id, marca, tipo, periodo, estado, creado_en, aprobado_en, enviado_en, cerrado_en, aviso_id
-    FROM resurtido_pedidos WHERE (? IS NULL OR marca=?) AND estado<>'cancelado' ORDER BY id DESC LIMIT 36`).all(marca || null, marca || null);
+    FROM resurtido_pedidos p WHERE (? IS NULL OR marca=?) AND estado<>'cancelado'
+    AND (? IS NULL OR EXISTS (SELECT 1 FROM resurtido_pedido_renglones r WHERE r.pedido_id=p.id AND r.sucursal_id=?))
+    ORDER BY id DESC LIMIT 36`).all(marca || null, marca || null, sucursal_id, sucursal_id);
   return { pedidos, pausados: leerConfig(sqlite).pedidos_pausados === 1 };
 }
 

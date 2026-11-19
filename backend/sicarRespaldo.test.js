@@ -32,7 +32,7 @@ test('resurtido: generación anterior restaura y deja vacías las tablas nuevas'
 });
 
 const PEDIDOS = ['resurtido_pedidos', 'resurtido_pedido_renglones', 'resurtido_pedido_historial', 'resurtido_empaques',
-  'resurtido_empaques_historial', 'resurtido_avisos', 'resurtido_reservas'];
+  'resurtido_empaques_historial', 'resurtido_avisos', 'resurtido_reservas', 'resurtido_avisos_historial'];
 
 test('resurtido: copia de 50 tablas (sin pedidos) restaura, deja vacías las tablas de pedido y pausa pedidos', async t => {
   const f = preparar(t), g = preparar(t), s = api();
@@ -62,9 +62,11 @@ test('resurtido: copia nueva restaura pedidos, empaques, avisos y reservas', asy
     INSERT INTO resurtido_empaques VALUES ('C', 1000000, '9', 'hoy');
     INSERT INTO resurtido_empaques_historial(clave,accion,anterior,nuevo,actor,fecha) VALUES ('C','confirmar',NULL,1000000,'9','hoy');
     INSERT INTO resurtido_avisos(id,sucursal_id,clave,marca,creado_en,estado,propuesta_json) VALUES (1,3,'C','SOLCOR','hoy','abierto','{}');
-    INSERT INTO resurtido_reservas(aviso_id,donante,receptora,clave,piezas,creada,vence,estado) VALUES (1,1,3,'C',20000,'hoy','luego','viva')`);
+    INSERT INTO resurtido_reservas(aviso_id,donante,receptora,clave,piezas,creada,vence,estado) VALUES (1,1,3,'C',20000,'hoy','luego','viva');
+    INSERT INTO resurtido_avisos_historial(aviso_id,decision,motivo,actor,fecha,propuesta_json)
+      VALUES (1,'pasar','Prueba','9','hoy','{}')`);
   const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
-  assert.equal(Object.keys(m.conteos).length, 57);
+  assert.equal(Object.keys(m.conteos).length, 58);
   s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
   const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
   try { p.aplicar(); } finally { p.liberar(); }

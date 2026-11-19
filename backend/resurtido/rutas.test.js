@@ -14,6 +14,7 @@ before(async () => {
     [982, ['ver_resurtido', 'ver_existencias_sicar'], 3], [983, comunes, 3],
     [984, [...comunes, 'ver_todas_las_sucursales'], 1], [985, comunes, null],
     [986, ['ver_resurtido', 'dar_visto_bueno_resurtido'], 2], [987, ['ver_resurtido', 'dar_visto_bueno_resurtido'], 1],
+    [989, ['ver_resurtido', 'aprobar_pedido_resurtido'], 1],
     [988, ['ver_resurtido', 'aprobar_pedido_resurtido', 'ver_todas_las_sucursales'], 1]]) {
     app.DB.admin.roles.push({ id, nombre: `Resurtido ${id}`, permisos, modulos: ['inventario'] });
     app.DB.admin.usuarios.push({ id, usuario: `resurtido${id}`, nombre: `Actor ${id}`, rol_id: id, sucursal_id: suc, activo: true });
@@ -25,7 +26,7 @@ before(async () => {
 beforeEach(() => {
   for (const tabla of ['resurtido_pedido_historial', 'resurtido_pedido_renglones', 'resurtido_pedidos', 'resurtido_empaques',
     'resurtido_empaques_historial', 'resurtido_reservas', 'resurtido_avisos', 'resurtido_ajustes_historial', 'resurtido_ajustes',
-    'resurtido_config_historial',
+    'resurtido_config_historial', 'resurtido_avisos_historial',
     'resurtido_config', 'resurtido_minmax', 'sicar_existencias', 'sicar_articulos']) sqlite.exec(`DELETE FROM ${tabla}`);
   for (const suc of [1, 3]) {
     sqlite.prepare('INSERT OR IGNORE INTO sicar_tiendas(sucursal_id) VALUES (?)').run(suc);
@@ -153,6 +154,28 @@ function sembrarPedido() {
       (1,1,'A','Cable',20000,20000),(1,2,'A','Cable',40000,40000)`);
 }
 
+test('acciones globales rechazan a quien aprueba con alcance de una sola tienda', async () => {
+  sembrarPedido();
+  sqlite.exec("UPDATE resurtido_pedido_renglones SET visto_bueno_por='9'");
+  for (const [ruta, metodo] of [['/pedidos/1/aprobar', 'POST'], ['/pedidos/1/proveedor', 'GET'],
+    ['/pedidos', 'POST'], ['/pedidos/reactivar', 'POST'], ['/pedidos/1/envio', 'POST'],
+    ['/pedidos/1/compras', 'GET'], ['/pedidos/1/compra', 'POST']]) {
+    const r = await pedir(ruta, 989, metodo, metodo === 'POST' ? { marca: 'JR' } : undefined);
+    assert.equal(r.status, 403, ruta);
+    assert.equal(r.datos.error, 'Esta acción requiere ver todas las tiendas.');
+  }
+  assert.equal((await pedir('/pedidos/1/aprobar', 988, 'POST', {})).status, 200);
+  assert.equal((await pedir('/pedidos/1/proveedor', 988)).status, 200);
+});
+
+test('lista de pedidos solo incluye pedidos con renglones de la tienda del token', async () => {
+  sembrarPedido();
+  assert.deepEqual((await pedir('/pedidos', 982)).datos.pedidos, []);
+  assert.deepEqual((await pedir('/pedidos', 986)).datos.pedidos.map(p => p.id), [1]);
+  assert.deepEqual((await pedir('/pedidos?sucursal_id=3', 988)).datos.pedidos.map(p => p.id), [1]);
+  assert.deepEqual((await pedir('/pedidos?marca=SOLCOR', 986)).datos.pedidos, []);
+});
+
 test('pedido: visto bueno solo de la tienda del token; permisos vecinos no alcanzan', async () => {
   sembrarPedido();
   assert.equal((await pedir('/pedidos/1/visto-bueno', 986, 'POST', { sucursal_id: '1', cambios: [] })).status, 403);
@@ -201,7 +224,7 @@ test('armar borrador ahora y reactivar pedidos piden permiso de aprobar; la conf
   assert.equal((await pedir('/pedidos/reactivar', 988, 'POST', {})).status, 200);
   assert.equal(sqlite.prepare("SELECT actor FROM resurtido_config_historial WHERE clave='pedidos_pausados'").get().actor, '988');
   assert.equal((await pedir('/pedidos', 988, 'POST', { marca: 'SOLCOR' })).status, 200);
-  const lista = await pedir('/pedidos?marca=JR', 986);
+  const lista = await pedir('/pedidos?marca=JR', 987);
   assert.equal(lista.status, 200); assert.deepEqual(lista.datos.pedidos.map(p => p.marca), ['JR']);
 });
 

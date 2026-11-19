@@ -98,8 +98,8 @@ function decidirAviso(sqlite, aviso_id, datos, actor, suc, ahora = new Date().to
     if (!a) throw error(404, 'Aviso no encontrado.');
     if (suc !== null && a.sucursal_id !== Number(suc)) throw error(403, 'Ese aviso es de otra tienda.');
     if (a.estado !== 'abierto') throw error(409, 'El aviso ya se cerró.');
-    // Se puede volver a decidir después de "esperar" o cuando lo apartado ya venció sin traspaso.
-    const apartado = sqlite.prepare("SELECT 1 FROM resurtido_reservas WHERE aviso_id=? AND estado<>'vencida'").get(a.id);
+    // Se puede volver a decidir cuando ya no quedan reservas vivas sin vencer.
+    const apartado = sqlite.prepare("SELECT 1 FROM resurtido_reservas WHERE aviso_id=? AND estado='viva' AND vence>?").get(a.id, ahora);
     if (a.decision === 'pedir' || (a.decision === 'pasar' && apartado)) throw error(409, 'Este aviso ya tiene decisión.');
     const { porLlave, sobras } = situacion(sqlite, ahora);
     const f = porLlave.get(`${a.sucursal_id}|${a.clave}`);
@@ -116,14 +116,19 @@ function decidirAviso(sqlite, aviso_id, datos, actor, suc, ahora = new Date().to
     }
     if (decision === 'pedir') {
       if (!(propuesta.pedir > 0)) throw error(409, 'Con lo que hay y lo que viene ya llega a su máximo.');
+      const empaque = sqlite.prepare(`SELECT tamano_diezmilesimas tamano FROM resurtido_empaques
+        WHERE clave=? AND confirmado_por IS NOT NULL`).get(a.clave);
+      const cantidad = empaque ? Math.ceil(propuesta.pedir / empaque.tamano) * empaque.tamano : propuesta.pedir;
       const periodo = fechaLocal(ahora).slice(0, 7), llave = `${a.marca}:${periodo}:extra:${a.id}`;
       const existente = sqlite.prepare('SELECT id FROM resurtido_pedidos WHERE llave=?').get(llave);
       resultado.pedido_id = existente?.id ?? insertarPedido(sqlite, { marca: a.marca, tipo: 'extra', periodo, llave, actor, ahora,
         aviso_id: a.id }, [{ sucursal_id: a.sucursal_id, clave: a.clave, descripcion: f.descripcion, sugerido: propuesta.pedir,
-        pedido: propuesta.pedir }]);
+        pedido: cantidad }]);
       if (!existente) historial(sqlite, { pedido_id: resultado.pedido_id, sucursal_id: a.sucursal_id, clave: a.clave, accion: 'aviso',
-        despues: propuesta.pedir, motivo: motivo || null, actor, fecha: ahora });
+        despues: cantidad, motivo: motivo || null, actor, fecha: ahora });
     }
+    sqlite.prepare(`INSERT INTO resurtido_avisos_historial(aviso_id, decision, motivo, actor, fecha, propuesta_json)
+      VALUES (?,?,?,?,?,?)`).run(a.id, decision, motivo || null, String(actor), ahora, JSON.stringify(propuesta));
     sqlite.prepare(`UPDATE resurtido_avisos SET decision=?, motivo=?, actor=?, decidido_en=?, propuesta_json=?,
       pedido_id=COALESCE(?, pedido_id) WHERE id=?`)
       .run(decision, motivo || null, String(actor), ahora, JSON.stringify(propuesta), resultado.pedido_id ?? null, a.id);

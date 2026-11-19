@@ -7,6 +7,48 @@ const { listaProveedor } = require('./consultas');
 const pedido = require('./pedido');
 const AHORA = '2026-11-19T18:00:00Z';
 
+test('historial conserva cada decisión, motivo, actor, fecha y propuesta original', t => {
+  const db = prepararDB(t);
+  revisarAvisos(db, AHORA);
+  const id = aviso(db, 2).id;
+  decidirAviso(db, id, { decision: 'esperar', motivo: 'Revisar almacén' }, '22', 2, AHORA);
+  const primera = JSON.parse(aviso(db, 2).propuesta_json);
+  db.exec('UPDATE sicar_existencias SET existencia_diezmilesimas=20000 WHERE sucursal_id=2');
+  decidirAviso(db, id, { decision: 'pedir', motivo: 'Falta mercancía' }, '9', null, '2026-11-19T19:00:00Z');
+  const filas = db.prepare('SELECT * FROM resurtido_avisos_historial ORDER BY id').all();
+  assert.equal(filas.length, 2);
+  assert.deepEqual(filas.map(h => [h.aviso_id, h.decision, h.motivo, h.actor, h.fecha]),
+    [[id, 'esperar', 'Revisar almacén', '22', AHORA], [id, 'pedir', 'Falta mercancía', '9', '2026-11-19T19:00:00Z']]);
+  assert.deepEqual(JSON.parse(filas[0].propuesta_json), primera);
+  assert.equal(JSON.parse(filas[1].propuesta_json).pedir, 80000);
+  assert.throws(() => decidirAviso(db, id, { decision: 'pedir' }, '22', 2, AHORA), { status: 409 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_avisos_historial').get().n, 2);
+});
+
+for (const estado of ['consumida', 'vencida', 'viva']) test(`traspaso parcial: permite pedir el faltante con reserva ${estado} agotada`, t => {
+  const db = prepararDB(t);
+  revisarAvisos(db, AHORA);
+  const id = aviso(db, 2).id;
+  decidirAviso(db, id, { decision: 'pasar' }, '22', 2, AHORA);
+  db.prepare('UPDATE resurtido_reservas SET estado=?, vence=?').run(estado, AHORA);
+  db.exec('UPDATE sicar_existencias SET existencia_diezmilesimas=20000 WHERE sucursal_id=2');
+  const r = decidirAviso(db, id, { decision: 'pedir' }, '22', 2, AHORA);
+  assert.equal(db.prepare('SELECT pedido FROM resurtido_pedido_renglones WHERE pedido_id=?').get(r.pedido_id).pedido, 80000);
+});
+
+test('rollos: pedir extra redondea solo el empaque confirmado', t => {
+  const db = prepararDB(t);
+  db.exec("INSERT INTO resurtido_empaques VALUES ('A',1000000,NULL,NULL)");
+  revisarAvisos(db, AHORA);
+  decidirAviso(db, aviso(db, 2).id, { decision: 'pedir' }, '22', 2, AHORA);
+  db.exec("UPDATE resurtido_empaques SET confirmado_por='9'");
+  const r = decidirAviso(db, aviso(db, 3).id, { decision: 'pedir' }, '33', 3, AHORA);
+  assert.deepEqual(db.prepare('SELECT sugerido,pedido FROM resurtido_pedido_renglones ORDER BY sucursal_id').all(),
+    [{ sugerido: 100000, pedido: 100000 }, { sugerido: 100000, pedido: 1000000 }]);
+  pedido.vistoBuenoTienda(db, r.pedido_id, 3, [], '33', AHORA);
+  assert.equal(pedido.aprobar(db, r.pedido_id, '9', AHORA).ok, true);
+});
+
 // Clave A (JR): mínimo 5 y máximo 10 en las tres tiendas. Ocosingo tiene 12 (2 de sobra); Yajalón y San Cristóbal, 0.
 function prepararDB(t) {
   const db = new Database(':memory:'); crearRepositorioSicar(db); t.after(() => db.close());

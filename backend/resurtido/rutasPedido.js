@@ -7,6 +7,10 @@ const { listarAvisos, decidirAviso } = require('./avisos');
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
 function registrarRutasPedido(ruta, nombre) {
+  const global = fn => (db, req, suc) => {
+    if (suc !== null) throw error(403, 'Esta acción requiere ver todas las tiendas.');
+    return fn(db, req);
+  };
   const actor = req => String(req.usuarioToken.id);
   // Tienda sobre la que actúa quien da visto bueno: la del token; quien ve todas debe decir cuál en el cuerpo.
   function tienda(req, suc) {
@@ -24,29 +28,30 @@ function registrarRutasPedido(ruta, nombre) {
     return detalle;
   };
 
-  ruta('get', '/api/resurtido/pedidos', 'ver_resurtido', (db, req) => pedido.listarPedidos(db, { marca: req.query.marca || null }));
-  ruta('post', '/api/resurtido/pedidos', 'aprobar_pedido_resurtido', (db, req) =>
-    pedido.armarBorrador(db, req.body?.marca, new Date().toISOString(), { actor: actor(req), manual: true }));
+  ruta('get', '/api/resurtido/pedidos', 'ver_resurtido', (db, req, suc) =>
+    pedido.listarPedidos(db, { marca: req.query.marca || null, sucursal_id: suc }));
+  ruta('post', '/api/resurtido/pedidos', 'aprobar_pedido_resurtido', global((db, req) =>
+    pedido.armarBorrador(db, req.body?.marca, new Date().toISOString(), { actor: actor(req), manual: true })));
   // Tras restaurar un respaldo los pedidos quedan pausados; solo quien aprueba los reactiva.
-  ruta('post', '/api/resurtido/pedidos/reactivar', 'aprobar_pedido_resurtido', (db, req) => {
+  ruta('post', '/api/resurtido/pedidos/reactivar', 'aprobar_pedido_resurtido', global((db, req) => {
     cambiarConfig(db, { pedidos_pausados: 0 }, actor(req));
     return { ok: true };
-  });
+  }));
   ruta('get', '/api/resurtido/pedidos/:id', 'ver_resurtido', (db, req, suc) => conNombres(pedido.verPedido(db, req.params.id, suc)));
   ruta('get', '/api/resurtido/pedidos/:id/reparto', 'ver_resurtido', (db, req, suc) =>
     ({ tiendas: pedido.hojaReparto(db, req.params.id, suc) }));
-  ruta('get', '/api/resurtido/pedidos/:id/proveedor', 'aprobar_pedido_resurtido', (db, req) => pedido.listaProveedor(db, req.params.id));
+  ruta('get', '/api/resurtido/pedidos/:id/proveedor', 'aprobar_pedido_resurtido', global((db, req) => pedido.listaProveedor(db, req.params.id)));
   ruta('put', '/api/resurtido/pedidos/:id/tienda', 'dar_visto_bueno_resurtido', (db, req, suc) =>
     pedido.cambiarRenglones(db, req.params.id, tienda(req, suc), req.body?.cambios, actor(req)));
   ruta('post', '/api/resurtido/pedidos/:id/visto-bueno', 'dar_visto_bueno_resurtido', (db, req, suc) =>
     pedido.vistoBuenoTienda(db, req.params.id, tienda(req, suc), req.body?.cambios ?? [], actor(req)));
-  ruta('post', '/api/resurtido/pedidos/:id/aprobar', 'aprobar_pedido_resurtido', (db, req) => pedido.aprobar(db, req.params.id, actor(req)));
-  ruta('post', '/api/resurtido/pedidos/:id/envio', 'aprobar_pedido_resurtido', (db, req) =>
-    pedido.registrarEnvio(db, req.params.id, req.body, actor(req)));
+  ruta('post', '/api/resurtido/pedidos/:id/aprobar', 'aprobar_pedido_resurtido', global((db, req) => pedido.aprobar(db, req.params.id, actor(req))));
+  ruta('post', '/api/resurtido/pedidos/:id/envio', 'aprobar_pedido_resurtido', global((db, req) =>
+    pedido.registrarEnvio(db, req.params.id, req.body, actor(req))));
   // La compra de CEDIS solo se propone; una persona con permiso de aprobar la confirma.
-  ruta('get', '/api/resurtido/pedidos/:id/compras', 'aprobar_pedido_resurtido', (db, req) => pedido.candidatasCompra(db, req.params.id));
-  ruta('post', '/api/resurtido/pedidos/:id/compra', 'aprobar_pedido_resurtido', (db, req) =>
-    pedido.confirmarCompra(db, req.params.id, req.body?.com_id, actor(req)));
+  ruta('get', '/api/resurtido/pedidos/:id/compras', 'aprobar_pedido_resurtido', global((db, req) => pedido.candidatasCompra(db, req.params.id)));
+  ruta('post', '/api/resurtido/pedidos/:id/compra', 'aprobar_pedido_resurtido', global((db, req) =>
+    pedido.confirmarCompra(db, req.params.id, req.body?.com_id, actor(req))));
 
   // Avisos entre pedidos: cada tienda ve y decide solo los suyos (alcance del token).
   ruta('get', '/api/resurtido/avisos', 'ver_resurtido', (db, req, suc) => {

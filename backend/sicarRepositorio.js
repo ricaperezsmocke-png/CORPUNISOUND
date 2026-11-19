@@ -298,6 +298,11 @@ const ESQUEMA = `
     decidido_en TEXT, cerrado_en TEXT, pedido_id INTEGER
   );
   CREATE UNIQUE INDEX IF NOT EXISTS resurtido_avisos_abierto ON resurtido_avisos (sucursal_id, clave) WHERE estado = 'abierto';
+  CREATE TABLE IF NOT EXISTS resurtido_avisos_historial (
+    id INTEGER PRIMARY KEY, aviso_id INTEGER NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('pasar','pedir','esperar')), motivo TEXT,
+    actor TEXT NOT NULL, fecha TEXT NOT NULL, propuesta_json TEXT NOT NULL
+  );
   -- Piezas de sobrante apartadas para una tienda: el sistema no aparta nada dentro de SICAR.
   CREATE TABLE IF NOT EXISTS resurtido_reservas (
     id INTEGER PRIMARY KEY, aviso_id INTEGER NOT NULL, donante INTEGER NOT NULL, receptora INTEGER NOT NULL,

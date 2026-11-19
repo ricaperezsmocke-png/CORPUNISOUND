@@ -18,7 +18,7 @@ const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 
   'resurtido_config', 'resurtido_config_historial', 'resurtido_existencia_diaria',
   'resurtido_minmax', 'resurtido_ajustes', 'resurtido_ajustes_historial',
   'resurtido_pedidos', 'resurtido_pedido_renglones', 'resurtido_pedido_historial', 'resurtido_empaques',
-  'resurtido_empaques_historial', 'resurtido_avisos', 'resurtido_reservas']);
+  'resurtido_empaques_historial', 'resurtido_avisos', 'resurtido_reservas', 'resurtido_avisos_historial']);
 // Bandeja de clientes (spec 2026-10-18 §4.7): sus tablas viajan en la misma copia y se restauran en la misma transacción
 // que los datos del negocio, porque sus cliente_id apuntan a clientes del JSON. Solo si la base ya las tiene.
 const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes', 'lead_contenidos', 'lead_eventos_externos',
