@@ -17,6 +17,17 @@ function prepararDB(t) {
 }
 const ajuste = { sucursal_id: 3, clave: 'A', minimo: 4, maximo: 8, motivo: 'Exhibición' };
 
+test('sin existencia no aparece ni cuenta; con ajuste permanece marcada', t => {
+  const db = prepararDB(t);
+  db.exec('DELETE FROM sicar_existencias WHERE sucursal_id=3');
+  assert.equal(listar(db, { sucursal_id: 3 }, AHORA).total, 0);
+  ponerAjuste(db, ajuste, '1', AHORA);
+  const r = listar(db, { sucursal_id: 3 }, AHORA);
+  assert.equal(r.total, 1);
+  assert.equal(r.filas[0].ya_no_la_maneja, true);
+  assert.equal(r.filas[0].ajuste.minimo, 40000);
+});
+
 test('ajuste en piezas gana sobre cálculo y conserva quién, cuándo y por qué', t => {
   const db = prepararDB(t); ponerAjuste(db, ajuste, 'Victor', AHORA);
   const f = listar(db, { sucursal_id: 3 }, AHORA).filas[0];
@@ -66,6 +77,7 @@ test('paginación de cien y filtros marca/lista/estado', t => {
   const db = prepararDB(t);
   for (let i = 0; i < 101; i++) {
     db.prepare("INSERT INTO sicar_articulos VALUES (3,?,?, 'Púa',NULL,'JR',?)").run(`b${i}`, `B${i}`, AHORA);
+    db.prepare('INSERT INTO sicar_existencias VALUES (3,?,0,?)').run(`b${i}`, AHORA);
     db.prepare("INSERT INTO resurtido_minmax VALUES (3,?,'JR',10000,20000,0,0,365,'sin_historia','aproximada',?)").run(`B${i}`, AHORA);
   }
   const filtros = { sucursal_id: 3, marca: 'JR', lista: 'sin_historia', estado: 'agotado' };

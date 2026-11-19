@@ -51,3 +51,45 @@ test('redondea una sola vez a piezas enteras y máximo supera mínimo', () => {
   assert.equal(r.minimo, 10000); assert.equal(r.maximo, 20000);
   assert.equal(r.minimo % 10000, 0); assert.equal(r.maximo % 10000, 0);
 });
+
+test('índices planos conservan el resultado de 73 piezas sobre 365 días', () => {
+  const r = calcularMinMax({ ...datos(), diasEnCero: new Set() });
+  assert.equal(r.venta_diaria, 2000);
+  assert.equal(r.minimo, 70000);
+  assert.equal(r.maximo, 130000);
+});
+
+test('73 ventas esporádicas en meses flojos usan cociente de sumas sin duplicar demanda', () => {
+  const indices = [0.5, 0.5, 0.5, 1.5, 1.5, 1.5, 1, 1, 1, 1, 1, 1];
+  const sumaIndices = dias.reduce((s, d) => s + indices[Number(d.slice(5, 7)) - 1], 0);
+  const r = calcularMinMax({ ...datos(), indices, diasEnCero: new Set(),
+    ventasPorDia: new Map(dias.slice(0, 73).map(d => [d, 10000])) });
+  assert.equal(r.venta_diaria, Math.round(730000 / sumaIndices));
+  assert.ok(r.venta_diaria < 4000);
+});
+
+test('CUE1A uniforme conserva entre 5 y 7.5 piezas mensuales en los meses de factor 1 de esta serie', () => {
+  const indices = [0.5, 0.5, 0.5, 0.5, 1.5, 1.5, 1.5, 1.5, 1, 1, 1, 1];
+  const ventasPorDia = new Map(dias.map(d => [d, 61000 / 30]));
+  for (let mesCalculo = 1; mesCalculo <= 12; mesCalculo++) {
+    const factor = (indices[mesCalculo - 1] + indices[mesCalculo % 12]) / 2;
+    if (factor < 0.8 || factor > 1.2) continue;
+    const r = calcularMinMax({ ...datos(), indices, ventasPorDia, mesCalculo, diasEnCero: new Set() });
+    assert.ok(r.venta_diaria * 30 / 10000 >= 5 && r.venta_diaria * 30 / 10000 <= 7.5);
+    const sumaIndices = dias.reduce((s, d) => s + indices[Number(d.slice(5, 7)) - 1], 0);
+    assert.equal(r.venta_diaria, Math.round(365 * 61000 / 30 / sumaIndices * factor));
+  }
+});
+
+test('el denominador solo incluye días válidos y la varianza se centra en el nuevo promedio', () => {
+  const indices = [0.5, 1.5, ...Array(10).fill(1)];
+  const ventasPorDia = new Map([[dias[0], 10000], [dias[31], 30000]]);
+  const diasEnCero = new Set(dias.slice(1, 31));
+  const validos = dias.slice(0, 59).filter(d => !diasEnCero.has(d));
+  const mu = 40000 / (0.5 + 28 * 1.5);
+  const varianza = validos.reduce((s, d) => s + ((ventasPorDia.get(d) || 0) / indices[Number(d.slice(5, 7)) - 1] - mu) ** 2, 0) / 28;
+  const config = { ...VALORES_INICIALES, dias_validos_minimos: 1 };
+  const r = calcularMinMax({ ...datos(), hasta: '2025-02-28', indices, ventasPorDia, diasEnCero, config });
+  assert.equal(r.venta_diaria, Math.round(mu));
+  assert.equal(r.minimo, Math.ceil((mu * 20 + 1.65 * Math.sqrt(varianza * 20)) / 10000) * 10000);
+});

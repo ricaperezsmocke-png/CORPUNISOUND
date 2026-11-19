@@ -95,3 +95,32 @@ test('ajustes inválidos y filtros inválidos no pasan al servidor', async () =>
   assert.equal((await pedir('?sucursal_id=7', 984)).status, 400);
   assert.equal((await pedir('?estado=desconocido')).status, 400);
 });
+
+test('explicación exige ver_resurtido, login y alcance del token', async () => {
+  assert.equal((await pedir('/explicacion?clave=A', null)).status, 401);
+  assert.equal((await pedir('/explicacion?clave=A', 981)).status, 403);
+  assert.equal((await pedir('/explicacion?clave=A&sucursal_id=1', 982)).status, 403);
+  const r = await pedir('/explicacion?clave=A', 982);
+  assert.equal(r.status, 200); assert.equal(r.datos.sucursal_id, 3);
+  assert.equal((await pedir('/explicacion?clave=A', 985)).status, 403);
+});
+
+test('administrador explica una tienda explícita y rechaza claves ausentes', async () => {
+  const r = await pedir('/explicacion?clave=A&sucursal_id=1', 984);
+  assert.equal(r.status, 200); assert.equal(r.datos.sucursal_id, 1);
+  assert.equal((await pedir('/explicacion?clave=A&sucursal_id=todas', 984)).status, 400);
+  assert.equal((await pedir('/explicacion?clave=NO&sucursal_id=1', 984)).status, 404);
+});
+
+test('lista resuelve el nombre actual del autor sin cambiar su id de auditoría', async () => {
+  await pedir('/ajuste', 983, 'PUT', ajuste);
+  const r = await pedir();
+  assert.equal(r.datos.filas[0].ajuste.nombre_actor, 'Actor 983');
+  assert.equal(r.datos.filas[0].ajuste.actor, '983');
+});
+
+test('autor eliminado se muestra como usuario #id', async () => {
+  sqlite.prepare('INSERT INTO resurtido_ajustes VALUES (3,?,?,?,?,?,?)').run('A', 40000, 80000, 'Exhibición', '999999', 'hoy');
+  const r = await pedir();
+  assert.equal(r.datos.filas[0].ajuste.nombre_actor, 'usuario #999999');
+});

@@ -28,6 +28,17 @@ test('recalcula dos tiendas, guarda calidad aproximada y excluye CEDIS/Innotec',
   recalcular(db, AHORA); assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_existencia_diaria').get().n, n);
 });
 
+test('recálculo borra mínimos de claves sin existencia y conserva sus ajustes', t => {
+  const db = prepararDB(t, 2);
+  recalcular(db, AHORA);
+  db.exec("DELETE FROM sicar_existencias WHERE sucursal_id=3 AND art_id='0'");
+  db.prepare('INSERT INTO resurtido_ajustes VALUES (3,?,?,?,?,?,?)').run('A0', 10000, 20000, 'Exhibición', '1', AHORA);
+  recalcular(db, AHORA);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM resurtido_minmax WHERE sucursal_id=3 AND clave='A0'").get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_ajustes').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_minmax WHERE sucursal_id=1').get().n, 2);
+});
+
 test('existencias atrasadas no recalculan aunque ultima_recepcion esté al día', t => {
   const db = prepararDB(t); recalcular(db, AHORA);
   db.exec("UPDATE sicar_existencias SET actualizado_en='2026-11-01T18:00:00Z' WHERE sucursal_id=3");

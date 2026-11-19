@@ -81,3 +81,12 @@ test('filtro desde excluye historia anterior y departamentos ajenos', t => {
   assert.equal(r.get('A')?.get('2026-11-17'), 20000);
   assert.equal(r.has('D'), false);
 });
+
+test('sin fila se excluye; cero vigente y clave con otro art_id vigente permanecen', t => {
+  const db = prepararDB(t);
+  db.exec("DELETE FROM sicar_existencias WHERE sucursal_id=3 AND art_id IN ('a','c')");
+  db.exec("UPDATE sicar_existencias SET existencia_diezmilesimas=0 WHERE sucursal_id=3 AND art_id='b'");
+  assert.deepEqual([...clavesDeMarca(db, 3).keys()], ['A']);
+  assert.deepEqual(clavesDeMarca(db, 3).get('A').art_ids, ['a', 'b']);
+  assert.deepEqual([...existenciaActual(db, 3).porClave], [['A', 0]]);
+});

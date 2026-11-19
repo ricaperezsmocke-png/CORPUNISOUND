@@ -3,6 +3,7 @@ import { Pencil } from 'lucide-react';
 import { apiFetch } from '../api';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { piezas, textoEstado, textoCalidad } from './resurtido';
+import Explicacion from './Explicacion';
 
 const TIENDAS = [[1, 'Ocosingo'], [2, 'Yajalón'], [3, 'San Cristóbal'], [4, 'Palenque']];
 const nombreTienda = id => TIENDAS.find(([n]) => n === Number(id))?.[1] || String(id);
@@ -40,7 +41,7 @@ function Correccion({ fila, cerrar, guardado }) {
       <DialogTitle>Corregir mínimo y máximo</DialogTitle>
       <DialogDescription>{nombreTienda(fila.sucursal_id)} · {fila.clave} · {fila.descripcion}</DialogDescription>
       <p className="text-sm text-slate-600">Calculado: {numero(fila.minimo_calculado)} mínimo y {numero(fila.maximo_calculado)} máximo.</p>
-      {fila.ajuste && <p className={AVISO}>Corrección actual de {fila.ajuste.actor}: {fila.ajuste.motivo} · {fecha(fila.ajuste.fecha)}</p>}
+      {fila.ajuste && <p className={AVISO}>Corrección actual de {fila.ajuste.nombre_actor}: {fila.ajuste.motivo} · {fecha(fila.ajuste.fecha)}</p>}
       <form className="space-y-4" onSubmit={e => { e.preventDefault(); guardar('PUT'); }}>
         <label className="block text-sm">Mínimo (piezas)
           <input className={CAMPO} type="number" min="0" step="1" required value={minimo} onChange={e => setMinimo(e.target.value)} />
@@ -69,6 +70,7 @@ export default function Resurtido({ usuario }) {
   const [marca, setMarca] = useState(''), [lista, setLista] = useState(''), [estado, setEstado] = useState(''), [q, setQ] = useState('');
   const [pagina, setPagina] = useState(1), [version, setVersion] = useState(0), [editando, setEditando] = useState(null);
   const [datos, setDatos] = useState(null), [cargando, setCargando] = useState(true), [error, setError] = useState('');
+  const [explicando, setExplicando] = useState(null);
   useEffect(() => {
     const controller = new AbortController();
     setCargando(true); setError(''); setDatos(null);
@@ -116,11 +118,14 @@ export default function Resurtido({ usuario }) {
           <thead className="bg-slate-100"><tr>{['Tienda', 'Clave', 'Producto', 'Hay', 'Mínimo', 'Máximo', 'Vende al mes', 'Días en cero (año)', 'Estado', ''].map((h, i) =>
             <th className={CELDA} key={i} scope="col">{h}</th>)}</tr></thead>
           <tbody>{datos.filas.map(f => <tr key={`${f.sucursal_id}:${f.clave}`}>
-            <td className={CELDA}>{nombreTienda(f.sucursal_id)}</td><td className={CELDA}>{f.clave}</td>
+            <td className={CELDA}>{nombreTienda(f.sucursal_id)}</td><td className={CELDA}>
+              <button className="text-blue-700 underline" onClick={() => setExplicando(f)}>{f.clave}</button>
+            </td>
             <td className={CELDA}><p>{f.descripcion}</p><p className="mt-1 text-xs text-slate-600">{textoCalidad(f)}</p>
               {f.ya_no_es_marca && <p className="mt-1 text-xs text-amber-800">Ya no es de la marca; conserva su corrección.</p>}
+              {f.ya_no_la_maneja && <p className="mt-1 text-xs text-amber-800">Ya no la maneja la tienda; conserva su corrección.</p>}
               {f.ajuste && <p className="mt-1 flex items-start gap-1 text-xs text-blue-800">
-                <Pencil size={14} aria-hidden="true" /><span>Corregido a mano por {f.ajuste.actor}: {f.ajuste.motivo} · {fecha(f.ajuste.fecha)}</span>
+                <Pencil size={14} aria-hidden="true" /><span>Corregido a mano por {f.ajuste.nombre_actor}: {f.ajuste.motivo} · {fecha(f.ajuste.fecha)}</span>
               </p>}
             </td>
             {[f.existencia, f.minimo, f.maximo, f.venta_mes].map((v, i) => <td key={i} className={`${CELDA} tabular-nums`}>{numero(v)}</td>)}
@@ -136,6 +141,7 @@ export default function Resurtido({ usuario }) {
         <button className={BOTON} disabled={pagina * 100 >= datos.total} onClick={() => setPagina(p => p + 1)}>Siguiente</button>
       </div>
     </>}
+    {explicando && <Explicacion fila={explicando} tienda={nombreTienda(explicando.sucursal_id)} cerrar={() => setExplicando(null)} />}
     {editando && <Correccion fila={editando} cerrar={() => setEditando(null)} guardado={() => {
       setEditando(null); setVersion(v => v + 1);
     }} />}

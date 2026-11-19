@@ -37,6 +37,10 @@ function recalcular(sqlite, ahora = new Date().toISOString()) {
     WHERE sucursal_id=? AND clave=? AND dia BETWEEN ? AND ?`);
   const tiendas = [];
   for (const suc of TIENDAS) {
+    sqlite.prepare(`DELETE FROM resurtido_minmax WHERE sucursal_id=? AND NOT EXISTS (
+      SELECT 1 FROM sicar_articulos a JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
+      WHERE a.sucursal_id=resurtido_minmax.sucursal_id AND a.clave=resurtido_minmax.clave
+    )`).run(suc);
     const { actualizado } = existenciaActual(sqlite, suc);
     const atrasada = !actualizado || !Number.isFinite(Date.parse(actualizado))
       || Date.parse(ahora) - Date.parse(actualizado) > config.dias_datos_atrasados * DIA;
@@ -44,9 +48,7 @@ function recalcular(sqlite, ahora = new Date().toISOString()) {
     const resultado = sqlite.transaction(() => {
       const catalogo = clavesDeMarca(sqlite, suc), ventas = ventasDiarias(sqlite, suc, desde);
       tomarFoto(sqlite, hoy, ahora, [suc]);
-      if ([...catalogo.keys()].some(clave => calidad.get(suc, clave, desde, hasta).n < config.dias_historia)) {
-        reconstruir(sqlite, suc, desde, hasta);
-      }
+      reconstruir(sqlite, suc, desde, hasta);
       for (const [clave, articulo] of catalogo) {
         const r = calcularMinMax({ ventasPorDia: ventas.get(clave) || new Map(), diasEnCero: diasEnCero(sqlite, suc, clave, desde, hasta),
           desde, hasta, indices: temporadas.get(articulo.marca), mesCalculo: Number(hoy.slice(5, 7)), config });
