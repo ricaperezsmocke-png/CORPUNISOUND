@@ -26,7 +26,54 @@ test('resurtido: generación anterior restaura y deja vacías las tablas nuevas'
   s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
   const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
   try { p.aplicar(); } finally { p.liberar(); }
-  for (const tabla of RESURTIDO) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
+  // La configuración solo trae la pausa de pedidos que pone toda restauración (Task 9).
+  for (const tabla of RESURTIDO.slice(2)) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0);
+  assert.deepEqual(g.sqlite.prepare('SELECT clave, valor FROM resurtido_config').all(), [{ clave: 'pedidos_pausados', valor: '1' }]);
+});
+
+const PEDIDOS = ['resurtido_pedidos', 'resurtido_pedido_renglones', 'resurtido_pedido_historial', 'resurtido_empaques',
+  'resurtido_empaques_historial', 'resurtido_avisos', 'resurtido_reservas', 'resurtido_avisos_historial'];
+
+test('resurtido: copia de 50 tablas (sin pedidos) restaura, deja vacías las tablas de pedido y pausa pedidos', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  f.sqlite.exec("INSERT INTO resurtido_ajustes VALUES (3, 'A', 10000, 20000, 'Exhibición', 'Victor', '2026-11-18')");
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  const viejo = structuredClone(m);
+  for (const tabla of PEDIDOS) delete viejo.conteos[tabla];
+  viejo.trozos = viejo.trozos.filter(c => !PEDIDOS.includes(c.tabla));
+  assert.equal(Object.keys(viejo.conteos).length, 50);
+  g.sqlite.exec(`INSERT INTO resurtido_pedidos(id,marca,tipo,periodo,llave,estado,creado_en,creado_por)
+    VALUES (1,'JR','mensual','2026-11','JR:2026-11:mensual','enviado','hoy','1')`);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, viejo);
+  try { p.aplicar(); } finally { p.liberar(); }
+  for (const tabla of PEDIDOS) assert.equal(g.sqlite.prepare(`SELECT count(*) n FROM ${tabla}`).get().n, 0, tabla);
+  assert.equal(g.sqlite.prepare('SELECT count(*) n FROM resurtido_ajustes').get().n, 1);
+  assert.equal(g.sqlite.prepare("SELECT valor FROM resurtido_config WHERE clave='pedidos_pausados'").get().valor, '1');
+  assert.equal(g.sqlite.prepare("SELECT actor FROM resurtido_config_historial WHERE clave='pedidos_pausados'").get().actor, 'restauracion');
+});
+
+test('resurtido: copia nueva restaura pedidos, empaques, avisos y reservas', async t => {
+  const f = preparar(t), g = preparar(t), s = api();
+  f.sqlite.exec(`INSERT INTO resurtido_pedidos(id,marca,tipo,periodo,llave,estado,creado_en,creado_por)
+      VALUES (1,'SOLCOR','mensual','2026-11','SOLCOR:2026-11:mensual','aprobado','hoy','1');
+    INSERT INTO resurtido_pedido_renglones(pedido_id,sucursal_id,clave,descripcion,sugerido,pedido) VALUES (1,3,'C','CABLE',100000,100000);
+    INSERT INTO resurtido_pedido_historial(pedido_id,accion,actor,fecha) VALUES (1,'crear','sistema','hoy');
+    INSERT INTO resurtido_empaques VALUES ('C', 1000000, '9', 'hoy');
+    INSERT INTO resurtido_empaques_historial(clave,accion,anterior,nuevo,actor,fecha) VALUES ('C','confirmar',NULL,1000000,'9','hoy');
+    INSERT INTO resurtido_avisos(id,sucursal_id,clave,marca,creado_en,estado,propuesta_json) VALUES (1,3,'C','SOLCOR','hoy','abierto','{}');
+    INSERT INTO resurtido_reservas(aviso_id,donante,receptora,clave,piezas,creada,vence,estado) VALUES (1,1,3,'C',20000,'hoy','luego','viva');
+    INSERT INTO resurtido_avisos_historial(aviso_id,decision,motivo,actor,fecha,propuesta_json)
+      VALUES (1,'pasar','Prueba','9','hoy','{}')`);
+  const m = await s.crearSnapshotSicar(f.repo, f.drive, { DB: f.DB, llave: LLAVE });
+  assert.equal(Object.keys(m.conteos).length, 58);
+  s.configurarContexto(g.repo, { DB: g.DB, llave: LLAVE });
+  const p = await s.prepararRestauracionSicar(g.repo, f.drive, m);
+  try { p.aplicar(); } finally { p.liberar(); }
+  for (const tabla of PEDIDOS) {
+    assert.deepEqual(g.sqlite.prepare(`SELECT * FROM ${tabla}`).all(), f.sqlite.prepare(`SELECT * FROM ${tabla}`).all(), tabla);
+  }
+  assert.equal(g.sqlite.prepare("SELECT valor FROM resurtido_config WHERE clave='pedidos_pausados'").get().valor, '1');
 });
 
 test('resurtido: copia nueva restaura ajustes con y sin bandeja', async t => {

@@ -4,6 +4,46 @@ import { piezas, textoEstado, textoCalidad } from './resurtido.js';
 import { CATEGORIAS, moduloVisible } from '../menuCategorias.js';
 import * as resurtido from './resurtido.js';
 
+test('aviso abierto está cubierto cuando falta cero o menos, sin cambiar su historial', () => {
+  for (const falta of [0, -10000]) {
+    const aviso = { estado: 'abierto', propuesta: { falta }, decision: 'pasar', reservas: [{ estado: 'viva' }] };
+    const antes = structuredClone(aviso);
+    assert.equal(resurtido.avisoCubierto(aviso), true);
+    assert.deepEqual(aviso, antes);
+  }
+});
+
+test('aviso abierto con faltante positivo requiere acción', () => {
+  assert.equal(resurtido.avisoCubierto({ estado: 'abierto', propuesta: { falta: 1 } }), false);
+});
+
+test('aviso resuelto no se clasifica como cubierto aunque no falte mercancía', () => {
+  assert.equal(resurtido.avisoCubierto({ estado: 'resuelto', propuesta: { falta: 0 } }), false);
+});
+
+test('empaque sugerido conserva sin confirmar solo cuando no hay empaque confirmado', () => {
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: 1000000, confirmado: null }), 'Rollo de 100 (sin confirmar)');
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: 1000000, confirmado: { tamano: 500000 } }), 'Rollo de 100');
+});
+
+test('sin empaque sugerido se conserva el guion, incluso con empaque confirmado', () => {
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: null, confirmado: null }), '—');
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: null, confirmado: { tamano: 500000 } }), '—');
+});
+
+test('decidir aviso solo se bloquea por reservas vivas sin vencer', () => {
+  const ahora = Date.parse('2026-11-19T18:00:00Z');
+  const a = { estado: 'abierto', decision: 'pasar', reservas: [] };
+  for (const estado of ['consumida', 'vencida', 'viva']) {
+    a.reservas = [{ estado, vence: new Date(ahora).toISOString() }];
+    assert.equal(resurtido.avisoDecidible(a, ahora), true);
+  }
+  a.reservas = [{ estado: 'viva', vence: new Date(ahora + 1000).toISOString() }];
+  assert.equal(resurtido.avisoDecidible(a, ahora), false);
+  assert.equal(resurtido.avisoDecidible({ ...a, decision: 'pedir', reservas: [] }, ahora), false);
+  assert.equal(resurtido.avisoDecidible({ ...a, estado: 'resuelto', reservas: [] }, ahora), false);
+});
+
 test('origen de temporada distingue SICAR y cálculo con las cuatro tiendas', () => {
   assert.equal(resurtido.textoTemporada({ temporada_origen: 'sicar' }), 'Temporada medida en SICAR de San Cristóbal (2022–2025)');
   assert.equal(resurtido.textoTemporada({ temporada_origen: 'calculada' }), 'Temporada calculada con las ventas de las cuatro tiendas');
@@ -87,4 +127,46 @@ test('sin pedido porque ya llega a su máximo lo dice con números', () => {
     'No se sugiere pedir: con lo que hay (18) y lo que viene en camino (6) llega a su máximo (24).');
   assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'calculado', maximo: 24, existencia: 30, en_camino: 0 }),
     'No se sugiere pedir: con lo que hay (30) llega a su máximo (24).');
+});
+
+// ---- Pedido guardado (Task 12) ----
+test('texto para WhatsApp del pedido guardado: usa lo pedido y avisa tiendas fuera de tiempo', () => {
+  const datos = { marca: 'SOLCOR', tiendas_atrasadas: [], tiendas_fuera_de_tiempo: [2], renglones: [
+    { clave: 'C1', descripcion: 'CABLE 2X14', total: 1000000, por_tienda: [{ sucursal_id: 1, pedido: 450000 }, { sucursal_id: 4, pedido: 550000 }] }] };
+  assert.equal(resurtido.textoWhatsApp(datos, '01/12/2026'),
+    'Pedido SOLCOR — 01/12/2026\nC1 CABLE 2X14 — 100 (Oco 45, Pal 55)\nSin visto bueno a tiempo, NO incluidas: Yajalón');
+});
+
+test('estado del pedido en español', () => {
+  assert.deepEqual(['borrador', 'en_revision', 'aprobado', 'enviado', 'surtido'].map(resurtido.textoEstadoPedido),
+    ['Borrador', 'En revisión de tiendas', 'Aprobado', 'Enviado al proveedor', 'Surtido']);
+});
+
+test('motivo obligatorio solo al subir más del doble de lo sugerido', () => {
+  const r = { sugerido: 40000, pedido: 40000 };
+  assert.equal(resurtido.necesitaMotivo(r, 8), false);
+  assert.equal(resurtido.necesitaMotivo(r, 9), true);
+  assert.equal(resurtido.necesitaMotivo({ sugerido: 40000, pedido: 200000 }, 15), false, 'bajar no exige motivo');
+});
+
+test('cambios de la tienda: solo los renglones que cambiaron, en piezas, con su motivo', () => {
+  const renglones = [{ clave: 'A', pedido: 40000 }, { clave: 'B', pedido: 10000 }];
+  assert.deepEqual(resurtido.cambiosTienda(renglones, { A: '4', B: '0' }, { B: ' ya no ' }), [{ clave: 'B', pedido: 0, motivo: 'ya no' }]);
+  assert.deepEqual(resurtido.cambiosTienda(renglones, {}, {}), []);
+});
+
+test('estado de cada tienda en el pedido: lista, pendiente o fuera de tiempo', () => {
+  const renglones = [{ sucursal_id: 1, estado: 'activo', visto_bueno_por: '9', marcado: 1 },
+    { sucursal_id: 1, estado: 'activo', visto_bueno_por: '9', marcado: 0 }, { sucursal_id: 2, estado: 'activo', visto_bueno_por: null, marcado: 0 },
+    { sucursal_id: 3, estado: 'fuera_de_tiempo', visto_bueno_por: null, marcado: 0 }];
+  assert.deepEqual(resurtido.estadoTiendas(renglones), [
+    { sucursal_id: 1, estado: 'listo', marcados: 1 }, { sucursal_id: 2, estado: 'pendiente', marcados: 0 },
+    { sucursal_id: 3, estado: 'fuera_de_tiempo', marcados: 0 }]);
+});
+
+test('aviso de antes de comprar: solo con sobra, en piezas y con nombre de tienda', () => {
+  assert.equal(resurtido.textoSobra([]), '');
+  assert.equal(resurtido.textoSobra(undefined), '');
+  assert.equal(resurtido.textoSobra([{ sucursal_id: 3, piezas: 30000 }, { sucursal_id: 1, piezas: 10000 }]),
+    'Antes de comprar: San Cristóbal tiene 3 de sobra, Ocosingo tiene 1 de sobra');
 });

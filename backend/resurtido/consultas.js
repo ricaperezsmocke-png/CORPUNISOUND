@@ -1,5 +1,6 @@
 const { TIENDAS, MARCAS, leerConfig } = require('./config');
 const { enCamino, calcularSugerido } = require('./sugerido');
+const { reservasVivas, calcularSobrantes } = require('./sobrantes');
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
 function tiendaValida(valor) {
@@ -60,6 +61,13 @@ function armar(sqlite, suc, ahora) {
   return { filas, tiendas_atrasadas, calculado_en: fechas.at(-1) || null };
 }
 
+// "Antes de comprar": sobrante de cada clave en las cuatro tiendas (solo aviso; no cambia ningún número).
+// Se mira siempre a las cuatro tiendas aunque quien pregunta vea solo la suya: solo se expone tienda y piezas.
+function sobrantesActuales(sqlite, ahora, todas = null) {
+  const { filas, tiendas_atrasadas } = todas || armar(sqlite, null, ahora);
+  return calcularSobrantes(filas, tiendas_atrasadas, reservasVivas(sqlite, ahora));
+}
+
 function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
   const suc = filtros.sucursal_id == null ? null : tiendaValida(filtros.sucursal_id);
   const pagina = filtros.pagina == null ? 1 : Number(filtros.pagina);
@@ -80,10 +88,13 @@ function listaProveedor(sqlite, filtros = {}, ahora = new Date().toISOString()) 
   if (!MARCAS.includes(filtros.marca)) throw error(400, 'Elige la marca: JR o SOLCOR.');
   const suc = filtros.sucursal_id == null ? null : tiendaValida(filtros.sucursal_id);
   const { filas, tiendas_atrasadas, calculado_en } = armar(sqlite, suc, ahora);
+  const sobras = sobrantesActuales(sqlite, ahora, suc === null ? { filas, tiendas_atrasadas } : null);
   const porClave = new Map();
   for (const f of filas) {
     if (f.marca !== filtros.marca || !(f.sugerido > 0)) continue;
-    if (!porClave.has(f.clave)) porClave.set(f.clave, { clave: f.clave, descripcion: f.descripcion, total: 0, por_tienda: [] });
+    if (!porClave.has(f.clave)) {
+      porClave.set(f.clave, { clave: f.clave, descripcion: f.descripcion, total: 0, por_tienda: [], sobra: sobras.get(f.clave) || [] });
+    }
     const renglon = porClave.get(f.clave);
     renglon.total += f.sugerido;
     renglon.por_tienda.push({ sucursal_id: f.sucursal_id, sugerido: f.sugerido });
@@ -131,4 +142,4 @@ function quitarAjuste(sqlite, datos, actor, ahora = new Date().toISOString()) {
     return { ok: true };
   }).immediate();
 }
-module.exports = { listar, armar, listaProveedor, ponerAjuste, quitarAjuste };
+module.exports = { listar, armar, listaProveedor, ponerAjuste, quitarAjuste, sobrantesActuales };

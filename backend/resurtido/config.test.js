@@ -16,7 +16,17 @@ test('base nueva devuelve parámetros iniciales de resurtido', t => {
   assert.deepEqual(leerConfig(prepararDB(t)), {
     plazo_dias: 20, ciclo_dias: 30, z_servicio_centesimas: 165, dias_historia: 365,
     dias_validos_minimos: 30, proporcion_cero_sin_historia: 80, dias_datos_atrasados: 2,
+    dia_corte: 1, dias_visto_bueno: 3, pedidos_pausados: 0, proveedor_jr: 0, proveedor_solcor: 0,
   });
+});
+
+test('valores del pedido: día de corte 1 a 28, pausa 0 o 1, proveedor 0 o id', t => {
+  const db = prepararDB(t);
+  for (const cambio of [{ dia_corte: 0 }, { dia_corte: 29 }, { pedidos_pausados: 2 }, { dias_visto_bueno: 0 }, { proveedor_jr: -1 }]) {
+    assert.throws(() => cambiarConfig(db, cambio, 'Victor', 'hoy'), { status: 400 });
+  }
+  const r = cambiarConfig(db, { dia_corte: 28, pedidos_pausados: 1, proveedor_jr: 0, proveedor_solcor: 12 }, 'Victor', 'hoy');
+  assert.deepEqual([r.dia_corte, r.pedidos_pausados, r.proveedor_solcor], [28, 1, 12]);
 });
 
 test('configuración rechaza plazo cero sin escribir', t => {
@@ -42,10 +52,10 @@ test('parámetros mal formados se rechazan juntos, sin cambios parciales', t => 
   assert.equal(leerConfig(db).plazo_dias, 20);
 });
 
-test('permisos propios de inventario; aprobación y visto bueno aún no implementados', () => {
+test('permisos propios de inventario, con visto bueno y aprobación ya implementados', () => {
   for (const [clave, implementado] of [
     ['ver_resurtido', true], ['corregir_minimos_resurtido', true], ['configurar_resurtido', true],
-    ['dar_visto_bueno_resurtido', false], ['aprobar_pedido_resurtido', false],
+    ['dar_visto_bueno_resurtido', true], ['aprobar_pedido_resurtido', true],
   ]) {
     const permiso = listarPermisos().find(p => p.clave === clave);
     assert.equal(permiso?.modulo, 'inventario');

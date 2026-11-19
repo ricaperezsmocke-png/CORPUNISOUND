@@ -1,5 +1,6 @@
 // Sugerido de pedido (revisión periódica hasta el máximo). Solo lectura: no guarda pedidos ni manda nada.
 const { fechaLocal } = require('../fechas');
+const { pendientePedidos } = require('./llegadas');
 const DIA = 86400000;
 const DIAS_EN_CAMINO = 45;
 const NO_SE_PIDEN = ['no_se_mueve', 'sin_movimiento'];
@@ -24,6 +25,10 @@ function enCamino(sqlite, sucursal_id, ahora = new Date().toISOString()) {
     WHERE p.orden=1 AND p.estado='enviado' GROUP BY a.clave, reciente`).all(suc, suc, limite);
   const porClave = new Map(), viejo = new Map();
   for (const f of filas) (f.reciente ? porClave : viejo).set(f.clave, f.cantidad);
+  // Pedidos aprobados o enviados al proveedor que todavía no llegan a la tienda (mismo tope de 45 días).
+  for (const [clave, falta] of pendientePedidos(sqlite, suc, limite)) {
+    if (falta > 0) porClave.set(clave, (porClave.get(clave) || 0) + falta);
+  }
   return { porClave, viejo };
 }
 

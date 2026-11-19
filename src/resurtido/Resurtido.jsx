@@ -5,6 +5,12 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../compon
 import { piezas, textoEstado, textoCalidad } from './resurtido';
 import Explicacion from './Explicacion';
 import ListaProveedor from './ListaProveedor';
+import Pedido from './Pedido';
+import Empaques from './Empaques';
+import Avisos from './Avisos';
+
+const PESTANAS = [['minmax', 'Mínimos y máximos'], ['pedido', 'Pedido'], ['avisos', 'Avisos'], ['empaques', 'Empaques']];
+const PESTANA = 'rounded-t-md border-b-2 px-4 py-2 text-sm';
 
 const TIENDAS = [[1, 'Ocosingo'], [2, 'Yajalón'], [3, 'San Cristóbal'], [4, 'Palenque']];
 const nombreTienda = id => TIENDAS.find(([n]) => n === Number(id))?.[1] || String(id);
@@ -72,7 +78,9 @@ export default function Resurtido({ usuario }) {
   const [pagina, setPagina] = useState(1), [version, setVersion] = useState(0), [editando, setEditando] = useState(null);
   const [datos, setDatos] = useState(null), [cargando, setCargando] = useState(true), [error, setError] = useState('');
   const [explicando, setExplicando] = useState(null), [proveedor, setProveedor] = useState(false);
+  const [pestana, setPestana] = useState('minmax');
   useEffect(() => {
+    if (pestana !== 'minmax') return undefined;
     const controller = new AbortController();
     setCargando(true); setError(''); setDatos(null);
     const parametros = new URLSearchParams({ sucursal_id: tienda, marca, lista, estado, q, pagina: String(pagina) });
@@ -81,22 +89,35 @@ export default function Resurtido({ usuario }) {
     }).catch(e => { if (!controller.signal.aborted) setError(e.message); })
       .finally(() => { if (!controller.signal.aborted) setCargando(false); });
     return () => controller.abort();
-  }, [tienda, marca, lista, estado, q, pagina, version]);
+  }, [tienda, marca, lista, estado, q, pagina, version, pestana]);
   const cambiar = setter => e => { setter(e.target.value); setPagina(1); };
+  const selectorTienda = verTodas && <label className="text-sm">Tienda<select className={CAMPO} value={tienda} onChange={cambiar(setTienda)}>
+    <option value="todas">Todas las tiendas</option>{TIENDAS.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
+  </select></label>;
   return <main className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6">
+    <nav className="flex flex-wrap gap-1 border-b border-slate-200" aria-label="Secciones de resurtido">
+      {PESTANAS.map(([id, texto]) => <button key={id} type="button" aria-current={pestana === id ? 'page' : undefined}
+        className={`${PESTANA} ${pestana === id ? 'border-blue-700 font-semibold text-blue-800' : 'border-transparent text-slate-600'}`}
+        onClick={() => setPestana(id)}>{texto}</button>)}
+    </nav>
+    {pestana !== 'minmax' && <>
+      {pestana !== 'empaques' && selectorTienda}
+      {pestana === 'pedido' && <Pedido usuario={usuario} tienda={tienda} />}
+      {pestana === 'avisos' && <Avisos usuario={usuario} tienda={tienda} />}
+      {pestana === 'empaques' && <Empaques usuario={usuario} />}
+    </>}
+    {pestana === 'minmax' && <>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-2xl font-semibold">Mínimos y máximos</h1>
         <p className="mt-1 text-sm text-slate-600">JR y Solcor · {verTodas ? 'Las cuatro tiendas' : nombreTienda(tienda)}</p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button className={PRIMARIO} onClick={() => setProveedor(true)}>Lista para el proveedor</button>
-        <button className={BOTON} disabled={cargando} onClick={() => setVersion(v => v + 1)}>Actualizar lista</button>
+        <button type="button" className={PRIMARIO} onClick={() => setProveedor(true)}>Lista para el proveedor</button>
+        <button type="button" className={BOTON} disabled={cargando} onClick={() => setVersion(v => v + 1)}>Actualizar lista</button>
       </div>
     </div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      {verTodas && <label className="text-sm">Tienda<select className={CAMPO} value={tienda} onChange={cambiar(setTienda)}>
-        <option value="todas">Todas las tiendas</option>{TIENDAS.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
-      </select></label>}
+      {selectorTienda}
       <label className="text-sm">Marca<select className={CAMPO} value={marca} onChange={cambiar(setMarca)}>
         <option value="">Todas las marcas</option><option>JR</option><option>SOLCOR</option>
       </select></label>
@@ -148,6 +169,7 @@ export default function Resurtido({ usuario }) {
         <span className="text-sm">Página {pagina} de {Math.max(1, Math.ceil(datos.total / 100))}</span>
         <button className={BOTON} disabled={pagina * 100 >= datos.total} onClick={() => setPagina(p => p + 1)}>Siguiente</button>
       </div>
+    </>}
     </>}
     {proveedor && <ListaProveedor tienda={tienda} cerrar={() => setProveedor(false)} />}
     {explicando && <Explicacion fila={explicando} tienda={nombreTienda(explicando.sucursal_id)} cerrar={() => setExplicando(null)} />}

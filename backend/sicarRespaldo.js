@@ -16,7 +16,9 @@ const TABLAS = Object.freeze(['sicar_esquema', 'sicar_tiendas', 'sicar_llaves', 
   'seguimiento_foto', 'seguimiento_foto_problemas', 'seguimiento_pendientes', 'seguimiento_resultado',
   'seguimiento_avisos', 'seguimiento_avisos_historial',
   'resurtido_config', 'resurtido_config_historial', 'resurtido_existencia_diaria',
-  'resurtido_minmax', 'resurtido_ajustes', 'resurtido_ajustes_historial']);
+  'resurtido_minmax', 'resurtido_ajustes', 'resurtido_ajustes_historial',
+  'resurtido_pedidos', 'resurtido_pedido_renglones', 'resurtido_pedido_historial', 'resurtido_empaques',
+  'resurtido_empaques_historial', 'resurtido_avisos', 'resurtido_reservas', 'resurtido_avisos_historial']);
 // Bandeja de clientes (spec 2026-10-18 §4.7): sus tablas viajan en la misma copia y se restauran en la misma transacción
 // que los datos del negocio, porque sus cliente_id apuntan a clientes del JSON. Solo si la base ya las tiene.
 const TABLAS_LEADS = Object.freeze(['centro_leads_schema_version', 'lead_fuentes', 'lead_contenidos', 'lead_eventos_externos',
@@ -45,6 +47,8 @@ const TABLAS_34 = Object.freeze(TABLAS.slice(0, 34));
 const TABLAS_35 = Object.freeze(TABLAS.slice(0, 35));
 // Generación de seguimiento por factura, anterior a resurtido (con y sin bandeja).
 const TABLAS_44 = Object.freeze(TABLAS.slice(0, 44));
+// Generación de mínimos y máximos (2026-11-18), anterior a pedidos, empaques y avisos (con y sin bandeja).
+const TABLAS_50 = Object.freeze(TABLAS.slice(0, 50));
 const GENERACIONES = Object.freeze([Object.freeze(TABLAS.slice(0, 10)), Object.freeze(TABLAS.slice(0, 12)),
   Object.freeze(TABLAS.slice(0, 14)), TABLAS_15,
   Object.freeze([...TABLAS_15, ...TABLAS_LEADS]), TABLAS_16, Object.freeze([...TABLAS_16, ...TABLAS_LEADS]),
@@ -54,7 +58,8 @@ const GENERACIONES = Object.freeze([Object.freeze(TABLAS.slice(0, 10)), Object.f
   TABLAS_33, Object.freeze([...TABLAS_33, ...TABLAS_LEADS]),
   TABLAS_34, Object.freeze([...TABLAS_34, ...TABLAS_LEADS]),
   TABLAS_35, Object.freeze([...TABLAS_35, ...TABLAS_LEADS]),
-  TABLAS_44, Object.freeze([...TABLAS_44, ...TABLAS_LEADS]), TABLAS, TODAS]);
+  TABLAS_44, Object.freeze([...TABLAS_44, ...TABLAS_LEADS]),
+  TABLAS_50, Object.freeze([...TABLAS_50, ...TABLAS_LEADS]), TABLAS, TODAS]);
 const CON_BANDEJA = new Set(GENERACIONES.filter(tablas => tablas.includes(TABLAS_LEADS[0])));
 const MAX_TROZO = 2 * 1024 * 1024;
 // Margen para cabecera, gzip y cifrado, incluso con datos que no comprimen.
@@ -407,6 +412,14 @@ async function prepararRestauracionSicar(repo, drive, manifiesto) {
               for (const fila of filasLeads.get(tabla) || []) insertar.run(...campos.map(k => fila[k]));
             }
           } else if (clientes) desligarLeadsParciales(sqlite, clientes, fechaFoto);
+          // Una copia vieja puede no traer un pedido que ya se mandó: el ciclo no arma borradores hasta que alguien
+          // con permiso de aprobar los reactiva (plan de resurtido, Task 9).
+          const ahora = new Date().toISOString();
+          const pausa = sqlite.prepare("SELECT valor FROM resurtido_config WHERE clave='pedidos_pausados'").get();
+          sqlite.prepare(`INSERT INTO resurtido_config(clave, valor, actor, fecha) VALUES ('pedidos_pausados','1','restauracion',?)
+            ON CONFLICT(clave) DO UPDATE SET valor='1', actor='restauracion', fecha=excluded.fecha`).run(ahora);
+          sqlite.prepare(`INSERT INTO resurtido_config_historial(clave, anterior, nuevo, actor, fecha)
+            VALUES ('pedidos_pausados', ?, '1', 'restauracion', ?)`).run(pausa?.valor ?? '0', ahora);
           const resultado = guardarEstado();
           if (resultado?.then) throw new Error('El guardado de estado debe ser síncrono dentro de la transacción SICAR.');
         }).immediate();

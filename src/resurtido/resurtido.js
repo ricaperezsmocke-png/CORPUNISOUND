@@ -18,13 +18,45 @@ export function textoExplicacion(d) {
 const CORTO = { 1: 'Oco', 2: 'Yaj', 3: 'SC', 4: 'Pal' };
 export function textoWhatsApp(datos, fechaTexto) {
   const lineas = datos.renglones.map(r => {
-    const reparto = r.por_tienda.map(t => `${CORTO[t.sucursal_id] || t.sucursal_id} ${piezas(t.sugerido)}`).join(', ');
+    // El sugerido de solo lectura trae `sugerido`; el pedido guardado trae lo que quedó `pedido`.
+    const reparto = r.por_tienda.map(t => `${CORTO[t.sucursal_id] || t.sucursal_id} ${piezas(t.pedido ?? t.sugerido)}`).join(', ');
     return `${r.clave} ${r.descripcion} — ${piezas(r.total)} (${reparto})`;
   });
   // Una tienda atrasada no entra al pedido: el texto copiado lo dice para que no se mande incompleto sin saberlo.
-  const fuera = (datos.tiendas_atrasadas || []).map(id => NOMBRE[id] || String(id));
+  const nombres = ids => (ids || []).map(id => NOMBRE[id] || String(id));
+  const fuera = nombres(datos.tiendas_atrasadas), tarde = nombres(datos.tiendas_fuera_de_tiempo);
   return [`Pedido ${datos.marca} — ${fechaTexto}`, ...(lineas.length ? lineas : ['No hay nada que pedir.']),
-    ...(fuera.length ? [`Sin datos al día, NO incluidas: ${fuera.join(', ')}`] : [])].join('\n');
+    ...(fuera.length ? [`Sin datos al día, NO incluidas: ${fuera.join(', ')}`] : []),
+    ...(tarde.length ? [`Sin visto bueno a tiempo, NO incluidas: ${tarde.join(', ')}`] : [])].join('\n');
+}
+// Solo aviso: no cambia ningún número del pedido.
+export function textoSobra(sobra) {
+  if (!sobra?.length) return '';
+  return `Antes de comprar: ${sobra.map(s => `${NOMBRE[s.sucursal_id] || s.sucursal_id} tiene ${piezas(s.piezas)} de sobra`).join(', ')}`;
+}
+const ESTADOS_PEDIDO = { borrador: 'Borrador', en_revision: 'En revisión de tiendas', aprobado: 'Aprobado',
+  enviado: 'Enviado al proveedor', surtido: 'Surtido', cancelado: 'Cancelado' };
+export function textoEstadoPedido(estado) { return ESTADOS_PEDIDO[estado] || estado; }
+// Misma regla que el servidor (que es quien la hace cumplir): subir más del doble de lo sugerido pide motivo.
+export function necesitaMotivo(renglon, piezasNuevas) {
+  const nuevo = Number(piezasNuevas) * 10000;
+  return nuevo > 2 * renglon.sugerido && nuevo > renglon.pedido;
+}
+export function cambiosTienda(renglones, valores, motivos) {
+  return renglones.filter(r => valores[r.clave] !== undefined && valores[r.clave] !== ''
+    && Number(valores[r.clave]) * 10000 !== r.pedido)
+    .map(r => ({ clave: r.clave, pedido: Number(valores[r.clave]), motivo: String(motivos[r.clave] || '').trim() }));
+}
+export function estadoTiendas(renglones) {
+  const porTienda = new Map();
+  for (const r of renglones) {
+    const t = porTienda.get(r.sucursal_id) || { sucursal_id: r.sucursal_id, estado: 'listo', marcados: 0 };
+    if (r.estado === 'fuera_de_tiempo') t.estado = 'fuera_de_tiempo';
+    else if (!r.visto_bueno_por && t.estado === 'listo') t.estado = 'pendiente';
+    t.marcados += r.marcado ? 1 : 0;
+    porTienda.set(r.sucursal_id, t);
+  }
+  return [...porTienda.values()].sort((a, b) => a.sucursal_id - b.sucursal_id);
 }
 const NOMBRE = { 1: 'Ocosingo', 2: 'Yajalón', 3: 'San Cristóbal', 4: 'Palenque' };
 const POR_QUE_NO = { sin_movimiento: ': no se ha vendido en el año', no_se_mueve: ': tiene existencia y no se vende' };
@@ -47,4 +79,14 @@ export function textoEstado(fila) {
 export function textoCalidad(fila) {
   if (fila.calidad === 'aproximada') return 'Aproximado: algunos días en cero se calcularon hacia atrás';
   return fila.calidad === 'observada' ? 'Observado: todos los días tienen registros reales' : 'Sin cálculo';
+}
+export function avisoCubierto(aviso) {
+  return aviso.estado === 'abierto' && aviso.propuesta.falta <= 0;
+}
+export function textoEmpaqueSugerido(clave) {
+  return clave.sugerido ? `Rollo de ${piezas(clave.sugerido)}${clave.confirmado ? '' : ' (sin confirmar)'}` : '—';
+}
+export function avisoDecidible(aviso, ahora = Date.now()) {
+  const apartado = aviso.reservas.some(r => r.estado === 'viva' && Date.parse(r.vence) > ahora);
+  return aviso.estado === 'abierto' && aviso.decision !== 'pedir' && !(aviso.decision === 'pasar' && apartado);
 }
