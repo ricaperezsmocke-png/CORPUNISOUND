@@ -249,7 +249,7 @@ const ESQUEMA = `
     sucursal_id INTEGER NOT NULL, clave TEXT NOT NULL, marca TEXT NOT NULL,
     minimo INTEGER NOT NULL, maximo INTEGER NOT NULL, venta_diaria_diezmilesimas INTEGER NOT NULL,
     dias_validos INTEGER NOT NULL, dias_en_cero INTEGER NOT NULL,
-    lista TEXT NOT NULL CHECK (lista IN ('calculado','sin_historia','no_se_mueve')),
+    lista TEXT NOT NULL CHECK (lista IN ('calculado','sin_historia','no_se_mueve','sin_movimiento')),
     calidad TEXT NOT NULL CHECK (calidad IN ('aproximada','observada')), calculado_en TEXT NOT NULL,
     PRIMARY KEY (sucursal_id, clave)
   );
@@ -510,6 +510,14 @@ function crearRepositorioSicar(sqlite, { clientesNativos, alGuardarCompras } = {
   }
   sqlite.transaction(() => {
     sqlite.exec(ESQUEMA);
+    const minmax = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='resurtido_minmax'").get();
+    if (!minmax.sql.includes("'sin_movimiento'")) {
+      // Ampliar el CHECK de la tabla existente conservando sus filas dentro de esta transacción.
+      sqlite.exec('ALTER TABLE resurtido_minmax RENAME TO resurtido_minmax_anterior');
+      sqlite.exec(ESQUEMA);
+      sqlite.exec(`INSERT INTO resurtido_minmax SELECT * FROM resurtido_minmax_anterior;
+        DROP TABLE resurtido_minmax_anterior;`);
+    }
     const columnasPendientes = [['intentos', 'INTEGER NOT NULL DEFAULT 0'], ['ultimo_error', 'TEXT'],
       ['ultimo_intento', 'TEXT'], ['reintento_por', 'TEXT'], ['reintento_en', 'TEXT']];
     for (const [columna, tipo] of columnasPendientes) {

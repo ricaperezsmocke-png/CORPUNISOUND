@@ -36,6 +36,26 @@ function agregar(resultado, fila) {
   dias.set(fila.dia, (dias.get(fila.dia) || 0) + fila.cantidad);
 }
 
+function ventasPorTicket(sqlite, sucursal_id, desde, hasta) {
+  const resultado = new Map();
+  if (!TIENDAS.includes(Number(sucursal_id))) return resultado;
+  for (const mostrador of [false, true]) {
+    const ventas = mostrador ? 'sicar_ventas_mostrador' : 'sicar_ventas';
+    const detalles = mostrador ? 'sicar_detalles_mostrador' : 'sicar_detalles';
+    const filas = sqlite.prepare(`SELECT a.clave, SUBSTR(v.fecha_local,1,10) dia,
+      SUM(CAST(ROUND(CAST(d.cantidad AS REAL)*10000) AS INTEGER)) cantidad
+      FROM ${ventas} v JOIN ${detalles} d ON d.sucursal_id=v.sucursal_id AND d.ven_id=v.ven_id
+      JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
+      WHERE v.sucursal_id=? AND v.estado='vigente' AND SUBSTR(v.fecha_local,1,10) BETWEEN ? AND ? AND ${DE_MARCA}
+      ${mostrador ? '' : `AND ${NO_INTERNA('v')}`} GROUP BY v.ven_id,d.art_id`).all(sucursal_id, desde, hasta);
+    for (const fila of filas) {
+      if (!resultado.has(fila.clave)) resultado.set(fila.clave, []);
+      resultado.get(fila.clave).push({ dia: fila.dia, cantidad: fila.cantidad });
+    }
+  }
+  return resultado;
+}
+
 function ventasDiarias(sqlite, sucursal_id, desde, incluirInternas = false) {
   const resultado = new Map();
   if (TIENDAS.includes(Number(sucursal_id))) {
@@ -58,10 +78,9 @@ function ventasMensualesMarca(sqlite, marca, tiendas = TIENDAS) {
   const resultado = new Map();
   if (!MARCAS.includes(marca)) return resultado;
   for (const tienda of new Set(tiendas.map(Number).filter(id => TIENDAS.includes(id)))) {
-    // Toda la historia: antes de 2025 solo hay ventas con cliente (mostrador se carga desde 2025), pero cortar ahí deja
-    // un solo año completo y la temporada se apaga (indicesTemporada pide dos). Revisado por Claude 2026-11-19.
-    for (const fila of filasVentas(sqlite, tienda, '0001-01-01', 7)) if (fila.marca === marca) agregar(resultado, fila);
+    // Desde 2025 están disponibles tanto las ventas con cliente como las de mostrador.
+    for (const fila of filasVentas(sqlite, tienda, '2025-01-01', 7)) if (fila.marca === marca) agregar(resultado, fila);
   }
   return resultado;
 }
-module.exports = { clavesDeMarca, ventasDiarias, existenciaActual, ventasMensualesMarca };
+module.exports = { clavesDeMarca, ventasDiarias, ventasPorTicket, existenciaActual, ventasMensualesMarca };

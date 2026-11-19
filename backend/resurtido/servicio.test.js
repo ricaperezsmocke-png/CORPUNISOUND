@@ -4,6 +4,18 @@ const Database = require('better-sqlite3');
 const { crearRepositorioSicar } = require('../sicarRepositorio');
 const { recalcular, iniciarCicloResurtido, completarMeses, demoraHastaLasDos } = require('./servicio');
 const AHORA = '2026-11-18T18:00:00Z';
+test('recálculo limita demanda del ticket sin recortar la existencia reconstruida', t => {
+  const db = prepararDB(t);
+  db.exec(`INSERT INTO sicar_ventas_mostrador VALUES (3,'v','2026-11-17T12:00:00','vigente',0,'hoy');
+    INSERT INTO sicar_detalles_mostrador VALUES (3,'v',0,'0','73',0,0)`);
+  recalcular(db, AHORA);
+  const r = db.prepare('SELECT * FROM resurtido_minmax WHERE sucursal_id=3').get();
+  const indices = [0.9, 1, 1.1, 1, 1, 1.1, 0.9, 0.9, 1.1, 1, 1, 1];
+  const suma = Array.from({ length: 365 }, (_, i) => new Date(Date.UTC(2025, 10, 18) + i * 86400000))
+    .reduce((total, dia) => total + indices[dia.getUTCMonth()], 0);
+  assert.equal(r.venta_diaria_diezmilesimas, Math.round(60000 / suma));
+  assert.equal(db.prepare("SELECT piezas_diezmilesimas n FROM resurtido_existencia_diaria WHERE sucursal_id=3 AND dia='2026-11-17'").get().n, 830000);
+});
 
 function prepararDB(t, claves = 1, tiendas = [1, 3, 6, 7]) {
   const db = new Database(':memory:'); crearRepositorioSicar(db); t.after(() => db.close());
@@ -17,6 +29,49 @@ function prepararDB(t, claves = 1, tiendas = [1, 3, 6, 7]) {
   })();
   return db;
 }
+
+test('ciclo procesa cuatro tiendas en cuatro turnos sin solapar vueltas y guarda lo mismo que recalcular', t => {
+  const db = prepararDB(t, 2, [1, 2, 3, 4]), referencia = prepararDB(t, 2, [1, 2, 3, 4]);
+  for (const base of [db, referencia]) base.exec(`
+    INSERT INTO sicar_ventas_mostrador VALUES (3,'v','2026-11-17T12:00:00','vigente',0,'hoy');
+    INSERT INTO sicar_detalles_mostrador VALUES (3,'v',0,'0','73',0,0)`);
+  recalcular(referencia, new Date(AHORA).toISOString());
+  const timers = [], turnos = [];
+  const detener = iniciarCicloResurtido(db, { reloj: () => new Date(AHORA),
+    programar: (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; }, cancelar() {},
+    ceder: fn => { turnos.push(fn); return { unref() {} }; }, cancelarTurno() {} });
+  t.after(detener);
+  timers[0].fn();
+  for (let tienda = 1; tienda <= 4; tienda++) {
+    assert.deepEqual(db.prepare('SELECT DISTINCT sucursal_id FROM resurtido_minmax ORDER BY sucursal_id').all(),
+      Array.from({ length: tienda }, (_, i) => ({ sucursal_id: i + 1 })));
+    if (tienda < 4) {
+      assert.equal(timers.length, 1);
+      timers[0].fn(); // Un disparo repetido no debe iniciar otra vuelta.
+      assert.equal(turnos.length, 1);
+      turnos.shift()();
+    }
+  }
+  assert.equal(turnos.length, 0); assert.equal(timers.length, 2);
+  for (const tabla of ['resurtido_minmax', 'resurtido_existencia_diaria']) {
+    assert.deepEqual(db.prepare(`SELECT * FROM ${tabla} ORDER BY 1,2,3`).all(),
+      referencia.prepare(`SELECT * FROM ${tabla} ORDER BY 1,2,3`).all());
+  }
+});
+
+test('detener a media vuelta cancela el turno pendiente y no calcula ni programa más tiendas', t => {
+  const db = prepararDB(t, 1, [1, 2, 3, 4]), timers = [], turnos = []; let cancelados = 0;
+  const detener = iniciarCicloResurtido(db, { reloj: () => new Date(AHORA),
+    programar: fn => { timers.push(fn); return { unref() {} }; }, cancelar() {},
+    ceder: fn => { turnos.push(fn); return { unref() {} }; }, cancelarTurno() { cancelados++; } });
+  t.after(detener);
+  timers[0](); detener();
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_minmax').get().n, 1);
+  assert.equal(cancelados, 1);
+  turnos[0](); timers[0](); // Incluso si ya estaba encolado, no debe escribir.
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_minmax').get().n, 1);
+  assert.equal(timers.length, 1); assert.equal(turnos.length, 1);
+});
 
 test('recalcula dos tiendas, guarda calidad aproximada y excluye CEDIS/Innotec', t => {
   const db = prepararDB(t), r = recalcular(db, AHORA);
@@ -76,15 +131,16 @@ test('completa meses sin venta sin inventar años previos al primer mes conocido
 });
 
 test('ciclo único por conexión espera un minuto al arrancar, programa hora local y libera timer', t => {
-  const db = prepararDB(t), pendientes = []; let libres = 0, cancelados = 0;
+  const db = prepararDB(t), pendientes = [], turnos = []; let libres = 0, cancelados = 0;
   const opciones = { reloj: () => new Date('2026-11-18T07:00:00Z'),
     programar: (fn, ms) => { pendientes.push({ fn, ms }); return { unref() { libres++; } }; },
-    cancelar: () => { cancelados++; } };
+    cancelar: () => { cancelados++; }, ceder: fn => { turnos.push(fn); }, cancelarTurno() {} };
   const detener = iniciarCicloResurtido(db, opciones);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM resurtido_minmax').get().n, 0);
   assert.equal(iniciarCicloResurtido(db, opciones), detener);
   assert.equal(pendientes.length, 1); assert.equal(pendientes[0].ms, 60000);
   pendientes[0].fn();
+  while (turnos.length) turnos.shift()();
   assert.ok(db.prepare('SELECT COUNT(*) n FROM resurtido_minmax').get().n > 0);
   assert.equal(pendientes.length, 2); assert.equal(pendientes[1].ms, 3600000); assert.equal(libres, 2);
   detener(); assert.equal(cancelados, 1);

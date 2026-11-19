@@ -3,6 +3,12 @@ const assert = require('node:assert/strict');
 const Database = require('better-sqlite3');
 const { crearRepositorioSicar } = require('../sicarRepositorio');
 const AHORA = '2026-11-18T18:00:00Z';
+test('explicación conserva venta total y revela excedente de pedidos especiales', t => {
+  const db = prepararDB(t), { explicar } = require('./explicacion');
+  const r = explicar(db, 3, 'A', AHORA);
+  assert.equal(r.piezas_pedido_especial, 66);
+  assert.equal(r.piezas_vendidas, 73);
+});
 function prepararDB(t) {
   const db = new Database(':memory:'); crearRepositorioSicar(db); t.after(() => db.close());
   db.exec(`INSERT INTO sicar_tiendas(sucursal_id) VALUES (3);
@@ -23,7 +29,7 @@ test('explicación en piezas separa venta simple, final y ceros observados de re
   assert.equal(r.venta_mensual_simple, 6); assert.equal(r.venta_diaria, 0.1);
   assert.equal(r.dias_en_cero, 2); assert.equal(r.ceros_observados, 1); assert.equal(r.ceros_reconstruidos, 1);
   assert.equal(r.dias_historia, 365); assert.equal(r.desde, '2025-11-18'); assert.equal(r.hasta, '2026-11-17');
-  assert.deepEqual(r.indices, Array(12).fill(1)); assert.equal(r.factor, 1);
+  assert.deepEqual(r.indices, [0.9, 1, 1.1, 1, 1, 1.1, 0.9, 0.9, 1.1, 1, 1, 1]); assert.equal(r.factor, 1);
   assert.equal(r.minimo, 2); assert.equal(r.maximo, 6);
   assert.equal(db.prepare('SELECT total_changes() n').get().n, antes);
 });

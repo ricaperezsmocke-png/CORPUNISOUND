@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
-import { MESES, textoExplicacion } from './resurtido';
+import { MESES, textoExplicacion, textoPedidoEspecial, textoTemporada } from './resurtido';
 const CELDA = 'border-b border-slate-200 px-3 py-2 text-left tabular-nums';
 
 export default function Explicacion({ fila, tienda, cerrar }) {
@@ -29,13 +29,13 @@ export default function Explicacion({ fila, tienda, cerrar }) {
       {!datos && !error && <p role="status">Cargando explicación…</p>}
       {datos && <div className="space-y-4 text-sm">
         <p className="rounded-md bg-blue-50 p-4 text-blue-950">{textoExplicacion(datos)}</p>
+        {datos.piezas_pedido_especial > 0 && <p>{textoPedidoEspecial(datos)}</p>}
         <p>Existencia actual: {datos.existencia ?? 'sin registro'} piezas. Venta diaria final: {datos.venta_diaria ?? 'sin cálculo'} piezas.</p>
         <p>Ventana: {datos.desde} al {datos.hasta}. Días en cero: {datos.ceros_observados} observados y {datos.ceros_reconstruidos} reconstruidos.</p>
         {!!datos.dias_sin_dato && <p className="text-amber-800">Hay {datos.dias_sin_dato} días sin registro de existencia en esta ventana.</p>}
         {datos.corregido && <p>El mínimo y máximo mostrados incluyen la corrección manual.</p>}
         {datos.ya_no_la_maneja && <p>Ya no la maneja la tienda; conserva su corrección.</p>}
-        <p className="text-slate-600">La temporada promedia el mes indicado y el siguiente.
-          {datos.temporada_motivo && ' Se usa factor 1 porque falta historia completa suficiente.'}</p>
+        <p className="text-slate-600">{textoTemporada(datos)}. La temporada promedia el mes indicado y el siguiente.</p>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           {datos.indices.map((indice, i) => <p key={i} className="rounded border p-2">{MESES[i]}: ×{indice}</p>)}
         </div>
