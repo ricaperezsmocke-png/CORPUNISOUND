@@ -15,8 +15,8 @@ function calcularMinMax({ ventasPorDia, diasEnCero, desde, hasta, indices, mesCa
   }
   const base = { venta_diaria: 0, dias_validos: validos.length, dias_en_cero: ceros };
   const sinHistoria = () => ({ ...base, minimo: 10000, maximo: 20000, lista: 'sin_historia' });
-  if (total === 0) return ceros / dias * 100 >= config.proporcion_cero_sin_historia
-    ? sinHistoria() : { ...base, minimo: 0, maximo: 0, lista: 'no_se_mueve' };
+  if (total === 0) return { ...base, minimo: 0, maximo: 0,
+    lista: ceros / dias * 100 >= config.proporcion_cero_sin_historia ? 'sin_movimiento' : 'no_se_mueve' };
   if (validos.length < config.dias_validos_minimos) return sinHistoria();
   const mu = ventaValida / sumaIndices;
   const varianza = validos.length > 1 ? validos.reduce((suma, v) => suma + (v - mu) ** 2, 0) / (validos.length - 1) : 0;

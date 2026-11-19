@@ -1,5 +1,9 @@
 const TIENDAS = Object.freeze([1, 2, 3, 4]);
 const MARCAS = Object.freeze(['JR', 'SOLCOR']);
+const INDICES_SICAR = Object.freeze({
+  JR: Object.freeze([0.9, 1, 1.1, 1, 1, 1.1, 0.9, 0.9, 1.1, 1, 1, 1]),
+  SOLCOR: Object.freeze([0.9, 0.9, 1.1, 0.8, 0.6, 1.2, 1.1, 0.9, 1.1, 1.3, 1.2, 1]),
+});
 const VALORES_INICIALES = Object.freeze({
   plazo_dias: 20, ciclo_dias: 30, z_servicio_centesimas: 165, dias_historia: 365,
   dias_validos_minimos: 30, proporcion_cero_sin_historia: 80, dias_datos_atrasados: 2,
@@ -39,4 +43,4 @@ function cambiarConfig(sqlite, cambios, actor, ahora = new Date().toISOString())
   }).immediate();
 }
 
-module.exports = { TIENDAS, MARCAS, VALORES_INICIALES, leerConfig, cambiarConfig };
+module.exports = { TIENDAS, MARCAS, INDICES_SICAR, VALORES_INICIALES, leerConfig, cambiarConfig };

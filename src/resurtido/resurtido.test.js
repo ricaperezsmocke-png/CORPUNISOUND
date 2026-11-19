@@ -4,6 +4,21 @@ import { piezas, textoEstado, textoCalidad } from './resurtido.js';
 import { CATEGORIAS, moduloVisible } from '../menuCategorias.js';
 import * as resurtido from './resurtido.js';
 
+test('origen de temporada distingue SICAR y cálculo con las cuatro tiendas', () => {
+  assert.equal(resurtido.textoTemporada({ temporada_origen: 'sicar' }), 'Temporada medida en SICAR de San Cristóbal (2022–2025)');
+  assert.equal(resurtido.textoTemporada({ temporada_origen: 'calculada' }), 'Temporada calculada con las ventas de las cuatro tiendas');
+});
+
+test('estado sin pedir se muestra como No se pide', () => {
+  assert.equal(textoEstado({ estado: 'sin_pedir' }), 'No se pide');
+});
+
+test('aviso de pedido especial aparece únicamente con excedente positivo', () => {
+  assert.equal(resurtido.textoPedidoEspecial({ piezas_pedido_especial: 51 }),
+    '51 piezas vendidas en tickets grandes se tomaron como pedido especial y no suben el mínimo.');
+  assert.equal(resurtido.textoPedidoEspecial({ piezas_pedido_especial: 0 }), '');
+});
+
 test('explicación habla en piezas y respeta ventanas configuradas sin cálculo', () => {
   const d = { piezas_vendidas: 73, dias_historia: 365, venta_mensual_simple: 6, dias_en_cero: 116,
     mes_calculo: 11, factor: 1.2, minimo: 10, maximo: 19 };

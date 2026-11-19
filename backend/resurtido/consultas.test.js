@@ -17,6 +17,32 @@ function prepararDB(t) {
 }
 const ajuste = { sucursal_id: 3, clave: 'A', minimo: 4, maximo: 8, motivo: 'Exhibición' };
 
+test('catálogo sin ventas en cero no se pide y el ajuste manual vuelve a marcar agotado', t => {
+  const db = prepararDB(t), { recalcular } = require('./servicio');
+  db.exec('UPDATE sicar_existencias SET existencia_diezmilesimas=0');
+  recalcular(db, AHORA);
+  const f = listar(db, { sucursal_id: 3 }, AHORA).filas[0];
+  assert.deepEqual([f.minimo, f.maximo, f.lista, f.estado], [0, 0, 'sin_movimiento', 'sin_pedir']);
+  const filtros = { sucursal_id: 3, lista: 'sin_movimiento', estado: 'sin_pedir' };
+  assert.equal(listar(db, filtros, AHORA).total, 1);
+  ponerAjuste(db, { ...ajuste, minimo: 2 }, '1', AHORA);
+  assert.equal(listar(db, { sucursal_id: 3 }, AHORA).filas[0].estado, 'agotado');
+  assert.equal(listar(db, filtros, AHORA).total, 0);
+  ponerAjuste(db, { ...ajuste, minimo: 0, maximo: 0 }, '1', AHORA);
+  db.exec('UPDATE sicar_existencias SET existencia_diezmilesimas=-10000');
+  assert.equal(listar(db, filtros, AHORA).total, 1);
+  assert.throws(() => listar(db, { estado: 'inventado' }), { status: 400 });
+  assert.throws(() => listar(db, { lista: 'inventada' }), { status: 400 });
+});
+
+test('catálogo con existencia y sin ventas sigue en no se mueve', t => {
+  const db = prepararDB(t), { recalcular } = require('./servicio');
+  db.exec('UPDATE sicar_existencias SET existencia_diezmilesimas=10000');
+  recalcular(db, AHORA);
+  const f = listar(db, { sucursal_id: 3 }, AHORA).filas[0];
+  assert.deepEqual([f.minimo, f.maximo, f.lista], [0, 0, 'no_se_mueve']);
+});
+
 test('sin existencia no aparece ni cuenta; con ajuste permanece marcada', t => {
   const db = prepararDB(t);
   db.exec('DELETE FROM sicar_existencias WHERE sucursal_id=3');

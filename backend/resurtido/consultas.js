@@ -11,8 +11,8 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
   const suc = filtros.sucursal_id == null ? null : tiendaValida(filtros.sucursal_id);
   const pagina = filtros.pagina == null ? 1 : Number(filtros.pagina);
   if (!Number.isSafeInteger(pagina) || pagina < 1) throw error(400, 'Página inválida.');
-  for (const [campo, permitidos] of [['marca', MARCAS], ['lista', ['calculado', 'sin_historia', 'no_se_mueve']],
-    ['estado', ['agotado', 'bajo_minimo', 'bien', 'sobre_maximo']]]) {
+  for (const [campo, permitidos] of [['marca', MARCAS], ['lista', ['calculado', 'sin_historia', 'no_se_mueve', 'sin_movimiento']],
+    ['estado', ['agotado', 'bajo_minimo', 'bien', 'sobre_maximo', 'sin_pedir']]]) {
     if (filtros[campo] && !permitidos.includes(filtros[campo])) throw error(400, `Filtro inválido: ${campo}.`);
   }
   const datos = sqlite.prepare(`WITH catalogo AS (
@@ -40,7 +40,8 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
       minimo: f.ajuste_minimo, maximo: f.ajuste_maximo, motivo: f.motivo, actor: f.actor, fecha: f.fecha,
     };
     const minimo = ajuste?.minimo ?? f.minimo_calculado, maximo = ajuste?.maximo ?? f.maximo_calculado;
-    const estado = f.existencia <= 0 ? 'agotado' : f.existencia < minimo ? 'bajo_minimo' : f.existencia > maximo ? 'sobre_maximo' : 'bien';
+    const estado = f.existencia <= 0 ? (minimo === 0 ? 'sin_pedir' : 'agotado')
+      : f.existencia < minimo ? 'bajo_minimo' : f.existencia > maximo ? 'sobre_maximo' : 'bien';
     return { sucursal_id: f.sucursal_id, clave: f.clave, descripcion: f.descripcion || f.clave, marca: f.marca,
       existencia: f.existencia, minimo, maximo, minimo_calculado: f.minimo_calculado, maximo_calculado: f.maximo_calculado,
       ajuste, venta_mes: f.venta_mes, dias_en_cero: f.dias_en_cero, lista: f.lista, estado,

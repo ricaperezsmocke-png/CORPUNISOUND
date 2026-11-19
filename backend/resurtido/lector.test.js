@@ -4,6 +4,28 @@ const Database = require('better-sqlite3');
 const { crearRepositorioSicar } = require('../sicarRepositorio');
 const { clavesDeMarca, ventasDiarias, existenciaActual, ventasMensualesMarca } = require('./lector');
 
+test('temporada excluye ventas anteriores a 2025 conservando ambas fuentes desde enero 2025', t => {
+  const db = prepararDB(t);
+  venta(db, 'vieja', 'a', '9999', { fecha: '2024-12-31T12:00:00' });
+  venta(db, 'nueva', 'a', '2', { fecha: '2025-01-01T12:00:00' });
+  venta(db, 'mostrador', 'a', '3', { fecha: '2025-01-01T12:00:00', mostrador: true });
+  assert.deepEqual([...ventasMensualesMarca(db, 'JR').get('A')], [['2025-01', 50000]]);
+});
+
+test('demanda lee por ticket y artículo de ambas fuentes sin modificar movimientos completos', t => {
+  const db = prepararDB(t), { ventasPorTicket } = require('./lector');
+  venta(db, '1', 'a', '63'); venta(db, '1', 'b', '2', { mostrador: true });
+  venta(db, '2', 'a', '3');
+  const filas = ventasPorTicket(db, 3, '2026-01-01', '2026-11-17').get('A');
+  assert.deepEqual(filas.map(f => f.cantidad).sort((a, b) => a - b), [20000, 30000, 630000]);
+  const { reconstruir } = require('./existenciaDiaria');
+  reconstruir(db, 3, '2026-11-17', '2026-11-17');
+  assert.equal(db.prepare("SELECT piezas_diezmilesimas n FROM resurtido_existencia_diaria WHERE clave='A'").get().n, 710000);
+  db.exec("INSERT INTO sicar_internas VALUES (3,'cliente','Interna','1','hoy')");
+  assert.deepEqual(ventasPorTicket(db, 3, '2026-01-01', '2026-11-17').get('A').map(f => f.cantidad), [20000]);
+  assert.equal(ventasPorTicket(db, 3, '2026-01-01', '2026-11-16').size, 0);
+});
+
 function prepararDB(t) {
   const db = new Database(':memory:'); crearRepositorioSicar(db); t.after(() => db.close());
   for (const suc of [1, 2, 3, 4, 6, 7]) {

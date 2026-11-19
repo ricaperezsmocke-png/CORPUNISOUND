@@ -99,9 +99,10 @@ export default function Resurtido({ usuario }) {
       <label className="text-sm">Lista<select className={CAMPO} value={lista} onChange={cambiar(setLista)}>
         <option value="">Todas las listas</option><option value="calculado">Calculados</option>
         <option value="sin_historia">Revisar: sin historia por falta de existencia</option><option value="no_se_mueve">No se mueve</option>
+        <option value="sin_movimiento">Catálogo sin movimiento (no se pide)</option>
       </select></label>
       <label className="text-sm">Estado<select className={CAMPO} value={estado} onChange={cambiar(setEstado)}>
-        <option value="">Todos los estados</option>{['agotado', 'bajo_minimo', 'bien', 'sobre_maximo'].map(e =>
+        <option value="">Todos los estados</option>{['agotado', 'bajo_minimo', 'bien', 'sobre_maximo', 'sin_pedir'].map(e =>
           <option key={e} value={e}>{textoEstado({ estado: e })}</option>)}
       </select></label>
       <label className="text-sm">Buscar clave o producto<input className={CAMPO} value={q} onChange={cambiar(setQ)} /></label>

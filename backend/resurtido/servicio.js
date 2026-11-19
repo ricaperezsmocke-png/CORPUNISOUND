@@ -1,6 +1,7 @@
 const { fechaLocal, momentoLocal } = require('../fechas');
-const { TIENDAS, MARCAS, leerConfig } = require('./config');
-const { clavesDeMarca, ventasDiarias, existenciaActual, ventasMensualesMarca } = require('./lector');
+const { TIENDAS, MARCAS, INDICES_SICAR, leerConfig } = require('./config');
+const { clavesDeMarca, ventasPorTicket, existenciaActual, ventasMensualesMarca } = require('./lector');
+const { toparDemanda } = require('./demanda');
 const { tomarFoto, reconstruir, diasEnCero } = require('./existenciaDiaria');
 const { indicesTemporada } = require('./temporada');
 const { calcularMinMax } = require('./calculo');
@@ -23,20 +24,21 @@ function completarMeses(ventas, hoyMes) {
   }));
 }
 
-function recalcular(sqlite, ahora = new Date().toISOString()) {
-  const inicio = Date.now(), hoy = fechaLocal(ahora), config = leerConfig(sqlite);
+function prepararCalculo(sqlite, ahora) {
+  const hoy = fechaLocal(ahora), config = leerConfig(sqlite);
   const fin = Date.parse(`${hoy}T00:00:00Z`) - DIA;
   const hasta = new Date(fin).toISOString().slice(0, 10);
   const desde = new Date(fin - (config.dias_historia - 1) * DIA).toISOString().slice(0, 10);
-  const temporadas = new Map(MARCAS.map(marca => [marca,
-    indicesTemporada(completarMeses(ventasMensualesMarca(sqlite, marca, TIENDAS), hoy.slice(0, 7)), hoy.slice(0, 7)).indices]));
+  const temporadas = new Map(MARCAS.map(marca => {
+    const temporada = indicesTemporada(completarMeses(ventasMensualesMarca(sqlite, marca, TIENDAS), hoy.slice(0, 7)), hoy.slice(0, 7));
+    return [marca, temporada.motivo === null ? temporada.indices : INDICES_SICAR[marca]];
+  }));
   const guardar = sqlite.prepare(`INSERT OR REPLACE INTO resurtido_minmax
     (sucursal_id,clave,marca,minimo,maximo,venta_diaria_diezmilesimas,dias_validos,dias_en_cero,lista,calidad,calculado_en)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
   const calidad = sqlite.prepare(`SELECT COUNT(*) n, SUM(origen='foto') observadas FROM resurtido_existencia_diaria
     WHERE sucursal_id=? AND clave=? AND dia BETWEEN ? AND ?`);
-  const tiendas = [];
-  for (const suc of TIENDAS) {
+  return suc => {
     sqlite.prepare(`DELETE FROM resurtido_minmax WHERE sucursal_id=? AND NOT EXISTS (
       SELECT 1 FROM sicar_articulos a JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
       WHERE a.sucursal_id=resurtido_minmax.sucursal_id AND a.clave=resurtido_minmax.clave
@@ -44,13 +46,15 @@ function recalcular(sqlite, ahora = new Date().toISOString()) {
     const { actualizado } = existenciaActual(sqlite, suc);
     const atrasada = !actualizado || !Number.isFinite(Date.parse(actualizado))
       || Date.parse(ahora) - Date.parse(actualizado) > config.dias_datos_atrasados * DIA;
-    if (atrasada) { tiendas.push({ sucursal_id: suc, claves: 0, atrasada: true }); continue; }
+    if (atrasada) return { sucursal_id: suc, claves: 0, atrasada: true };
     const resultado = sqlite.transaction(() => {
-      const catalogo = clavesDeMarca(sqlite, suc), ventas = ventasDiarias(sqlite, suc, desde);
+      const catalogo = clavesDeMarca(sqlite, suc), ventas = ventasPorTicket(sqlite, suc, desde, hasta);
       tomarFoto(sqlite, hoy, ahora, [suc]);
       reconstruir(sqlite, suc, desde, hasta);
       for (const [clave, articulo] of catalogo) {
-        const r = calcularMinMax({ ventasPorDia: ventas.get(clave) || new Map(), diasEnCero: diasEnCero(sqlite, suc, clave, desde, hasta),
+        const ceros = diasEnCero(sqlite, suc, clave, desde, hasta);
+        const { ventasPorDia } = toparDemanda(ventas.get(clave) || [], ceros, desde, hasta);
+        const r = calcularMinMax({ ventasPorDia, diasEnCero: ceros,
           desde, hasta, indices: temporadas.get(articulo.marca), mesCalculo: Number(hoy.slice(5, 7)), config });
         const observadas = calidad.get(suc, clave, desde, hasta).observadas;
         guardar.run(suc, clave, articulo.marca, r.minimo, r.maximo, r.venta_diaria, r.dias_validos, r.dias_en_cero,
@@ -58,9 +62,13 @@ function recalcular(sqlite, ahora = new Date().toISOString()) {
       }
       return { sucursal_id: suc, claves: catalogo.size, atrasada: false };
     })();
-    tiendas.push(resultado);
-  }
-  return { tiendas, ms: Date.now() - inicio };
+    return resultado;
+  };
+}
+
+function recalcular(sqlite, ahora = new Date().toISOString()) {
+  const inicio = Date.now(), calcularTienda = prepararCalculo(sqlite, ahora);
+  return { tiendas: TIENDAS.map(calcularTienda), ms: Date.now() - inicio };
 }
 
 function demoraHastaLasDos(ahora) {
@@ -71,21 +79,35 @@ function demoraHastaLasDos(ahora) {
   return demora > 0 ? demora : demora + DIA;
 }
 
-// La primera vuelta espera un minuto: recalcular bloquea y no debe frenar el arranque del servidor.
-function iniciarCicloResurtido(sqlite, { reloj = () => new Date(), programar = setTimeout, cancelar = clearTimeout, esperaInicial = 60000 } = {}) {
+// Espera un minuto al arrancar y cede el event loop entre tiendas durante cada vuelta.
+function iniciarCicloResurtido(sqlite, { reloj = () => new Date(), programar = setTimeout, cancelar = clearTimeout,
+  esperaInicial = 60000, ceder = setImmediate, cancelarTurno = clearImmediate } = {}) {
   if (ciclos.has(sqlite)) return ciclos.get(sqlite);
-  let temporizador, detenido = false, ejecutando = false;
-  const detener = () => { detenido = true; cancelar(temporizador); ciclos.delete(sqlite); };
+  let temporizador, turno, detenido = false, ejecutando = false;
+  const detener = () => {
+    if (detenido) return;
+    detenido = true; cancelar(temporizador); cancelarTurno(turno); ciclos.delete(sqlite);
+  };
   ciclos.set(sqlite, detener);
+  function terminar() {
+    ejecutando = false;
+    if (!detenido) { temporizador = programar(vuelta, demoraHastaLasDos(reloj())); temporizador.unref?.(); }
+  }
   function vuelta() {
     if (detenido || ejecutando) return;
     ejecutando = true;
-    try { recalcular(sqlite, reloj().toISOString()); }
-    catch (e) { console.error('RESURTIDO_RECALCULO_FALLO', e.message); }
-    finally {
-      ejecutando = false;
-      if (!detenido) { temporizador = programar(vuelta, demoraHastaLasDos(reloj())); temporizador.unref(); }
+    let calcularTienda, indice = 0;
+    try { calcularTienda = prepararCalculo(sqlite, reloj().toISOString()); }
+    catch (e) { console.error('RESURTIDO_RECALCULO_FALLO', e.message); terminar(); return; }
+    function avanzar() {
+      if (detenido) { ejecutando = false; return; }
+      try {
+        calcularTienda(TIENDAS[indice++]);
+        if (indice < TIENDAS.length) { turno = ceder(avanzar); turno?.unref?.(); }
+        else terminar();
+      } catch (e) { console.error('RESURTIDO_RECALCULO_FALLO', e.message); terminar(); }
     }
+    avanzar();
   }
   temporizador = programar(vuelta, esperaInicial); temporizador.unref?.();
   return detener;

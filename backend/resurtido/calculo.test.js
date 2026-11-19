@@ -23,10 +23,10 @@ test('temporada octubre/noviembre sube mínimo y máximo', () => {
   assert.ok(alto.minimo > plano.minimo); assert.ok(alto.maximo > plano.maximo);
 });
 
-test('sin venta: muchos agotados proponen 1/2; con existencia no se mueve', () => {
+test('sin venta: muchos agotados van a sin movimiento con 0/0; con existencia no se mueve', () => {
   const d = { ...datos(), ventasPorDia: new Map(), diasEnCero: new Set(dias.slice(0, 300)) };
   const r = calcularMinMax(d);
-  assert.deepEqual([r.lista, r.minimo, r.maximo], ['sin_historia', 10000, 20000]);
+  assert.deepEqual([r.lista, r.minimo, r.maximo], ['sin_movimiento', 0, 0]);
   const quieto = calcularMinMax({ ...d, diasEnCero: new Set(dias.slice(0, 10)) });
   assert.deepEqual([quieto.lista, quieto.minimo, quieto.maximo], ['no_se_mueve', 0, 0]);
 });
