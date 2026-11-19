@@ -1,5 +1,5 @@
 const { TIENDAS, VALORES_INICIALES, leerConfig, cambiarConfig } = require('./config');
-const { listar, ponerAjuste, quitarAjuste } = require('./consultas');
+const { listar, listaProveedor, ponerAjuste, quitarAjuste } = require('./consultas');
 const { explicar } = require('./explicacion');
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
@@ -40,6 +40,9 @@ function registrarRutasResurtido(app, { sqlite, requiereLogin, requierePermiso, 
     }
     return resultado;
   });
+  // Solo lectura: arma la lista para copiar; nada se guarda ni se manda al proveedor.
+  ruta('get', '/api/resurtido/sugerido', 'ver_resurtido', (db, req, suc) => listaProveedor(db, { marca: req.query.marca,
+    sucursal_id: suc ?? (req.query.sucursal_id === 'todas' ? undefined : req.query.sucursal_id) }));
   ruta('get', '/api/resurtido/explicacion', 'ver_resurtido', (db, req, suc) =>
     explicar(db, suc ?? req.query.sucursal_id, req.query.clave));
   for (const [metodo, accion] of [['put', ponerAjuste], ['delete', quitarAjuste]]) {

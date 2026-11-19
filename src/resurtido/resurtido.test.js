@@ -46,3 +46,45 @@ test('menú Resurtido requiere permiso propio de inventario', () => {
   assert.equal(moduloVisible(modulo, { modulos: ['inventario'], permisos: ['ver_existencias_sicar'] }), false);
   assert.equal(moduloVisible(modulo, { modulos: ['inventario'], permisos: ['ver_resurtido'] }), true);
 });
+
+test('texto para WhatsApp: total por clave y reparto solo de tiendas con pedido', () => {
+  const datos = { marca: 'JR', renglones: [
+    { clave: 'CUE1A', descripcion: 'CUERDAS D ACERO 1as', total: 240000,
+      por_tienda: [{ sucursal_id: 1, sugerido: 60000 }, { sucursal_id: 3, sugerido: 180000 }] },
+    { clave: 'F5JR', descripcion: 'FUNDA 5', total: 10000, por_tienda: [{ sucursal_id: 4, sugerido: 10000 }] },
+  ] };
+  assert.equal(resurtido.textoWhatsApp(datos, '19/11/2026'),
+    'Pedido JR — 19/11/2026\nCUE1A CUERDAS D ACERO 1as — 24 (Oco 6, SC 18)\nF5JR FUNDA 5 — 1 (Pal 1)');
+  assert.equal(resurtido.textoWhatsApp({ marca: 'SOLCOR', renglones: [] }, '19/11/2026'),
+    'Pedido SOLCOR — 19/11/2026\nNo hay nada que pedir.');
+});
+
+test('frase del sugerido en la explicación', () => {
+  assert.equal(resurtido.textoSugerido({ sugerido: 7, maximo: 20, existencia: 5, en_camino: 8 }),
+    'Se sugiere pedir 7 (máximo 20 − hay 5 − en camino 8).');
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, maximo: 0, existencia: 0, en_camino: 0 }), 'No se sugiere pedir.');
+  assert.equal(resurtido.textoSugerido({ sugerido: null }), 'Datos atrasados: no se sugiere.');
+  assert.equal(resurtido.textoSugerido({ sugerido: 2, maximo: 2, existencia: -1, en_camino: 0 }),
+    'Se sugiere pedir 2 (máximo 2 − hay 0 − en camino 0).');
+});
+
+test('texto para WhatsApp avisa las tiendas con datos atrasados que quedaron fuera', () => {
+  const datos = { marca: 'JR', tiendas_atrasadas: [2, 4], renglones: [
+    { clave: 'CUE1A', descripcion: 'CUERDAS', total: 10000, por_tienda: [{ sucursal_id: 1, sugerido: 10000 }] }] };
+  assert.equal(resurtido.textoWhatsApp(datos, '19/11/2026'),
+    'Pedido JR — 19/11/2026\nCUE1A CUERDAS — 1 (Oco 1)\nSin datos al día, NO incluidas: Yajalón, Palenque');
+});
+
+test('frase del sugerido explica redondeo y por qué no se pide', () => {
+  assert.equal(resurtido.textoSugerido({ sugerido: 3, maximo: 5, existencia: 2.5, en_camino: 0 }),
+    'Se sugiere pedir 3 (máximo 5 − hay 2.5 − en camino 0, redondeado a pieza entera).');
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'sin_movimiento', maximo: 0, existencia: 0, en_camino: 0 }),
+    'No se sugiere pedir: no se ha vendido en el año. Corrige el máximo a mano si quieres pedirlo.');
+});
+
+test('sin pedido porque ya llega a su máximo lo dice con números', () => {
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'calculado', maximo: 24, existencia: 18, en_camino: 6 }),
+    'No se sugiere pedir: con lo que hay (18) y lo que viene en camino (6) llega a su máximo (24).');
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'calculado', maximo: 24, existencia: 30, en_camino: 0 }),
+    'No se sugiere pedir: con lo que hay (30) llega a su máximo (24).');
+});

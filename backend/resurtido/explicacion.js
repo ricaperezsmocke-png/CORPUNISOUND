@@ -6,6 +6,8 @@ const { toparDemanda } = require('./demanda');
 const { completarMeses } = require('./servicio');
 const { indicesTemporada, factorPara } = require('./temporada');
 const { movimientos, deltaInverso } = require('./movimientos');
+const { armar } = require('./consultas');
+const { enCamino } = require('./sugerido');
 const DIA = 86400000;
 const decimal = n => Math.round(n * 10) / 10;
 const piezas = n => n == null ? null : decimal(n / 10000);
@@ -68,6 +70,8 @@ function explicar(sqlite, sucursal_id, clave, ahora = new Date().toISOString()) 
   const usarSicar = temporada.motivo !== null && !!INDICES_SICAR[marca];
   const indices = usarSicar ? INDICES_SICAR[marca] : temporada.indices;
   const mes = Number(hoy.slice(5, 7));
+  const fila = armar(sqlite, suc, ahora).filas.find(f => f.clave === clave);
+  const camino = enCamino(sqlite, suc, ahora);
   return { sucursal_id: suc, clave, descripcion: articulo.descripcion || clave, existencia: piezas(existencia),
     ya_no_la_maneja: existencia === undefined, desde, hasta, dias_historia: config.dias_historia,
     piezas_vendidas: piezas(total), venta_mensual_simple: piezas(total / config.dias_historia * 30),
@@ -79,6 +83,8 @@ function explicar(sqlite, sucursal_id, clave, ahora = new Date().toISOString()) 
     temporada_motivo: temporada.motivo, venta_diaria: piezas(calculado?.venta_diaria_diezmilesimas),
     minimo: piezas(ajuste?.minimo ?? calculado?.minimo), maximo: piezas(ajuste?.maximo ?? calculado?.maximo),
     corregido: !!ajuste, calculado_en: calculado?.calculado_en || null,
+    en_camino: piezas(camino.porClave.get(clave) || 0), en_camino_viejo: piezas(camino.viejo.get(clave) || 0),
+    sugerido: fila ? piezas(fila.sugerido) : 0, lista: fila?.lista ?? calculado?.lista ?? null,
     serie_mensual: serieMensual(sqlite, suc, clave, hasta, existencia, actual.actualizado) };
 }
 module.exports = { explicar };

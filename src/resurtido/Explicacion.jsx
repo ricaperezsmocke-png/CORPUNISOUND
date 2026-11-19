@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
-import { MESES, textoExplicacion, textoPedidoEspecial, textoTemporada } from './resurtido';
+import { MESES, textoExplicacion, textoPedidoEspecial, textoSugerido, textoTemporada } from './resurtido';
 const CELDA = 'border-b border-slate-200 px-3 py-2 text-left tabular-nums';
 
 export default function Explicacion({ fila, tienda, cerrar }) {
@@ -30,6 +30,10 @@ export default function Explicacion({ fila, tienda, cerrar }) {
       {datos && <div className="space-y-4 text-sm">
         <p className="rounded-md bg-blue-50 p-4 text-blue-950">{textoExplicacion(datos)}</p>
         {datos.piezas_pedido_especial > 0 && <p>{textoPedidoEspecial(datos)}</p>}
+        <p className="rounded-md bg-green-50 p-3 font-medium text-green-900">{textoSugerido(datos)}</p>
+        {datos.en_camino_viejo > 0 && <p className="text-amber-800">
+          Hay {datos.en_camino_viejo} piezas enviadas hace más de 45 días que la tienda no ha recibido: no se descuentan del pedido.
+        </p>}
         <p>Existencia actual: {datos.existencia ?? 'sin registro'} piezas. Venta diaria final: {datos.venta_diaria ?? 'sin cálculo'} piezas.</p>
         <p>Ventana: {datos.desde} al {datos.hasta}. Días en cero: {datos.ceros_observados} observados y {datos.ceros_reconstruidos} reconstruidos.</p>
         {!!datos.dias_sin_dato && <p className="text-amber-800">Hay {datos.dias_sin_dato} días sin registro de existencia en esta ventana.</p>}

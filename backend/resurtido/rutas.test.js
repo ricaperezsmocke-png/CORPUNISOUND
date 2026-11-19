@@ -124,3 +124,19 @@ test('autor eliminado se muestra como usuario #id', async () => {
   const r = await pedir();
   assert.equal(r.datos.filas[0].ajuste.nombre_actor, 'usuario #999999');
 });
+
+test('lista para el proveedor: permiso propio, alcance del token y marca validada', async () => {
+  assert.equal((await pedir('/sugerido?marca=JR', null)).status, 401);
+  assert.equal((await pedir('/sugerido?marca=JR', 981)).status, 403);
+  const propia = await pedir('/sugerido?marca=JR', 982);
+  assert.equal(propia.status, 200);
+  assert.deepEqual(propia.datos.renglones[0].por_tienda, [{ sucursal_id: 3, sugerido: 20000 }]);
+  assert.equal((await pedir('/sugerido?marca=JR&sucursal_id=1', 982)).status, 403);
+  const todas = await pedir('/sugerido?marca=JR&sucursal_id=todas', 984);
+  assert.equal(todas.datos.renglones[0].total, 40000);
+  assert.deepEqual(todas.datos.renglones[0].por_tienda.map(t => t.sucursal_id), [1, 3]);
+  const filtro = await pedir('/sugerido?marca=JR&sucursal_id=3', 984);
+  assert.deepEqual(filtro.datos.renglones[0].por_tienda.map(t => t.sucursal_id), [3]);
+  assert.equal((await pedir('/sugerido?marca=OTRA', 984)).status, 400);
+  assert.equal((await pedir('/sugerido', 984)).status, 400);
+});
