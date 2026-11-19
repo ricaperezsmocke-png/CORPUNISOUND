@@ -67,3 +67,17 @@ test('frase del sugerido en la explicación', () => {
   assert.equal(resurtido.textoSugerido({ sugerido: 2, maximo: 2, existencia: -1, en_camino: 0 }),
     'Se sugiere pedir 2 (máximo 2 − hay 0 − en camino 0).');
 });
+
+test('texto para WhatsApp avisa las tiendas con datos atrasados que quedaron fuera', () => {
+  const datos = { marca: 'JR', tiendas_atrasadas: [2, 4], renglones: [
+    { clave: 'CUE1A', descripcion: 'CUERDAS', total: 10000, por_tienda: [{ sucursal_id: 1, sugerido: 10000 }] }] };
+  assert.equal(resurtido.textoWhatsApp(datos, '19/11/2026'),
+    'Pedido JR — 19/11/2026\nCUE1A CUERDAS — 1 (Oco 1)\nSin datos al día, NO incluidas: Yajalón, Palenque');
+});
+
+test('frase del sugerido explica redondeo y por qué no se pide', () => {
+  assert.equal(resurtido.textoSugerido({ sugerido: 3, maximo: 5, existencia: 2.5, en_camino: 0 }),
+    'Se sugiere pedir 3 (máximo 5 − hay 2.5 − en camino 0, redondeado a pieza entera).');
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'sin_movimiento', maximo: 0, existencia: 0, en_camino: 0 }),
+    'No se sugiere pedir: no se ha vendido en el año. Corrige el máximo a mano si quieres pedirlo.');
+});

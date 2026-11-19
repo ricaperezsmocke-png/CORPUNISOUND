@@ -84,7 +84,7 @@ function explicar(sqlite, sucursal_id, clave, ahora = new Date().toISOString()) 
     minimo: piezas(ajuste?.minimo ?? calculado?.minimo), maximo: piezas(ajuste?.maximo ?? calculado?.maximo),
     corregido: !!ajuste, calculado_en: calculado?.calculado_en || null,
     en_camino: piezas(camino.porClave.get(clave) || 0), en_camino_viejo: piezas(camino.viejo.get(clave) || 0),
-    sugerido: fila ? piezas(fila.sugerido) : 0,
+    sugerido: fila ? piezas(fila.sugerido) : 0, lista: fila?.lista ?? calculado?.lista ?? null,
     serie_mensual: serieMensual(sqlite, suc, clave, hasta, existencia, actual.actualizado) };
 }
 module.exports = { explicar };

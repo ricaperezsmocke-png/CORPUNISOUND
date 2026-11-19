@@ -103,5 +103,5 @@ test('la explicación dice cuánto pedir y por qué', t => {
   traspaso(db);
   traspaso(db, { fecha: '2026-09-20', cantidad: '3.0000' });
   const e = explicar(db, 3, 'A', AHORA);
-  assert.deepEqual([e.en_camino, e.en_camino_viejo, e.sugerido], [8, 3, 7]);
+  assert.deepEqual([e.en_camino, e.en_camino_viejo, e.sugerido, e.lista], [8, 3, 7, 'calculado']);
 });
