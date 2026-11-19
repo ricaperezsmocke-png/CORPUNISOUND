@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
-import { piezas, avisoDecidible } from './resurtido';
+import { piezas, avisoDecidible, avisoCubierto } from './resurtido';
 
 const TIENDAS = [[1, 'Ocosingo'], [2, 'Yajalón'], [3, 'San Cristóbal'], [4, 'Palenque']];
 const nombreTienda = id => TIENDAS.find(([n]) => n === Number(id))?.[1] || String(id);
@@ -23,12 +23,17 @@ async function pedir(ruta, opciones) {
 function Tarjeta({ a, puede, decidir, ocupado }) {
   const [motivo, setMotivo] = useState('');
   const p = a.propuesta, abierto = a.estado === 'abierto';
-  const decidible = puede && avisoDecidible(a);
+  const cubierto = avisoCubierto(a);
+  const decidible = !cubierto && puede && avisoDecidible(a);
   return <article className={TARJETA}>
     <p className="font-semibold">{nombreTienda(a.sucursal_id)} · {a.clave} · {a.descripcion}</p>
-    {abierto ? <p>Hay {piezas(Math.max(a.existencia ?? 0, 0))}{a.en_camino ? ` y vienen ${piezas(a.en_camino)}` : ''}; su mínimo es {piezas(a.minimo ?? 0)}.
-      Le faltan {piezas(p.falta)} para el mínimo.</p> : <p className="text-slate-600">Se cerró solo el {fecha(a.cerrado_en)}.</p>}
-    {abierto && <ul className="list-disc pl-5">
+    {abierto ? <>
+      <p>Hay {piezas(Math.max(a.existencia ?? 0, 0))}{cubierto || a.en_camino ? ` y vienen ${piezas(a.en_camino ?? 0)}` : ''};
+        {' '}su mínimo es {piezas(a.minimo ?? 0)}.
+        {!cubierto && ` Le faltan ${piezas(p.falta)} para el mínimo.`}</p>
+      {cubierto && <p>Ya viene lo que le falta. No hay que hacer nada: el aviso se cierra solo cuando llegue.</p>}
+    </> : <p className="text-slate-600">Se cerró solo el {fecha(a.cerrado_en)}.</p>}
+    {abierto && !cubierto && <ul className="list-disc pl-5">
       {p.pasar.length ? p.pasar.map(d => <li key={d.sucursal_id}>Pasar de {d.nombre}: {piezas(d.piezas)} de {d.clave} (lo que tiene arriba de su máximo).</li>)
         : <li>Ninguna tienda tiene de sobra: solo se puede pedir.</li>}
       <li>Pedir extra al proveedor: {piezas(p.pedir)} para llegar a su máximo.</li>
@@ -68,6 +73,7 @@ export default function Avisos({ usuario, tienda }) {
     } catch (e) { setError(e.message); } finally { setOcupado(false); }
   }
   const abiertos = (datos?.avisos || []).filter(a => a.estado === 'abierto'), cerrados = (datos?.avisos || []).filter(a => a.estado !== 'abierto');
+  const pendientes = abiertos.filter(a => !avisoCubierto(a)), cubiertos = abiertos.filter(avisoCubierto);
   return <section className="space-y-4">
     <p className="text-sm text-slate-600">Productos abajo de su mínimo antes del siguiente pedido. El sistema propone; tú decides.
       Los traspasos se hacen en SICAR como siempre.</p>
@@ -80,7 +86,11 @@ export default function Avisos({ usuario, tienda }) {
         {r.nombre_donante} → {r.nombre_receptora}: {piezas(r.piezas)} de {r.clave}, hasta {fecha(r.vence)}</li>)}</ul>
     </div>}
     {datos && !abiertos.length && <p className="text-slate-600">No hay productos abajo de su mínimo.</p>}
-    <div className="grid gap-3 lg:grid-cols-2">{abiertos.map(a => <Tarjeta key={a.id} a={a} puede={puede} decidir={decidir} ocupado={ocupado} />)}</div>
+    <div className="grid gap-3 lg:grid-cols-2">{pendientes.map(a => <Tarjeta key={a.id} a={a} puede={puede} decidir={decidir} ocupado={ocupado} />)}</div>
+    {!!cubiertos.length && <details className="rounded-lg border border-slate-200 p-3 text-sm">
+      <summary className="cursor-pointer">Ya vienen en camino ({cubiertos.length})</summary>
+      <div className="mt-2 grid gap-3 lg:grid-cols-2">{cubiertos.map(a => <Tarjeta key={a.id} a={a} puede={false} decidir={decidir} ocupado />)}</div>
+    </details>}
     {!!cerrados.length && <details className="rounded-lg border border-slate-200 p-3 text-sm">
       <summary className="cursor-pointer">Cerrados en los últimos 30 días ({cerrados.length})</summary>
       <div className="mt-2 grid gap-3 lg:grid-cols-2">{cerrados.map(a => <Tarjeta key={a.id} a={a} puede={false} decidir={decidir} ocupado />)}</div>

@@ -4,6 +4,33 @@ import { piezas, textoEstado, textoCalidad } from './resurtido.js';
 import { CATEGORIAS, moduloVisible } from '../menuCategorias.js';
 import * as resurtido from './resurtido.js';
 
+test('aviso abierto está cubierto cuando falta cero o menos, sin cambiar su historial', () => {
+  for (const falta of [0, -10000]) {
+    const aviso = { estado: 'abierto', propuesta: { falta }, decision: 'pasar', reservas: [{ estado: 'viva' }] };
+    const antes = structuredClone(aviso);
+    assert.equal(resurtido.avisoCubierto(aviso), true);
+    assert.deepEqual(aviso, antes);
+  }
+});
+
+test('aviso abierto con faltante positivo requiere acción', () => {
+  assert.equal(resurtido.avisoCubierto({ estado: 'abierto', propuesta: { falta: 1 } }), false);
+});
+
+test('aviso resuelto no se clasifica como cubierto aunque no falte mercancía', () => {
+  assert.equal(resurtido.avisoCubierto({ estado: 'resuelto', propuesta: { falta: 0 } }), false);
+});
+
+test('empaque sugerido conserva sin confirmar solo cuando no hay empaque confirmado', () => {
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: 1000000, confirmado: null }), 'Rollo de 100 (sin confirmar)');
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: 1000000, confirmado: { tamano: 500000 } }), 'Rollo de 100');
+});
+
+test('sin empaque sugerido se conserva el guion, incluso con empaque confirmado', () => {
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: null, confirmado: null }), '—');
+  assert.equal(resurtido.textoEmpaqueSugerido({ sugerido: null, confirmado: { tamano: 500000 } }), '—');
+});
+
 test('decidir aviso solo se bloquea por reservas vivas sin vencer', () => {
   const ahora = Date.parse('2026-11-19T18:00:00Z');
   const a = { estado: 'abierto', decision: 'pasar', reservas: [] };

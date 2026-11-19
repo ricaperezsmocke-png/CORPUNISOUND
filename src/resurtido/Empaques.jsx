@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
-import { piezas } from './resurtido';
+import { piezas, textoEmpaqueSugerido } from './resurtido';
 
 const CAMPO = 'mt-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900';
 const NUMERO = 'w-24 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-sm text-slate-900';
@@ -45,7 +45,7 @@ export default function Empaques({ usuario }) {
           const valor = tamanos[c.clave] ?? String(piezas(c.confirmado?.tamano || c.sugerido || 1000000));
           return <tr key={c.clave}>
             <td className={CELDA}>{c.clave}</td><td className={CELDA}>{c.descripcion}</td>
-            <td className={CELDA}>{c.sugerido ? `Rollo de ${piezas(c.sugerido)} (sin confirmar)` : '—'}</td>
+            <td className={CELDA}>{textoEmpaqueSugerido(c)}</td>
             <td className={CELDA}>{c.confirmado
               ? `${piezas(c.confirmado.tamano)} piezas · ${c.confirmado.nombre_por} · ${fecha(c.confirmado.en)}` : 'No redondea'}</td>
             <td className={CELDA}>{puede && <div className="flex flex-wrap gap-2">
