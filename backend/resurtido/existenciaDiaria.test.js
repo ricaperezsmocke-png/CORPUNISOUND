@@ -24,7 +24,7 @@ function lote(repo, secuencia, existencia) {
   } });
 }
 function traspaso(db, suc, cantidad = '10.0000') {
-  db.prepare(`INSERT INTO sicar_traspasos VALUES (?, 't', 'F1', '6', '3', '2026-11-16', 'aplicado',
+  db.prepare(`INSERT INTO sicar_traspasos VALUES (?, 't', 'F1', '6', '3', '2026-11-16', 'recibido',
     '2026-11-16', NULL, 0, ?)`).run(suc, AHORA);
   db.prepare("INSERT INTO sicar_traspasos_detalle VALUES (?, 't', 'a', ?, 0, 0)").run(suc, cantidad);
 }
@@ -90,4 +90,62 @@ test('reconstrucción cuenta una clave rara solo bajo -2, aunque varios días se
   const r = reconstruir(db, 3, '2026-11-14', '2026-11-17');
   assert.equal(r.rara, 1);
   assert.equal(foto(db).get('A', '2026-11-15').piezas_diezmilesimas, 0);
+});
+
+test('recibido real cuenta aun sin mapa del origen y no duplica puntas', t => {
+  const { db } = prepararDB(t); traspaso(db, 3); traspaso(db, 6);
+  db.exec("UPDATE sicar_traspasos SET estado='recibido'; DELETE FROM sicar_sucursales_mapa WHERE sicar_sucursal='6'");
+  reconstruir(db, 3, '2026-11-15', '2026-11-17');
+  assert.equal(foto(db).get('A', '2026-11-15').piezas_diezmilesimas, 0);
+});
+
+test('salida enviada cuenta en origen aunque destino esté de baja sin mapa', t => {
+  const { db } = prepararDB(t); traspaso(db, 3);
+  db.exec(`UPDATE sicar_traspasos SET estado='enviado',suc_origen='3',suc_destino='6',fecha_aplicado=NULL;
+    UPDATE sicar_sucursales_mapa SET baja=1,sucursal_id=NULL WHERE sicar_sucursal='6'`);
+  reconstruir(db, 3, '2026-11-15', '2026-11-17');
+  assert.equal(foto(db).get('A', '2026-11-15').piezas_diezmilesimas, 150000);
+});
+
+test('compras vigentes de la tienda aplican factor; canceladas y otras tiendas no entran', t => {
+  const { db } = prepararDB(t);
+  for (const [suc, id, estado] of [[3, 'c', 'vigente'], [3, 'x', 'cancelada'], [6, 'c', 'vigente']]) {
+    db.prepare('INSERT INTO sicar_compras VALUES (?,?,?, ?,?,?,?,NULL,0,?,?)')
+      .run(suc, id, '2026-11-16', 'p', id, '', estado, AHORA, AHORA);
+    db.prepare('INSERT INTO sicar_compras_detalle VALUES (?,?,0,?,?,?,0,0,0)').run(suc, id, 'a', '2', 30000);
+  }
+  reconstruir(db, 3, '2026-11-15', '2026-11-17');
+  assert.equal(foto(db).get('A', '2026-11-15').piezas_diezmilesimas, 0);
+  assert.equal(foto(db).get('A', '2026-11-17').piezas_diezmilesimas, 50000);
+});
+
+test('venta interna sí mueve existencia aunque no sea demanda para resurtir', t => {
+  const { db } = prepararDB(t);
+  db.exec(`INSERT INTO sicar_clientes(sucursal_id,cli_id,nombre) VALUES (3,'i','Interna');
+    INSERT INTO sicar_internas VALUES (3,'i','Interna','1','hoy');
+    INSERT INTO sicar_ventas(sucursal_id,ven_id,cli_id,fecha_local,estado,total_centavos,revision,hash)
+      VALUES (3,'v','i','2026-11-17T12:00:00','vigente',0,'1','h');
+    INSERT INTO sicar_detalles VALUES (3,'v','a',0,NULL,'Cable','3','0','0',0,0)`);
+  reconstruir(db, 3, '2026-11-15', '2026-11-17');
+  assert.equal(foto(db).get('A', '2026-11-17').piezas_diezmilesimas, 80000);
+});
+
+test('recálculo reemplaza reconstruidas viejas sin pisar observadas', t => {
+  const { db } = prepararDB(t);
+  reconstruir(db, 3, '2026-11-15', '2026-11-17');
+  db.exec("UPDATE resurtido_existencia_diaria SET origen='foto' WHERE dia='2026-11-17'");
+  traspaso(db, 3);
+  reconstruir(db, 3, '2026-11-15', '2026-11-17');
+  assert.equal(foto(db).get('A', '2026-11-15').piezas_diezmilesimas, 0);
+  assert.equal(foto(db).get('A', '2026-11-17').origen, 'foto');
+  assert.equal(foto(db).get('A', '2026-11-17').piezas_diezmilesimas, 50000);
+});
+
+test('cancelado no se convierte en entrada y enviado no entra en destino', t => {
+  const { db } = prepararDB(t); traspaso(db, 3);
+  for (const estado of ['cancelado', 'enviado']) {
+    db.prepare('UPDATE sicar_traspasos SET estado=?').run(estado);
+    reconstruir(db, 3, '2026-11-15', '2026-11-17');
+    assert.equal(foto(db).get('A', '2026-11-15').piezas_diezmilesimas, 50000);
+  }
 });

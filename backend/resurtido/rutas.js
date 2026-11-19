@@ -1,8 +1,10 @@
 const { TIENDAS, VALORES_INICIALES, leerConfig, cambiarConfig } = require('./config');
 const { listar, ponerAjuste, quitarAjuste } = require('./consultas');
+const { explicar } = require('./explicacion');
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
-function registrarRutasResurtido(app, { sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado }) {
+function registrarRutasResurtido(app, { sqlite, requiereLogin, requierePermiso, resolverPermisosDeRol,
+  resolverAlcanceAutorizado, nombreDeUsuario = () => null }) {
   const conexion = () => typeof sqlite === 'function' ? sqlite() : sqlite;
   function alcance(req) {
     const autorizado = resolverAlcanceAutorizado(req);
@@ -30,8 +32,16 @@ function registrarRutasResurtido(app, { sqlite, requiereLogin, requierePermiso, 
       } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo procesar el resurtido.' }); }
     });
   }
-  ruta('get', '/api/resurtido', 'ver_resurtido', (db, req, suc) => listar(db, { ...req.query,
-    sucursal_id: suc ?? (req.query.sucursal_id === 'todas' ? undefined : req.query.sucursal_id) }));
+  ruta('get', '/api/resurtido', 'ver_resurtido', (db, req, suc) => {
+    const resultado = listar(db, { ...req.query,
+      sucursal_id: suc ?? (req.query.sucursal_id === 'todas' ? undefined : req.query.sucursal_id) });
+    for (const fila of resultado.filas) if (fila.ajuste) {
+      fila.ajuste.nombre_actor = nombreDeUsuario(fila.ajuste.actor) || `usuario #${fila.ajuste.actor}`;
+    }
+    return resultado;
+  });
+  ruta('get', '/api/resurtido/explicacion', 'ver_resurtido', (db, req, suc) =>
+    explicar(db, suc ?? req.query.sucursal_id, req.query.clave));
   for (const [metodo, accion] of [['put', ponerAjuste], ['delete', quitarAjuste]]) {
     ruta(metodo, '/api/resurtido/ajuste', 'corregir_minimos_resurtido', (db, req, suc) =>
       accion(db, { ...req.body, sucursal_id: suc ?? req.body?.sucursal_id }, String(req.usuarioToken.id)));

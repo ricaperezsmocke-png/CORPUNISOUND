@@ -7,15 +7,17 @@ function clavesDeMarca(sqlite, sucursal_id) {
   if (!TIENDAS.includes(Number(sucursal_id))) return resultado;
   const filas = sqlite.prepare(`SELECT art_id, clave, descripcion, UPPER(TRIM(departamento)) marca FROM sicar_articulos
     WHERE sucursal_id=? AND UPPER(TRIM(departamento)) IN ('JR','SOLCOR') ORDER BY art_id`).all(sucursal_id);
+  const vigentes = existenciaActual(sqlite, sucursal_id).porClave;
   for (const fila of filas) {
     if (!fila.clave?.trim()) { resultado.omitidas++; continue; }
+    if (!vigentes.has(fila.clave)) continue;
     if (!resultado.has(fila.clave)) resultado.set(fila.clave, { marca: fila.marca, descripcion: fila.descripcion, art_ids: [] });
     resultado.get(fila.clave).art_ids.push(fila.art_id);
   }
   return resultado;
 }
 
-function filasVentas(sqlite, sucursal_id, desde, longitud = 10) {
+function filasVentas(sqlite, sucursal_id, desde, longitud = 10, incluirInternas = false) {
   return [false, true].flatMap(mostrador => {
     const ventas = mostrador ? 'sicar_ventas_mostrador' : 'sicar_ventas';
     const detalles = mostrador ? 'sicar_detalles_mostrador' : 'sicar_detalles';
@@ -24,7 +26,7 @@ function filasVentas(sqlite, sucursal_id, desde, longitud = 10) {
       FROM ${ventas} v JOIN ${detalles} d ON d.sucursal_id=v.sucursal_id AND d.ven_id=v.ven_id
       JOIN sicar_articulos a ON a.sucursal_id=d.sucursal_id AND a.art_id=d.art_id
       WHERE v.sucursal_id=? AND v.estado='vigente' AND v.fecha_local>=? AND ${DE_MARCA}
-      ${mostrador ? '' : `AND ${NO_INTERNA('v')}`} GROUP BY a.clave, marca, dia`).all(sucursal_id, desde);
+      ${mostrador || incluirInternas ? '' : `AND ${NO_INTERNA('v')}`} GROUP BY a.clave, marca, dia`).all(sucursal_id, desde);
   });
 }
 
@@ -34,16 +36,18 @@ function agregar(resultado, fila) {
   dias.set(fila.dia, (dias.get(fila.dia) || 0) + fila.cantidad);
 }
 
-function ventasDiarias(sqlite, sucursal_id, desde) {
+function ventasDiarias(sqlite, sucursal_id, desde, incluirInternas = false) {
   const resultado = new Map();
-  if (TIENDAS.includes(Number(sucursal_id))) for (const fila of filasVentas(sqlite, sucursal_id, desde)) agregar(resultado, fila);
+  if (TIENDAS.includes(Number(sucursal_id))) {
+    for (const fila of filasVentas(sqlite, sucursal_id, desde, 10, incluirInternas)) agregar(resultado, fila);
+  }
   return resultado;
 }
 
 function existenciaActual(sqlite, sucursal_id) {
   if (!TIENDAS.includes(Number(sucursal_id))) return { porClave: new Map(), actualizado: null };
   const filas = sqlite.prepare(`SELECT a.clave, COALESCE(SUM(e.existencia_diezmilesimas),0) piezas
-    FROM sicar_articulos a LEFT JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
+    FROM sicar_articulos a JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
     WHERE a.sucursal_id=? AND ${DE_MARCA} GROUP BY a.clave`).all(sucursal_id);
   const { actualizado } = sqlite.prepare('SELECT MAX(actualizado_en) actualizado FROM sicar_existencias WHERE sucursal_id=?').get(sucursal_id);
   return { porClave: new Map(filas.map(f => [f.clave, f.piezas])), actualizado };
@@ -54,6 +58,8 @@ function ventasMensualesMarca(sqlite, marca, tiendas = TIENDAS) {
   const resultado = new Map();
   if (!MARCAS.includes(marca)) return resultado;
   for (const tienda of new Set(tiendas.map(Number).filter(id => TIENDAS.includes(id)))) {
+    // Toda la historia: antes de 2025 solo hay ventas con cliente (mostrador se carga desde 2025), pero cortar ahí deja
+    // un solo año completo y la temporada se apaga (indicesTemporada pide dos). Revisado por Claude 2026-11-19.
     for (const fila of filasVentas(sqlite, tienda, '0001-01-01', 7)) if (fila.marca === marca) agregar(resultado, fila);
   }
   return resultado;

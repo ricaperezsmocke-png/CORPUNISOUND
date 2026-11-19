@@ -3297,7 +3297,8 @@ if (repoSicar) {
   const seguimientoRutas = require('./seguimientoFactura/rutas');
   seguimientoRutas.registrarRutasSeguimiento(app, { sqlite: () => conexionSqlite, requiereLogin, requierePermiso, resolverPermisosDeRol });
   require('./resurtido/rutas').registrarRutasResurtido(app, { sqlite: () => conexionSqlite,
-    requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado });
+    requiereLogin, requierePermiso, resolverPermisosDeRol, resolverAlcanceAutorizado,
+    nombreDeUsuario: id => DB.admin.usuarios.find(u => Number(u.id) === Number(id))?.nombre });
   if (require.main === module) seguimientoRutas.iniciarCiclosSeguimiento(() => conexionSqlite);
   if (require.main === module) require('./resurtido/servicio').iniciarCicloResurtido(conexionSqlite);
   if (require.main === module) {

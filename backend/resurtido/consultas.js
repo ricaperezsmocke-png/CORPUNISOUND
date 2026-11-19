@@ -18,12 +18,12 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
   const datos = sqlite.prepare(`WITH catalogo AS (
     SELECT a.sucursal_id,a.clave,MIN(a.descripcion) descripcion,
       MAX(CASE WHEN UPPER(TRIM(a.departamento)) IN ('JR','SOLCOR') THEN UPPER(TRIM(a.departamento)) END) marca_actual,
-      COALESCE(SUM(e.existencia_diezmilesimas),0) existencia
+      COALESCE(SUM(e.existencia_diezmilesimas),0) existencia, COUNT(e.art_id) existencias
     FROM sicar_articulos a LEFT JOIN sicar_existencias e ON e.sucursal_id=a.sucursal_id AND e.art_id=a.art_id
     WHERE a.sucursal_id IN (1,2,3,4) AND (? IS NULL OR a.sucursal_id=?) GROUP BY a.sucursal_id,a.clave
   ), claves AS (
     SELECT sucursal_id,clave FROM resurtido_minmax UNION SELECT sucursal_id,clave FROM resurtido_ajustes
-  ) SELECT k.sucursal_id,k.clave,c.descripcion,c.marca_actual,COALESCE(c.existencia,0) existencia,
+  ) SELECT k.sucursal_id,k.clave,c.descripcion,c.marca_actual,c.existencias,COALESCE(c.existencia,0) existencia,
     COALESCE(m.marca,c.marca_actual) marca,COALESCE(m.minimo,0) minimo_calculado,COALESCE(m.maximo,0) maximo_calculado,
     COALESCE(m.venta_diaria_diezmilesimas,0)*30 venta_mes,COALESCE(m.dias_en_cero,0) dias_en_cero,
     COALESCE(m.lista,'sin_historia') lista,m.calidad,m.calculado_en,
@@ -32,7 +32,8 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
     LEFT JOIN resurtido_minmax m ON m.sucursal_id=k.sucursal_id AND m.clave=k.clave
     LEFT JOIN resurtido_ajustes j ON j.sucursal_id=k.sucursal_id AND j.clave=k.clave
     WHERE k.sucursal_id IN (1,2,3,4) AND (? IS NULL OR k.sucursal_id=?)
-      AND (c.marca_actual IS NOT NULL OR j.clave IS NOT NULL) ORDER BY k.sucursal_id,k.clave`).all(suc, suc, suc, suc);
+      AND ((c.marca_actual IS NOT NULL AND c.existencias>0) OR j.clave IS NOT NULL)
+    ORDER BY k.sucursal_id,k.clave`).all(suc, suc, suc, suc);
   const q = String(filtros.q || '').trim().toLocaleLowerCase('es');
   const filas = datos.map(f => {
     const ajuste = f.ajuste_minimo === null ? null : {
@@ -43,7 +44,7 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
     return { sucursal_id: f.sucursal_id, clave: f.clave, descripcion: f.descripcion || f.clave, marca: f.marca,
       existencia: f.existencia, minimo, maximo, minimo_calculado: f.minimo_calculado, maximo_calculado: f.maximo_calculado,
       ajuste, venta_mes: f.venta_mes, dias_en_cero: f.dias_en_cero, lista: f.lista, estado,
-      ya_no_es_marca: !f.marca_actual, calidad: f.calidad, calculado_en: f.calculado_en };
+      ya_no_la_maneja: !f.existencias, ya_no_es_marca: !f.marca_actual, calidad: f.calidad, calculado_en: f.calculado_en };
   }).filter(f => (!filtros.marca || f.marca === filtros.marca) && (!filtros.lista || f.lista === filtros.lista)
     && (!filtros.estado || f.estado === filtros.estado) && (!q || `${f.clave} ${f.descripcion}`.toLocaleLowerCase('es').includes(q)));
   const config = leerConfig(sqlite), alcance = suc === null ? TIENDAS : [suc];
