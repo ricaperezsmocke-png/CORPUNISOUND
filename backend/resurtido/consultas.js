@@ -1,4 +1,5 @@
 const { TIENDAS, MARCAS, leerConfig } = require('./config');
+const { enCamino, calcularSugerido } = require('./sugerido');
 const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
 
 function tiendaValida(valor) {
@@ -7,14 +8,20 @@ function tiendaValida(valor) {
   return id;
 }
 
-function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
-  const suc = filtros.sucursal_id == null ? null : tiendaValida(filtros.sucursal_id);
-  const pagina = filtros.pagina == null ? 1 : Number(filtros.pagina);
-  if (!Number.isSafeInteger(pagina) || pagina < 1) throw error(400, 'Página inválida.');
-  for (const [campo, permitidos] of [['marca', MARCAS], ['lista', ['calculado', 'sin_historia', 'no_se_mueve', 'sin_movimiento']],
-    ['estado', ['agotado', 'bajo_minimo', 'bien', 'sobre_maximo', 'sin_pedir']]]) {
-    if (filtros[campo] && !permitidos.includes(filtros[campo])) throw error(400, `Filtro inválido: ${campo}.`);
-  }
+function tiendasAtrasadas(sqlite, alcance, ahora) {
+  const config = leerConfig(sqlite);
+  const frescura = sqlite.prepare('SELECT MAX(actualizado_en) fecha FROM sicar_existencias WHERE sucursal_id=?');
+  return alcance.filter(id => {
+    const fecha = Date.parse(frescura.get(id).fecha);
+    return !Number.isFinite(fecha) || Date.parse(ahora) - fecha > config.dias_datos_atrasados * 86400000;
+  });
+}
+
+// Todos los renglones del alcance (sin filtros ni página), con estado, en camino y sugerido.
+function armar(sqlite, suc, ahora) {
+  const alcance = suc === null ? TIENDAS : [suc];
+  const tiendas_atrasadas = tiendasAtrasadas(sqlite, alcance, ahora);
+  const caminos = new Map(alcance.map(id => [id, enCamino(sqlite, id, ahora).porClave]));
   const datos = sqlite.prepare(`WITH catalogo AS (
     SELECT a.sucursal_id,a.clave,MIN(a.descripcion) descripcion,
       MAX(CASE WHEN UPPER(TRIM(a.departamento)) IN ('JR','SOLCOR') THEN UPPER(TRIM(a.departamento)) END) marca_actual,
@@ -34,7 +41,6 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
     WHERE k.sucursal_id IN (1,2,3,4) AND (? IS NULL OR k.sucursal_id=?)
       AND ((c.marca_actual IS NOT NULL AND c.existencias>0) OR j.clave IS NOT NULL)
     ORDER BY k.sucursal_id,k.clave`).all(suc, suc, suc, suc);
-  const q = String(filtros.q || '').trim().toLocaleLowerCase('es');
   const filas = datos.map(f => {
     const ajuste = f.ajuste_minimo === null ? null : {
       minimo: f.ajuste_minimo, maximo: f.ajuste_maximo, motivo: f.motivo, actor: f.actor, fecha: f.fecha,
@@ -46,17 +52,45 @@ function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
       existencia: f.existencia, minimo, maximo, minimo_calculado: f.minimo_calculado, maximo_calculado: f.maximo_calculado,
       ajuste, venta_mes: f.venta_mes, dias_en_cero: f.dias_en_cero, lista: f.lista, estado,
       ya_no_la_maneja: !f.existencias, ya_no_es_marca: !f.marca_actual, calidad: f.calidad, calculado_en: f.calculado_en };
-  }).filter(f => (!filtros.marca || f.marca === filtros.marca) && (!filtros.lista || f.lista === filtros.lista)
-    && (!filtros.estado || f.estado === filtros.estado) && (!q || `${f.clave} ${f.descripcion}`.toLocaleLowerCase('es').includes(q)));
-  const config = leerConfig(sqlite), alcance = suc === null ? TIENDAS : [suc];
-  const frescura = sqlite.prepare('SELECT MAX(actualizado_en) fecha FROM sicar_existencias WHERE sucursal_id=?');
-  const tiendas_atrasadas = alcance.filter(id => {
-    const fecha = Date.parse(frescura.get(id).fecha);
-    return !Number.isFinite(fecha) || Date.parse(ahora) - fecha > config.dias_datos_atrasados * 86400000;
+  }).map(f => {
+    const en_camino = caminos.get(f.sucursal_id)?.get(f.clave) || 0;
+    return { ...f, en_camino, sugerido: calcularSugerido(f, en_camino, tiendas_atrasadas.includes(f.sucursal_id)) };
   });
   const fechas = datos.map(f => f.calculado_en).filter(Boolean).sort();
-  return { filas: filas.slice((pagina - 1) * 100, pagina * 100), total: filas.length,
-    tiendas_atrasadas, calculado_en: fechas.at(-1) || null };
+  return { filas, tiendas_atrasadas, calculado_en: fechas.at(-1) || null };
+}
+
+function listar(sqlite, filtros = {}, ahora = new Date().toISOString()) {
+  const suc = filtros.sucursal_id == null ? null : tiendaValida(filtros.sucursal_id);
+  const pagina = filtros.pagina == null ? 1 : Number(filtros.pagina);
+  if (!Number.isSafeInteger(pagina) || pagina < 1) throw error(400, 'Página inválida.');
+  for (const [campo, permitidos] of [['marca', MARCAS], ['lista', ['calculado', 'sin_historia', 'no_se_mueve', 'sin_movimiento']],
+    ['estado', ['agotado', 'bajo_minimo', 'bien', 'sobre_maximo', 'sin_pedir']]]) {
+    if (filtros[campo] && !permitidos.includes(filtros[campo])) throw error(400, `Filtro inválido: ${campo}.`);
+  }
+  const { filas: todas, tiendas_atrasadas, calculado_en } = armar(sqlite, suc, ahora);
+  const q = String(filtros.q || '').trim().toLocaleLowerCase('es');
+  const filas = todas.filter(f => (!filtros.marca || f.marca === filtros.marca) && (!filtros.lista || f.lista === filtros.lista)
+    && (!filtros.estado || f.estado === filtros.estado) && (!q || `${f.clave} ${f.descripcion}`.toLocaleLowerCase('es').includes(q)));
+  return { filas: filas.slice((pagina - 1) * 100, pagina * 100), total: filas.length, tiendas_atrasadas, calculado_en };
+}
+
+// Lista para el proveedor: por clave de la marca, el total a pedir y cuánto le toca a cada tienda. Solo lectura.
+function listaProveedor(sqlite, filtros = {}, ahora = new Date().toISOString()) {
+  if (!MARCAS.includes(filtros.marca)) throw error(400, 'Elige la marca: JR o SOLCOR.');
+  const suc = filtros.sucursal_id == null ? null : tiendaValida(filtros.sucursal_id);
+  const { filas, tiendas_atrasadas, calculado_en } = armar(sqlite, suc, ahora);
+  const porClave = new Map();
+  for (const f of filas) {
+    if (f.marca !== filtros.marca || !(f.sugerido > 0)) continue;
+    if (!porClave.has(f.clave)) porClave.set(f.clave, { clave: f.clave, descripcion: f.descripcion, total: 0, por_tienda: [] });
+    const renglon = porClave.get(f.clave);
+    renglon.total += f.sugerido;
+    renglon.por_tienda.push({ sucursal_id: f.sucursal_id, sugerido: f.sugerido });
+  }
+  const renglones = [...porClave.values()].sort((a, b) => a.clave.localeCompare(b.clave, 'es'));
+  for (const r of renglones) r.por_tienda.sort((a, b) => a.sucursal_id - b.sucursal_id);
+  return { marca: filtros.marca, renglones, tiendas_atrasadas, calculado_en };
 }
 
 function validar(sqlite, datos) {
@@ -97,4 +131,4 @@ function quitarAjuste(sqlite, datos, actor, ahora = new Date().toISOString()) {
     return { ok: true };
   }).immediate();
 }
-module.exports = { listar, ponerAjuste, quitarAjuste };
+module.exports = { listar, armar, listaProveedor, ponerAjuste, quitarAjuste };

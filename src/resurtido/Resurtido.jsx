@@ -4,6 +4,7 @@ import { apiFetch } from '../api';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { piezas, textoEstado, textoCalidad } from './resurtido';
 import Explicacion from './Explicacion';
+import ListaProveedor from './ListaProveedor';
 
 const TIENDAS = [[1, 'Ocosingo'], [2, 'Yajalón'], [3, 'San Cristóbal'], [4, 'Palenque']];
 const nombreTienda = id => TIENDAS.find(([n]) => n === Number(id))?.[1] || String(id);
@@ -70,7 +71,7 @@ export default function Resurtido({ usuario }) {
   const [marca, setMarca] = useState(''), [lista, setLista] = useState(''), [estado, setEstado] = useState(''), [q, setQ] = useState('');
   const [pagina, setPagina] = useState(1), [version, setVersion] = useState(0), [editando, setEditando] = useState(null);
   const [datos, setDatos] = useState(null), [cargando, setCargando] = useState(true), [error, setError] = useState('');
-  const [explicando, setExplicando] = useState(null);
+  const [explicando, setExplicando] = useState(null), [proveedor, setProveedor] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     setCargando(true); setError(''); setDatos(null);
@@ -87,7 +88,10 @@ export default function Resurtido({ usuario }) {
       <div><h1 className="text-2xl font-semibold">Mínimos y máximos</h1>
         <p className="mt-1 text-sm text-slate-600">JR y Solcor · {verTodas ? 'Las cuatro tiendas' : nombreTienda(tienda)}</p>
       </div>
-      <button className={BOTON} disabled={cargando} onClick={() => setVersion(v => v + 1)}>Actualizar lista</button>
+      <div className="flex flex-wrap gap-2">
+        <button className={PRIMARIO} onClick={() => setProveedor(true)}>Lista para el proveedor</button>
+        <button className={BOTON} disabled={cargando} onClick={() => setVersion(v => v + 1)}>Actualizar lista</button>
+      </div>
     </div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       {verTodas && <label className="text-sm">Tienda<select className={CAMPO} value={tienda} onChange={cambiar(setTienda)}>
@@ -116,7 +120,7 @@ export default function Resurtido({ usuario }) {
       <p className="text-xs text-slate-600">Último cálculo: {fecha(datos.calculado_en)} · {datos.total} productos</p>
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
-          <thead className="bg-slate-100"><tr>{['Tienda', 'Clave', 'Producto', 'Hay', 'Mínimo', 'Máximo', 'Vende al mes', 'Días en cero (año)', 'Estado', ''].map((h, i) =>
+          <thead className="bg-slate-100"><tr>{['Tienda', 'Clave', 'Producto', 'Hay', 'Mínimo', 'Máximo', 'Pedir', 'Vende al mes', 'Días en cero (año)', 'Estado', ''].map((h, i) =>
             <th className={CELDA} key={i} scope="col">{h}</th>)}</tr></thead>
           <tbody>{datos.filas.map(f => <tr key={`${f.sucursal_id}:${f.clave}`}>
             <td className={CELDA}>{nombreTienda(f.sucursal_id)}</td><td className={CELDA}>
@@ -129,7 +133,10 @@ export default function Resurtido({ usuario }) {
                 <Pencil size={14} aria-hidden="true" /><span>Corregido a mano por {f.ajuste.nombre_actor}: {f.ajuste.motivo} · {fecha(f.ajuste.fecha)}</span>
               </p>}
             </td>
-            {[f.existencia, f.minimo, f.maximo, f.venta_mes].map((v, i) => <td key={i} className={`${CELDA} tabular-nums`}>{numero(v)}</td>)}
+            {[f.existencia, f.minimo, f.maximo].map((v, i) => <td key={i} className={`${CELDA} tabular-nums`}>{numero(v)}</td>)}
+            <td className={`${CELDA} tabular-nums font-semibold`}>{f.sugerido == null ? '—' : numero(f.sugerido)}
+              {f.en_camino > 0 && <p className="text-xs font-normal text-slate-600">{numero(f.en_camino)} en camino</p>}</td>
+            <td className={`${CELDA} tabular-nums`}>{numero(f.venta_mes)}</td>
             <td className={CELDA}>{f.dias_en_cero}</td><td className={CELDA}>{textoEstado(f)}</td>
             <td className={CELDA}>{puedeCorregir && <button className={BOTON} onClick={() => setEditando(f)}>Corregir</button>}</td>
           </tr>)}</tbody>
@@ -142,6 +149,7 @@ export default function Resurtido({ usuario }) {
         <button className={BOTON} disabled={pagina * 100 >= datos.total} onClick={() => setPagina(p => p + 1)}>Siguiente</button>
       </div>
     </>}
+    {proveedor && <ListaProveedor tienda={tienda} cerrar={() => setProveedor(false)} />}
     {explicando && <Explicacion fila={explicando} tienda={nombreTienda(explicando.sucursal_id)} cerrar={() => setExplicando(null)} />}
     {editando && <Correccion fila={editando} cerrar={() => setEditando(null)} guardado={() => {
       setEditando(null); setVersion(v => v + 1);

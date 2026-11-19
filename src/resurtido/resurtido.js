@@ -15,6 +15,19 @@ export function textoExplicacion(d) {
   return `Vendió ${d.piezas_vendidas} piezas en los últimos ${ventana} (${d.venta_mensual_simple} al mes). `
     + `Estuvo ${d.dias_en_cero} días en cero. Por temporada de ${MESES[d.mes_calculo - 1]} se ajusta ×${d.factor}. ${limites}`;
 }
+const CORTO = { 1: 'Oco', 2: 'Yaj', 3: 'SC', 4: 'Pal' };
+export function textoWhatsApp(datos, fechaTexto) {
+  const lineas = datos.renglones.map(r => {
+    const reparto = r.por_tienda.map(t => `${CORTO[t.sucursal_id] || t.sucursal_id} ${piezas(t.sugerido)}`).join(', ');
+    return `${r.clave} ${r.descripcion} — ${piezas(r.total)} (${reparto})`;
+  });
+  return [`Pedido ${datos.marca} — ${fechaTexto}`, ...(lineas.length ? lineas : ['No hay nada que pedir.'])].join('\n');
+}
+export function textoSugerido(d) {
+  if (d.sugerido == null) return 'Datos atrasados: no se sugiere.';
+  if (!(d.sugerido > 0)) return 'No se sugiere pedir.';
+  return `Se sugiere pedir ${d.sugerido} (máximo ${d.maximo} − hay ${Math.max(d.existencia, 0)} − en camino ${d.en_camino}).`;
+}
 export function textoEstado(fila) {
   return { agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bien: 'Bien', sobre_maximo: 'Sobre máximo', sin_pedir: 'No se pide' }[fila.estado] || 'Sin cálculo';
 }
