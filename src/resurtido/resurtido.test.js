@@ -81,3 +81,10 @@ test('frase del sugerido explica redondeo y por qué no se pide', () => {
   assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'sin_movimiento', maximo: 0, existencia: 0, en_camino: 0 }),
     'No se sugiere pedir: no se ha vendido en el año. Corrige el máximo a mano si quieres pedirlo.');
 });
+
+test('sin pedido porque ya llega a su máximo lo dice con números', () => {
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'calculado', maximo: 24, existencia: 18, en_camino: 6 }),
+    'No se sugiere pedir: con lo que hay (18) y lo que viene en camino (6) llega a su máximo (24).');
+  assert.equal(resurtido.textoSugerido({ sugerido: 0, lista: 'calculado', maximo: 24, existencia: 30, en_camino: 0 }),
+    'No se sugiere pedir: con lo que hay (30) llega a su máximo (24).');
+});

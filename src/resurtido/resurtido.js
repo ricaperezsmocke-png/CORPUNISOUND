@@ -32,7 +32,10 @@ export function textoSugerido(d) {
   if (d.sugerido == null) return 'Datos atrasados: no se sugiere.';
   if (!(d.sugerido > 0)) {
     const razon = POR_QUE_NO[d.lista];
-    return razon ? `No se sugiere pedir${razon}. Corrige el máximo a mano si quieres pedirlo.` : 'No se sugiere pedir.';
+    if (razon) return `No se sugiere pedir${razon}. Corrige el máximo a mano si quieres pedirlo.`;
+    if (!(d.maximo > 0)) return 'No se sugiere pedir.';
+    const viene = d.en_camino > 0 ? ` y lo que viene en camino (${d.en_camino})` : '';
+    return `No se sugiere pedir: con lo que hay (${Math.max(d.existencia, 0)})${viene} llega a su máximo (${d.maximo}).`;
   }
   const hay = Math.max(d.existencia, 0), exacto = d.maximo - hay - d.en_camino === d.sugerido;
   return `Se sugiere pedir ${d.sugerido} (máximo ${d.maximo} − hay ${hay} − en camino ${d.en_camino}`
